@@ -531,8 +531,6 @@ func (s *VtctldServer) CreateKeyspace(ctx context.Context, req *vtctldatapb.Crea
 
 	span.Annotate("keyspace", req.Name)
 	span.Annotate("keyspace_type", topoproto.KeyspaceTypeLString(req.Type))
-	span.Annotate("sharding_column_name", req.ShardingColumnName)
-	span.Annotate("sharding_column_type", topoproto.KeyspaceIDTypeLString(req.ShardingColumnType))
 	span.Annotate("force", req.Force)
 	span.Annotate("allow_empty_vschema", req.AllowEmptyVSchema)
 	span.Annotate("durability_policy", req.DurabilityPolicy)
@@ -555,12 +553,8 @@ func (s *VtctldServer) CreateKeyspace(ctx context.Context, req *vtctldatapb.Crea
 	}
 
 	ki := &topodatapb.Keyspace{
-		KeyspaceType:       req.Type,
-		ShardingColumnName: req.ShardingColumnName,
-		ShardingColumnType: req.ShardingColumnType,
-
-		ServedFroms: req.ServedFroms,
-
+		KeyspaceType:     req.Type,
+		ServedFroms:      req.ServedFroms,
 		BaseKeyspace:     req.BaseKeyspace,
 		SnapshotTime:     req.SnapshotTime,
 		DurabilityPolicy: req.DurabilityPolicy,

@@ -27,7 +27,6 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/concurrency"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/topotools"
@@ -40,18 +39,6 @@ const (
 )
 
 // keyspace related methods for Wrangler
-
-// SetKeyspaceShardingInfo locks a keyspace and sets its ShardingColumnName
-// and ShardingColumnType
-func (wr *Wrangler) SetKeyspaceShardingInfo(ctx context.Context, keyspace, shardingColumnName string, shardingColumnType topodatapb.KeyspaceIdType, force bool) error {
-	_, err := wr.VtctldServer().SetKeyspaceShardingInfo(ctx, &vtctldatapb.SetKeyspaceShardingInfoRequest{
-		Keyspace:   keyspace,
-		ColumnName: shardingColumnName,
-		ColumnType: shardingColumnType,
-		Force:      force,
-	})
-	return err
-}
 
 // validateNewWorkflow ensures that the specified workflow doesn't already exist
 // in the keyspace.

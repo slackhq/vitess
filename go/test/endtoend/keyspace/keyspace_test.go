@@ -223,9 +223,6 @@ func TestGetKeyspace(t *testing.T) {
 
 	err = json.Unmarshal([]byte(output), &keyspace)
 	require.Nil(t, err)
-
-	assert.Equal(t, keyspace.ShardingColumnName, "keyspace_id")
-	assert.Equal(t, keyspace.ShardingColumnType, topodata.KeyspaceIdType(1))
 }
 
 func TestDeleteKeyspace(t *testing.T) {

@@ -130,9 +130,6 @@ var createKeyspaceOptions = struct {
 	Force             bool
 	AllowEmptyVSchema bool
 
-	ShardingColumnName string
-	ShardingColumnType cli.KeyspaceIDTypeFlag
-
 	ServedFromsMap cli.StringMapValue
 
 	KeyspaceType      cli.KeyspaceTypeFlag
@@ -181,15 +178,13 @@ func commandCreateKeyspace(cmd *cobra.Command, args []string) error {
 	cli.FinishedParsing(cmd)
 
 	req := &vtctldatapb.CreateKeyspaceRequest{
-		Name:               name,
-		Force:              createKeyspaceOptions.Force,
-		AllowEmptyVSchema:  createKeyspaceOptions.AllowEmptyVSchema,
-		ShardingColumnName: createKeyspaceOptions.ShardingColumnName,
-		ShardingColumnType: topodatapb.KeyspaceIdType(createKeyspaceOptions.ShardingColumnType),
-		Type:               topodatapb.KeyspaceType(createKeyspaceOptions.KeyspaceType),
-		BaseKeyspace:       createKeyspaceOptions.BaseKeyspace,
-		SnapshotTime:       snapshotTime,
-		DurabilityPolicy:   createKeyspaceOptions.DurabilityPolicy,
+		Name:              name,
+		Force:             createKeyspaceOptions.Force,
+		AllowEmptyVSchema: createKeyspaceOptions.AllowEmptyVSchema,
+		Type:              topodatapb.KeyspaceType(createKeyspaceOptions.KeyspaceType),
+		BaseKeyspace:      createKeyspaceOptions.BaseKeyspace,
+		SnapshotTime:      snapshotTime,
+		DurabilityPolicy:  createKeyspaceOptions.DurabilityPolicy,
 	}
 
 	for n, v := range createKeyspaceOptions.ServedFromsMap.StringMapValue {
@@ -405,12 +400,8 @@ func commandValidateVersionKeyspace(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	CreateKeyspace.Flags().BoolVarP(&createKeyspaceOptions.Force, "force", "f", false, "Proceeds even if the keyspace already exists. Does not overwrite the existing keyspace record.")
-	CreateKeyspace.Flags().BoolVarP(&createKeyspaceOptions.AllowEmptyVSchema, "allow-empty-vschema", "e", false, "Allows a new keyspace to have no vschema.")
-	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.ShardingColumnName, "sharding-column-name", "", "The column name to use for sharding operations.")
-	CreateKeyspace.Flags().MarkDeprecated("sharding-column-name", "Specifying a sharding-column-name on the Keyspace is deprecated and will be removed in a future release.")
-	CreateKeyspace.Flags().Var(&createKeyspaceOptions.ShardingColumnType, "sharding-column-type", "The type of the column to use for sharding operations.")
-	CreateKeyspace.Flags().MarkDeprecated("sharding-column-type", "Specifying a sharding-column-type on the Keyspace is deprecated and will be removed in a future release.")
+	CreateKeyspace.Flags().BoolVarP(&createKeyspaceOptions.Force, "force", "f", false, "Proceeds even if the keyspace already exists. Does not overwrite the existing keyspace record")
+	CreateKeyspace.Flags().BoolVarP(&createKeyspaceOptions.AllowEmptyVSchema, "allow-empty-vschema", "e", false, "Allows a new keyspace to have no vschema")
 	CreateKeyspace.Flags().Var(&createKeyspaceOptions.ServedFromsMap, "served-from", "Specifies a set of db_type:keyspace pairs used to serve traffic for the keyspace.")
 	CreateKeyspace.Flags().Var(&createKeyspaceOptions.KeyspaceType, "type", "The type of the keyspace.")
 	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.BaseKeyspace, "base-keyspace", "", "The base keyspace for a snapshot keyspace.")

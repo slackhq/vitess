@@ -240,8 +240,8 @@ func TestAlias(t *testing.T) {
 	expectedPartitions[topodata.TabletType_PRIMARY] = []string{shard1.Name, shard2.Name}
 	expectedPartitions[topodata.TabletType_REPLICA] = []string{shard1.Name, shard2.Name}
 	expectedPartitions[topodata.TabletType_RDONLY] = []string{shard1.Name, shard2.Name}
-	cluster.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *localCluster)
-	cluster.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *localCluster)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *localCluster)
+	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *localCluster)
 
 	// Adds alias so vtgate can route to replica/rdonly tablets that are not in the same cell, but same alias
 	err = localCluster.VtctlclientProcess.ExecuteCommand("AddCellsAlias", "--",
@@ -304,8 +304,8 @@ func TestAddAliasWhileVtgateUp(t *testing.T) {
 	expectedPartitions[topodata.TabletType_PRIMARY] = []string{shard1.Name, shard2.Name}
 	expectedPartitions[topodata.TabletType_REPLICA] = []string{shard1.Name, shard2.Name}
 	expectedPartitions[topodata.TabletType_RDONLY] = []string{shard1.Name, shard2.Name}
-	cluster.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *localCluster)
-	cluster.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *localCluster)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *localCluster)
+	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *localCluster)
 
 	vtgateInstance := localCluster.NewVtgateInstance()
 	vtgateInstance.CellsToWatch = allCells

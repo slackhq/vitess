@@ -1821,8 +1821,6 @@ func commandDeleteShard(ctx context.Context, wr *wrangler.Wrangler, subFlags *fl
 }
 
 func commandCreateKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags *flag.FlagSet, args []string) error {
-	shardingColumnName := subFlags.String("sharding_column_name", "", "(DEPRECATED) Specifies the column to use for sharding operations")
-	shardingColumnType := subFlags.String("sharding_column_type", "", "(DEPRECATED) Specifies the type of the column to use for sharding operations")
 	force := subFlags.Bool("force", false, "Proceeds even if the keyspace already exists")
 	allowEmptyVSchema := subFlags.Bool("allow_empty_vschema", false, "If set this will allow a new keyspace to have no vschema")
 
@@ -1840,10 +1838,6 @@ func commandCreateKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags 
 	}
 
 	keyspace := subFlags.Arg(0)
-	kit, err := key.ParseKeyspaceIDType(*shardingColumnType)
-	if err != nil {
-		return err
-	}
 	ktype := topodatapb.KeyspaceType_NORMAL
 	if *keyspaceType != "" {
 		kt, err := topoproto.ParseKeyspaceType(*keyspaceType)
@@ -1879,12 +1873,10 @@ func commandCreateKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags 
 		snapshotTime = logutil.TimeToProto(timeTime)
 	}
 	ki := &topodatapb.Keyspace{
-		ShardingColumnName: *shardingColumnName,
-		ShardingColumnType: kit,
-		KeyspaceType:       ktype,
-		BaseKeyspace:       *baseKeyspace,
-		SnapshotTime:       snapshotTime,
-		DurabilityPolicy:   *durabilityPolicy,
+		KeyspaceType:     ktype,
+		BaseKeyspace:     *baseKeyspace,
+		SnapshotTime:     snapshotTime,
+		DurabilityPolicy: *durabilityPolicy,
 	}
 	if len(servedFrom) > 0 {
 		for name, value := range servedFrom {
@@ -1898,7 +1890,7 @@ func commandCreateKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags 
 			})
 		}
 	}
-	err = wr.TopoServer().CreateKeyspace(ctx, keyspace, ki)
+	err := wr.TopoServer().CreateKeyspace(ctx, keyspace, ki)
 	if *force && topo.IsErrType(err, topo.NodeExists) {
 		wr.Logger().Infof("keyspace %v already exists (ignoring error with --force)", keyspace)
 		err = nil
