@@ -283,10 +283,6 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	err = clusterInstance.VtctlclientProcess.ExecuteCommand("RebuildKeyspaceGraph", keyspaceName)
 	require.Nil(t, err)
 
-	// Get Keyspace and verify the structure
-	srvKeyspace := sharding.GetSrvKeyspace(t, cell1, keyspaceName, *clusterInstance)
-	assert.Equal(t, "", srvKeyspace.GetShardingColumnName())
-
 	// Start Tablets
 	for _, shard := range clusterInstance.Keyspaces[0].Shards {
 		for _, tablet := range shard.Vttablets {
@@ -373,7 +369,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard1.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	// disable shard1Replica2, so we're sure filtered replication will go from shard1Replica1
 	err = clusterInstance.VtctlclientProcess.ExecuteCommand("ChangeTabletType", shard1Replica2.Alias, "spare")
@@ -646,14 +642,14 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard1.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	// Cell 2 is not affected
 	expectedPartitions = map[topodatapb.TabletType][]string{}
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard1.Name}
-	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *clusterInstance)
 
 	sharding.CheckTabletQueryService(t, *shard0RdonlyZ2, "SERVING", false, *clusterInstance)
 	sharding.CheckTabletQueryService(t, *shard1RdonlyZ2, "SERVING", false, *clusterInstance)
@@ -683,9 +679,9 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard1.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 	// Cell 2 is also changed
-	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell2, keyspaceName, expectedPartitions, *clusterInstance)
 
 	sharding.CheckTabletQueryService(t, *shard0RdonlyZ2, "SERVING", false, *clusterInstance)
 	sharding.CheckTabletQueryService(t, *shard1RdonlyZ2, "NOT_SERVING", true, *clusterInstance)
@@ -709,7 +705,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard2.Name, shard3.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	// move replica back and forth
 	err = clusterInstance.VtctlclientProcess.ExecuteCommand(
@@ -732,7 +728,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard1.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	err = clusterInstance.VtctlclientProcess.ExecuteCommand(
 		"MigrateServedTypes", shard1Ks, "replica")
@@ -751,7 +747,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard2.Name, shard3.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	// reparent shard2 to shard2Replica1, then insert more data and see it flow through still
 	err = clusterInstance.VtctlclientProcess.ExecuteCommand("PlannedReparentShard", "--", "--keyspace_shard", shard2Ks,
@@ -819,7 +815,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard1.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard2.Name, shard3.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	sharding.CheckTabletQueryService(t, *shard1Primary, "SERVING", false, *clusterInstance)
 
@@ -867,7 +863,7 @@ func TestResharding(t *testing.T, useVarbinaryShardingKeyType bool) {
 	expectedPartitions[topodatapb.TabletType_PRIMARY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_RDONLY] = []string{shard0.Name, shard2.Name, shard3.Name}
 	expectedPartitions[topodatapb.TabletType_REPLICA] = []string{shard0.Name, shard2.Name, shard3.Name}
-	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, "", 0, expectedPartitions, *clusterInstance)
+	sharding.CheckSrvKeyspace(t, cell1, keyspaceName, expectedPartitions, *clusterInstance)
 
 	sharding.CheckTabletQueryService(t, *shard1Primary, "NOT_SERVING", true, *clusterInstance)
 
