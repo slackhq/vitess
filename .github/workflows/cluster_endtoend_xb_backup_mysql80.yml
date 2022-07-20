@@ -1,9 +1,9 @@
 # DO NOT MODIFY: THIS FILE IS GENERATED USING "make generate_ci_workflows"
 
-name: Cluster (vtbackup_transform)
+name: Cluster (xb_backup) mysql80
 on: [push, pull_request]
 concurrency:
-  group: format('{0}-{1}', ${{ github.ref }}, 'Cluster (vtbackup_transform)')
+  group: format('{0}-{1}', ${{ github.ref }}, 'Cluster (xb_backup) mysql80')
   cancel-in-progress: true
 
 env:
@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    name: Run endtoend tests on Cluster (vtbackup_transform)
+    name: Run endtoend tests on Cluster (xb_backup) mysql80
     runs-on:
       group: vitess-ubuntu20
     timeout-minutes: 45
@@ -78,7 +78,9 @@ jobs:
         go mod download
 
         # install JUnit report formatter
-        go install github.com/vitessio/go-junit-report@HEAD
+        go install github.com/jstemmer/go-junit-report@latest
+
+        sudo apt-get install percona-xtrabackup-80 lz4
 
     - name: Setup launchable dependencies
       if: steps.changes.outputs.end_to_end == 'true'
@@ -104,7 +106,7 @@ jobs:
         set -x
 
         # run the tests however you normally do, then produce a JUnit XML file
-        eatmydata -- go run test.go -docker=false -follow -shard vtbackup_transform | tee -a output.txt | go-junit-report -set-exit-code > report.xml
+        eatmydata -- go run test.go -docker=false -follow -shard xb_backup | tee -a output.txt | go-junit-report -set-exit-code > report.xml
 
     - name: Print test output and Record test result in launchable
       if: steps.changes.outputs.end_to_end == 'true' && always()
