@@ -1,0 +1,35 @@
+name: 'SlackHQ Upstream Sync'
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+jobs:
+  sync:
+    name: Sync from upstream
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch:
+          - main
+          - release-12.0
+          - release-13.0
+          - release-14.0
+    steps:
+    - name: Checkout target
+      uses: actions/checkout@v2
+      with:
+        token: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
+
+    - name: Sync from upstream
+      id: sync
+      uses: aormsby/Fork-Sync-With-Upstream-action@v3.2
+      with:
+        target_sync_branch: ${{ matrix.branch }}
+        target_repo_token: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
+        upstream_sync_branch: ${{ matrix.branch }}
+        upstream_sync_repo: vitessio/vitess
+        upstream_repo_access_token: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
+      
+    - name: New commits found
+      if: steps.sync.outputs.has_new_commits == 'true'
+      run: echo "New commits were found to sync."
