@@ -1,7 +1,5 @@
 name: 'SlackHQ Upstream Sync'
 on:
-  schedule:
-    - cron: '0 8 * * *'
   workflow_dispatch:
 jobs:
   sync:
