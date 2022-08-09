@@ -18,6 +18,7 @@ package tabletmanager
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -366,6 +367,14 @@ func TestCheckPrimaryShip(t *testing.T) {
 	require.NoError(t, err)
 	tablet.Type = topodatapb.TabletType_REPLICA
 	tablet.PrimaryTermStartTime = nil
+	// Get the fakeMySQL and set it up to expect a set replication source command
+	fakeMysql := tm.MysqlDaemon.(*fakemysqldaemon.FakeMysqlDaemon)
+	fakeMysql.SetReplicationSourceInputs = append(fakeMysql.SetReplicationSourceInputs, fmt.Sprintf("%v:%v", otherTablet.MysqlHostname, otherTablet.MysqlPort))
+	fakeMysql.ExpectedExecuteSuperQueryList = []string{
+		"RESET SLAVE ALL",
+		"FAKE SET MASTER",
+		"START SLAVE",
+	}
 	err = tm.Start(tablet, 0)
 	require.NoError(t, err)
 	ti, err = ts.GetTablet(ctx, alias)
