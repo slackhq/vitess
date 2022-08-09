@@ -21,10 +21,6 @@ package vtctld
 import (
 	"flag"
 	"net/http"
-	"strings"
-	"time"
-
-	rice "github.com/GeertJohan/go.rice"
 
 	"context"
 
@@ -33,6 +29,7 @@ import (
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/wrangler"
+	"vitess.io/vitess/web/vtctld2"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
@@ -128,39 +125,7 @@ func InitVtctld(ts *topo.Server) {
 		http.Redirect(w, r, appPrefix, http.StatusFound)
 	})
 
-	// Serve the static files for the vtctld2 web app
-	http.HandleFunc(appPrefix, func(w http.ResponseWriter, r *http.Request) {
-		// Strip the prefix.
-		parts := strings.SplitN(r.URL.Path, "/", 3)
-		if len(parts) != 3 {
-			http.NotFound(w, r)
-			return
-		}
-		rest := parts[2]
-		if rest == "" {
-			rest = "index.html"
-		}
-
-		riceBox, err := rice.FindBox("../../../web/vtctld2/app")
-		if err != nil {
-			log.Errorf("Unable to open rice box %s", err)
-			http.NotFound(w, r)
-		}
-		fileToServe, err := riceBox.Open(rest)
-		if err != nil {
-			if !strings.ContainsAny(rest, "/.") {
-				//This is a virtual route so pass index.html
-				fileToServe, err = riceBox.Open("index.html")
-			}
-			if err != nil {
-				log.Errorf("Unable to open file from rice box %s : %s", rest, err)
-				http.NotFound(w, r)
-			}
-		}
-		if fileToServe != nil {
-			http.ServeContent(w, r, rest, time.Now(), fileToServe)
-		}
-	})
+	http.Handle(appPrefix, staticContentHandler(true))
 
 	var realtimeStats *realtimeStats
 	if *enableRealtimeStats {
@@ -185,4 +150,15 @@ func InitVtctld(ts *topo.Server) {
 
 	// Setup reverse proxy for all vttablets through /vttablet/.
 	initVTTabletRedirection(ts)
+}
+
+func staticContentHandler(enabled bool) http.Handler {
+	if enabled {
+		return http.FileServer(http.FS(vtctld2.Content))
+	}
+
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}
+	return http.HandlerFunc(fn)
 }
