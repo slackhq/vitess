@@ -45,7 +45,7 @@ var (
 )
 
 var (
-	unitTestDatabases = []mysqlVersion{mysql57, mysql80, mariadb103}
+	unitTestDatabases = []mysqlVersion{mysql57, mysql80}
 )
 
 const (
