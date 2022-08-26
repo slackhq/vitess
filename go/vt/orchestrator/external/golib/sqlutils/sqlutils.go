@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/log"
 )
 
 const DateTimeFormat = "2006-01-02 15:04:05.999999"
@@ -269,7 +269,8 @@ func QueryRowsMap(db *sql.DB, query string, on_row func(RowMap) error, args ...a
 		defer rows.Close()
 	}
 	if err != nil && err != sql.ErrNoRows {
-		return log.Errore(err)
+		log.Error(err)
+		return err
 	}
 	err = ScanRowsToMaps(rows, on_row)
 	return
@@ -286,7 +287,8 @@ func queryResultData(db *sql.DB, query string, retrieveColumns bool, args ...any
 	var rows *sql.Rows
 	rows, err = db.Query(query, args...)
 	if err != nil && err != sql.ErrNoRows {
-		return EmptyResultData, columns, log.Errore(err)
+		log.Error(err)
+		return EmptyResultData, columns, err
 	}
 	defer rows.Close()
 
@@ -342,7 +344,7 @@ func ExecNoPrepare(db *sql.DB, query string, args ...any) (res sql.Result, err e
 
 	res, err = db.Exec(query, args...)
 	if err != nil {
-		log.Errore(err)
+		log.Error(err)
 	}
 	return res, err
 }
@@ -363,7 +365,7 @@ func execInternal(silent bool, db *sql.DB, query string, args ...any) (res sql.R
 	defer stmt.Close()
 	res, err = stmt.Exec(args...)
 	if err != nil && !silent {
-		log.Errore(err)
+		log.Error(err)
 	}
 	return res, err
 }

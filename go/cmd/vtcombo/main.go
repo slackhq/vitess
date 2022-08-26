@@ -28,15 +28,11 @@ import (
 	"strings"
 	"time"
 
-	"vitess.io/vitess/go/vt/env"
-	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
-
-	"vitess.io/vitess/go/vt/vttest"
-
 	"google.golang.org/protobuf/proto"
 
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/vt/dbconfigs"
+	"vitess.io/vitess/go/vt/env"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl"
@@ -48,7 +44,9 @@ import (
 	"vitess.io/vitess/go/vt/vtcombo"
 	"vitess.io/vitess/go/vt/vtctld"
 	"vitess.io/vitess/go/vt/vtgate"
+	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
+	"vitess.io/vitess/go/vt/vttest"
 	"vitess.io/vitess/go/vt/wrangler"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
