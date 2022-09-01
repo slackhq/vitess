@@ -142,7 +142,9 @@ func ExpireNodesHistory() error {
 			`,
 		config.Config.UnseenInstanceForgetHours,
 	)
-	log.Error(err)
+	if err != nil {
+		log.Error(err)
+	}
 	return err
 }
 
@@ -175,6 +177,8 @@ func ReadAvailableNodes(onlyHTTPNodes bool) (nodes [](*NodeHealth), err error) {
 		nodes = append(nodes, nodeHealth)
 		return nil
 	})
-	log.Error(err)
+	if err != nil {
+		log.Error(err)
+	}
 	return nodes, err
 }
