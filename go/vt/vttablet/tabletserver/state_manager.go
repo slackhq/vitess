@@ -126,6 +126,7 @@ type stateManager struct {
 	// checkMySQLThrottler ensures that CheckMysql
 	// doesn't get spammed.
 	checkMySQLThrottler *sync2.Semaphore
+	checkMySQLRunning   sync2.AtomicBool
 
 	timebombDuration      time.Duration
 	unhealthyThreshold    sync2.AtomicDuration
@@ -305,17 +306,21 @@ func (sm *stateManager) recheckState() bool {
 	return false
 }
 
-// CheckMySQL verifies that we can connect to mysql.
+// checkMySQL verifies that we can connect to mysql.
 // If it fails, then we shutdown the service and initiate
 // the retry loop.
-func (sm *stateManager) CheckMySQL() {
+func (sm *stateManager) checkMySQL() {
 	if !sm.checkMySQLThrottler.TryAcquire() {
 		return
 	}
+	log.Infof("CheckMySQL started")
+	sm.checkMySQLRunning.Set(true)
 	go func() {
 		defer func() {
 			time.Sleep(1 * time.Second)
+			sm.checkMySQLRunning.Set(false)
 			sm.checkMySQLThrottler.Release()
+			log.Infof("CheckMySQL finished")
 		}()
 
 		err := sm.qe.IsMySQLReachable()
@@ -346,6 +351,14 @@ func (sm *stateManager) setWantState(stateWanted servingState) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.wantState = stateWanted
+}
+
+// isCheckMySQLRunning returns 1 if CheckMySQL function is in progress
+func (sm *stateManager) isCheckMySQLRunning() int64 {
+	if sm.checkMySQLRunning.Get() {
+		return 1
+	}
+	return 0
 }
 
 // StopService shuts down sm. If the shutdown doesn't complete
