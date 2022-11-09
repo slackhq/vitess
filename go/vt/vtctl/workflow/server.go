@@ -294,7 +294,7 @@ func (s *Server) GetWorkflows(ctx context.Context, req *vtctldatapb.GetWorkflows
 			time_updated,
 			transaction_timestamp,
 			message,
-			NULL
+			''
 		FROM
 			_vt.vreplication
 		%s`,
