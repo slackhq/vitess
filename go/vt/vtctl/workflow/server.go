@@ -270,6 +270,9 @@ func (s *Server) GetCellsWithTableReadsSwitched(
 // It has the same signature as the vtctlservicepb.VtctldServer's GetWorkflows
 // rpc, and grpcvtctldserver delegates to this function.
 func (s *Server) GetWorkflows(ctx context.Context, req *vtctldatapb.GetWorkflowsRequest) (*vtctldatapb.GetWorkflowsResponse, error) {
+	// temporary block the GetWorkflows requests
+	return nil
+
 	span, ctx := trace.NewSpan(ctx, "workflow.Server.GetWorkflows")
 	defer span.Finish()
 
