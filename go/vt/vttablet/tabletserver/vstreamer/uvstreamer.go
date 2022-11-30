@@ -326,6 +326,7 @@ func (uvs *uvstreamer) setStreamStartPosition() error {
 	}
 	if !curPos.AtLeast(pos) {
 		uvs.vse.errorCounts.Add("GTIDSet Mismatch", 1)
+		log.Infof("GTIDSet Mismatch: requested source position:%v, current target vrep position: %v", mysql.EncodePosition(pos), mysql.EncodePosition(curPos))
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "GTIDSet Mismatch: requested source position:%v, current target vrep position: %v", mysql.EncodePosition(pos), mysql.EncodePosition(curPos))
 	}
 	uvs.pos = pos
