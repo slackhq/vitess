@@ -32,21 +32,21 @@ type murronMockIOWriter struct {
 	data []byte
 }
 
-func (m murronMockIOWriter) Write(msg []byte) (int, error) {
+func (m *murronMockIOWriter) Write(msg []byte) (int, error) {
 	m.data = msg
 
 	return len(msg), nil
 }
 
 func queryLogMurronFormatter(out io.Writer, params url.Values, message interface{}) error {
-	fakeWriter := murronMockIOWriter{}
+	fakeWriter := &murronMockIOWriter{}
 
 	err := standardFormatter(fakeWriter, params, message)
 	if err != nil {
 		return err
 	}
 
-	murronMessage := []byte(fmt.Sprintf("%s vtgate_query_log %s %s", time.Now().Format(time.RFC3339), hostname, string(fakeWriter.data)))
+	murronMessage := []byte(fmt.Sprintf("%s vtgate_query_log %s %s\n", time.Now().Format(time.RFC3339), hostname, string(fakeWriter.data)))
 
 	_, err = out.Write(murronMessage)
 	if err != nil {
