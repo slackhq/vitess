@@ -38,6 +38,9 @@ var (
 
 	// queryLogToFile controls whether query logs are sent to a file
 	queryLogToFile = flag.String("log_queries_to_file", "", "Enable query logging to the specified file")
+
+	// queryLogMurronFormat controls whether to use the standard or the murron format for vtgate query logs
+	queryLogMurronFormat = flag.Bool("log_queries_murron_format", false, "If specified, write the query log file in murron's plain/rsyslog format")
 )
 
 func initQueryLogger(vtg *VTGate) error {
@@ -54,7 +57,13 @@ func initQueryLogger(vtg *VTGate) error {
 	})
 
 	if *queryLogToFile != "" {
-		_, err := QueryLogger.LogToFile(*queryLogToFile, streamlog.GetFormatter(QueryLogger))
+		formatter := streamlog.GetFormatter(QueryLogger)
+
+		if *queryLogMurronFormat {
+			formatter = NewMurronLogFormatter(formatter)
+		}
+
+		_, err := QueryLogger.LogToFile(*queryLogToFile, formatter)
 		if err != nil {
 			return err
 		}
