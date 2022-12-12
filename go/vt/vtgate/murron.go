@@ -20,7 +20,7 @@ func NewMurronLogFormatter(formatter streamlog.LogFormatter) streamlog.LogFormat
 	// The compiler does not like directly assigning to hostname below, so we use a temporary theHostname variable here ¯\_(ツ)_/¯
 	theHostname, err := os.Hostname()
 	if err != nil {
-		theHostname = "unknown-bedrock-vtgate"
+		theHostname = "unknown-vtgate"
 	}
 
 	hostname = theHostname
