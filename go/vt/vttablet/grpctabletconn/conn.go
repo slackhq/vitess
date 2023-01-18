@@ -21,6 +21,8 @@ import (
 	"io"
 	"sync"
 
+	"vitess.io/vitess/go/vt/log"
+
 	"context"
 
 	"google.golang.org/grpc"
@@ -696,6 +698,7 @@ func (conn *gRPCQueryClient) VStreamResults(ctx context.Context, target *querypb
 		conn.mu.RLock()
 		defer conn.mu.RUnlock()
 		if conn.cc == nil {
+			log.Errorf("VStreamResults() stream function connection is nil wt target %+v", *target)
 			return nil, tabletconn.ConnClosed
 		}
 
@@ -707,24 +710,29 @@ func (conn *gRPCQueryClient) VStreamResults(ctx context.Context, target *querypb
 		}
 		stream, err := conn.c.VStreamResults(ctx, req)
 		if err != nil {
+			log.Errorf("VStreamResults() stream function call query service query client returned error: %s. While using target %+v", err, *target)
 			return nil, tabletconn.ErrorFromGRPC(err)
 		}
 		return stream, nil
 	}()
 	if err != nil {
+		log.Errorf("VStreamResults() stream function returned error %s. While using target %+v", err, *target)
 		return err
 	}
 	for {
 		r, err := stream.Recv()
 		if err != nil {
+			log.Errorf("VStreamResults() stream.Recv() returned error %s. While using target %+v", err, *target)
 			return tabletconn.ErrorFromGRPC(err)
 		}
 		select {
 		case <-ctx.Done():
+			log.Errorf("VStreamResults() context is done: %s. While using target %+v", err, *target)
 			return ctx.Err()
 		default:
 		}
 		if err := send(r); err != nil {
+			log.Errorf("VStreamResults() send() returned error %s. While using target %+v", err, *target)
 			return err
 		}
 	}

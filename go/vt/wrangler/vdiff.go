@@ -721,6 +721,7 @@ func (df *vdiff) streamOne(ctx context.Context, keyspace, shard string, particip
 	participant.err = func() error {
 		conn, err := tabletconn.GetDialer()(participant.tablet, grpcclient.FailFast(false))
 		if err != nil {
+			log.Errorf("streamOne(): error getting dialer for participant %+v: %s", *participant.tablet, err)
 			return err
 		}
 		defer conn.Close(ctx)
@@ -748,6 +749,7 @@ func (df *vdiff) streamOne(ctx context.Context, keyspace, shard string, particip
 			select {
 			case participant.result <- result:
 			case <-ctx.Done():
+				log.Errorf("conn.VStreamResults() send() context is done for participant %+v", *participant.tablet)
 				return vterrors.Wrap(ctx.Err(), "VStreamResults")
 			}
 			return nil

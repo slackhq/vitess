@@ -7,6 +7,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	"vitess.io/vitess/go/vt/log"
 	binlogdata "vitess.io/vitess/go/vt/proto/binlogdata"
 	query "vitess.io/vitess/go/vt/proto/query"
 )
@@ -417,13 +418,16 @@ func (x *queryVStreamRowsClient) Recv() (*binlogdata.VStreamRowsResponse, error)
 func (c *queryClient) VStreamResults(ctx context.Context, in *binlogdata.VStreamResultsRequest, opts ...grpc.CallOption) (Query_VStreamResultsClient, error) {
 	stream, err := c.cc.NewStream(ctx, &Query_ServiceDesc.Streams[5], "/queryservice.Query/VStreamResults", opts...)
 	if err != nil {
+		log.Errorf("queryClient.VStreamResults() NewStream() returned error %s", err)
 		return nil, err
 	}
 	x := &queryVStreamResultsClient{stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
+		log.Errorf("VStreamResults() sendMsg() returned error %s", err)
 		return nil, err
 	}
 	if err := x.ClientStream.CloseSend(); err != nil {
+		log.Errorf("VStreamResults() CloseSend() returned error %s", err)
 		return nil, err
 	}
 	return x, nil
