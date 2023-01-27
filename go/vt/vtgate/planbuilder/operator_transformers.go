@@ -41,23 +41,30 @@ import (
 )
 
 func transformToLogicalPlan(ctx *plancontext.PlanningContext, op abstract.PhysicalOperator) (logicalPlan, error) {
-	log.Errorf("entering logical plan transform: %v", op)
 	switch op := op.(type) {
 	case *physical.Route:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformRoutePlan(ctx, op)
 	case *physical.ApplyJoin:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformApplyJoinPlan(ctx, op)
 	case *physical.Union:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformUnionPlan(ctx, op)
 	case *physical.Vindex:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformVindexPlan(ctx, op)
 	case *physical.SubQueryOp:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformSubQueryPlan(ctx, op)
 	case *physical.CorrelatedSubQueryOp:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformCorrelatedSubQueryPlan(ctx, op)
 	case *physical.Derived:
+		log.Errorf("entering logical plan transform: %v", op)
 		return transformDerivedPlan(ctx, op)
 	case *physical.Filter:
+		log.Errorf("entering logical plan transform: %v", op)
 		plan, err := transformToLogicalPlan(ctx, op.Source)
 		if err != nil {
 			return nil, err
