@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
 
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/physical"
@@ -40,6 +41,7 @@ import (
 )
 
 func transformToLogicalPlan(ctx *plancontext.PlanningContext, op abstract.PhysicalOperator) (logicalPlan, error) {
+	log.Errorf("entering logical plan transform: %v", op)
 	switch op := op.(type) {
 	case *physical.Route:
 		return transformRoutePlan(ctx, op)
