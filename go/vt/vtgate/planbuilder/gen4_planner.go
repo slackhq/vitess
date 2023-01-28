@@ -17,6 +17,7 @@ limitations under the License.
 package planbuilder
 
 import (
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/sqlparser"
@@ -146,6 +147,7 @@ func newBuildSelectPlan(
 	version querypb.ExecuteOptions_PlannerVersion,
 ) (logicalPlan, error) {
 	ksName := ""
+	log.Errorf("tjx: newBuildSelectPlan: gen4_planner: %v", version)
 	if ks, _ := vschema.DefaultKeyspace(); ks != nil {
 		ksName = ks.Name
 	}

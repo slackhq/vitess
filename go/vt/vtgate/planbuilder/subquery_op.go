@@ -17,6 +17,7 @@ limitations under the License.
 package planbuilder
 
 import (
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vtgate/engine"
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
@@ -25,6 +26,7 @@ import (
 )
 
 func transformSubQueryPlan(ctx *plancontext.PlanningContext, op *physical.SubQueryOp) (logicalPlan, error) {
+	log.Errorf("tjx: transformSubQueryPlan: %T", op)
 	innerPlan, err := transformToLogicalPlan(ctx, op.Inner)
 	if err != nil {
 		return nil, err
@@ -51,6 +53,7 @@ func transformSubQueryPlan(ctx *plancontext.PlanningContext, op *physical.SubQue
 }
 
 func transformCorrelatedSubQueryPlan(ctx *plancontext.PlanningContext, op *physical.CorrelatedSubQueryOp) (logicalPlan, error) {
+	log.Errorf("tjx: transformCorrelatedSubQueryPlan: %T", op)
 	outer, err := transformToLogicalPlan(ctx, op.Outer)
 	if err != nil {
 		return nil, err

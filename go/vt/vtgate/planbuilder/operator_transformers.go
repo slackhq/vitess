@@ -92,6 +92,7 @@ func transformApplyJoinPlan(ctx *plancontext.PlanningContext, n *physical.ApplyJ
 	// if err != nil {
 	//	return nil, err
 	// }
+	log.ErrorDepth(1, "tjx: transformApplyJoinPlan")
 
 	lhs, err := transformToLogicalPlan(ctx, n.LHS)
 	if err != nil {
@@ -388,6 +389,7 @@ func transformDerivedPlan(ctx *plancontext.PlanningContext, op *physical.Derived
 	// we've produced is a Route, we set its Select.From field to be an aliased
 	// expression containing our derived table's inner select and the derived
 	// table's alias.
+	log.Errorf("tjx: transformDerivedPlan: %T", op)
 
 	plan, err := transformToLogicalPlan(ctx, op.Source)
 	if err != nil {
