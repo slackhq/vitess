@@ -97,9 +97,11 @@ func BuildFromStmt(query string, stmt sqlparser.Statement, reservedVars *sqlpars
 func getConfiguredPlanner(vschema plancontext.VSchema, v3planner func(string) selectPlanner, stmt sqlparser.SelectStatement, query string) (selectPlanner, error) {
 	planner, ok := getPlannerFromQuery(stmt)
 	if !ok {
+		log.Errorf("tjx: getConfiguredPlanner from vschema: query: %v", query)
 		// if the query doesn't specify the planner, we check what the configuration is
 		planner = vschema.Planner()
 	}
+	log.Errorf("tjx: getConfiguredPlanner: planner: %v", planner)
 	switch planner {
 	case Gen4CompareV3:
 		return gen4CompareV3Planner(query), nil
