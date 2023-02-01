@@ -91,9 +91,12 @@ func BuildFromStmt(query string, stmt sqlparser.Statement, reservedVars *sqlpars
 func getConfiguredPlanner(vschema plancontext.VSchema, v3planner func(string) stmtPlanner, stmt sqlparser.Statement, query string) (stmtPlanner, error) {
 	planner, ok := getPlannerFromQuery(stmt)
 	if !ok {
+		log.Errorf("tjx: v14: getConfiguredPlanner from vschema: query: %v", query)
 		// if the query doesn't specify the planner, we check what the configuration is
 		planner = vschema.Planner()
 	}
+
+	log.Errorf("tjx: v14: getConfiguredPlanner: planner: %v", planner)
 	switch planner {
 	case Gen4CompareV3:
 		return gen4CompareV3Planner(query), nil
@@ -127,6 +130,7 @@ func getPlannerFromQuery(stmt sqlparser.Statement) (version plancontext.PlannerV
 		join, ok := node.(*sqlparser.JoinTableExpr)
 		if ok {
 			if join.Join == sqlparser.LeftJoinType || join.Join == sqlparser.RightJoinType {
+				log.Error("tjx: v14: getPlannerFromQuery: forced to gen4 for outer joins")
 				version = querypb.ExecuteOptions_Gen4
 				found = true
 				return false, nil

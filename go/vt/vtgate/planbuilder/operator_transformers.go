@@ -42,6 +42,7 @@ import (
 )
 
 func transformToLogicalPlan(ctx *plancontext.PlanningContext, op abstract.PhysicalOperator, isRoot bool) (logicalPlan, error) {
+	log.Errorf("tjx: v14: transformToLogicalPlan: op: %T, context: %T", op, ctx)
 	switch op := op.(type) {
 	case *physical.Route:
 		return transformRoutePlan(ctx, op)
