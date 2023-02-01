@@ -19,6 +19,7 @@ package planbuilder
 import (
 	"sort"
 
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
 
 	"vitess.io/vitess/go/sqltypes"
