@@ -788,6 +788,11 @@ func (node *Select) SetLimit(limit *Limit) {
 	node.Limit = limit
 }
 
+// GetLimit gets the limit
+func (node *Select) GetLimit() *Limit {
+	return node.Limit
+}
+
 // SetLock sets the lock clause
 func (node *Select) SetLock(lock Lock) {
 	node.Lock = lock
@@ -811,6 +816,11 @@ func (node *Select) MakeDistinct() {
 // GetColumnCount return SelectExprs count.
 func (node *Select) GetColumnCount() int {
 	return len(node.SelectExprs)
+}
+
+// GetColumns gets the columns
+func (node *Select) GetColumns() SelectExprs {
+	return node.SelectExprs
 }
 
 // SetComments implements the SelectStatement interface
@@ -884,6 +894,16 @@ func (node *Union) SetOrderBy(orderBy OrderBy) {
 // SetLimit sets the limit clause
 func (node *Union) SetLimit(limit *Limit) {
 	node.Limit = limit
+}
+
+// GetLimit gets the limit
+func (node *Union) GetLimit() *Limit {
+	return node.Limit
+}
+
+// GetColumns gets the columns
+func (node *Union) GetColumns() SelectExprs {
+	return node.Left.GetColumns()
 }
 
 // SetLock sets the lock clause

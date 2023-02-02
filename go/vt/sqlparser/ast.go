@@ -44,12 +44,14 @@ type (
 		iInsertRows()
 		AddOrder(*Order)
 		SetOrderBy(OrderBy)
+		GetLimit() *Limit
 		SetLimit(*Limit)
 		SetLock(lock Lock)
 		SetInto(into *SelectInto)
 		SetWith(with *With)
 		MakeDistinct()
 		GetColumnCount() int
+		GetColumns() SelectExprs
 		SetComments(comments Comments)
 		GetComments() Comments
 	}
