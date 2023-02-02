@@ -161,7 +161,7 @@ func newBuildSelectPlan(
 	version querypb.ExecuteOptions_PlannerVersion,
 ) (logicalPlan, error) {
 	ksName := ""
-	log.Errorf("tjx: v14: newBuildSelectPlan: gen4_planner: %v, stmt: %v", version, selStmt)
+	log.Errorf("tjx: v14: newBuildSelectPlan: gen4_planner: %v", version)
 	if ks, _ := vschema.DefaultKeyspace(); ks != nil {
 		ksName = ks.Name
 	}
@@ -185,8 +185,6 @@ func newBuildSelectPlan(
 	if err != nil {
 		return nil, err
 	}
-
-	log.Errorf("tjx: v14: newBuildSelectPlan: rewrite: %v", selStmt)
 
 	ctx := plancontext.NewPlanningContext(reservedVars, semTable, vschema, version)
 	logical, err := abstract.CreateLogicalOperatorFromAST(selStmt, semTable)
