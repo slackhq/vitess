@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 
+	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 
 	"vitess.io/vitess/go/mysql/collations"
@@ -45,6 +46,7 @@ type (
 )
 
 func CreatePhysicalOperator(ctx *plancontext.PlanningContext, opTree abstract.LogicalOperator) (abstract.PhysicalOperator, error) {
+	log.Errorf("tjx: CreatePhysicalOperator: opTree: %T", opTree)
 	switch op := opTree.(type) {
 	case *abstract.QueryGraph:
 		switch {
