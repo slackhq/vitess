@@ -88,6 +88,7 @@ func transformToLogicalPlan(ctx *plancontext.PlanningContext, op abstract.Physic
 }
 
 func transformApplyJoinPlan(ctx *plancontext.PlanningContext, n *physical.ApplyJoin) (logicalPlan, error) {
+	log.ErrorDepth(1, "tjx: transformApplyJoinPlan")
 	lhs, err := transformToLogicalPlan(ctx, n.LHS, false)
 	if err != nil {
 		return nil, err
@@ -463,6 +464,7 @@ func transformAndMergeInOrder(ctx *plancontext.PlanningContext, op *physical.Uni
 }
 
 func createLogicalPlan(ctx *plancontext.PlanningContext, source abstract.PhysicalOperator, selStmt *sqlparser.Select) (logicalPlan, error) {
+	log.Errorf("tjx: createLogicalPlan: op: %T, ctx: %T", source, ctx)
 	plan, err := transformToLogicalPlan(ctx, source, false)
 	if err != nil {
 		return nil, err
@@ -504,6 +506,8 @@ func transformDerivedPlan(ctx *plancontext.PlanningContext, op *physical.Derived
 	// we've produced is a Route, we set its Select.From field to be an aliased
 	// expression containing our derived table's inner select and the derived
 	// table's alias.
+
+	log.Errorf("tjx: transformDerivedPlan: %T", op)
 
 	plan, err := transformToLogicalPlan(ctx, op.Source, false)
 	if err != nil {

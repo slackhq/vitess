@@ -23,6 +23,7 @@ import (
 
 	"vitess.io/vitess/go/mysql/collations"
 	"vitess.io/vitess/go/vt/key"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/engine"
@@ -46,6 +47,7 @@ type (
 )
 
 func CreatePhysicalOperator(ctx *plancontext.PlanningContext, opTree abstract.LogicalOperator) (abstract.PhysicalOperator, error) {
+	log.Errorf("tjx: CreatePhysicalOperator: opTree: %T", opTree)
 	switch op := opTree.(type) {
 	case *abstract.QueryGraph:
 		return optimizeQueryGraph(ctx, op)
