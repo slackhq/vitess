@@ -133,6 +133,7 @@ func getPlannerFromQuery(stmt sqlparser.SelectStatement) (version plancontext.Pl
 		join, ok := node.(*sqlparser.JoinTableExpr)
 		if ok {
 			if join.Join == sqlparser.LeftJoinType || join.Join == sqlparser.RightJoinType {
+				log.Error("tjx: v13: getPlannerFromQuery: forced to gen4 for outer joins")
 				version = querypb.ExecuteOptions_Gen4
 				found = true
 				return false, nil
