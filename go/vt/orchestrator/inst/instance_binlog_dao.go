@@ -19,9 +19,9 @@ package inst
 import (
 	"fmt"
 
+	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
-	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 func GetPreviousGTIDs(instanceKey *InstanceKey, binlog string) (previousGTIDs *OracleGtidSet, err error) {

@@ -36,9 +36,9 @@ import (
 	"github.com/sjmudd/stopwatch"
 
 	"vitess.io/vitess/go/tb"
+	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/math"
-	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/topoproto"
@@ -914,9 +914,9 @@ func (byName byNamePort) Less(i, j int) bool {
 }
 
 // BulkReadInstance returns a list of all instances from the database
-// - I only need the Hostname and Port fields.
-// - I must use readInstancesByCondition to ensure all column
-//   settings are correct.
+//   - I only need the Hostname and Port fields.
+//   - I must use readInstancesByCondition to ensure all column
+//     settings are correct.
 func BulkReadInstance() ([](*InstanceKey), error) {
 	// no condition (I want all rows) and no sorting (but this is done by Hostname, Port anyway)
 	const (

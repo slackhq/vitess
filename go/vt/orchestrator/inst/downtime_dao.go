@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"time"
 
+	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/config"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
-	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 // BeginDowntime will make mark an instance as downtimed (or override existing downtime period)
