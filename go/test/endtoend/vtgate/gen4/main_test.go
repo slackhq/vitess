@@ -54,6 +54,14 @@ create table t3(
 	primary key(id)
 ) Engine=InnoDB;
 
+create table oj_tbl(
+	c1 int,
+	c2 int,
+	c3 int,
+	c4 int,
+	primary key(c1)
+) Engine=InnoDB;
+
 create table user_region(
 	id bigint,
 	cola bigint,
@@ -148,6 +156,14 @@ create table u_b(
         }
       ]
     },
+	"obj_tbl": {
+	  "column_vindexes": [
+		{
+		  "column": "c1",
+		  "name:": "xxhash"
+		}
+	  ]
+	},
     "user_region": {
 	  "column_vindexes": [
 	    {

@@ -3927,3 +3927,21 @@ Gen4 plan same as above
   }
 }
 Gen4 plan same as above
+
+"select distinct t1.c1, t1.c2, t1.c3, t1.c4 from obj_tbl t1 inner join obj_tbl t2 on (t1.c2= t2.c2 and t1.c3 = t2.c3 and t2.c4 >= 10) left join obj_tbl t3 on (t1.c2 = t3.c2 and t1.c3 = t3.c3 and t3.c4 < 10 and t1.c1 < t3.c1) where t1.c2 = 10 order by t1.c4 desc, t1.c1 desc limit 10"
+{
+  "QueryType": "SELECT",
+  "Original": "select distinct t1.c1, t1.c2, t1.c3, t1.c4 from obj_tbl t1 inner join obj_tbl t2 on (t1.c2= t2.c2 and t1.c3 = t2.c3 and t2.c4 >= 10) left join obj_tbl t3 on (t1.c2 = t3.c2 and t1.c3 = t3.c3 and t3.c4 < 10 and t1.c1 < t3.c1) where t1.c2 = 10 order by t1.c4 desc, t1.c1 desc limit 10",
+  "Instructions": {
+    "OperatorType": "Route",
+    "Variant": "Scatter",
+    "Keyspace": {
+      "Name": "user",
+      "Sharded": true
+    },
+    "FieldQuery": "select `user`.col from user_extra left join `user` on user_extra.user_id = `user`.id where 1 != 1",
+    "Query": "select `user`.col from user_extra left join `user` on user_extra.user_id = `user`.id where `user`.id is null",
+    "Table": "obj_tbl"
+  }
+}
+Gen4 plan same as above
