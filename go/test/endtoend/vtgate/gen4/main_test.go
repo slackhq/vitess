@@ -55,10 +55,10 @@ create table t3(
 ) Engine=InnoDB;
 
 create table oj_tbl(
-	c1 int,
-	c2 int,
-	c3 int,
-	c4 int,
+	c1 bigint,
+	c2 bigint,
+	c3 bigint,
+	c4 bigint,
 	primary key(c1)
 ) Engine=InnoDB;
 
@@ -160,7 +160,7 @@ create table u_b(
 	  "column_vindexes": [
 		{
 		  "column": "c1",
-		  "name:": "xxhash"
+		  "name:": "oj_vdx"
 		}
 	  ]
 	},

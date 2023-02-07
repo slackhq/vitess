@@ -3941,7 +3941,7 @@ Gen4 plan same as above
     },
     "FieldQuery": "select `user`.col from user_extra left join `user` on user_extra.user_id = `user`.id where 1 != 1",
     "Query": "select `user`.col from user_extra left join `user` on user_extra.user_id = `user`.id where `user`.id is null",
-    "Table": "obj_tbl"
+    "Table": "oj_tbl"
   }
 }
 Gen4 plan same as above
