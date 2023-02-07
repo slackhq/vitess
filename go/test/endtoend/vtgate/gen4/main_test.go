@@ -156,7 +156,7 @@ create table u_b(
         }
       ]
     },
-	"obj_tbl": {
+	"oj_tbl": {
 	  "column_vindexes": [
 		{
 		  "column": "c1",
