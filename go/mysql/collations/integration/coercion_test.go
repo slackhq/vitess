@@ -135,8 +135,8 @@ func TestComparisonSemantics(t *testing.T) {
 	conn := mysqlconn(t)
 	defer conn.Close()
 
-	if strings.HasPrefix(conn.ServerVersion, "8.0.31") {
-		t.Skipf("Coercion semantics have changed in 8.0.31")
+	if strings.HasPrefix(conn.ServerVersion, "8.0.32") {
+		t.Skipf("Coercion semantics have changed in 8.0.32")
 	}
 
 	for _, coll := range collations.Local().AllCollations() {
