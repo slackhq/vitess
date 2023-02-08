@@ -89,7 +89,8 @@
           "type": "multiCol_test"
         },
         "ojvidx": {
-          "type": "ojvidx"
+          "type": "hash_test",
+          "owner": "user"
         },
         "colc_map": {
           "type": "lookup_test",
