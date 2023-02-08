@@ -54,14 +54,6 @@ create table t3(
 	primary key(id)
 ) Engine=InnoDB;
 
-create table oj_tbl(
-	c1 bigint,
-	c2 bigint,
-	c3 bigint,
-	c4 bigint,
-	primary key(c1)
-) Engine=InnoDB;
-
 create table user_region(
 	id bigint,
 	cola bigint,
@@ -156,14 +148,6 @@ create table u_b(
         }
       ]
     },
-	"oj_tbl": {
-	  "column_vindexes": [
-		{
-		  "column": "c1",
-		  "name:": "oj_vdx"
-		}
-	  ]
-	},
     "user_region": {
 	  "column_vindexes": [
 	    {

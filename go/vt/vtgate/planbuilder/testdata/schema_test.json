@@ -88,6 +88,9 @@
         "multicolIdx": {
           "type": "multiCol_test"
         },
+        "ojvidx": {
+          "type": "ojvidx"
+        },
         "colc_map": {
           "type": "lookup_test",
           "owner": "multicol_tbl"
@@ -316,6 +319,32 @@
             {
               "column": "name",
               "name": "name_muticoltbl_map"
+            }
+          ]
+        },
+        "obj_tbl":{
+          "column_vindexes": [
+            {
+              "column": "c1",
+              "name": "ojvidx"
+            }
+          ],
+          "columns": [
+            {
+              "name": "c1",
+              "type": "INT16"
+            },
+            {
+              "name": "c2",
+              "type": "INT16"
+            },
+            {
+              "name": "c3",
+              "type": "INT16"
+            },
+            {
+              "name": "c4",
+              "type": "INT16"
             }
           ]
         }
