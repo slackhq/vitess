@@ -167,6 +167,7 @@ func init() {
 	flag.BoolVar(&enableReplicationReporter, "enable_replication_reporter", false, "Use polling to track replication lag.")
 	flag.BoolVar(&currentConfig.EnableOnlineDDL, "queryserver_enable_online_ddl", true, "Enable online DDL.")
 	flag.BoolVar(&currentConfig.SanitizeLogMessages, "sanitize_log_messages", false, "Remove potentially sensitive information in tablet INFO, WARNING, and ERROR log messages such as query parameters.")
+	flag.BoolVar(&currentConfig.EnableSystemHealthMonitor, "enable-system-health-monitor", false, "Enable collection of system health metrics")
 
 	flag.Int64Var(&currentConfig.RowStreamer.MaxInnoDBTrxHistLen, "vreplication_copy_phase_max_innodb_history_list_length", 1000000, "The maximum InnoDB transaction history that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
 	flag.Int64Var(&currentConfig.RowStreamer.MaxMySQLReplLagSecs, "vreplication_copy_phase_max_mysql_replication_lag", 43200, "The maximum MySQL replication lag (in seconds) that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
@@ -294,8 +295,9 @@ type TabletConfig struct {
 
 	TransactionLimitConfig `json:"-"`
 
-	EnforceStrictTransTables bool `json:"-"`
-	EnableOnlineDDL          bool `json:"-"`
+	EnforceStrictTransTables  bool `json:"-"`
+	EnableOnlineDDL           bool `json:"-"`
+	EnableSystemHealthMonitor bool `json:"-"`
 
 	RowStreamer RowStreamerConfig `json:"rowStreamer,omitempty"`
 }
@@ -504,8 +506,9 @@ var defaultConfig = TabletConfig{
 
 	TransactionLimitConfig: defaultTransactionLimitConfig(),
 
-	EnforceStrictTransTables: true,
-	EnableOnlineDDL:          true,
+	EnforceStrictTransTables:  true,
+	EnableOnlineDDL:           true,
+	EnableSystemHealthMonitor: false,
 
 	RowStreamer: RowStreamerConfig{
 		MaxInnoDBTrxHistLen: 1000000,
