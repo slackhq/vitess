@@ -218,17 +218,18 @@ func (tw *TopologyWatcher) loadTablets() {
 
 		// trust the alias from topo and add it if it doesn't exist
 		if val, ok := tw.tablets[alias]; !ok {
-			tw.tabletRecorder.AddTablet(newVal.tablet)
-			topologyWatcherOperations.Add(topologyWatcherOpAddTablet, 1)
-		} else {
 			// check if the host and port have changed. If yes, replace tablet
 			oldKey := TabletToMapKey(val.tablet)
 			newKey := TabletToMapKey(newVal.tablet)
 			if oldKey != newKey {
 				// This is the case where the same tablet alias is now reporting
-				// a different address key.
+				// a different address (host:port) key.
 				tw.tabletRecorder.ReplaceTablet(val.tablet, newVal.tablet)
 				topologyWatcherOperations.Add(topologyWatcherOpReplaceTablet, 1)
+			} else {
+				// This is a new tablet record, let's add it to the healthcheck
+				tw.tabletRecorder.AddTablet(newVal.tablet)
+				topologyWatcherOperations.Add(topologyWatcherOpAddTablet, 1)
 			}
 		}
 	}
