@@ -124,6 +124,7 @@ func NewCellTabletsWatcher(ctx context.Context, topoServer *topo.Server, tr Tabl
 
 // Start starts the topology watcher
 func (tw *TopologyWatcher) Start() {
+	tw.wg.Add(1)
 	go func() {
 		defer tw.wg.Done()
 		ticker := time.NewTicker(tw.refreshInterval)
