@@ -454,6 +454,10 @@ func (hc *HealthCheckImpl) updateHealth(th *TabletHealth, prevTarget *query.Targ
 			hc.healthData[targetKey] = make(map[tabletAliasString]*TabletHealth)
 		}
 	}
+	// add it to the map by target and create the map record if needed
+	if _, ok := hc.healthData[targetKey]; !ok {
+		hc.healthData[targetKey] = make(map[tabletAliasString]*TabletHealth)
+	}
 	// add it to the map by target
 	hc.healthData[targetKey][tabletAlias] = th
 
