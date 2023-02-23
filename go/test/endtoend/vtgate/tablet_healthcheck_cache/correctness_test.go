@@ -220,7 +220,6 @@ func addTablet(t *testing.T, tabletUID int, tabletType string) *cluster.Vttablet
 }
 
 func deleteTablet(t *testing.T, tablet *cluster.Vttablet) {
-	t.Logf("Killing tablet: %s", tablet.Alias)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func(tablet *cluster.Vttablet) {

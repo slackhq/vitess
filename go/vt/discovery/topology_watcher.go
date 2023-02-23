@@ -217,7 +217,7 @@ func (tw *TopologyWatcher) loadTablets() {
 		}
 
 		// trust the alias from topo and add it if it doesn't exist
-		if val, ok := tw.tablets[alias]; !ok {
+		if val, ok := tw.tablets[alias]; ok {
 			// check if the host and port have changed. If yes, replace tablet
 			oldKey := TabletToMapKey(val.tablet)
 			newKey := TabletToMapKey(newVal.tablet)
