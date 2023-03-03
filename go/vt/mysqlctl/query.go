@@ -31,13 +31,13 @@ import (
 
 // getPoolReconnect gets a connection from a pool, tests it, and reconnects if
 // the connection is lost.
-func getPoolReconnect(ctx context.Context, pool *dbconnpool.ConnectionPool) (*dbconnpool.PooledDBConnection, error) {
-	conn, err := pool.Get(ctx)
+func (mysqld *Mysqld) getPoolReconnect(ctx context.Context) (*dbconnpool.PooledDBConnection, error) {
+	conn, err := mysqld.dbaPool.Get(ctx)
 	if err != nil {
 		return conn, err
 	}
 	// Run a test query to see if this connection is still good.
-	if _, err := conn.ExecuteFetch("SELECT 1", 1, false); err != nil {
+	if _, err := mysqld.executeFetchContext(ctx, conn, "SELECT 1", 1, false); err != nil {
 		// If we get a connection error, try to reconnect.
 		if sqlErr, ok := err.(*mysql.SQLError); ok && (sqlErr.Number() == mysql.CRServerGone || sqlErr.Number() == mysql.CRServerLost) {
 			if err := conn.Reconnect(ctx); err != nil {
@@ -59,7 +59,7 @@ func (mysqld *Mysqld) ExecuteSuperQuery(ctx context.Context, query string) error
 
 // ExecuteSuperQueryList alows the user to execute queries as a super user.
 func (mysqld *Mysqld) ExecuteSuperQueryList(ctx context.Context, queryList []string) error {
-	conn, err := getPoolReconnect(ctx, mysqld.dbaPool)
+	conn, err := mysqld.getPoolReconnect(ctx)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (mysqld *Mysqld) executeSuperQueryListConn(ctx context.Context, conn *dbcon
 
 // FetchSuperQuery returns the results of executing a query as a super user.
 func (mysqld *Mysqld) FetchSuperQuery(ctx context.Context, query string) (*sqltypes.Result, error) {
-	conn, connErr := getPoolReconnect(ctx, mysqld.dbaPool)
+	conn, connErr := mysqld.getPoolReconnect(ctx)
 	if connErr != nil {
 		return nil, connErr
 	}
@@ -171,7 +171,7 @@ func (mysqld *Mysqld) killConnection(connID int64) error {
 	// which is the reason we're being asked to kill the connection.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if poolConn, connErr := getPoolReconnect(ctx, mysqld.dbaPool); connErr == nil {
+	if poolConn, connErr := mysqld.getPoolReconnect(ctx); connErr == nil {
 		// We got a pool connection.
 		defer poolConn.Recycle()
 		killConn = poolConn
