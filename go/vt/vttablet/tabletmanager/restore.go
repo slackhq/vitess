@@ -570,7 +570,7 @@ func (tm *TabletManager) startReplication(ctx context.Context, pos mysql.Positio
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			status, err := tm.MysqlDaemon.ReplicationStatus(context.TODO())
+			status, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 			if err != nil {
 				return vterrors.Wrap(err, "can't get replication status")
 			}

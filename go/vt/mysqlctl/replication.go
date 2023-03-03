@@ -42,7 +42,8 @@ import (
 func WaitForReplicationStart(mysqld MysqlDaemon, replicaStartDeadline int) error {
 	var rowMap map[string]string
 	for replicaWait := 0; replicaWait < replicaStartDeadline; replicaWait++ {
-		status, err := mysqld.ReplicationStatus(context.TODO())
+		ctx := context.TODO()
+		status, err := mysqld.ReplicationStatus(ctx)
 		if err != nil {
 			return err
 		}
@@ -293,7 +294,8 @@ func (mysqld *Mysqld) PrimaryStatus(ctx context.Context) (mysql.PrimaryStatus, e
 
 // PrimaryPosition returns the primary replication position.
 func (mysqld *Mysqld) PrimaryPosition() (mysql.Position, error) {
-	conn, err := mysqld.getPoolReconnect(context.TODO())
+	ctx := context.TODO()
+	conn, err := mysqld.getPoolReconnect(ctx)
 	if err != nil {
 		return mysql.Position{}, err
 	}
@@ -416,7 +418,8 @@ func FindReplicas(mysqld MysqlDaemon) ([]string, error) {
 // Whatever it does for a given flavor, it must be idempotent.
 func (mysqld *Mysqld) EnableBinlogPlayback() error {
 	// Get a connection.
-	conn, err := mysqld.getPoolReconnect(context.TODO())
+	ctx := context.TODO()
+	conn, err := mysqld.getPoolReconnect(ctx)
 	if err != nil {
 		return err
 	}
@@ -440,7 +443,8 @@ func (mysqld *Mysqld) EnableBinlogPlayback() error {
 // Whatever it does for a given flavor, it must be idempotent.
 func (mysqld *Mysqld) DisableBinlogPlayback() error {
 	// Get a connection.
-	conn, err := mysqld.getPoolReconnect(context.TODO())
+	ctx := context.TODO()
+	conn, err := mysqld.getPoolReconnect(ctx)
 	if err != nil {
 		return err
 	}

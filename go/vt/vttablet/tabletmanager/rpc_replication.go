@@ -863,7 +863,8 @@ func (tm *TabletManager) fixSemiSyncAndReplication(tabletType topodatapb.TabletT
 	// If replication is running, but the status is wrong,
 	// we should restart replication. First, let's make sure
 	// replication is running.
-	status, err := tm.MysqlDaemon.ReplicationStatus(context.TODO())
+	ctx := context.TODO()
+	status, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
 		// Replication is not configured, nothing to do.
 		return nil

@@ -47,7 +47,7 @@ func (p *poller) Status() (time.Duration, error) {
 	defer p.mu.Unlock()
 
 	// TODO: how long to timeout?
-	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	status, err := p.mysqld.ReplicationStatus(ctx)
