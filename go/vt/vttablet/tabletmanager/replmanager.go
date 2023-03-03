@@ -102,23 +102,23 @@ func (rm *replManager) check() {
 	rm.checkActionLocked()
 }
 
-func (rm *replManager) isReplicationRunning() bool {
+func (rm *replManager) shouldRepairReplication() bool {
 	// TODO: how long to timeout?
 	ctx, cancel := context.WithTimeout(rm.ctx, 5*time.Second)
 	defer cancel()
 
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
-		return err == mysql.ErrNotReplica
+		return err != mysql.ErrNotReplica
 	}
 
 	// If only one of the threads is stopped, it's probably
 	// intentional.
-	return status.SQLThreadRunning || status.IOThreadRunning
+	return !status.SQLThreadRunning && !status.IOThreadRunning
 }
 
 func (rm *replManager) checkActionLocked() {
-	if rm.isReplicationRunning() {
+	if !rm.shouldRepairReplication() {
 		return
 	}
 
