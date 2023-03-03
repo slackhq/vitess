@@ -258,7 +258,7 @@ func (be *BuiltinBackupEngine) ExecuteBackup(ctx context.Context, params BackupP
 				if err := ctx.Err(); err != nil {
 					return usable, err
 				}
-				status, err := params.Mysqld.ReplicationStatus(context.TODO())
+				status, err := params.Mysqld.ReplicationStatus(ctx)
 				if err != nil {
 					return usable, err
 				}
