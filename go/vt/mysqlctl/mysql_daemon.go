@@ -46,7 +46,7 @@ type MysqlDaemon interface {
 	StartReplicationUntilAfter(ctx context.Context, pos mysql.Position) error
 	StopReplication(hookExtraEnv map[string]string) error
 	StopIOThread(ctx context.Context) error
-	ReplicationStatus() (mysql.ReplicationStatus, error)
+	ReplicationStatus(ctx context.Context) (mysql.ReplicationStatus, error)
 	PrimaryStatus(ctx context.Context) (mysql.PrimaryStatus, error)
 	SetSemiSyncEnabled(source, replica bool) error
 	SemiSyncEnabled() (source, replica bool)

@@ -42,7 +42,7 @@ import (
 func WaitForReplicationStart(mysqld MysqlDaemon, replicaStartDeadline int) error {
 	var rowMap map[string]string
 	for replicaWait := 0; replicaWait < replicaStartDeadline; replicaWait++ {
-		status, err := mysqld.ReplicationStatus()
+		status, err := mysqld.ReplicationStatus(context.TODO())
 		if err != nil {
 			return err
 		}
@@ -270,8 +270,8 @@ func (mysqld *Mysqld) WaitSourcePos(ctx context.Context, targetPos mysql.Positio
 }
 
 // ReplicationStatus returns the server replication status
-func (mysqld *Mysqld) ReplicationStatus() (mysql.ReplicationStatus, error) {
-	conn, err := getPoolReconnect(context.TODO(), mysqld.dbaPool)
+func (mysqld *Mysqld) ReplicationStatus(ctx context.Context) (mysql.ReplicationStatus, error) {
+	conn, err := getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return mysql.ReplicationStatus{}, err
 	}

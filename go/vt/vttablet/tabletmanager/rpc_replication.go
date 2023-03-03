@@ -44,7 +44,7 @@ var (
 
 // ReplicationStatus returns the replication status
 func (tm *TabletManager) ReplicationStatus(ctx context.Context) (*replicationdatapb.Status, error) {
-	status, err := tm.MysqlDaemon.ReplicationStatus()
+	status, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +581,7 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	// See if we were replicating at all, and should be replicating.
 	wasReplicating := false
 	shouldbeReplicating := false
-	status, err := tm.MysqlDaemon.ReplicationStatus()
+	status, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err == mysql.ErrNotReplica {
 		// This is a special error that means we actually succeeded in reading
 		// the status, but the status is empty because replication is not
@@ -697,7 +697,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	// Get the status before we stop replication.
 	// Doing this first allows us to return the status in the case that stopping replication
 	// returns an error, so a user can optionally inspect the status before a stop was called.
-	rs, err := tm.MysqlDaemon.ReplicationStatus()
+	rs, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
 		return StopReplicationAndGetStatusResponse{}, vterrors.Wrap(err, "before status failed")
 	}
@@ -741,7 +741,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	}
 
 	// Get the status after we stop replication so we have up to date position and relay log positions.
-	rsAfter, err := tm.MysqlDaemon.ReplicationStatus()
+	rsAfter, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
 		return StopReplicationAndGetStatusResponse{
 			Status: &replicationdatapb.StopReplicationStatus{
@@ -863,7 +863,7 @@ func (tm *TabletManager) fixSemiSyncAndReplication(tabletType topodatapb.TabletT
 	// If replication is running, but the status is wrong,
 	// we should restart replication. First, let's make sure
 	// replication is running.
-	status, err := tm.MysqlDaemon.ReplicationStatus()
+	status, err := tm.MysqlDaemon.ReplicationStatus(context.TODO())
 	if err != nil {
 		// Replication is not configured, nothing to do.
 		return nil

@@ -261,7 +261,7 @@ func (fmd *FakeMysqlDaemon) CurrentPrimaryPositionLocked(pos mysql.Position) {
 }
 
 // ReplicationStatus is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) ReplicationStatus() (mysql.ReplicationStatus, error) {
+func (fmd *FakeMysqlDaemon) ReplicationStatus(ctx context.Context) (mysql.ReplicationStatus, error) {
 	if fmd.ReplicationStatusError != nil {
 		return mysql.ReplicationStatus{}, fmd.ReplicationStatusError
 	}
