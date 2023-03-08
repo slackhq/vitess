@@ -70,7 +70,7 @@ func WaitForReplicationStart(mysqld MysqlDaemon, replicaStartDeadline int) error
 // StartReplication starts replication.
 func (mysqld *Mysqld) StartReplication(hookExtraEnv map[string]string) error {
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (mysqld *Mysqld) StartReplication(hookExtraEnv map[string]string) error {
 
 // StartReplicationUntilAfter starts replication until replication has come to `targetPos`, then it stops replication
 func (mysqld *Mysqld) StartReplicationUntilAfter(ctx context.Context, targetPos mysql.Position) error {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (mysqld *Mysqld) StopReplication(hookExtraEnv map[string]string) error {
 		return err
 	}
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func (mysqld *Mysqld) StopReplication(hookExtraEnv map[string]string) error {
 
 // StopIOThread stops a replica's IO thread only.
 func (mysqld *Mysqld) StopIOThread(ctx context.Context) error {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func (mysqld *Mysqld) RestartReplication(hookExtraEnv map[string]string) error {
 		return err
 	}
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (mysqld *Mysqld) SetSuperReadOnly(on bool) error {
 // WaitSourcePos lets replicas wait to given replication position
 func (mysqld *Mysqld) WaitSourcePos(ctx context.Context, targetPos mysql.Position) error {
 	// Get a connection.
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func (mysqld *Mysqld) WaitSourcePos(ctx context.Context, targetPos mysql.Positio
 
 // ReplicationStatus returns the server replication status
 func (mysqld *Mysqld) ReplicationStatus(ctx context.Context) (mysql.ReplicationStatus, error) {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return mysql.ReplicationStatus{}, err
 	}
@@ -283,7 +283,7 @@ func (mysqld *Mysqld) ReplicationStatus(ctx context.Context) (mysql.ReplicationS
 
 // PrimaryStatus returns the primary replication statuses
 func (mysqld *Mysqld) PrimaryStatus(ctx context.Context) (mysql.PrimaryStatus, error) {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return mysql.PrimaryStatus{}, err
 	}
@@ -295,7 +295,7 @@ func (mysqld *Mysqld) PrimaryStatus(ctx context.Context) (mysql.PrimaryStatus, e
 // PrimaryPosition returns the primary replication position.
 func (mysqld *Mysqld) PrimaryPosition() (mysql.Position, error) {
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return mysql.Position{}, err
 	}
@@ -307,7 +307,7 @@ func (mysqld *Mysqld) PrimaryPosition() (mysql.Position, error) {
 // SetReplicationPosition sets the replication position at which the replica will resume
 // when its replication is started.
 func (mysqld *Mysqld) SetReplicationPosition(ctx context.Context, pos mysql.Position) error {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -325,7 +325,7 @@ func (mysqld *Mysqld) SetReplicationSource(ctx context.Context, host string, por
 	if err != nil {
 		return err
 	}
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -349,7 +349,7 @@ func (mysqld *Mysqld) SetReplicationSource(ctx context.Context, host string, por
 
 // ResetReplication resets all replication for this host.
 func (mysqld *Mysqld) ResetReplication(ctx context.Context) error {
-	conn, connErr := mysqld.getPoolReconnect(ctx)
+	conn, connErr := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if connErr != nil {
 		return connErr
 	}
@@ -419,7 +419,7 @@ func FindReplicas(mysqld MysqlDaemon) ([]string, error) {
 func (mysqld *Mysqld) EnableBinlogPlayback() error {
 	// Get a connection.
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}
@@ -444,7 +444,7 @@ func (mysqld *Mysqld) EnableBinlogPlayback() error {
 func (mysqld *Mysqld) DisableBinlogPlayback() error {
 	// Get a connection.
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return err
 	}

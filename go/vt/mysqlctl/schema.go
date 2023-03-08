@@ -268,7 +268,7 @@ func ResolveTables(ctx context.Context, mysqld MysqlDaemon, dbName string, table
 
 // GetColumns returns the columns of table.
 func (mysqld *Mysqld) GetColumns(ctx context.Context, dbName, table string) ([]*querypb.Field, []string, error) {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -298,7 +298,7 @@ func (mysqld *Mysqld) GetPrimaryKeyColumns(ctx context.Context, dbName, table st
 }
 
 func (mysqld *Mysqld) getPrimaryKeyColumns(ctx context.Context, dbName string, tables ...string) (map[string][]string, error) {
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return nil, err
 	}

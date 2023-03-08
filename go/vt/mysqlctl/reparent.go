@@ -95,7 +95,7 @@ func (mysqld *Mysqld) WaitForReparentJournal(ctx context.Context, timeCreatedNS 
 // Promote will promote this server to be the new primary.
 func (mysqld *Mysqld) Promote(hookExtraEnv map[string]string) (mysql.Position, error) {
 	ctx := context.TODO()
-	conn, err := mysqld.getPoolReconnect(ctx)
+	conn, err := mysqld.getPoolReconnect(ctx, mysqld.dbaPool)
 	if err != nil {
 		return mysql.Position{}, err
 	}
