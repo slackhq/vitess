@@ -18,13 +18,12 @@ package tabletserver
 
 import (
 	"context"
-	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
@@ -39,7 +38,7 @@ const systemHealthMonitorInterval = time.Millisecond * 1000
 type systemHealthCollector struct {
 	config          *tabletenv.TabletConfig
 	cpuSampleWindow time.Duration
-	cpuUsagePercent atomic.Uint64
+	cpuUsagePercent sync2.AtomicFloat64
 	interval        time.Duration
 	mu              sync.Mutex
 	running         bool
@@ -98,7 +97,7 @@ func (s *systemHealthCollector) Close() {
 // GetCPUUsage returns the average cpu usage percent for
 // the system running vttablet as a percent.
 func (s *systemHealthCollector) GetCPUUsage() float64 {
-	return math.Float64frombits(s.cpuUsagePercent.Load())
+	return s.cpuUsagePercent.Get()
 }
 
 // collectCPUUsage collects the CPU usage percent of the system running vttablet.
@@ -118,7 +117,7 @@ func (s *systemHealthCollector) collectCPUUsage() error {
 // setCPUUsage sets the average cpu usage for the system running
 // vttablet as a percent.
 func (s *systemHealthCollector) setCPUUsage(percent float64) {
-	s.cpuUsagePercent.Store(math.Float64bits(percent))
+	s.cpuUsagePercent.Set(percent)
 }
 
 // startCollection begins the collection of system health metrics.

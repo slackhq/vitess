@@ -123,6 +123,7 @@ require (
 require (
 	github.com/bndr/gotabulate v1.1.2
 	github.com/shirou/gopsutil/v3 v3.23.1
+	go.uber.org/atomic v1.10.0
 )
 
 require (
@@ -188,7 +189,6 @@ require (
 	github.com/valyala/fasttemplate v1.0.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.1.0 // indirect
