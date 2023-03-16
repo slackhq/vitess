@@ -18,6 +18,7 @@ package txthrottler
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -44,23 +45,24 @@ import (
 // It uses a discovery.LegacyHealthCheck to send replication-lag updates to the wrapped throttler.
 //
 // Intended Usage:
-//   // Assuming topoServer is a topo.Server variable pointing to a Vitess topology server.
-//   t := NewTxThrottler(config, topoServer)
 //
-//   // A transaction throttler must be opened before its first use:
-//   if err := t.Open(keyspace, shard); err != nil {
-//     return err
-//   }
+//	// Assuming topoServer is a topo.Server variable pointing to a Vitess topology server.
+//	t := NewTxThrottler(config, topoServer)
 //
-//   // Checking whether to throttle can be done as follows before starting a transaction.
-//   if t.Throttle() {
-//     return fmt.Errorf("Transaction throttled!")
-//   } else {
-//     // execute transaction.
-//   }
+//	// A transaction throttler must be opened before its first use:
+//	if err := t.Open(keyspace, shard); err != nil {
+//	  return err
+//	}
 //
-//   // To release the resources used by the throttler the caller should call Close().
-//   t.Close()
+//	// Checking whether to throttle can be done as follows before starting a transaction.
+//	if t.Throttle() {
+//	  return fmt.Errorf("Transaction throttled!")
+//	} else {
+//	  // execute transaction.
+//	}
+//
+//	// To release the resources used by the throttler the caller should call Close().
+//	t.Close()
 //
 // A TxThrottler object is generally not thread-safe: at any given time at most one goroutine should
 // be executing a method. The only exception is the 'Throttle' method where multiple goroutines are
@@ -264,7 +266,7 @@ func (t *TxThrottler) Close() {
 // It returns true if the transaction should not proceed (the caller
 // should back off). Throttle requires that Open() was previously called
 // successfully.
-func (t *TxThrottler) Throttle() (result bool) {
+func (t *TxThrottler) Throttle(criticality int) (result bool) {
 	if !t.config.enabled {
 		return false
 	}
@@ -276,7 +278,10 @@ func (t *TxThrottler) Throttle() (result bool) {
 	if result {
 		t.requestsThrottled.Add(1)
 	}
-	return result
+
+	// Throttle according to both what the throttle state says, and the criticality. Workloads with higher criticality
+	// are less likely to be throttled.
+	return result && rand.Intn(100) < 100-int(criticality)
 }
 
 func newTxThrottlerState(config *txThrottlerConfig, keyspace, shard string,
