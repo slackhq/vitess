@@ -49,8 +49,6 @@ const (
 	DirectiveCriticality = "CRITICALITY"
 )
 
-var UnspecifiedCriticality int64 = -1
-
 func isNonSpace(r rune) bool {
 	return !unicode.IsSpace(r)
 }
