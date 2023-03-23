@@ -246,7 +246,15 @@ func (t *noopVCursor) SetWorkload(querypb.ExecuteOptions_Workload) {
 	panic("implement me")
 }
 
+func (t *noopVCursor) SetWorkloadName(string) {
+	panic("implement me")
+}
+
 func (t *noopVCursor) SetPlannerVersion(querypb.ExecuteOptions_PlannerVersion) {
+	panic("implement me")
+}
+
+func (t *noopVCursor) SetCriticality(string) {
 	panic("implement me")
 }
 
@@ -694,7 +702,15 @@ func (f *loggingVCursor) SetWorkload(querypb.ExecuteOptions_Workload) {
 	panic("implement me")
 }
 
+func (f *loggingVCursor) SetWorkloadName(string) {
+	panic("implement me")
+}
+
 func (f *loggingVCursor) SetPlannerVersion(querypb.ExecuteOptions_PlannerVersion) {
+	panic("implement me")
+}
+
+func (f *loggingVCursor) SetCriticality(string) {
 	panic("implement me")
 }
 

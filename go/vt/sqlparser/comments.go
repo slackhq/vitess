@@ -42,6 +42,11 @@ const (
 	DirectiveAllowHashJoin = "ALLOW_HASH_JOIN"
 	// DirectiveQueryPlanner lets the user specify per query which planner should be used
 	DirectiveQueryPlanner = "PLANNER"
+	// DirectiveWorkloadName specifies the name of the client application workload issuing the query.
+	DirectiveWorkloadName = "WORKLOAD_NAME"
+	// DirectiveCriticality specifies the criticality of a workload. It should be an integer between 0 and 100, where
+	// 100 is the highest criticality, and 0 is the lowest one.
+	DirectiveCriticality = "CRITICALITY"
 )
 
 func isNonSpace(r rune) bool {
@@ -367,5 +372,40 @@ func CommentsForStatement(stmt Statement) Comments {
 	if commented, ok := stmt.(Commented); ok {
 		return commented.GetParsedComments().comments
 	}
+
 	return nil
+}
+
+// GetCriticalityFromStatement gets the criticality from the provided Statement, using DirectiveCriticality
+func GetCriticalityFromStatement(statement Statement) string {
+	commentedStatement, ok := statement.(Commented)
+	// This would mean that the statement lacks comments, so we can't obtain the workload from it. Hence default to
+	// empty workload name
+	if !ok {
+		return ""
+	}
+
+	directives := commentedStatement.GetParsedComments().Directives()
+	criticality := directives.GetString(DirectiveCriticality, "")
+
+	if !ok || criticality == "" {
+		return ""
+	}
+
+	return criticality
+}
+
+// GetWorkloadNameFromStatement gets the workload name from the provided Statement, using workloadLabel as the name of
+// the query directive that specifies it.
+func GetWorkloadNameFromStatement(statement Statement) string {
+	commentedStatement, ok := statement.(Commented)
+	// This would mean that the statement lacks comments, so we can't obtain the workload from it. Hence default to
+	// empty workload name
+	if !ok {
+		return ""
+	}
+
+	directives := commentedStatement.GetParsedComments().Directives()
+
+	return directives.GetString(DirectiveWorkloadName, "")
 }

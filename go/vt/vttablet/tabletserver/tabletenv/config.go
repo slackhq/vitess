@@ -134,6 +134,7 @@ func init() {
 	flagutil.DualFormatBoolVar(&currentConfig.EnableTxThrottler, "enable_tx_throttler", defaultConfig.EnableTxThrottler, "If true replication-lag-based throttling on transactions will be enabled.")
 	flagutil.DualFormatStringVar(&currentConfig.TxThrottlerConfig, "tx_throttler_config", defaultConfig.TxThrottlerConfig, "The configuration of the transaction throttler as a text formatted throttlerdata.Configuration protocol buffer message")
 	flagutil.DualFormatStringListVar(&currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
+	flag.IntVar(&currentConfig.TxThrottlerDefaultCriticality, "tx-throttler-default-criticality", defaultConfig.TxThrottlerDefaultCriticality, "Default criticality assigned to queries that lack criticality information.")
 
 	flag.BoolVar(&enableHotRowProtection, "enable_hot_row_protection", false, "If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.")
 	flag.BoolVar(&enableHotRowProtectionDryRun, "enable_hot_row_protection_dry_run", false, "If true, hot row protection is not enforced but logs if transactions would have been queued.")
@@ -167,9 +168,12 @@ func init() {
 	flag.BoolVar(&enableReplicationReporter, "enable_replication_reporter", false, "Use polling to track replication lag.")
 	flag.BoolVar(&currentConfig.EnableOnlineDDL, "queryserver_enable_online_ddl", true, "Enable online DDL.")
 	flag.BoolVar(&currentConfig.SanitizeLogMessages, "sanitize_log_messages", false, "Remove potentially sensitive information in tablet INFO, WARNING, and ERROR log messages such as query parameters.")
+	flag.BoolVar(&currentConfig.EnableSystemHealthMonitor, "enable-system-health-monitor", false, "Enable collection of system health metrics, currently cpu usage only.")
 
 	flag.Int64Var(&currentConfig.RowStreamer.MaxInnoDBTrxHistLen, "vreplication_copy_phase_max_innodb_history_list_length", 1000000, "The maximum InnoDB transaction history that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
 	flag.Int64Var(&currentConfig.RowStreamer.MaxMySQLReplLagSecs, "vreplication_copy_phase_max_mysql_replication_lag", 43200, "The maximum MySQL replication lag (in seconds) that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
+
+	flag.BoolVar(&currentConfig.EnablePerWorkloadTableMetrics, "enable-per-workload-table-metrics", defaultConfig.EnablePerWorkloadTableMetrics, "If true, query counts and query error metrics include a label that identifies the workload")
 }
 
 // Init must be called after flag.Parse, and before doing any other operations.
@@ -286,18 +290,22 @@ type TabletConfig struct {
 	TwoPCCoordinatorAddress string  `json:"-"`
 	TwoPCAbandonAge         Seconds `json:"-"`
 
-	EnableTxThrottler           bool     `json:"-"`
-	TxThrottlerConfig           string   `json:"-"`
-	TxThrottlerHealthCheckCells []string `json:"-"`
+	EnableTxThrottler             bool     `json:"-"`
+	TxThrottlerConfig             string   `json:"-"`
+	TxThrottlerHealthCheckCells   []string `json:"-"`
+	TxThrottlerDefaultCriticality int      `json:"-"`
 
 	EnableLagThrottler bool `json:"-"`
 
 	TransactionLimitConfig `json:"-"`
 
-	EnforceStrictTransTables bool `json:"-"`
-	EnableOnlineDDL          bool `json:"-"`
+	EnforceStrictTransTables  bool `json:"-"`
+	EnableOnlineDDL           bool `json:"-"`
+	EnableSystemHealthMonitor bool `json:"-"`
 
 	RowStreamer RowStreamerConfig `json:"rowStreamer,omitempty"`
+
+	EnablePerWorkloadTableMetrics bool `json:"-"`
 }
 
 // ConnPoolConfig contains the config for a conn pool.
@@ -496,21 +504,25 @@ var defaultConfig = TabletConfig{
 	CacheResultFields:                       true,
 	SignalWhenSchemaChange:                  true,
 
-	EnableTxThrottler:           false,
-	TxThrottlerConfig:           defaultTxThrottlerConfig(),
-	TxThrottlerHealthCheckCells: []string{},
+	EnableTxThrottler:             false,
+	TxThrottlerConfig:             defaultTxThrottlerConfig(),
+	TxThrottlerHealthCheckCells:   []string{},
+	TxThrottlerDefaultCriticality: 0, // This leads to all queries being candidates to throttle
 
 	EnableLagThrottler: false, // Feature flag; to switch to 'true' at some stage in the future
 
 	TransactionLimitConfig: defaultTransactionLimitConfig(),
 
-	EnforceStrictTransTables: true,
-	EnableOnlineDDL:          true,
+	EnforceStrictTransTables:  true,
+	EnableOnlineDDL:           true,
+	EnableSystemHealthMonitor: false,
 
 	RowStreamer: RowStreamerConfig{
 		MaxInnoDBTrxHistLen: 1000000,
 		MaxMySQLReplLagSecs: 43200,
 	},
+
+	EnablePerWorkloadTableMetrics: false,
 }
 
 // defaultTxThrottlerConfig formats the default throttlerdata.Configuration

@@ -23653,6 +23653,12 @@ export namespace query {
 
         /** ExecuteOptions has_created_temp_tables */
         has_created_temp_tables?: (boolean|null);
+
+        /** ExecuteOptions WorkloadName */
+        WorkloadName?: (string|null);
+
+        /** ExecuteOptions criticality */
+        criticality?: (string|null);
     }
 
     /** Represents an ExecuteOptions. */
@@ -23687,6 +23693,12 @@ export namespace query {
 
         /** ExecuteOptions has_created_temp_tables. */
         public has_created_temp_tables: boolean;
+
+        /** ExecuteOptions WorkloadName. */
+        public WorkloadName: string;
+
+        /** ExecuteOptions criticality. */
+        public criticality: string;
 
         /**
          * Creates a new ExecuteOptions instance using the specified properties.
