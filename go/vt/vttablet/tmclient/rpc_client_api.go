@@ -172,6 +172,14 @@ type TabletManagerClient interface {
 	// reparent_journal table.
 	InitReplica(ctx context.Context, tablet *topodatapb.Tablet, parent *topodatapb.TabletAlias, replicationPosition string, timeCreatedNS int64, semiSync bool) error
 
+	// Deprecated DemoteMaster tells the soon-to-be-former primary it's going to change,
+	// and it should go read-only and return its current position.
+	DemoteMaster(ctx context.Context, tablet *topodatapb.Tablet) (*replicationdatapb.PrimaryStatus, error)
+
+	// Deprecated UndoDemoteMaster reverts all changes made by DemoteMaster
+	// To be used if we are unable to promote the chosen new primary
+	UndoDemoteMaster(ctx context.Context, tablet *topodatapb.Tablet) error
+
 	// DemotePrimary tells the soon-to-be-former primary it's going to change,
 	// and it should go read-only and return its current position.
 	DemotePrimary(ctx context.Context, tablet *topodatapb.Tablet) (*replicationdatapb.PrimaryStatus, error)
@@ -185,6 +193,11 @@ type TabletManagerClient interface {
 
 	// ResetReplicationParameters resets the replica replication parameters
 	ResetReplicationParameters(ctx context.Context, tablet *topodatapb.Tablet) error
+
+	// Deprecated SetMaster tells a tablet to start replicating from the
+	// passed in primary tablet alias, and wait for the row in the
+	// reparent_journal table (if timeCreatedNS is non-zero).
+	SetMaster(ctx context.Context, tablet *topodatapb.Tablet, parent *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool) error
 
 	// SetReplicationSource tells a tablet to start replicating from the
 	// passed in tablet alias, and wait for the row in the

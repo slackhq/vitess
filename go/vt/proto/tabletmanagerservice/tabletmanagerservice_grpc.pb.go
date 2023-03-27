@@ -92,6 +92,8 @@ type TabletManagerClient interface {
 	ResetReplicationParameters(ctx context.Context, in *tabletmanagerdata.ResetReplicationParametersRequest, opts ...grpc.CallOption) (*tabletmanagerdata.ResetReplicationParametersResponse, error)
 	// FullStatus collects and returns the full status of MySQL including the replication information, semi-sync information, GTID information among others
 	FullStatus(ctx context.Context, in *tabletmanagerdata.FullStatusRequest, opts ...grpc.CallOption) (*tabletmanagerdata.FullStatusResponse, error)
+	// Deprecated, use SetReplicationSource instead
+	SetMaster(ctx context.Context, in *tabletmanagerdata.SetReplicationSourceRequest, opts ...grpc.CallOption) (*tabletmanagerdata.SetReplicationSourceResponse, error)
 	// SetReplicationSource tells the replica to reparent
 	SetReplicationSource(ctx context.Context, in *tabletmanagerdata.SetReplicationSourceRequest, opts ...grpc.CallOption) (*tabletmanagerdata.SetReplicationSourceResponse, error)
 	// ReplicaWasRestarted tells the remote tablet its primary has changed

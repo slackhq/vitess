@@ -135,8 +135,14 @@ service TabletManager {
   // InitReplica tells the tablet to reparent to the primary unconditionally
   rpc InitReplica(tabletmanagerdata.InitReplicaRequest) returns (tabletmanagerdata.InitReplicaResponse) {};
 
+  // Deprecated, see DemotePrimary instead
+  rpc DemoteMaster(tabletmanagerdata.DemotePrimaryRequest) returns (tabletmanagerdata.DemotePrimaryResponse) {};
+
   // DemotePrimary tells the soon-to-be-former primary it's gonna change
   rpc DemotePrimary(tabletmanagerdata.DemotePrimaryRequest) returns (tabletmanagerdata.DemotePrimaryResponse) {};
+
+  // Deprecated, use UndoDemotePrimary instead
+  rpc UndoDemoteMaster(tabletmanagerdata.UndoDemotePrimaryRequest) returns (tabletmanagerdata.UndoDemotePrimaryResponse) {};
 
   // UndoDemotePrimary reverts all changes made by DemotePrimary
   rpc UndoDemotePrimary(tabletmanagerdata.UndoDemotePrimaryRequest) returns (tabletmanagerdata.UndoDemotePrimaryResponse) {};
@@ -149,6 +155,9 @@ service TabletManager {
 
   // FullStatus collects and returns the full status of MySQL including the replication information, semi-sync information, GTID information among others
   rpc FullStatus(tabletmanagerdata.FullStatusRequest) returns (tabletmanagerdata.FullStatusResponse) {};
+
+  // Deprecated, use SetReplicationSource instead
+  rpc SetMaster(tabletmanagerdata.SetReplicationSourceRequest) returns (tabletmanagerdata.SetReplicationSourceResponse) {};
 
   // SetReplicationSource tells the replica to reparent
   rpc SetReplicationSource(tabletmanagerdata.SetReplicationSourceRequest) returns (tabletmanagerdata.SetReplicationSourceResponse) {};
