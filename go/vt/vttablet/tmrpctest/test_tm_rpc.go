@@ -784,6 +784,11 @@ func tmRPCTestMasterPositionPanic(ctx context.Context, t *testing.T, client tmcl
 	expectHandleRPCPanic(t, "PrimaryPosition", false /*verbose*/, err)
 }
 
+func tmRPCTestPrimaryPosition(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
+	rs, err := client.PrimaryPosition(ctx, tablet)
+	compareError(t, "PrimaryPosition", err, rs, testReplicationPosition)
+}
+
 var testStopReplicationCalled = false
 
 func (fra *fakeRPCTM) StopReplication(ctx context.Context) error {
