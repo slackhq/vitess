@@ -9,7 +9,7 @@ concurrency:
 jobs:
   build:
     name: Run endtoend tests on Cluster (topo_connection_cache)
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Check if workflow needs to be skipped
