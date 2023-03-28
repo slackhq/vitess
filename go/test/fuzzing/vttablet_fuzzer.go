@@ -565,9 +565,9 @@ func (fs *fuzzStore) callVReplicationWaitForPos() error {
 	return nil
 }
 
-// callSetMaster implements a wrapper
-// for fuzzing SetMaster
-func (fs *fuzzStore) callSetMaster() error {
+// callSetReplicationSource implements a wrapper
+// for fuzzing SetReplicationSource
+func (fs *fuzzStore) callSetReplicationSource() error {
 	tablet, err := fs.getTablet()
 	if err != nil {
 		return err
@@ -584,7 +584,7 @@ func (fs *fuzzStore) callSetMaster() error {
 	if err != nil {
 		return err
 	}
-	_ = fs.client.SetMaster(context.Background(), tablet, parent, int64(timeCreatedNS), pos, false, false)
+	_ = fs.client.SetReplicationSource(context.Background(), tablet, parent, int64(timeCreatedNS), pos, false, false)
 	return nil
 }
 
