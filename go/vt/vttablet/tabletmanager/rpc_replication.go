@@ -152,6 +152,11 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 	}, nil
 }
 
+// MasterStatus is the old version of PrimaryStatus. Deprecated.
+func (tm *TabletManager) MasterStatus(ctx context.Context) (*replicationdatapb.PrimaryStatus, error) {
+	return tm.PrimaryStatus(ctx)
+}
+
 // PrimaryStatus returns the replication status for a primary tablet.
 func (tm *TabletManager) PrimaryStatus(ctx context.Context) (*replicationdatapb.PrimaryStatus, error) {
 	status, err := tm.MysqlDaemon.PrimaryStatus(ctx)
@@ -159,6 +164,11 @@ func (tm *TabletManager) PrimaryStatus(ctx context.Context) (*replicationdatapb.
 		return nil, err
 	}
 	return mysql.PrimaryStatusToProto(status), nil
+}
+
+// MasterPosition is the old version of PrimaryPosition. Deprecated.
+func (tm *TabletManager) MasterPosition(ctx context.Context) (string, error) {
+	return tm.PrimaryPosition(ctx)
 }
 
 // PrimaryPosition returns the position of a primary database
@@ -327,6 +337,11 @@ func (tm *TabletManager) ResetReplication(ctx context.Context) error {
 	return tm.MysqlDaemon.ResetReplication(ctx)
 }
 
+// InitMaster is the old version of InitPrimary. Deprecated.
+func (tm *TabletManager) InitMaster(ctx context.Context, semiSync bool) (string, error) {
+	return tm.InitPrimary(ctx, semiSync)
+}
+
 // InitPrimary enables writes and returns the replication position.
 func (tm *TabletManager) InitPrimary(ctx context.Context, semiSync bool) (string, error) {
 	log.Infof("InitPrimary")
@@ -461,10 +476,10 @@ func (tm *TabletManager) InitReplica(ctx context.Context, parent *topodatapb.Tab
 //
 // It attemps to idempotently ensure the following guarantees upon returning
 // successfully:
-//   * No future writes will be accepted.
-//   * No writes are in-flight.
-//   * MySQL is in read-only mode.
-//   * Semi-sync settings are consistent with a REPLICA tablet.
+//   - No future writes will be accepted.
+//   - No writes are in-flight.
+//   - MySQL is in read-only mode.
+//   - Semi-sync settings are consistent with a REPLICA tablet.
 //
 // If necessary, it waits for all in-flight writes to complete or time out.
 //
@@ -476,6 +491,11 @@ func (tm *TabletManager) DemotePrimary(ctx context.Context) (*replicationdatapb.
 	log.Infof("DemotePrimary")
 	// The public version always reverts on partial failure.
 	return tm.demotePrimary(ctx, true /* revertPartialFailure */)
+}
+
+// DemoteMaster is the old version of DemotePrimary. Deprecated.
+func (tm *TabletManager) DemoteMaster(ctx context.Context) (*replicationdatapb.PrimaryStatus, error) {
+	return tm.DemotePrimary(ctx)
 }
 
 // demotePrimary implements DemotePrimary with an additional, private option.
@@ -583,6 +603,11 @@ func (tm *TabletManager) demotePrimary(ctx context.Context, revertPartialFailure
 	return mysql.PrimaryStatusToProto(status), nil
 }
 
+// UndoDemoteMaster is the old version of UndoDemotePrimary. Deprecated.
+func (tm *TabletManager) UndoDemoteMaster(ctx context.Context, semiSync bool) error {
+	return tm.UndoDemotePrimary(ctx, semiSync)
+}
+
 // UndoDemotePrimary reverts a previous call to DemotePrimary
 // it sets read-only to false, fixes semi-sync
 // and returns its primary position.
@@ -665,6 +690,11 @@ func (tm *TabletManager) SetReplicationSource(ctx context.Context, parentAlias *
 	// setReplicationSourceLocked also fixes the semi-sync. In case the tablet type is primary it assumes that it will become a replica if SetReplicationSource
 	// is called, so we always call fixSemiSync with a non-primary tablet type. This will always set the source side replication to false.
 	return tm.setReplicationSourceLocked(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, convertBoolToSemiSyncAction(semiSync))
+}
+
+// SetMaster is the old version of SetReplicationSource. Deprecated.
+func (tm *TabletManager) SetMaster(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync bool) error {
+	return tm.SetReplicationSource(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, semiSync)
 }
 
 func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool) (err error) {

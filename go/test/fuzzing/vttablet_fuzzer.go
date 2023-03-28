@@ -291,14 +291,14 @@ func (fs *fuzzStore) callExecuteFetchAsApp() error {
 	return nil
 }
 
-// callInitPrimary implements a wrapper
-// for fuzzing InitPrimary
-func (fs *fuzzStore) callInitPrimary() error {
+// callInitMaster implements a wrapper
+// for fuzzing InitMaster
+func (fs *fuzzStore) callInitMaster() error {
 	tablet, err := fs.getTablet()
 	if err != nil {
 		return err
 	}
-	_, _ = fs.client.InitPrimary(context.Background(), tablet, false)
+	_, _ = fs.client.InitMaster(context.Background(), tablet, false)
 	return nil
 }
 
@@ -346,14 +346,25 @@ func (fs *fuzzStore) callStopReplication() error {
 	return nil
 }
 
-// callPrimaryPosition implements a wrapper
-// for fuzzing PrimaryPosition
-func (fs *fuzzStore) callPrimaryPosition() error {
+// callMasterPosition implements a wrapper
+// for fuzzing MasterPosition
+func (fs *fuzzStore) callMasterPosition() error {
 	tablet, err := fs.getTablet()
 	if err != nil {
 		return err
 	}
-	_, _ = fs.client.PrimaryPosition(context.Background(), tablet)
+	_, _ = fs.client.MasterPosition(context.Background(), tablet)
+	return nil
+}
+
+// callDemoteMaster implements a wrapper
+// for fuzzing DemoteMaster
+func (fs *fuzzStore) callDemoteMaster() error {
+	tablet, err := fs.getTablet()
+	if err != nil {
+		return err
+	}
+	_, _ = fs.client.DemoteMaster(context.Background(), tablet)
 	return nil
 }
 
@@ -386,7 +397,7 @@ func (fs *fuzzStore) callPrimaryStatus() error {
 	if err != nil {
 		return err
 	}
-	_, _ = fs.client.PrimaryStatus(context.Background(), tablet)
+	_, _ = fs.client.MasterStatus(context.Background(), tablet)
 	return nil
 }
 
@@ -398,6 +409,17 @@ func (fs *fuzzStore) callDemotePrimary() error {
 		return err
 	}
 	_, _ = fs.client.DemotePrimary(context.Background(), tablet)
+	return nil
+}
+
+// callUndoDemoteMaster implements a wrapper
+// for fuzzing UndoDemoteMaster
+func (fs *fuzzStore) callUndoDemoteMaster() error {
+	tablet, err := fs.getTablet()
+	if err != nil {
+		return err
+	}
+	_ = fs.client.UndoDemoteMaster(context.Background(), tablet)
 	return nil
 }
 
@@ -543,9 +565,9 @@ func (fs *fuzzStore) callVReplicationWaitForPos() error {
 	return nil
 }
 
-// callSetReplicationSource implements a wrapper
-// for fuzzing SetReplicationSource
-func (fs *fuzzStore) callSetReplicationSource() error {
+// callSetMaster implements a wrapper
+// for fuzzing SetMaster
+func (fs *fuzzStore) callSetMaster() error {
 	tablet, err := fs.getTablet()
 	if err != nil {
 		return err
@@ -562,7 +584,7 @@ func (fs *fuzzStore) callSetReplicationSource() error {
 	if err != nil {
 		return err
 	}
-	_ = fs.client.SetReplicationSource(context.Background(), tablet, parent, int64(timeCreatedNS), pos, false, false)
+	_ = fs.client.SetMaster(context.Background(), tablet, parent, int64(timeCreatedNS), pos, false, false)
 	return nil
 }
 
@@ -624,7 +646,7 @@ func (fs *fuzzStore) executeInRandomOrder() {
 		var err error
 		switch execInt % maxTargets {
 		case 0:
-			err = fs.callInitPrimary()
+			err = fs.callInitMaster()
 		case 1:
 			err = fs.callResetReplication()
 		case 2:
@@ -634,13 +656,17 @@ func (fs *fuzzStore) executeInRandomOrder() {
 		case 4:
 			err = fs.callStopReplication()
 		case 5:
-			err = fs.callPrimaryPosition()
+			err = fs.callMasterPosition()
+		case 6:
+			err = fs.callDemoteMaster()
 		case 7:
 			err = fs.callReplicationStatus()
 		case 8:
-			err = fs.callPrimaryStatus()
+			err = fs.callMasterStatus()
 		case 9:
 			err = fs.callDemotePrimary()
+		case 10:
+			err = fs.callUndoDemoteMaster()
 		case 11:
 			err = fs.callUndoDemotePrimary()
 		case 12:
@@ -662,7 +688,7 @@ func (fs *fuzzStore) executeInRandomOrder() {
 		case 20:
 			err = fs.callVReplicationWaitForPos()
 		case 21:
-			err = fs.callSetReplicationSource()
+			err = fs.callSetMaster()
 		case 22:
 			err = fs.callInitReplica()
 		case 23:
