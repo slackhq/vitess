@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/txthrottler"
 )
 
 const (
@@ -391,7 +393,7 @@ func GetCriticalityFromStatement(statement Statement) string {
 	}
 
 	intCriticality, err := strconv.Atoi(criticality)
-	if err != nil || intCriticality < 0 || intCriticality > 100 {
+	if err != nil || intCriticality < 0 || intCriticality > txthrottler.MaxTxThrottlerCriticalityValue {
 		return ""
 	}
 
