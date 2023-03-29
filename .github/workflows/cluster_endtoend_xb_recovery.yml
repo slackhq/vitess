@@ -107,8 +107,8 @@ jobs:
           # which musn't be more than 107 characters long.
           export VTDATAROOT="/tmp/"
           source build.env
-  
+
           set -x
-  
+
           # run the tests however you normally do, then produce a JUnit XML file
           eatmydata -- go run test.go -docker=false -follow -shard xb_recovery
