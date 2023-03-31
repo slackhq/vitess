@@ -20,8 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/txthrottler"
 )
 
 const (
@@ -49,6 +47,10 @@ const (
 	// DirectiveCriticality specifies the criticality of a workload. It should be an integer between 0 and 100, where
 	// 100 is the highest criticality, and 0 is the lowest one.
 	DirectiveCriticality = "CRITICALITY"
+
+	// MaxCriticalityValue specifies the maximum value allowed for criticality. Valid criticality values are
+	// between zero and MaxCriticalityValue.
+	MaxCriticalityValue = 100
 )
 
 func isNonSpace(r rune) bool {
@@ -393,7 +395,7 @@ func GetCriticalityFromStatement(statement Statement) string {
 	}
 
 	intCriticality, err := strconv.Atoi(criticality)
-	if err != nil || intCriticality < 0 || intCriticality > txthrottler.MaxTxThrottlerCriticalityValue {
+	if err != nil || intCriticality < 0 || intCriticality > MaxCriticalityValue {
 		return ""
 	}
 
