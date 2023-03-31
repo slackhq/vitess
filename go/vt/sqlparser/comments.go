@@ -383,7 +383,5 @@ func GetWorkloadNameFromStatement(statement Statement) string {
 	}
 
 	directives := commentedStatement.GetParsedComments().Directives()
-	workloadName, _ := directives.GetString(DirectiveWorkloadName, "")
-
-	return workloadName
+	return directives.GetString(DirectiveWorkloadName, "")
 }

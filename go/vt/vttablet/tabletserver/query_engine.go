@@ -240,7 +240,6 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	qe.queryRowsAffected = env.Exporter().NewCountersWithMultiLabels("QueryRowsAffected", "query rows affected", labels)
 	qe.queryRowsReturned = env.Exporter().NewCountersWithMultiLabels("QueryRowsReturned", "query rows returned", labels)
 	qe.queryErrorCounts = env.Exporter().NewCountersWithMultiLabels("QueryErrorCounts", "query error counts", labels)
-	qe.queryErrorCountsWithCode = env.Exporter().NewCountersWithMultiLabels("QueryErrorCountsWithCode", "query error counts with error code", []string{"Table", "Plan", "Code"})
 
 	env.Exporter().HandleFunc("/debug/hotrows", qe.txSerializer.ServeHTTP)
 	env.Exporter().HandleFunc("/debug/tablet_plans", qe.handleHTTPQueryPlans)
