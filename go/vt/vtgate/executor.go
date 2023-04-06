@@ -975,7 +975,7 @@ func (e *Executor) getPlan(vcursor *vcursorImpl, sql string, comments sqlparser.
 	vcursor.SetIgnoreMaxMemoryRows(ignoreMaxMemoryRows)
 	criticality, err := sqlparser.GetCriticalityFromStatement(stmt)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	vcursor.SetCriticality(criticality)
 	vcursor.SetWorkloadName(sqlparser.GetWorkloadNameFromStatement(stmt))
