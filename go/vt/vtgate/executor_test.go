@@ -1811,7 +1811,6 @@ func TestGetPlanNormalized(t *testing.T) {
 }
 
 func TestGetPlanCriticalityCriticality(t *testing.T) {
-
 	testCases := []struct {
 		name                string
 		sql                 string
@@ -1829,15 +1828,15 @@ func TestGetPlanCriticalityCriticality(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			r, _, _, _ := createExecutorEnv()
 			r.normalize = true
-			logStats := logstats.NewLogStats(ctx, "Test", "", "", nil)
-			vCursor, err := newVCursorImpl(NewSafeSession(&vtgatepb.Session{TargetString: "@unknown", Options: &querypb.ExecuteOptions{}}), makeComments(""), r, nil, r.vm, r.VSchema(), r.resolver.resolver, nil, false, pv)
+			logStats := NewLogStats(ctx, "Test", "", nil)
+			vCursor, err := newVCursorImpl(context.Background(), NewSafeSession(&vtgatepb.Session{TargetString: "@unknown", Options: &querypb.ExecuteOptions{}}), makeComments(""), r, nil, r.vm, r.VSchema(), r.resolver.resolver, nil, false, pv)
 			assert.NoError(t, err)
 
 			stmt1, err := sqlparser.Parse(testCase.sql)
 			assert.NoError(t, err)
 			crticalityFromStatement, _ := sqlparser.GetCriticalityFromStatement(stmt1)
 
-			_, _, err = r.getPlan(context.Background(), vCursor, testCase.sql, makeComments("/* some comment */"), map[string]*querypb.BindVariable{}, &SafeSession{Session: &vtgatepb.Session{Options: &querypb.ExecuteOptions{}}}, logStats)
+			_, err = r.getPlan(vCursor, testCase.sql, makeComments("/* some comment */"), map[string]*querypb.BindVariable{}, &SafeSession{Session: &vtgatepb.Session{Options: &querypb.ExecuteOptions{}}}, logStats)
 			if testCase.expectedError != nil {
 				assert.ErrorIs(t, err, testCase.expectedError)
 			} else {
