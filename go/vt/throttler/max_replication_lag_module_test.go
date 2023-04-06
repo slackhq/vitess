@@ -113,16 +113,16 @@ func TestNewMaxReplicationLagModule_recalculateRate(t *testing.T) {
 		{
 			name: "Zero lag",
 			lagRecord: replicationLagRecord{
-				time:         time.Time{},
-				TabletHealth: discovery.TabletHealth{Stats: nil},
+				time:              time.Time{},
+				LegacyTabletStats: discovery.LegacyTabletStats{Stats: nil},
 			},
 			expectPanic: true,
 		},
 		{
 			name: "nil lag record stats",
 			lagRecord: replicationLagRecord{
-				time:         time.Now(),
-				TabletHealth: discovery.TabletHealth{Stats: nil},
+				time:              time.Now(),
+				LegacyTabletStats: discovery.LegacyTabletStats{Stats: nil},
 			},
 			expectPanic: false,
 		},
