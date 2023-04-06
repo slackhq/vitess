@@ -59,7 +59,6 @@ type QueryExecutor struct {
 	logStats       *tabletenv.LogStats
 	tsv            *TabletServer
 	tabletType     topodatapb.TabletType
-	workload       string
 }
 
 const streamRowsSize = 256
