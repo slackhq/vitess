@@ -744,7 +744,8 @@ func reshardCustomer2to4Split(t *testing.T, cells []*Cell, sourceCellOrAlias str
 	t.Run("reshardCustomer2to4Split", func(t *testing.T) {
 		ksName := "customer"
 		counts := map[string]int{"zone1-600": 4, "zone1-700": 5, "zone1-800": 6, "zone1-900": 5}
-		reshard(t, ksName, "customer", "c2c4", "-80,80-", "-40,40-80,80-c0,c0-", 600, counts, nil, cells, sourceCellOrAlias)
+		reshard(t, ksName, "customer", "c2c4", "-80,80-", "-40,40-80,80-c0,c0-",
+			600, counts, nil, nil, cells, sourceCellOrAlias, 1)
 		waitForRowCount(t, vtgateConn, ksName, "customer", 20)
 		query := "insert into customer (name) values('yoko')"
 		execVtgateQuery(t, vtgateConn, ksName, query)
@@ -756,7 +757,8 @@ func reshardMerchant2to3SplitMerge(t *testing.T) {
 	t.Run("reshardMerchant2to3SplitMerge", func(t *testing.T) {
 		ksName := merchantKeyspace
 		counts := map[string]int{"zone1-1600": 0, "zone1-1700": 2, "zone1-1800": 0}
-		reshard(t, ksName, "merchant", "m2m3", "-80,80-", "-40,40-c0,c0-", 1600, counts, dryRunResultsSwitchWritesM2m3, nil, "")
+		reshard(t, ksName, "merchant", "m2m3", "-80,80-", "-40,40-c0,c0-",
+			1600, counts, dryRunResultsSwitchReadM2m3, dryRunResultsSwitchWritesM2m3, nil, "", 1)
 		waitForRowCount(t, vtgateConn, ksName, "merchant", 2)
 		query := "insert into merchant (mname, category) values('amazon', 'electronics')"
 		execVtgateQuery(t, vtgateConn, ksName, query)
@@ -802,7 +804,8 @@ func reshardMerchant3to1Merge(t *testing.T) {
 	t.Run("reshardMerchant3to1Merge", func(t *testing.T) {
 		ksName := merchantKeyspace
 		counts := map[string]int{"zone1-2000": 3}
-		reshard(t, ksName, "merchant", "m3m1", "-40,40-c0,c0-", "0", 2000, counts, nil, nil, "")
+		reshard(t, ksName, "merchant", "m3m1", "-40,40-c0,c0-", "0",
+			2000, counts, nil, nil, nil, "", 1)
 		waitForRowCount(t, vtgateConn, ksName, "merchant", 3)
 		query := "insert into merchant (mname, category) values('flipkart', 'electronics')"
 		execVtgateQuery(t, vtgateConn, ksName, query)
@@ -814,7 +817,8 @@ func reshardCustomer3to2SplitMerge(t *testing.T) { //-40,40-80,80-c0 => merge/sp
 	t.Run("reshardCustomer3to2SplitMerge", func(t *testing.T) {
 		ksName := "customer"
 		counts := map[string]int{"zone1-1000": 8, "zone1-1100": 8, "zone1-1200": 5}
-		reshard(t, ksName, "customer", "c4c3", "-40,40-80,80-c0", "-60,60-c0", 1000, counts, nil, nil, "")
+		reshard(t, ksName, "customer", "c4c3", "-40,40-80,80-c0", "-60,60-c0",
+			1000, counts, nil, nil, nil, "", 1)
 	})
 }
 
@@ -822,11 +826,14 @@ func reshardCustomer3to1Merge(t *testing.T) { //to unsharded
 	t.Run("reshardCustomer3to1Merge", func(t *testing.T) {
 		ksName := "customer"
 		counts := map[string]int{"zone1-1500": 21}
-		reshard(t, ksName, "customer", "c3c1", "-60,60-c0,c0-", "0", 1500, counts, nil, nil, "")
+		reshard(t, ksName, "customer", "c3c1", "-60,60-c0,c0-", "0",
+			1500, counts, nil, nil, nil, "", 3)
 	})
 }
 
-func reshard(t *testing.T, ksName string, tableName string, workflow string, sourceShards string, targetShards string, tabletIDBase int, counts map[string]int, dryRunResultSwitchWrites []string, cells []*Cell, sourceCellOrAlias string) {
+func reshard(t *testing.T, ksName string, tableName string, workflow string, sourceShards string, targetShards string,
+	tabletIDBase int, counts map[string]int, dryRunResultSwitchReads, dryRunResultSwitchWrites []string, cells []*Cell, sourceCellOrAlias string,
+	autoIncrementStep int) {
 	t.Run("reshard", func(t *testing.T) {
 		if cells == nil {
 			cells = []*Cell{defaultCell}
@@ -859,7 +866,10 @@ func reshard(t *testing.T, ksName string, tableName string, workflow string, sou
 			}
 		}
 		vdiff1(t, ksWorkflow, "")
-		switchReads(t, allCellNames, ksWorkflow)
+		if dryRunResultSwitchReads != nil {
+			switchReadsDryRun(t, workflowType, allCellNames, ksWorkflow, dryRunResultSwitchReads)
+		}
+		switchReads(t, workflowType, allCellNames, ksWorkflow, false)
 		if dryRunResultSwitchWrites != nil {
 			switchWritesDryRun(t, ksWorkflow, dryRunResultSwitchWrites)
 		}
@@ -1193,10 +1203,18 @@ func applyVSchema(t *testing.T, vschema, keyspace string) {
 	require.NoError(t, err)
 }
 
-func switchReadsDryRun(t *testing.T, cells, ksWorkflow string, dryRunResults []string) {
-	output, err := vc.VtctlClient.ExecuteCommandWithOutput("SwitchReads", "--", "--cells="+cells, "--tablet_types=replica", "--dry_run", ksWorkflow)
-	require.NoError(t, err, fmt.Sprintf("SwitchReads DryRun Error: %s: %s", err, output))
-	validateDryRunResults(t, output, dryRunResults)
+func switchReadsDryRun(t *testing.T, workflowType, cells, ksWorkflow string, dryRunResults []string) {
+	if workflowType != binlogdatapb.VReplicationWorkflowType_name[int32(binlogdatapb.VReplicationWorkflowType_MoveTables)] &&
+		workflowType != binlogdatapb.VReplicationWorkflowType_name[int32(binlogdatapb.VReplicationWorkflowType_Reshard)] {
+		require.FailNowf(t, "Invalid workflow type for SwitchTraffic, must be MoveTables or Reshard",
+			"workflow type specified: %s", workflowType)
+	}
+	output, err := vc.VtctlClient.ExecuteCommandWithOutput(workflowType, "--", "--cells="+cells, "--tablet_types=rdonly,replica",
+		"--dry_run", "SwitchTraffic", ksWorkflow)
+	require.NoError(t, err, fmt.Sprintf("Switching Reads DryRun Error: %s: %s", err, output))
+	if dryRunResults != nil {
+		validateDryRunResults(t, output, dryRunResults)
+	}
 }
 
 func switchReads(t *testing.T, cells, ksWorkflow string) {
