@@ -162,7 +162,7 @@ Usage of vtgate:
   --mutex-profile-fraction int
 	deprecated: use '-pprof=mutex' instead
   --mysql-server-pool-conn-read-buffers
-  If set, the server will pool incoming connection read buffers
+	If set, the server will pool incoming connection read buffers
   --mysql_allow_clear_text_without_tls
 	If set, the server will allow the use of a clear text password over non-SSL connections.
   --mysql_auth_server_impl string
