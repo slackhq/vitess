@@ -49,7 +49,8 @@ var (
 	bufferImplementation = flag.String("buffer_implementation", "keyspace_events", "Allowed values: healthcheck (legacy implementation), keyspace_events (default)")
 	initialTabletTimeout = flag.Duration("gateway_initial_tablet_timeout", 30*time.Second, "At startup, the tabletGateway will wait up to this duration to get at least one tablet per keyspace/shard/tablet type")
 	// retryCount is the number of times a query will be retried on error
-	retryCount = flag.Int("retry-count", 2, "retry count")
+	retryCount           = flag.Int("retry-count", 2, "retry count")
+	routeReplicaToRdonly = flag.Bool("gateway_route_replica_to_rdonly", false, "route REPLICA queries to RDONLY tablets as well as REPLICA tablets")
 )
 
 // TabletGateway implements the Gateway interface.
