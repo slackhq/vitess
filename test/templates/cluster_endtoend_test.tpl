@@ -8,7 +8,7 @@ concurrency:
 env:
   # This is used if we need to pin the xtrabackup version used in tests.
   # If this is NOT set then the latest version available will be used.
-  XTRABACKUP_VERSION: "2.4.24-1"
+  #XTRABACKUP_VERSION: "2.4.24-1"
 {{end}}
 
 jobs:
