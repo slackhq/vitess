@@ -124,6 +124,12 @@ require github.com/bndr/gotabulate v1.1.2
 require github.com/slok/noglog v0.2.0
 
 require (
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.23.0 // indirect
+)
+
+require (
 	cloud.google.com/go v0.81.0 // indirect
 	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/GeertJohan/go.incremental v1.0.0 // indirect
@@ -180,9 +186,6 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.0.1 // indirect
 	go.opencensus.io v0.23.0 // indirect
-	go.uber.org/atomic v1.11.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
