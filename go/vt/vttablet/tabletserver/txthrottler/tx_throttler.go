@@ -238,7 +238,7 @@ func (t *TxThrottler) Open() (err error) {
 	}
 	log.Info("TxThrottler: opening")
 	t.throttlerRunning.Set(1)
-	t.state, err = newTxThrottlerState(t.config, t.target.Keyspace, t.target.Shard, t.target.Cell)
+	t.state, err = newTxThrottlerState(t.config, t.target.Keyspace, t.target.Shard)
 	return err
 }
 
@@ -278,7 +278,7 @@ func (t *TxThrottler) Throttle(priority int) (result bool) {
 	return result
 }
 
-func newTxThrottlerState(config *txThrottlerConfig, keyspace, shard, cell string,
+func newTxThrottlerState(config *txThrottlerConfig, keyspace, shard string,
 ) (*txThrottlerState, error) {
 	t, err := throttlerFactory(
 		TxThrottlerName,
