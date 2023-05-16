@@ -29,7 +29,13 @@ import (
 	"vitess.io/vitess/go/streamlog"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
+
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/throttler"
+	"vitess.io/vitess/go/vt/topo/topoproto"
+	"vitess.io/vitess/go/vt/vterrors"
 )
 
 // These constants represent values for various config parameters.
@@ -81,6 +87,7 @@ var (
 	unhealthyThreshold           time.Duration
 	transitionGracePeriod        time.Duration
 	enableReplicationReporter    bool
+	txThrottlerTabletTypes       string
 )
 
 func init() {
@@ -135,6 +142,7 @@ func init() {
 	flagutil.DualFormatStringVar(&currentConfig.TxThrottlerConfig, "tx_throttler_config", defaultConfig.TxThrottlerConfig, "The configuration of the transaction throttler as a text formatted throttlerdata.Configuration protocol buffer message")
 	flagutil.DualFormatStringListVar(&currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
 	flag.IntVar(&currentConfig.TxThrottlerDefaultPriority, "tx-throttler-default-priority", defaultConfig.TxThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information.")
+	flag.StringVar(&txThrottlerTabletTypes, "tx-throttler-tablet-types", "replica", "A comma-separated list of tablet types. Only tablets of this type are monitored for replication lag by the transaction throttler. Supported types are replica and/or rdonly.")
 
 	flag.BoolVar(&enableHotRowProtection, "enable_hot_row_protection", false, "If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.")
 	flag.BoolVar(&enableHotRowProtectionDryRun, "enable_hot_row_protection_dry_run", false, "If true, hot row protection is not enforced but logs if transactions would have been queued.")
@@ -241,6 +249,13 @@ func Init() {
 	if *txLogHandler != "" {
 		TxLogger.ServeLogs(*txLogHandler, streamlog.GetFormatter(TxLogger))
 	}
+
+	if txThrottlerTabletTypes != "" {
+		var err error
+		if currentConfig.TxThrottlerTabletTypes, err = topoproto.ParseTabletTypes(txThrottlerTabletTypes); err != nil {
+			log.Exit("Invalid -tx-throttler-tablet-types provided")
+		}
+	}
 }
 
 // TabletConfig contains all the configuration for query service
@@ -289,10 +304,11 @@ type TabletConfig struct {
 	TwoPCCoordinatorAddress string  `json:"-"`
 	TwoPCAbandonAge         Seconds `json:"-"`
 
-	EnableTxThrottler           bool     `json:"-"`
-	TxThrottlerConfig           string   `json:"-"`
-	TxThrottlerHealthCheckCells []string `json:"-"`
-	TxThrottlerDefaultPriority  int      `json:"-"`
+	EnableTxThrottler           bool                    `json:"-"`
+	TxThrottlerConfig           string                  `json:"-"`
+	TxThrottlerHealthCheckCells []string                `json:"-"`
+	TxThrottlerDefaultPriority  int                     `json:"-"`
+	TxThrottlerTabletTypes      []topodatapb.TabletType `json:"-"`
 
 	EnableLagThrottler bool `json:"-"`
 
@@ -397,6 +413,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTransactionLimitConfig(); err != nil {
 		return err
 	}
+	if err := c.verifyTxThrottlerConfig(); err != nil {
+		return err
+	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("-hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
 	}
@@ -438,6 +457,22 @@ func (c *TabletConfig) verifyTransactionLimitConfig() error {
 	}
 	if limit := int(c.TransactionLimitPerUser * float64(c.TxPool.Size)); limit == 0 {
 		return fmt.Errorf("effective transaction limit per user is 0 due to rounding, increase -transaction_limit_per_user")
+	}
+	return nil
+}
+
+// verifyTxThrottlerConfig checks the TxThrottler related config for sanity.
+func (c *TabletConfig) verifyTxThrottlerConfig() error {
+	if c.TxThrottlerTabletTypes == nil || len(c.TxThrottlerTabletTypes) == 0 {
+		return vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION, "--tx-throttler-tablet-types must be defined when transaction throttler is enabled")
+	}
+	for _, tabletType := range c.TxThrottlerTabletTypes {
+		switch tabletType {
+		case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
+			continue
+		default:
+			return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unsupported tablet type %q", tabletType)
+		}
 	}
 	return nil
 }
@@ -505,7 +540,8 @@ var defaultConfig = TabletConfig{
 	EnableTxThrottler:           false,
 	TxThrottlerConfig:           defaultTxThrottlerConfig(),
 	TxThrottlerHealthCheckCells: []string{},
-	TxThrottlerDefaultPriority:  0, // This leads to all queries being candidates to throttle
+	TxThrottlerDefaultPriority:  sqlparser.MaxPriorityValue, // This leads to all queries being candidates to throttle
+	TxThrottlerTabletTypes:      []topodatapb.TabletType{},
 
 	EnableLagThrottler: false, // Feature flag; to switch to 'true' at some stage in the future
 
