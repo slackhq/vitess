@@ -30,6 +30,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 
+	"vitess.io/vitess/go/vt/proto/topodata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/sqlparser"
@@ -251,10 +252,13 @@ func Init() {
 	}
 
 	if txThrottlerTabletTypes != "" {
-		var err error
-		if currentConfig.TxThrottlerTabletTypes, err = topoproto.ParseTabletTypes(txThrottlerTabletTypes); err != nil {
+		tabletTypes, err := topoproto.ParseTabletTypes(txThrottlerTabletTypes)
+		if err != nil {
 			log.Exit("Invalid -tx-throttler-tablet-types provided")
 		}
+		currentConfig.TxThrottlerTabletTypes = tabletTypes
+	} else {
+		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{topodata.TabletType_REPLICA}
 	}
 }
 
@@ -541,7 +545,7 @@ var defaultConfig = TabletConfig{
 	TxThrottlerConfig:           defaultTxThrottlerConfig(),
 	TxThrottlerHealthCheckCells: []string{},
 	TxThrottlerDefaultPriority:  sqlparser.MaxPriorityValue, // This leads to all queries being candidates to throttle
-	TxThrottlerTabletTypes:      []topodatapb.TabletType{},
+	TxThrottlerTabletTypes:      []topodatapb.TabletType{topodatapb.TabletType_REPLICA},
 
 	EnableLagThrottler: false, // Feature flag; to switch to 'true' at some stage in the future
 

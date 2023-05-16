@@ -29,7 +29,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
-	"vitess.io/vitess/go/vt/topo/topoproto"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/yaml2"
 )
@@ -227,7 +227,9 @@ func TestFlags(t *testing.T) {
 		MessagePostponeParallelism:              4,
 		CacheResultFields:                       true,
 		TxThrottlerConfig:                       "target_replication_lag_sec: 2\nmax_replication_lag_sec: 10\ninitial_rate: 100\nmax_increase: 1\nemergency_decrease: 0.5\nmin_duration_between_increases_sec: 40\nmax_duration_between_increases_sec: 62\nmin_duration_between_decreases_sec: 20\nspread_backlog_across_sec: 20\nage_bad_rate_after_sec: 180\nbad_rate_increase: 0.1\nmax_rate_approach_threshold: 0.9\n",
+		TxThrottlerDefaultPriority:              sqlparser.MaxPriorityValue,
 		TxThrottlerHealthCheckCells:             []string{},
+		TxThrottlerTabletTypes:                  []topodatapb.TabletType{topodatapb.TabletType_REPLICA},
 		TransactionLimitConfig: TransactionLimitConfig{
 			TransactionLimitPerUser:     0.4,
 			TransactionLimitByUsername:  true,
@@ -375,7 +377,7 @@ func TestVerifyTxThrottlerConfig(t *testing.T) {
 	}
 	{
 		// replica + rdonly (allowed)
-		currentConfig.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{
+		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{
 			topodatapb.TabletType_REPLICA,
 			topodatapb.TabletType_RDONLY,
 		}
@@ -383,14 +385,14 @@ func TestVerifyTxThrottlerConfig(t *testing.T) {
 	}
 	{
 		// no tablet types
-		currentConfig.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{}
+		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{}
 		err := currentConfig.verifyTxThrottlerConfig()
 		assert.NotNil(t, err)
 		assert.Equal(t, vtrpcpb.Code_FAILED_PRECONDITION, vterrors.Code(err))
 	}
 	{
 		// disallowed tablet type
-		currentConfig.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_DRAINED}
+		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{topodatapb.TabletType_DRAINED}
 		err := currentConfig.verifyTxThrottlerConfig()
 		assert.NotNil(t, err)
 		assert.Equal(t, vtrpcpb.Code_INVALID_ARGUMENT, vterrors.Code(err))
