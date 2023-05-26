@@ -372,14 +372,18 @@ func (r *RestartableResultReader) generateQuery() {
 // Examples:
 // one column:    a > 1
 // two columns:   a>=1 AND (a,b) > (1,2)
-//   (Input for that would be: columns{"a", "b"}, row{1, 2}.)
+//
+//	(Input for that would be: columns{"a", "b"}, row{1, 2}.)
+//
 // three columns: a>=1 AND (a,b,c) > (1,2,3)
 //
 // Note that we are using the short-form for row comparisons. This is defined
 // by MySQL. See: http://dev.mysql.com/doc/refman/5.5/en/comparison-operators.html
 // <quote>
-//   For row comparisons, (a, b) < (x, y) is equivalent to:
-//   (a < x) OR ((a = x) AND (b < y))
+//
+//	For row comparisons, (a, b) < (x, y) is equivalent to:
+//	(a < x) OR ((a = x) AND (b < y))
+//
 // </quote>
 //
 // NOTE: If there is more than one column, we add an extra clause for the

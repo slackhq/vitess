@@ -327,7 +327,7 @@ func setupShardLegacy(ctx context.Context, t *testing.T, clusterInstance *cluste
 
 //endregion
 
-//region database queries
+// region database queries
 func getMysqlConnParam(tablet *cluster.Vttablet) mysql.ConnParams {
 	connParams := mysql.ConnParams{
 		Uname:      username,
