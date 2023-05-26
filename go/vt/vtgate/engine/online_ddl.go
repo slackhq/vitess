@@ -123,7 +123,7 @@ func (v *OnlineDDL) TryStreamExecute(vcursor VCursor, bindVars map[string]*query
 	return callback(results)
 }
 
-//GetFields implements the Primitive interface
+// GetFields implements the Primitive interface
 func (v *OnlineDDL) GetFields(vcursor VCursor, bindVars map[string]*query.BindVariable) (*sqltypes.Result, error) {
 	return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "[BUG] GetFields is not reachable")
 }

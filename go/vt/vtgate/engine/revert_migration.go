@@ -32,7 +32,7 @@ import (
 
 var _ Primitive = (*RevertMigration)(nil)
 
-//RevertMigration represents the instructions to perform an online schema change via vtctld
+// RevertMigration represents the instructions to perform an online schema change via vtctld
 type RevertMigration struct {
 	Keyspace          *vindexes.Keyspace
 	Stmt              *sqlparser.RevertMigration
@@ -125,7 +125,7 @@ func (v *RevertMigration) TryStreamExecute(vcursor VCursor, bindVars map[string]
 	return callback(results)
 }
 
-//GetFields implements the Primitive interface
+// GetFields implements the Primitive interface
 func (v *RevertMigration) GetFields(vcursor VCursor, bindVars map[string]*query.BindVariable) (*sqltypes.Result, error) {
 	return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "[BUG] GetFields is not reachable")
 }

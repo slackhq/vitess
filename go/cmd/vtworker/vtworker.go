@@ -18,9 +18,9 @@ limitations under the License.
 vtworker is the main program to run a worker job.
 
 It has two modes: single command or interactive.
-- in single command, it will start the job passed in from the command line,
-  and exit.
-- in interactive mode, use a web browser to start an action.
+  - in single command, it will start the job passed in from the command line,
+    and exit.
+  - in interactive mode, use a web browser to start an action.
 */
 package main
 

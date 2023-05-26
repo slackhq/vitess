@@ -77,7 +77,7 @@ const (
 	promoteQuery               = "STOP SLAVE;RESET SLAVE ALL;SET GLOBAL read_only = OFF;"
 )
 
-//threadParams is set of params passed into read and write threads
+// threadParams is set of params passed into read and write threads
 type threadParams struct {
 	writable                   bool
 	quit                       bool

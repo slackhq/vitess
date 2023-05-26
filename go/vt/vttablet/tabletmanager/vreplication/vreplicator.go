@@ -96,20 +96,21 @@ type vreplicator struct {
 // The Filter can be empty: get all rows and columns.
 // The Filter can be a keyrange, like "-80": get all rows that are within the keyrange.
 // The Filter can be a select expression. Examples.
-//   "select * from t", same as an empty Filter,
-//   "select * from t where in_keyrange('-80')", same as "-80",
-//   "select * from t where in_keyrange(col1, 'hash', '-80')",
-//   "select col1, col2 from t where...",
-//   "select col1, keyspace_id() as ksid from t where...",
-//   "select id, count(*), sum(price) from t group by id",
-//   "select * from t where customer_id=1 and val = 'newton'".
-//   Only "in_keyrange" expressions, integer and string comparisons are supported in the where clause.
-//   The select expressions can be any valid non-aggregate expressions,
-//   or count(*), or sum(col).
-//   If the target column name does not match the source expression, an
-//   alias like "a+b as targetcol" must be used.
-//   More advanced constructs can be used. Please see the table plan builder
-//   documentation for more info.
+//
+//	"select * from t", same as an empty Filter,
+//	"select * from t where in_keyrange('-80')", same as "-80",
+//	"select * from t where in_keyrange(col1, 'hash', '-80')",
+//	"select col1, col2 from t where...",
+//	"select col1, keyspace_id() as ksid from t where...",
+//	"select id, count(*), sum(price) from t group by id",
+//	"select * from t where customer_id=1 and val = 'newton'".
+//	Only "in_keyrange" expressions, integer and string comparisons are supported in the where clause.
+//	The select expressions can be any valid non-aggregate expressions,
+//	or count(*), or sum(col).
+//	If the target column name does not match the source expression, an
+//	alias like "a+b as targetcol" must be used.
+//	More advanced constructs can be used. Please see the table plan builder
+//	documentation for more info.
 func newVReplicator(id uint32, source *binlogdatapb.BinlogSource, sourceVStreamer VStreamerClient, stats *binlogplayer.Stats, dbClient binlogplayer.DBClient, mysqld mysqlctl.MysqlDaemon, vre *Engine) *vreplicator {
 	if *vreplicationHeartbeatUpdateInterval > vreplicationMinimumHeartbeatUpdateInterval {
 		log.Warningf("the supplied value for vreplication_heartbeat_update_interval:%d seconds is larger than the maximum allowed:%d seconds, vreplication will fallback to %d",

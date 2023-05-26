@@ -184,8 +184,8 @@ func (exec *TabletExecutor) isOnlineSchemaDDL(stmt sqlparser.Statement) (isOnlin
 
 // a schema change that satisfies any following condition is considered
 // to be a big schema change and will be rejected.
-//   1. Alter more than 100,000 rows.
-//   2. Change a table with more than 2,000,000 rows (Drops are fine).
+//  1. Alter more than 100,000 rows.
+//  2. Change a table with more than 2,000,000 rows (Drops are fine).
 func (exec *TabletExecutor) detectBigSchemaChanges(ctx context.Context, parsedDDLs []sqlparser.DDLStatement) (bool, error) {
 	// exec.tablets is guaranteed to have at least one element;
 	// Otherwise, Open should fail and executor should fail.

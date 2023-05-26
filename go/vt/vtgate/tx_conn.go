@@ -228,7 +228,7 @@ func (txc *TxConn) Rollback(ctx context.Context, session *SafeSession) error {
 	return err
 }
 
-//Release releases the reserved connection and/or rollbacks the transaction
+// Release releases the reserved connection and/or rollbacks the transaction
 func (txc *TxConn) Release(ctx context.Context, session *SafeSession) error {
 	if !session.InTransaction() && !session.InReservedConn() {
 		return nil
@@ -256,7 +256,7 @@ func (txc *TxConn) Release(ctx context.Context, session *SafeSession) error {
 	})
 }
 
-//ReleaseLock releases the reserved connection used for locking.
+// ReleaseLock releases the reserved connection used for locking.
 func (txc *TxConn) ReleaseLock(ctx context.Context, session *SafeSession) error {
 	if !session.InLockSession() {
 		return nil
@@ -280,7 +280,7 @@ func (txc *TxConn) ReleaseLock(ctx context.Context, session *SafeSession) error 
 
 }
 
-//ReleaseAll releases all the shard sessions and lock session.
+// ReleaseAll releases all the shard sessions and lock session.
 func (txc *TxConn) ReleaseAll(ctx context.Context, session *SafeSession) error {
 	if !session.InTransaction() && !session.InReservedConn() && !session.InLockSession() {
 		return nil

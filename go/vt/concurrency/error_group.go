@@ -23,28 +23,28 @@ import "context"
 //
 // It should be used as follows:
 //
-//		errCh := make(chan error)
-//		errgroupCtx, errgroupCancel := context.WithCancel(ctx)
+//	errCh := make(chan error)
+//	errgroupCtx, errgroupCancel := context.WithCancel(ctx)
 //
-//		for _, arg := range args {
-//			arg := arg
+//	for _, arg := range args {
+//		arg := arg
 //
-//			go func() {
-//				err := doWork(errGroupCtx, arg)
-//				errCh <- err
-//			}()
-//		}
+//		go func() {
+//			err := doWork(errGroupCtx, arg)
+//			errCh <- err
+//		}()
+//	}
 //
-//		errgroup := concurrency.ErrorGroup{
-//			NumGoroutines: len(args),
-//			NumRequiredSuccess: 5, // need at least 5 to respond with nil error before cancelling the rest
-//			NumAllowedErrors: 1, // if more than 1 responds with non-nil error, cancel the rest
-//		}
-//		errRec := errgroup.Wait(errgroupCancel, errCh)
+//	errgroup := concurrency.ErrorGroup{
+//		NumGoroutines: len(args),
+//		NumRequiredSuccess: 5, // need at least 5 to respond with nil error before cancelling the rest
+//		NumAllowedErrors: 1, // if more than 1 responds with non-nil error, cancel the rest
+//	}
+//	errRec := errgroup.Wait(errgroupCancel, errCh)
 //
-//		if errRec.HasErrors() {
-//			// ...
-//		}
+//	if errRec.HasErrors() {
+//		// ...
+//	}
 type ErrorGroup struct {
 	NumGoroutines        int
 	NumRequiredSuccesses int

@@ -609,8 +609,8 @@ func (ins *Insert) processUnowned(vcursor VCursor, vindexColumnsKeys [][]sqltype
 	return nil
 }
 
-//InsertVarName returns a name for the bind var for this column. This method is used by the planner and engine,
-//to make sure they both produce the same names
+// InsertVarName returns a name for the bind var for this column. This method is used by the planner and engine,
+// to make sure they both produce the same names
 func InsertVarName(col sqlparser.ColIdent, rowNum int) string {
 	return fmt.Sprintf("_%s_%d", col.CompliantName(), rowNum)
 }

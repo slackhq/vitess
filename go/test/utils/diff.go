@@ -33,16 +33,18 @@ import (
 // Top declaration:
 //
 // var mustMatch = testutils.MustMatchFn(
-// 	[]interface{}{  // types with unexported fields
-// 		type1{},
-// 		type2{},
-// 		...
-// 		typeN{},
-// 	},
-// 	[]string{  // ignored fields
-// 		".id",        // id numbers are unstable
-// 		".createAt",  // created dates might not be interesting to compare
-// 	},
+//
+//	[]interface{}{  // types with unexported fields
+//		type1{},
+//		type2{},
+//		...
+//		typeN{},
+//	},
+//	[]string{  // ignored fields
+//		".id",        // id numbers are unstable
+//		".createAt",  // created dates might not be interesting to compare
+//	},
+//
 // )
 //
 // In Test*() function:

@@ -25,7 +25,7 @@ import (
 // ErrExprNotSupported signals that the expression cannot be handled by expression evaluation engine.
 var ErrExprNotSupported = fmt.Errorf("Expr Not Supported")
 
-//Convert converts between AST expressions and executable expressions
+// Convert converts between AST expressions and executable expressions
 func Convert(e Expr) (evalengine.Expr, error) {
 	switch node := e.(type) {
 	case Argument:

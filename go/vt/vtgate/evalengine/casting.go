@@ -24,8 +24,8 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 )
 
-//ToBooleanStrict is used when the casting to a boolean has to be minimally forgiving,
-//such as when assigning to a system variable that is expected to be a boolean
+// ToBooleanStrict is used when the casting to a boolean has to be minimally forgiving,
+// such as when assigning to a system variable that is expected to be a boolean
 func (e *EvalResult) ToBooleanStrict() (bool, error) {
 	intToBool := func(i int) (bool, error) {
 		switch i {

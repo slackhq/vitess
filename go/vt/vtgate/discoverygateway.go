@@ -44,7 +44,7 @@ const (
 	GatewayImplementationDiscovery = "discoverygateway"
 )
 
-//UsingLegacyGateway returns true when legacy
+// UsingLegacyGateway returns true when legacy
 func UsingLegacyGateway() bool {
 	return *GatewayImplementation == GatewayImplementationDiscovery
 }
@@ -77,7 +77,7 @@ type DiscoveryGateway struct {
 	buffer *buffer.Buffer
 }
 
-//TabletsCacheStatus is not implemented for this struct
+// TabletsCacheStatus is not implemented for this struct
 func (dg *DiscoveryGateway) TabletsCacheStatus() discovery.TabletsCacheStatusList {
 	return nil
 }

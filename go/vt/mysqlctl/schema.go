@@ -476,7 +476,7 @@ func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, chan
 	return &tabletmanagerdatapb.SchemaChangeResult{BeforeSchema: beforeSchema, AfterSchema: afterSchema}, nil
 }
 
-//tableDefinitions is a sortable collection of table definitions
+// tableDefinitions is a sortable collection of table definitions
 type tableDefinitions []*tabletmanagerdatapb.TableDefinition
 
 func (t tableDefinitions) Len() int {

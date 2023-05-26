@@ -378,12 +378,15 @@ func NewLegacyDefaultHealthCheck() LegacyHealthCheck {
 // NewLegacyHealthCheck creates a new LegacyHealthCheck object.
 // Parameters:
 // retryDelay.
-//   The duration to wait before retrying to connect (e.g. after a failed connection
-//   attempt).
+//
+//	The duration to wait before retrying to connect (e.g. after a failed connection
+//	attempt).
+//
 // healthCheckTimeout.
-//   The duration for which we consider a health check response to be 'fresh'. If we don't get
-//   a health check response from a tablet for more than this duration, we consider the tablet
-//   not healthy.
+//
+//	The duration for which we consider a health check response to be 'fresh'. If we don't get
+//	a health check response from a tablet for more than this duration, we consider the tablet
+//	not healthy.
 func NewLegacyHealthCheck(retryDelay, healthCheckTimeout time.Duration) LegacyHealthCheck {
 	hc := &LegacyHealthCheckImpl{
 		addrToHealth:       make(map[string]*legacyTabletHealth),

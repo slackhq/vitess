@@ -28,15 +28,16 @@ import (
 // only YAML config files are supported.
 //
 // A valid config looks like:
-//		defaults:
-//			discovery: k8s
-//		clusters:
-//			clusterID1:
-//				name: clusterName1
-//				discovery-k8s-some-flag: some-val
-//			clusterID2:
-//				name: clusterName2
-//				discovery: consul
+//
+//	defaults:
+//		discovery: k8s
+//	clusters:
+//		clusterID1:
+//			name: clusterName1
+//			discovery-k8s-some-flag: some-val
+//		clusterID2:
+//			name: clusterName2
+//			discovery: consul
 type FileConfig struct {
 	Defaults Config
 	Clusters map[string]Config

@@ -197,8 +197,8 @@ func orderByParamsToString(i interface{}) string {
 	return i.(OrderByParams).String()
 }
 
-//GenericJoin will iterate over arrays, slices or maps, and executes the f function to get a
-//string representation of each element, and then uses strings.Join() join all the strings into a single one
+// GenericJoin will iterate over arrays, slices or maps, and executes the f function to get a
+// string representation of each element, and then uses strings.Join() join all the strings into a single one
 func GenericJoin(input interface{}, f func(interface{}) string) string {
 	sl := reflect.ValueOf(input)
 	var keys []string

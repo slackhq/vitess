@@ -340,22 +340,22 @@ func (client *QueryClient) Release() error {
 	return nil
 }
 
-//TransactionID returns transactionID
+// TransactionID returns transactionID
 func (client *QueryClient) TransactionID() int64 {
 	return client.transactionID
 }
 
-//ReservedID returns reservedID
+// ReservedID returns reservedID
 func (client *QueryClient) ReservedID() int64 {
 	return client.reservedID
 }
 
-//SetTransactionID does what it says
+// SetTransactionID does what it says
 func (client *QueryClient) SetTransactionID(id int64) {
 	client.transactionID = id
 }
 
-//SetReservedID does what it says
+// SetReservedID does what it says
 func (client *QueryClient) SetReservedID(id int64) {
 	client.reservedID = id
 }

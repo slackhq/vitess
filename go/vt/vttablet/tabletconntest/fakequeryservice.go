@@ -733,12 +733,12 @@ func (f *FakeQueryService) ReserveBeginExecute(ctx context.Context, target *quer
 	panic("implement me")
 }
 
-//ReserveExecute implements the QueryService interface
+// ReserveExecute implements the QueryService interface
 func (f *FakeQueryService) ReserveExecute(ctx context.Context, target *querypb.Target, preQueries []string, sql string, bindVariables map[string]*querypb.BindVariable, transactionID int64, options *querypb.ExecuteOptions) (*sqltypes.Result, int64, *topodatapb.TabletAlias, error) {
 	panic("implement me")
 }
 
-//Release implements the QueryService interface
+// Release implements the QueryService interface
 func (f *FakeQueryService) Release(ctx context.Context, target *querypb.Target, transactionID, reservedID int64) error {
 	panic("implement me")
 }

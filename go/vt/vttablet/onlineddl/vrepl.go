@@ -190,8 +190,10 @@ func sourceUniqueKeyAsOrMoreConstrainedThanTarget(sourceUniqueKey, targetUniqueK
 
 // addedUniqueKeys returns the unique key constraints added in target. This does not necessarily mean that the unique key itself is new,
 // rather that there's a new, stricter constraint on a set of columns, that didn't exist before. Example:
-//   before: unique key `my_key`(c1, c2, c3); after: unique key `my_key`(c1, c2)
-//   The constraint on (c1, c2) is new; and `my_key` in target table ("after") is considered a new key
+//
+//	before: unique key `my_key`(c1, c2, c3); after: unique key `my_key`(c1, c2)
+//	The constraint on (c1, c2) is new; and `my_key` in target table ("after") is considered a new key
+//
 // Order of columns is immaterial to uniqueness of column combination.
 func addedUniqueKeys(sourceUniqueKeys, targetUniqueKeys [](*vrepl.UniqueKey), columnRenameMap map[string]string) (addedUKs [](*vrepl.UniqueKey)) {
 	addedUKs = [](*vrepl.UniqueKey){}

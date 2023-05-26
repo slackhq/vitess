@@ -377,7 +377,7 @@ func (q *query) VStreamResults(request *binlogdatapb.VStreamResultsRequest, stre
 	return vterrors.ToGRPC(err)
 }
 
-//ReserveExecute implements the QueryServer interface
+// ReserveExecute implements the QueryServer interface
 func (q *query) ReserveExecute(ctx context.Context, request *querypb.ReserveExecuteRequest) (response *querypb.ReserveExecuteResponse, err error) {
 	defer q.server.HandlePanic(&err)
 	ctx = callerid.NewContext(callinfo.GRPCCallInfo(ctx),
@@ -403,7 +403,7 @@ func (q *query) ReserveExecute(ctx context.Context, request *querypb.ReserveExec
 	}, nil
 }
 
-//ReserveBeginExecute implements the QueryServer interface
+// ReserveBeginExecute implements the QueryServer interface
 func (q *query) ReserveBeginExecute(ctx context.Context, request *querypb.ReserveBeginExecuteRequest) (response *querypb.ReserveBeginExecuteResponse, err error) {
 	defer q.server.HandlePanic(&err)
 	ctx = callerid.NewContext(callinfo.GRPCCallInfo(ctx),
@@ -431,7 +431,7 @@ func (q *query) ReserveBeginExecute(ctx context.Context, request *querypb.Reserv
 	}, nil
 }
 
-//Release implements the QueryServer interface
+// Release implements the QueryServer interface
 func (q *query) Release(ctx context.Context, request *querypb.ReleaseRequest) (response *querypb.ReleaseResponse, err error) {
 	defer q.server.HandlePanic(&err)
 	ctx = callerid.NewContext(callinfo.GRPCCallInfo(ctx),

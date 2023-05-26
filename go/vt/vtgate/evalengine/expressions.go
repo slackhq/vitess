@@ -72,12 +72,12 @@ type (
 	Division       struct{}
 )
 
-//Value allows for retrieval of the value we expose for public consumption
+// Value allows for retrieval of the value we expose for public consumption
 func (e EvalResult) Value() sqltypes.Value {
 	return e.toSQLValue(e.typ)
 }
 
-//NewLiteralIntFromBytes returns a literal expression
+// NewLiteralIntFromBytes returns a literal expression
 func NewLiteralIntFromBytes(val []byte) (Expr, error) {
 	ival, err := strconv.ParseInt(string(val), 10, 64)
 	if err != nil {
@@ -86,12 +86,12 @@ func NewLiteralIntFromBytes(val []byte) (Expr, error) {
 	return NewLiteralInt(ival), nil
 }
 
-//NewLiteralInt returns a literal expression
+// NewLiteralInt returns a literal expression
 func NewLiteralInt(i int64) Expr {
 	return &Literal{EvalResult{typ: sqltypes.Int64, ival: i}}
 }
 
-//NewLiteralFloat returns a literal expression
+// NewLiteralFloat returns a literal expression
 func NewLiteralFloat(val []byte) (Expr, error) {
 	fval, err := strconv.ParseFloat(string(val), 64)
 	if err != nil {
@@ -100,17 +100,17 @@ func NewLiteralFloat(val []byte) (Expr, error) {
 	return &Literal{EvalResult{typ: sqltypes.Float64, fval: fval}}, nil
 }
 
-//NewLiteralFloat returns a literal expression
+// NewLiteralFloat returns a literal expression
 func NewLiteralString(val []byte) Expr {
 	return &Literal{EvalResult{typ: sqltypes.VarBinary, bytes: val}}
 }
 
-//NewBindVar returns a bind variable
+// NewBindVar returns a bind variable
 func NewBindVar(key string) Expr {
 	return &BindVariable{Key: key}
 }
 
-//NewColumn returns a bind variable
+// NewColumn returns a bind variable
 func NewColumn(offset int) Expr {
 	return &Column{
 		Offset: offset,
@@ -127,7 +127,7 @@ var _ BinaryExpr = (*Subtraction)(nil)
 var _ BinaryExpr = (*Multiplication)(nil)
 var _ BinaryExpr = (*Division)(nil)
 
-//Evaluate implements the Expr interface
+// Evaluate implements the Expr interface
 func (b *BinaryOp) Evaluate(env ExpressionEnv) (EvalResult, error) {
 	lVal, err := b.Left.Evaluate(env)
 	if err != nil {
@@ -140,12 +140,12 @@ func (b *BinaryOp) Evaluate(env ExpressionEnv) (EvalResult, error) {
 	return b.Expr.Evaluate(lVal, rVal)
 }
 
-//Evaluate implements the Expr interface
+// Evaluate implements the Expr interface
 func (l *Literal) Evaluate(ExpressionEnv) (EvalResult, error) {
 	return l.Val, nil
 }
 
-//Evaluate implements the Expr interface
+// Evaluate implements the Expr interface
 func (b *BindVariable) Evaluate(env ExpressionEnv) (EvalResult, error) {
 	val, ok := env.BindVars[b.Key]
 	if !ok {
@@ -154,54 +154,54 @@ func (b *BindVariable) Evaluate(env ExpressionEnv) (EvalResult, error) {
 	return evaluateByType(val)
 }
 
-//Evaluate implements the Expr interface
+// Evaluate implements the Expr interface
 func (c *Column) Evaluate(env ExpressionEnv) (EvalResult, error) {
 	value := env.Row[c.Offset]
 	numeric, err := newEvalResult(value)
 	return numeric, err
 }
 
-//Evaluate implements the BinaryOp interface
+// Evaluate implements the BinaryOp interface
 func (a *Addition) Evaluate(left, right EvalResult) (EvalResult, error) {
 	return addNumericWithError(left, right)
 }
 
-//Evaluate implements the BinaryOp interface
+// Evaluate implements the BinaryOp interface
 func (s *Subtraction) Evaluate(left, right EvalResult) (EvalResult, error) {
 	return subtractNumericWithError(left, right)
 }
 
-//Evaluate implements the BinaryOp interface
+// Evaluate implements the BinaryOp interface
 func (m *Multiplication) Evaluate(left, right EvalResult) (EvalResult, error) {
 	return multiplyNumericWithError(left, right)
 }
 
-//Evaluate implements the BinaryOp interface
+// Evaluate implements the BinaryOp interface
 func (d *Division) Evaluate(left, right EvalResult) (EvalResult, error) {
 	return divideNumericWithError(left, right)
 }
 
-//Type implements the BinaryExpr interface
+// Type implements the BinaryExpr interface
 func (a *Addition) Type(left querypb.Type) querypb.Type {
 	return left
 }
 
-//Type implements the BinaryExpr interface
+// Type implements the BinaryExpr interface
 func (m *Multiplication) Type(left querypb.Type) querypb.Type {
 	return left
 }
 
-//Type implements the BinaryExpr interface
+// Type implements the BinaryExpr interface
 func (d *Division) Type(querypb.Type) querypb.Type {
 	return sqltypes.Float64
 }
 
-//Type implements the BinaryExpr interface
+// Type implements the BinaryExpr interface
 func (s *Subtraction) Type(left querypb.Type) querypb.Type {
 	return left
 }
 
-//Type implements the Expr interface
+// Type implements the Expr interface
 func (b *BinaryOp) Type(env ExpressionEnv) (querypb.Type, error) {
 	ltype, err := b.Left.Type(env)
 	if err != nil {
@@ -215,7 +215,7 @@ func (b *BinaryOp) Type(env ExpressionEnv) (querypb.Type, error) {
 	return b.Expr.Type(typ), nil
 }
 
-//Type implements the Expr interface
+// Type implements the Expr interface
 func (b *BindVariable) Type(env ExpressionEnv) (querypb.Type, error) {
 	e := env.BindVars
 	v, found := e[b.Key]
@@ -225,52 +225,52 @@ func (b *BindVariable) Type(env ExpressionEnv) (querypb.Type, error) {
 	return v.Type, nil
 }
 
-//Type implements the Expr interface
+// Type implements the Expr interface
 func (l *Literal) Type(ExpressionEnv) (querypb.Type, error) {
 	return l.Val.typ, nil
 }
 
-//Type implements the Expr interface
+// Type implements the Expr interface
 func (c *Column) Type(ExpressionEnv) (querypb.Type, error) {
 	return sqltypes.Float64, nil
 }
 
-//String implements the BinaryExpr interface
+// String implements the BinaryExpr interface
 func (d *Division) String() string {
 	return "/"
 }
 
-//String implements the BinaryExpr interface
+// String implements the BinaryExpr interface
 func (m *Multiplication) String() string {
 	return "*"
 }
 
-//String implements the BinaryExpr interface
+// String implements the BinaryExpr interface
 func (s *Subtraction) String() string {
 	return "-"
 }
 
-//String implements the BinaryExpr interface
+// String implements the BinaryExpr interface
 func (a *Addition) String() string {
 	return "+"
 }
 
-//String implements the Expr interface
+// String implements the Expr interface
 func (b *BinaryOp) String() string {
 	return b.Left.String() + " " + b.Expr.String() + " " + b.Right.String()
 }
 
-//String implements the Expr interface
+// String implements the Expr interface
 func (b *BindVariable) String() string {
 	return ":" + b.Key
 }
 
-//String implements the Expr interface
+// String implements the Expr interface
 func (l *Literal) String() string {
 	return l.Val.Value().String()
 }
 
-//String implements the Expr interface
+// String implements the Expr interface
 func (c *Column) String() string {
 	return fmt.Sprintf("column %d from the input", c.Offset)
 }

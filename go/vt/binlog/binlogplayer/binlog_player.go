@@ -471,12 +471,12 @@ func (blp *BinlogPlayer) exec(sql string) (*sqltypes.Result, error) {
 // writeRecoveryPosition writes the current GTID as the recovery position
 // for the next transaction.
 // It also tries to get the timestamp for the transaction. Two cases:
-// - we have statements, and they start with a SET TIMESTAMP that we
-//   can parse: then we update transaction_timestamp in vreplication
-//   with it, and set ReplicationLagSeconds to now() - transaction_timestamp
-// - otherwise (the statements are probably filtered out), we leave
-//   transaction_timestamp alone (keeping the old value), and we don't
-//   change ReplicationLagSeconds
+//   - we have statements, and they start with a SET TIMESTAMP that we
+//     can parse: then we update transaction_timestamp in vreplication
+//     with it, and set ReplicationLagSeconds to now() - transaction_timestamp
+//   - otherwise (the statements are probably filtered out), we leave
+//     transaction_timestamp alone (keeping the old value), and we don't
+//     change ReplicationLagSeconds
 func (blp *BinlogPlayer) writeRecoveryPosition(tx *binlogdatapb.BinlogTransaction) error {
 	position, err := DecodePosition(tx.EventToken.Position)
 	if err != nil {

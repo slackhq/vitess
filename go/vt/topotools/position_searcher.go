@@ -34,20 +34,19 @@ import (
 //
 // A typical usage will look like:
 //
-//		var (
-//			searcher = NewMaxReplicationPositionSearcher(tmc, logger, waitTimeout)
-//			wg sync.WaitGroup
-//		)
-//		for _, tablet := range tablets {
-//			wg.Add(1)
-//			go func(t *topodatapb.Tablet) {
-//				defer wg.Done()
-//				searcher.ProcessTablet(ctx, t)
-//			}(tablet)
-//		}
-//		wg.Wait()
-//		maxPosTablet := searcher.MaxPositionTablet()
-//
+//	var (
+//		searcher = NewMaxReplicationPositionSearcher(tmc, logger, waitTimeout)
+//		wg sync.WaitGroup
+//	)
+//	for _, tablet := range tablets {
+//		wg.Add(1)
+//		go func(t *topodatapb.Tablet) {
+//			defer wg.Done()
+//			searcher.ProcessTablet(ctx, t)
+//		}(tablet)
+//	}
+//	wg.Wait()
+//	maxPosTablet := searcher.MaxPositionTablet()
 type MaxReplicationPositionSearcher struct {
 	tmc         tmclient.TabletManagerClient
 	logger      logutil.Logger

@@ -562,10 +562,10 @@ type (
 )
 
 /*
-	The greedy planner will plan a query by finding first finding the best route plan for every table.
-    Then, iteratively, it finds the cheapest join that can be produced between the remaining plans,
-	and removes the two inputs to this cheapest plan and instead adds the join.
-	As an optimization, it first only considers joining tables that have predicates defined between them
+		The greedy planner will plan a query by finding first finding the best route plan for every table.
+	    Then, iteratively, it finds the cheapest join that can be produced between the remaining plans,
+		and removes the two inputs to this cheapest plan and instead adds the join.
+		As an optimization, it first only considers joining tables that have predicates defined between them
 */
 func greedySolve(ctx *planningContext, qg *abstract.QueryGraph) (queryTree, error) {
 	joinTrees, err := seedPlanList(ctx, qg)
