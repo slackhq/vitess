@@ -9,7 +9,7 @@ require (
 	github.com/Azure/azure-storage-blob-go v0.10.0
 	github.com/Azure/go-autorest/autorest v0.10.0 // indirect
 	github.com/DataDog/datadog-go v2.2.0+incompatible
-	github.com/GeertJohan/go.rice v1.0.0
+	github.com/GeertJohan/go.rice v1.0.3
 	github.com/HdrHistogram/hdrhistogram-go v0.9.0 // indirect
 	github.com/PuerkitoBio/goquery v1.5.1
 	github.com/aquarapid/vaultlib v0.5.1
@@ -140,7 +140,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
-	github.com/daaku/go.zipexe v1.0.0 // indirect
+	github.com/daaku/go.zipexe v1.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
@@ -166,7 +166,7 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
-	github.com/nkovacs/streamquote v0.0.0-20170412213628-49af9bddb229 // indirect
+	github.com/nkovacs/streamquote v1.0.0 // indirect
 	github.com/nozzle/throttler v0.0.0-20180817012639-2ea982251481 // indirect
 	github.com/pelletier/go-toml v1.9.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
