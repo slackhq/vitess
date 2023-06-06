@@ -138,9 +138,9 @@ WARNING
     ln -snf "${protobuf_base}/bin" "${dist}/bin"
     ln -snf "${protobuf_base}/include" "${dist}/include"
   else
-    # This is how we'd download directly from source:
-    # wget https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-$platform-${target}.zip
-    $VTROOT/tools/wget-retry "${VITESS_RESOURCES_DOWNLOAD_URL}/protoc-$version-$platform-${target}.zip"
+  # This is how we'd download directly from source:
+  "${VTROOT}/tools/wget-retry" https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-$platform-${target}.zip
+    # $VTROOT/tools/wget-retry "${VITESS_RESOURCES_DOWNLOAD_URL}/protoc-$version-$platform-${target}.zip"
     unzip "protoc-$version-$platform-${target}.zip"
   fi
 
@@ -291,7 +291,7 @@ install_all() {
   echo "##local system details..."
   echo "##platform: $(uname) target:$(get_arch) OS: $os"
   # protoc
-  protoc_ver=3.19.4
+  protoc_ver=21.3
   install_dep "protoc" "$protoc_ver" "$VTROOT/dist/vt-protoc-$protoc_ver" install_protoc
 
   # zk

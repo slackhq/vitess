@@ -4,12 +4,21 @@ concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'unit_race')
   cancel-in-progress: true
 
+permissions: read-all
+
 jobs:
 
   build:
     name: Unit Test (Race)
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
+    - name: Skip CI
+      run: |
+        if [[ "${{contains( github.event.pull_request.labels.*.name, 'Skip CI')}}" == "true" ]]; then
+          echo "skipping CI due to the 'Skip CI' label"
+          exit 1
+        fi
+
     - name: Check if workflow needs to be skipped
       id: skip-workflow
       run: |
@@ -46,14 +55,14 @@ jobs:
 
     - name: Set up Go
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v4
       with:
         go-version: 1.20.4
 
     - name: Tune the OS
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
       run: |
-        echo '1024 65535' | sudo tee -a /proc/sys/net/ipv4/ip_local_port_range
+        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
 
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
@@ -61,10 +70,10 @@ jobs:
         export DEBIAN_FRONTEND="noninteractive"
         sudo apt-get update
 
-        # mysql57
+        # mysql80
         sudo apt-get install -y mysql-server mysql-client
 
-        sudo apt-get install -y make unzip g++ curl git wget ant openjdk-8-jdk eatmydata
+        sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk eatmydata
         sudo service mysql stop
         sudo bash -c "echo '/usr/sbin/mysqld { }' > /etc/apparmor.d/usr.sbin.mysqld" # https://bugs.launchpad.net/ubuntu/+source/mariadb-10.1/+bug/1806263
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
@@ -84,6 +93,6 @@ jobs:
 
     - name: unit_race
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
-      timeout-minutes: 30
+      timeout-minutes: 45
       run: |
         eatmydata -- make unit_test_race
