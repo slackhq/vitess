@@ -41,6 +41,10 @@ ifndef VTROOT
 export VTROOT=${PWD}
 endif
 
+
+# This is where Go will install binaries in response to `go build`.
+export VTROOTBIN=${VTROOT}/bin
+
 # We now have CGO code in the build which throws warnings with newer gcc builds.
 # See: https://github.com/mattn/go-sqlite3/issues/803
 # Work around by dropping optimization level from default -O2.
