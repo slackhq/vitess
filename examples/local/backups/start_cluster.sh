@@ -31,6 +31,8 @@ fi
 # start vtctld
 CELL=zone1 ./scripts/vtctld-up.sh
 
+# Create keyspace and set the semi_sync durability policy.
+vtctldclient CreateKeyspace --durability-policy=semi_sync commerce || fail "Failed to create and configure the commerce keyspace"
 
 # start vttablets for keyspace commerce
 for i in 100 101 102; do
@@ -39,12 +41,14 @@ for i in 100 101 102; do
 done
 
 # set one of the replicas to primary
-vtctldclient InitShardPrimary --force commerce/0 zone1-100
+vtctldclient PlannedReparentShard commerce/0 --new-primary "zone1-100"
 
 # create the schema for commerce
 vtctlclient ApplySchema -- --sql-file backups/create_commerce_schema.sql commerce
 vtctlclient ApplyVSchema -- --vschema_file ./vschema_commerce_seq.json commerce
 
+# Create keyspace and set the semi_sync durability policy.
+vtctldclient CreateKeyspace --durability-policy=semi_sync customer || fail "Failed to create and configure the customer keyspace"
 
 # start vttablets for keyspace customer
 for i in 200 201 202; do
@@ -57,8 +61,8 @@ for i in 300 301 302; do
 done
 
 # set one of the replicas to primary
-vtctldclient InitShardPrimary --force customer/-80 zone1-200
-vtctldclient InitShardPrimary --force customer/80- zone1-300
+vtctldclient PlannedReparentShard customer/-80 --new-primary "zone1-200"
+vtctldclient PlannedReparentShard customer/80- --new-primary "zone1-300"
 
 # create the schema for customer
 vtctlclient ApplySchema -- --sql-file backups/create_customer_schema.sql customer
