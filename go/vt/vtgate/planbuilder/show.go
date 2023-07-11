@@ -639,7 +639,7 @@ func buildEnginesPlan() (engine.Primitive, error) {
 }
 
 func buildVschemaTablesPlan(show *sqlparser.ShowBasic, vschema plancontext.VSchema) (engine.Primitive, error) {
-	vs := vschema.GetVSchema()
+	vs := vschema.GetSrvVschema()
 	ks, err := vschema.DefaultKeyspace()
 	if err != nil {
 		return nil, err
