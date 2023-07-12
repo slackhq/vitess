@@ -6,7 +6,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: vitess-ci
+    runs-on:
+      group: vitess
 
     steps:
     - name: Check if workflow needs to be skipped
