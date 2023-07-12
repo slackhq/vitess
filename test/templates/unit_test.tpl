@@ -7,7 +7,7 @@ concurrency:
 jobs:
   test:
     runs-on:
-      group: vitess
+      group: vitess-ubuntu22
 
     steps:
     - name: Check if workflow needs to be skipped

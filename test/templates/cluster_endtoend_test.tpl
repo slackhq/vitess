@@ -15,7 +15,7 @@ jobs:
   build:
     name: Run endtoend tests on {{.Name}}
     runs-on:
-      group: vitess
+      group: vitess-ubuntu22
 
     steps:
     - name: Check if workflow needs to be skipped
