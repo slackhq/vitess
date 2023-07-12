@@ -4,7 +4,8 @@ on: [push, pull_request]
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    runs-on: vitess-ci
+    runs-on:
+      group: vitess
 
     steps:
     - name: Check if workflow needs to be skipped
