@@ -6,7 +6,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on:
+      group: vitess-ubuntu22
 
     steps:
       - name: Check out code

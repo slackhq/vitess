@@ -17,7 +17,8 @@ concurrency:
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    {{if .Ubuntu20}}runs-on: ubuntu-20.04{{else}}runs-on: ubuntu-18.04{{end}}
+    runs-on:
+      group: vitess-ubuntu22
 
     steps:
     - name: Set up Go

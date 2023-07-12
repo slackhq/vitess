@@ -7,7 +7,8 @@ concurrency:
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    runs-on: self-hosted
+    runs-on:
+      group: vitess-ubuntu22
 
     steps:
       - name: Check out code

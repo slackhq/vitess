@@ -6,7 +6,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-18.04
+    runs-on:
+      group: vitess-ubuntu22
 
     steps:
     - name: Set up Go
