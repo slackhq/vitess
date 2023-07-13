@@ -10,7 +10,7 @@ jobs:
   build:
     name: Run endtoend tests on Cluster (shardedrecovery_stress_verticalsplit_heavy)
     runs-on:
-      group: vitess-ubuntu22
+      group: vitess-ubuntu20
 
     steps:
     - name: Check if workflow needs to be skipped

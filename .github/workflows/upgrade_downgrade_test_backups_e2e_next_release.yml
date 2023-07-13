@@ -12,7 +12,7 @@ jobs:
     if: always()
     name: Get Latest Release - Backups - E2E - Next Release
     runs-on:
-      group: vitess-ubuntu22
+      group: vitess-ubuntu20
     outputs:
       next_release: ${{ steps.output-next-release-ref.outputs.next_release_ref }}
 
@@ -34,7 +34,7 @@ jobs:
     if: always() && needs.get_next_release.result == 'success'
     name: Run Upgrade Downgrade Test - Backups - E2E - Next Release
     runs-on:
-      group: vitess-ubuntu22
+      group: vitess-ubuntu20
     needs:
       - get_next_release
 
