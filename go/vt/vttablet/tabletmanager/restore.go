@@ -154,6 +154,12 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		return err
 	}
 
+	// If backupTime not specified in restore_from_backup_ts, check to see if the keyspace has a SNAPSHOT time
+	// to restore from (for PITR)
+	if backupTime.IsZero() {
+		backupTime = logutil.ProtoToTime(keyspaceInfo.SnapshotTime)
+	}
+
 	// For a SNAPSHOT keyspace, we have to look for backups of BaseKeyspace
 	// so we will pass the BaseKeyspace in RestoreParams instead of tablet.Keyspace
 	if keyspaceInfo.KeyspaceType == topodatapb.KeyspaceType_SNAPSHOT {
