@@ -195,7 +195,7 @@ func TestUnShardedRecoveryAfterSharding(t *testing.T) {
 	require.NoError(t, err)
 
 	// now bring up the recovery keyspace and a tablet, letting it restore from backup.
-	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS, "0", keyspaceName, commonTabletAr, time.Time{})
+	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS, "0", keyspaceName, commonTabletArg, time.Time{})
 
 	// check the new replica does not have the data
 	cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 2)
