@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,7 @@ var (
 	replica1         *cluster.Vttablet
 	replica2         *cluster.Vttablet
 	replica3         *cluster.Vttablet
+	replica4         *cluster.Vttablet
 	localCluster     *cluster.LocalProcessCluster
 	newInitDBFile    string
 	cell             = cluster.DefaultCell
@@ -193,6 +195,7 @@ func TestRecoveryImpl(t *testing.T) {
 	defer tabletsTeardown()
 	verifyInitialReplication(t)
 
+	// take first backup of value = test1
 	err := localCluster.VtctlclientProcess.ExecuteCommand("Backup", replica1.Alias)
 	assert.NoError(t, err)
 
@@ -200,20 +203,10 @@ func TestRecoveryImpl(t *testing.T) {
 	require.Equal(t, len(backups), 1)
 	assert.Contains(t, backups[0], replica1.Alias)
 
-	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test2')", keyspaceName, true)
-	assert.NoError(t, err)
-	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 2)
+	// restore with latest backup
+	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS1, "0", keyspaceName, commonTabletArg, time.Time{})
 
-	err = localCluster.VtctlclientProcess.ApplyVSchema(keyspaceName, vSchema)
-	assert.NoError(t, err)
-
-	output, err := localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", keyspaceName)
-	assert.NoError(t, err)
-	assert.Contains(t, output, "vt_insert_test")
-
-	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS1, "0", keyspaceName, commonTabletArg)
-
-	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetSrvVSchema", cell)
+	output, err := localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetSrvVSchema", cell)
 	assert.NoError(t, err)
 	assert.Contains(t, output, keyspaceName)
 	assert.Contains(t, output, recoveryKS1)
@@ -227,36 +220,57 @@ func TestRecoveryImpl(t *testing.T) {
 
 	cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 1)
 
+	//verify that restored replica has value = test1
+	qr, err := replica2.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
+	assert.NoError(t, err)
+	assert.Equal(t, "test1", qr.Rows[0][0].ToString())
+
 	cluster.VerifyLocalMetadata(t, replica2, recoveryKS1, shardName, cell)
+
+	// insert new row on primary
+	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test2')", keyspaceName, true)
+	assert.NoError(t, err)
+	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 2)
+
+	err = localCluster.VtctlclientProcess.ApplyVSchema(keyspaceName, vSchema)
+	assert.NoError(t, err)
+
+	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", keyspaceName)
+	assert.NoError(t, err)
+	assert.Contains(t, output, "vt_insert_test")
 
 	// update the original row in primary
 	_, err = primary.VttabletProcess.QueryTablet("update vt_insert_test set msg = 'msgx1' where id = 1", keyspaceName, true)
 	assert.NoError(t, err)
 
 	//verify that primary has new value
-	qr, err := primary.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
+	qr, err = primary.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
 	assert.NoError(t, err)
 	assert.Equal(t, "msgx1", qr.Rows[0][0].ToString())
 
-	//verify that restored replica has old value
-	qr, err = replica2.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
-	assert.NoError(t, err)
-	assert.Equal(t, "test1", qr.Rows[0][0].ToString())
-
+	// take second backup of value = msgx1
 	err = localCluster.VtctlclientProcess.ExecuteCommand("Backup", replica1.Alias)
 	assert.NoError(t, err)
 
-	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test3')", keyspaceName, true)
-	assert.NoError(t, err)
-	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 3)
-
-	recovery.RestoreTablet(t, localCluster, replica3, recoveryKS2, "0", keyspaceName, commonTabletArg)
+	// restore to latest backup
+	backupTime := time.Now().UTC()
+	recovery.RestoreTablet(t, localCluster, replica3, recoveryKS2, "0", keyspaceName, commonTabletArg, backupTime)
 
 	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS2)
 	assert.NoError(t, err)
 	assert.Contains(t, output, "vt_insert_test")
 
 	cluster.VerifyRowsInTablet(t, replica3, keyspaceName, 2)
+
+	//verify that restored replica has value = msgx1
+	qr, err = replica3.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
+	assert.NoError(t, err)
+	assert.Equal(t, "msgx1", qr.Rows[0][0].ToString())
+
+	// insert new row on primary
+	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test3')", keyspaceName, true)
+	assert.NoError(t, err)
+	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 3)
 
 	// update the original row in primary
 	_, err = primary.VttabletProcess.QueryTablet("update vt_insert_test set msg = 'msgx2' where id = 1", keyspaceName, true)
@@ -267,8 +281,21 @@ func TestRecoveryImpl(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "msgx2", qr.Rows[0][0].ToString())
 
-	//verify that restored replica has old value
-	qr, err = replica3.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
+	// take third backup of value = msgx2
+	err = localCluster.VtctlclientProcess.ExecuteCommand("Backup", replica1.Alias)
+	assert.NoError(t, err)
+
+	// restore to second backup
+	recovery.RestoreTablet(t, localCluster, replica4, recoveryKS2, "0", keyspaceName, commonTabletArg, backupTime)
+	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS2)
+	assert.NoError(t, err)
+	assert.Contains(t, output, "vt_insert_test")
+
+	// only two rows in second backup
+	cluster.VerifyRowsInTablet(t, replica4, keyspaceName, 2)
+
+	//verify that restored replica has value = msgx1 from second backup, not third
+	qr, err = replica4.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
 	assert.NoError(t, err)
 	assert.Equal(t, "msgx1", qr.Rows[0][0].ToString())
 
