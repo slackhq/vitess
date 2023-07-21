@@ -177,18 +177,23 @@ SET GLOBAL old_alter_table = ON;
 }
 
 // TestRecoveryImpl does following
-// - create a shard with primary and replica1 only
-// - run InitShardPrimary
-// - insert some data
-// - take a backup
-// - insert more data on the primary
-// - take another backup
-// - create a recovery keyspace after first backup
-// - bring up tablet_replica2 in the new keyspace
-// - check that new tablet does not have data created after backup1
-// - create second recovery keyspace after second backup
-// - bring up tablet_replica3 in second keyspace
-// - check that new tablet has data created after backup1 but not data created after backup2
+// 1. create a shard with primary and replica1 only
+// 	- run InitShardPrimary
+// 	- insert some data
+// 2. take a backup
+// 3.create a recovery keyspace after first backup
+// 	- bring up tablet_replica2 in the new keyspace
+// 	- check that new tablet has data from backup1
+// 4. insert more data on the primary
+// 5. take another backup
+// 6. create a recovery keyspace after second backup
+// 	- bring up tablet_replica3 in the new keyspace
+// 	- check that new tablet has data from backup2
+// 7. insert more data on the primary
+// 8. take another backup
+// 9. create a recovery keyspace after second backup again
+// 	- bring up tablet_replica4 in the new keyspace
+// 	- check that new tablet has data from backup2 but not backup3
 // - check that vtgate queries work correctly
 func TestRecoveryImpl(t *testing.T) {
 	defer cluster.PanicHandler(t)
