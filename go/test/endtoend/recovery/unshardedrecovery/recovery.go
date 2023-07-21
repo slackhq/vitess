@@ -41,7 +41,6 @@ var (
 	replica1         *cluster.Vttablet
 	replica2         *cluster.Vttablet
 	replica3         *cluster.Vttablet
-	replica4         *cluster.Vttablet
 	localCluster     *cluster.LocalProcessCluster
 	newInitDBFile    string
 	cell             = cluster.DefaultCell
@@ -61,7 +60,6 @@ var (
 		"--serving_state_grace_period", "1s"}
 	recoveryKS1  = "recovery_ks1"
 	recoveryKS2  = "recovery_ks2"
-	recoveryKS3  = "recovery_ks3"
 	vtInsertTest = `create table vt_insert_test (
 					  id bigint auto_increment,
 					  msg varchar(64),
@@ -115,7 +113,7 @@ SET GLOBAL old_alter_table = ON;
 		}
 
 		var mysqlProcs []*exec.Cmd
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 5; i++ {
 			tabletType := "replica"
 			if i == 0 {
 				tabletType = "primary"
@@ -217,7 +215,8 @@ func TestRecoveryImpl(t *testing.T) {
 	assert.Contains(t, output, "vt_insert_test")
 
 	// restore with latest backup
-	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS1, "0", keyspaceName, commonTabletArg, time.Time{})
+	restoreTime := time.Now().UTC()
+	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS1, "0", keyspaceName, commonTabletArg, restoreTime)
 
 	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetSrvVSchema", cell)
 	assert.NoError(t, err)
@@ -258,52 +257,20 @@ func TestRecoveryImpl(t *testing.T) {
 	err = localCluster.VtctlclientProcess.ExecuteCommand("Backup", replica1.Alias)
 	assert.NoError(t, err)
 
-	// restore to latest backup
-	backupTime := time.Now().UTC()
-	recovery.RestoreTablet(t, localCluster, replica3, recoveryKS2, "0", keyspaceName, commonTabletArg, backupTime)
+	// restore to first backup
+	recovery.RestoreTablet(t, localCluster, replica3, recoveryKS2, "0", keyspaceName, commonTabletArg, restoreTime)
 
 	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS2)
 	assert.NoError(t, err)
 	assert.Contains(t, output, "vt_insert_test")
 
-	cluster.VerifyRowsInTablet(t, replica3, keyspaceName, 2)
+	// only one row in first backup
+	cluster.VerifyRowsInTablet(t, replica3, keyspaceName, 1)
 
-	//verify that restored replica has value = msgx1
+	//verify that restored replica has value = test1
 	qr, err = replica3.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
 	assert.NoError(t, err)
-	assert.Equal(t, "msgx1", qr.Rows[0][0].ToString())
-
-	// insert new row on primary
-	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test3')", keyspaceName, true)
-	assert.NoError(t, err)
-	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 3)
-
-	// update the original row in primary
-	_, err = primary.VttabletProcess.QueryTablet("update vt_insert_test set msg = 'msgx2' where id = 1", keyspaceName, true)
-	assert.NoError(t, err)
-
-	//verify that primary has new value
-	qr, err = primary.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
-	assert.NoError(t, err)
-	assert.Equal(t, "msgx2", qr.Rows[0][0].ToString())
-
-	// take third backup of value = msgx2
-	err = localCluster.VtctlclientProcess.ExecuteCommand("Backup", replica1.Alias)
-	assert.NoError(t, err)
-
-	// restore to second backup
-	recovery.RestoreTablet(t, localCluster, replica4, recoveryKS3, "0", keyspaceName, commonTabletArg, backupTime)
-	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS3)
-	assert.NoError(t, err)
-	assert.Contains(t, output, "vt_insert_test")
-
-	// only two rows in second backup
-	cluster.VerifyRowsInTablet(t, replica4, keyspaceName, 2)
-
-	//verify that restored replica has value = msgx1 from second backup, not third
-	qr, err = replica4.VttabletProcess.QueryTablet("select msg from vt_insert_test where id = 1", keyspaceName, true)
-	assert.NoError(t, err)
-	assert.Equal(t, "msgx1", qr.Rows[0][0].ToString())
+	assert.Equal(t, "test1", qr.Rows[0][0].ToString())
 
 	vtgateInstance := localCluster.NewVtgateInstance()
 	vtgateInstance.TabletTypesToWait = "REPLICA"
