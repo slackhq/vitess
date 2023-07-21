@@ -61,6 +61,7 @@ var (
 		"--serving_state_grace_period", "1s"}
 	recoveryKS1  = "recovery_ks1"
 	recoveryKS2  = "recovery_ks2"
+	recoveryKS3  = "recovery_ks3"
 	vtInsertTest = `create table vt_insert_test (
 					  id bigint auto_increment,
 					  msg varchar(64),
@@ -208,10 +209,17 @@ func TestRecoveryImpl(t *testing.T) {
 	require.Equal(t, len(backups), 1)
 	assert.Contains(t, backups[0], replica1.Alias)
 
+	err = localCluster.VtctlclientProcess.ApplyVSchema(keyspaceName, vSchema)
+	assert.NoError(t, err)
+
+	output, err := localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", keyspaceName)
+	assert.NoError(t, err)
+	assert.Contains(t, output, "vt_insert_test")
+
 	// restore with latest backup
 	recovery.RestoreTablet(t, localCluster, replica2, recoveryKS1, "0", keyspaceName, commonTabletArg, time.Time{})
 
-	output, err := localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetSrvVSchema", cell)
+	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetSrvVSchema", cell)
 	assert.NoError(t, err)
 	assert.Contains(t, output, keyspaceName)
 	assert.Contains(t, output, recoveryKS1)
@@ -236,13 +244,6 @@ func TestRecoveryImpl(t *testing.T) {
 	_, err = primary.VttabletProcess.QueryTablet("insert into vt_insert_test (msg) values ('test2')", keyspaceName, true)
 	assert.NoError(t, err)
 	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 2)
-
-	err = localCluster.VtctlclientProcess.ApplyVSchema(keyspaceName, vSchema)
-	assert.NoError(t, err)
-
-	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", keyspaceName)
-	assert.NoError(t, err)
-	assert.Contains(t, output, "vt_insert_test")
 
 	// update the original row in primary
 	_, err = primary.VttabletProcess.QueryTablet("update vt_insert_test set msg = 'msgx1' where id = 1", keyspaceName, true)
@@ -291,8 +292,8 @@ func TestRecoveryImpl(t *testing.T) {
 	assert.NoError(t, err)
 
 	// restore to second backup
-	recovery.RestoreTablet(t, localCluster, replica4, recoveryKS2, "0", keyspaceName, commonTabletArg, backupTime)
-	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS2)
+	recovery.RestoreTablet(t, localCluster, replica4, recoveryKS3, "0", keyspaceName, commonTabletArg, backupTime)
+	output, err = localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetVSchema", recoveryKS3)
 	assert.NoError(t, err)
 	assert.Contains(t, output, "vt_insert_test")
 
