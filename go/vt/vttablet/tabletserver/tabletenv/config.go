@@ -29,10 +29,12 @@ import (
 	"vitess.io/vitess/go/streamlog"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/throttler"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
 
+	throttlerdatapb "vitess.io/vitess/go/vt/proto/throttlerdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
@@ -49,7 +51,8 @@ const (
 
 var (
 	currentConfig = TabletConfig{
-		DB: &dbconfigs.GlobalDBConfigs,
+		DB:                &dbconfigs.GlobalDBConfigs,
+		TxThrottlerConfig: defaultTxThrottlerConfig(),
 	}
 
 	queryLogHandler = flag.String("query-log-stream-handler", "/debug/querylog", "URL handler for streaming queries log")
@@ -87,6 +90,24 @@ var (
 	transitionGracePeriod        time.Duration
 	enableReplicationReporter    bool
 )
+
+type TxThrottlerConfigFlag struct {
+	*throttlerdatapb.Configuration
+}
+
+func NewTxThrottlerConfigFlag() *TxThrottlerConfigFlag {
+	return &TxThrottlerConfigFlag{&throttlerdatapb.Configuration{}}
+}
+
+func (t *TxThrottlerConfigFlag) Get() *throttlerdatapb.Configuration {
+	return t.Configuration
+}
+
+func (t *TxThrottlerConfigFlag) Set(arg string) error {
+	return prototext.Unmarshal([]byte(arg), t.Configuration)
+}
+
+func (t *TxThrottlerConfigFlag) Type() string { return "string" }
 
 func init() {
 	flag.IntVar(&currentConfig.OltpReadPool.Size, "queryserver-config-pool-size", defaultConfig.OltpReadPool.Size, "query server read pool size, connection pool is used by regular queries (non streaming, not in a transaction)")
@@ -137,7 +158,7 @@ func init() {
 	flag.StringVar(&currentConfig.TwoPCCoordinatorAddress, "twopc_coordinator_address", defaultConfig.TwoPCCoordinatorAddress, "address of the (VTGate) process(es) that will be used to notify of abandoned transactions.")
 	SecondsVar(&currentConfig.TwoPCAbandonAge, "twopc_abandon_age", defaultConfig.TwoPCAbandonAge, "time in seconds. Any unresolved transaction older than this time will be sent to the coordinator to be resolved.")
 	flagutil.DualFormatBoolVar(&currentConfig.EnableTxThrottler, "enable_tx_throttler", defaultConfig.EnableTxThrottler, "If true replication-lag-based throttling on transactions will be enabled.")
-	flagutil.DualFormatStringVar(&currentConfig.TxThrottlerConfig, "tx_throttler_config", defaultConfig.TxThrottlerConfig, "The configuration of the transaction throttler as a text formatted throttlerdata.Configuration protocol buffer message")
+	flagutil.DualFormatVar(currentConfig.TxThrottlerConfig, "tx_throttler_config", "The configuration of the transaction throttler as a text-formatted throttlerdata.Configuration protocol buffer message.")
 	flagutil.DualFormatStringListVar(&currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
 	flag.IntVar(&currentConfig.TxThrottlerDefaultPriority, "tx-throttler-default-priority", defaultConfig.TxThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information.")
 	topoproto.TabletTypeListVar(&currentConfig.TxThrottlerTabletTypes, "tx-throttler-tablet-types", "A comma-separated list of tablet types. Only tablets of this type are monitored for replication lag by the transaction throttler. Supported types are replica and/or rdonly. (default replica)")
@@ -302,7 +323,7 @@ type TabletConfig struct {
 	TwoPCAbandonAge         Seconds `json:"-"`
 
 	EnableTxThrottler           bool                    `json:"-"`
-	TxThrottlerConfig           string                  `json:"-"`
+	TxThrottlerConfig           *TxThrottlerConfigFlag  `json:"-"`
 	TxThrottlerHealthCheckCells []string                `json:"-"`
 	TxThrottlerDefaultPriority  int                     `json:"-"`
 	TxThrottlerTabletTypes      []topodatapb.TabletType `json:"-"`
@@ -460,6 +481,21 @@ func (c *TabletConfig) verifyTransactionLimitConfig() error {
 
 // verifyTxThrottlerConfig checks the TxThrottler related config for sanity.
 func (c *TabletConfig) verifyTxThrottlerConfig() error {
+	if !c.EnableTxThrottler {
+		return nil
+	}
+
+	err := throttler.MaxReplicationLagModuleConfig{Configuration: c.TxThrottlerConfig.Get()}.Verify()
+	if err != nil {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "failed to parse throttlerdatapb.Configuration config: %v", err)
+	}
+
+	if len(c.TxThrottlerHealthCheckCells) == 0 {
+		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "empty healthCheckCells given: %+v", c.TxThrottlerHealthCheckCells)
+	}
+	if v := c.TxThrottlerDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be > 0 and < 100 (specified value: %d)", v)
+	}
 	if len(c.TxThrottlerTabletTypes) == 0 {
 		return vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION, "--tx-throttler-tablet-types must be defined when transaction throttler is enabled")
 	}
@@ -558,13 +594,13 @@ var defaultConfig = TabletConfig{
 // object in text format. It uses the object returned by
 // throttler.DefaultMaxReplicationLagModuleConfig().Configuration and overrides some of its
 // fields. It panics on error.
-func defaultTxThrottlerConfig() string {
+func defaultTxThrottlerConfig() *TxThrottlerConfigFlag {
 	// Take throttler.DefaultMaxReplicationLagModuleConfig and override some fields.
 	config := throttler.DefaultMaxReplicationLagModuleConfig().Configuration
 	// TODO(erez): Make DefaultMaxReplicationLagModuleConfig() return a MaxReplicationLagSec of 10
 	// and remove this line.
 	config.MaxReplicationLagSec = 10
-	return prototext.Format(config)
+	return &TxThrottlerConfigFlag{config}
 }
 
 func defaultTransactionLimitConfig() TransactionLimitConfig {

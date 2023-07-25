@@ -22,6 +22,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"sort"
 	"strings"
 )
@@ -178,5 +179,16 @@ func DualFormatBoolVar(p *bool, name string, value bool, usage string) {
 	flag.BoolVar(p, underscores, value, usage)
 	if dashes != underscores {
 		flag.BoolVar(p, dashes, *p, fmt.Sprintf("Synonym to -%s", underscores))
+	}
+}
+
+// DualFormatVar creates a flag which supports both dashes and underscores
+func DualFormatVar(val pflag.Value, name string, usage string) {
+	dashes := strings.Replace(name, "_", "-", -1)
+	underscores := strings.Replace(name, "-", "_", -1)
+
+	flag.Var(val, underscores, usage)
+	if dashes != underscores {
+		flag.Var(val, dashes, fmt.Sprintf("Synonym to -%s", underscores))
 	}
 }

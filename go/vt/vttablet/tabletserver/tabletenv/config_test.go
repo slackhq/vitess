@@ -19,18 +19,19 @@ package tabletenv
 import (
 	"testing"
 	"time"
-
-	"vitess.io/vitess/go/test/utils"
+	"vitess.io/vitess/go/cache"
+	"vitess.io/vitess/go/vt/throttler"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"vitess.io/vitess/go/cache"
+	"vitess.io/vitess/go/test/utils"
 	"vitess.io/vitess/go/vt/dbconfigs"
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/yaml2"
+
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
 func TestConfigParse(t *testing.T) {
@@ -225,7 +226,7 @@ func TestFlags(t *testing.T) {
 		TrackSchemaVersions:                     false,
 		MessagePostponeParallelism:              4,
 		CacheResultFields:                       true,
-		TxThrottlerConfig:                       "target_replication_lag_sec: 2\nmax_replication_lag_sec: 10\ninitial_rate: 100\nmax_increase: 1\nemergency_decrease: 0.5\nmin_duration_between_increases_sec: 40\nmax_duration_between_increases_sec: 62\nmin_duration_between_decreases_sec: 20\nspread_backlog_across_sec: 20\nage_bad_rate_after_sec: 180\nbad_rate_increase: 0.1\nmax_rate_approach_threshold: 0.9\n",
+		TxThrottlerConfig:                       defaultTxThrottlerConfig(),
 		TxThrottlerHealthCheckCells:             []string{},
 		TransactionLimitConfig: TransactionLimitConfig{
 			TransactionLimitPerUser:     0.4,
@@ -241,7 +242,15 @@ func TestFlags(t *testing.T) {
 		},
 	}
 	assert.Equal(t, want.DB, currentConfig.DB)
-	assert.Equal(t, want, currentConfig)
+	// We compare the string representation instead of the values directly because there are multiple pointers involved
+	// that make the vars look different even though they aren't.
+	assert.Equal(t, want.TxThrottlerConfig.String(), currentConfig.TxThrottlerConfig.String())
+	// And for the rest we compare without the corresponding attrs
+	wantWithoutTxThrottlerConf := want
+	wantWithoutTxThrottlerConf.TxThrottlerConfig = nil
+	currentWithoutTxThrottlerConf := currentConfig
+	currentWithoutTxThrottlerConf.TxThrottlerConfig = nil
+	assert.Equal(t, wantWithoutTxThrottlerConf, currentWithoutTxThrottlerConf)
 
 	// HACK: expect default ("replica") only after .Init() because topoproto.TabletTypeListVar(...)
 	// defaults dont work and it's fixed later in .Init()
@@ -372,6 +381,26 @@ func TestFlags(t *testing.T) {
 	assert.Equal(t, want, currentConfig)
 }
 
+func TestTxThrottlerConfigFlag(t *testing.T) {
+	f := NewTxThrottlerConfigFlag()
+	defaultMaxReplicationLagModuleConfig := throttler.DefaultMaxReplicationLagModuleConfig().Configuration
+
+	{
+		assert.Nil(t, f.Set(defaultMaxReplicationLagModuleConfig.String()))
+		assert.Equal(t, defaultMaxReplicationLagModuleConfig.String(), f.String())
+		assert.Equal(t, "string", f.Type())
+	}
+	{
+		defaultMaxReplicationLagModuleConfig.TargetReplicationLagSec = 5
+		assert.Nil(t, f.Set(defaultMaxReplicationLagModuleConfig.String()))
+		assert.NotNil(t, f.Get())
+		assert.Equal(t, int64(5), f.Get().TargetReplicationLagSec)
+	}
+	{
+		assert.NotNil(t, f.Set("should not parse"))
+	}
+}
+
 func TestVerifyTxThrottlerConfig(t *testing.T) {
 	{
 		// default config (replica)
@@ -392,6 +421,8 @@ func TestVerifyTxThrottlerConfig(t *testing.T) {
 		// no tablet types
 		Init()
 		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{}
+		currentConfig.EnableTxThrottler = true
+		currentConfig.TxThrottlerConfig = defaultTxThrottlerConfig()
 		err := currentConfig.verifyTxThrottlerConfig()
 		assert.NotNil(t, err)
 		assert.Equal(t, vtrpcpb.Code_FAILED_PRECONDITION, vterrors.Code(err))
@@ -400,6 +431,7 @@ func TestVerifyTxThrottlerConfig(t *testing.T) {
 		// disallowed tablet type
 		Init()
 		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{topodatapb.TabletType_DRAINED}
+		currentConfig.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 		err := currentConfig.verifyTxThrottlerConfig()
 		assert.NotNil(t, err)
 		assert.Equal(t, vtrpcpb.Code_INVALID_ARGUMENT, vterrors.Code(err))
