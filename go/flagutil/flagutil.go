@@ -22,9 +22,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/spf13/pflag"
 	"sort"
 	"strings"
+
+	"github.com/spf13/pflag"
 )
 
 var (

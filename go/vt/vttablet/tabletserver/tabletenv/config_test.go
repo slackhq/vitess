@@ -19,6 +19,7 @@ package tabletenv
 import (
 	"testing"
 	"time"
+
 	"vitess.io/vitess/go/cache"
 	"vitess.io/vitess/go/vt/throttler"
 
