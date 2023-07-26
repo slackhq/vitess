@@ -30,14 +30,13 @@ import (
 
 	"github.com/hashicorp/consul/api"
 
-	"vitess.io/vitess/go/vt/vterrors"
-
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/vterrors"
 )
 
 var (
-	consulTransportConfig      = api.DefaultConfig().Transport
+	consulConfig               = api.DefaultConfig()
 	consulAuthClientStaticFile = flag.String("consul_auth_static_file", "", "JSON File to read the topos/tokens from.")
 	// serfHealth is the default check from consul
 	consulLockSessionChecks = flag.String("topo_consul_lock_session_checks", "serfHealth", "List of checks for consul session.")
@@ -46,9 +45,9 @@ var (
 )
 
 func init() {
-	flag.IntVar(&consulTransportConfig.MaxConnsPerHost, "topo_consul_max_conns_per_host", consulTransportConfig.MaxConnsPerHost, "Maximum number of consul connections per host.")
-	flag.IntVar(&consulTransportConfig.MaxIdleConns, "topo_consul_max_idle_conns", consulTransportConfig.MaxIdleConns, "Maximum number of idle consul connections.")
-	flag.DurationVar(&consulTransportConfig.IdleConnTimeout, "topo_consul_idle_conn_timeout", consulTransportConfig.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
+	flag.IntVar(&consulConfig.Transport.MaxConnsPerHost, "topo_consul_max_conns_per_host", consulConfig.Transport.MaxConnsPerHost, "Maximum number of consul connections per host.")
+	flag.IntVar(&consulConfig.Transport.MaxIdleConns, "topo_consul_max_idle_conns", consulConfig.Transport.MaxIdleConns, "Maximum number of idle consul connections.")
+	flag.DurationVar(&consulConfig.Transport.IdleConnTimeout, "topo_consul_idle_conn_timeout", consulConfig.Transport.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
 }
 
 // ClientAuthCred credential to use for consul clusters
@@ -127,9 +126,8 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := api.DefaultConfig()
+	cfg := consulConfig
 	cfg.Address = serverAddr
-	cfg.Transport = consulTransportConfig
 	if creds != nil {
 		if creds[cell] != nil {
 			cfg.Token = creds[cell].ACLToken
