@@ -37,16 +37,19 @@ import (
 )
 
 var (
-	defaultTransportConfig     = api.DefaultConfig().Transport
+	consulTransportConfig      = api.DefaultConfig().Transport
 	consulAuthClientStaticFile = flag.String("consul_auth_static_file", "", "JSON File to read the topos/tokens from.")
 	// serfHealth is the default check from consul
 	consulLockSessionChecks = flag.String("topo_consul_lock_session_checks", "serfHealth", "List of checks for consul session.")
 	consulLockSessionTTL    = flag.String("topo_consul_lock_session_ttl", "", "TTL for consul session.")
 	consulLockDelay         = flag.Duration("topo_consul_lock_delay", 15*time.Second, "LockDelay for consul session.")
-	consulMaxConnsPerHost   = flag.Int("topo_consul_max_conns_per_host", defaultTransportConfig.MaxConnsPerHost, "Maximum number of consul connections per host.")
-	consulMaxIdleConns      = flag.Int("topo_consul_max_idle_conns", defaultTransportConfig.MaxIdleConns, "Maximum number of idle consul connections.")
-	consulIdleConnTimeout   = flag.Duration("topo_consul_idle_conn_timeout", defaultTransportConfig.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
 )
+
+func init() {
+	flag.IntVar(&consulTransportConfig.MaxConnsPerHost, "topo_consul_max_conns_per_host", consulTransportConfig.MaxConnsPerHost, "Maximum number of consul connections per host.")
+	flag.IntVar(&consulTransportConfig.MaxIdleConns, "topo_consul_max_idle_conns", consulTransportConfig.MaxIdleConns, "Maximum number of idle consul connections.")
+	flag.DurationVar(&consulTransportConfig.IdleConnTimeout, "topo_consul_idle_conn_timeout", consulTransportConfig.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
+}
 
 // ClientAuthCred credential to use for consul clusters
 type ClientAuthCred struct {
@@ -126,6 +129,7 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 	}
 	cfg := api.DefaultConfig()
 	cfg.Address = serverAddr
+	cfg.Transport = consulTransportConfig
 	if creds != nil {
 		if creds[cell] != nil {
 			cfg.Token = creds[cell].ACLToken
@@ -133,10 +137,6 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 			log.Warningf("Client auth not configured for cell: %v", cell)
 		}
 	}
-
-	cfg.Transport.MaxConnsPerHost = *consulMaxConnsPerHost
-	cfg.Transport.MaxIdleConns = *consulMaxIdleConns
-	cfg.Transport.IdleConnTimeout = *consulIdleConnTimeout
 
 	client, err := api.NewClient(cfg)
 	if err != nil {
