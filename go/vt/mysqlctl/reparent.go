@@ -23,13 +23,12 @@ TODO(alainjobart) Once refactoring is done, remove unused code paths.
 */
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/vt/log"
-
-	"context"
 )
 
 // CreateReparentJournal returns the commands to execute to create
@@ -76,6 +75,9 @@ func queryReparentJournal(timeCreatedNS int64) string {
 func (mysqld *Mysqld) WaitForReparentJournal(ctx context.Context, timeCreatedNS int64) error {
 	for {
 		qr, err := mysqld.FetchSuperQuery(ctx, queryReparentJournal(timeCreatedNS))
+		if err != nil {
+			log.Infof("Error querying reparent journal: %v", err)
+		}
 		if err == nil && len(qr.Rows) == 1 {
 			// we have the row, we're done
 			return nil
