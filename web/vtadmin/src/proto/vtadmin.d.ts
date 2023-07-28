@@ -23656,6 +23656,9 @@ export namespace query {
 
         /** ExecuteOptions WorkloadName */
         WorkloadName?: (string|null);
+
+        /** ExecuteOptions priority */
+        priority?: (string|null);
     }
 
     /** Represents an ExecuteOptions. */
@@ -23693,6 +23696,9 @@ export namespace query {
 
         /** ExecuteOptions WorkloadName. */
         public WorkloadName: string;
+
+        /** ExecuteOptions priority. */
+        public priority: string;
 
         /**
          * Creates a new ExecuteOptions instance using the specified properties.
