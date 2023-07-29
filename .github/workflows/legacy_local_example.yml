@@ -4,7 +4,8 @@ jobs:
 
   build:
     name: Legacy local example using ${{ matrix.topo }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on:
+      group: vitess-ubuntu20
     strategy:
       matrix:
         os: [ubuntu-latest]
