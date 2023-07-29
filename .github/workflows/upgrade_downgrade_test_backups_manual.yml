@@ -33,7 +33,8 @@ jobs:
     timeout-minutes: 40
     if: always() && (needs.get_previous_release.result == 'success')
     name: Run Upgrade Downgrade Test - Backups - Manual
-    runs-on: ubuntu-20.04
+    runs-on:
+      group: vitess-ubuntu20
     needs:
       - get_previous_release
 
