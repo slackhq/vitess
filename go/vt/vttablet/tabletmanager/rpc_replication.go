@@ -17,14 +17,13 @@ limitations under the License.
 package tabletmanager
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"strings"
 	"time"
 
 	"vitess.io/vitess/go/vt/proto/vtrpc"
-
-	"context"
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/vt/log"
@@ -259,9 +258,11 @@ func (tm *TabletManager) InitPrimary(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// Execute ALTER statement on reparent_journal table and ignore errors
+	// Execute ALTER statement on reparent_journal table and LOG errors
 	cmds = mysqlctl.AlterReparentJournal()
-	_ = tm.MysqlDaemon.ExecuteSuperQueryList(ctx, cmds)
+	if err := tm.MysqlDaemon.ExecuteSuperQueryList(ctx, cmds); err != nil {
+		log.Warningf("InitPrimary: ALTER statement on reparent_journal failed with: %s", err.Error())
+	}
 
 	// get the current replication position
 	pos, err := tm.MysqlDaemon.PrimaryPosition()
@@ -297,9 +298,11 @@ func (tm *TabletManager) PopulateReparentJournal(ctx context.Context, timeCreate
 		return err
 	}
 
-	// Execute ALTER statement on reparent_journal table and ignore errors
+	// Execute ALTER statement on reparent_journal table and LOG errors
 	cmds = mysqlctl.AlterReparentJournal()
-	_ = tm.MysqlDaemon.ExecuteSuperQueryList(ctx, cmds)
+	if err := tm.MysqlDaemon.ExecuteSuperQueryList(ctx, cmds); err != nil {
+		log.Warningf("PopulateReparentJournal: ALTER statement on reparent_journal failed with: %s", err.Error())
+	}
 
 	cmds = []string{mysqlctl.PopulateReparentJournal(timeCreatedNS, actionName, topoproto.TabletAliasString(primaryAlias), pos)}
 
@@ -361,10 +364,10 @@ func (tm *TabletManager) InitReplica(ctx context.Context, parent *topodatapb.Tab
 //
 // It attemps to idempotently ensure the following guarantees upon returning
 // successfully:
-//   * No future writes will be accepted.
-//   * No writes are in-flight.
-//   * MySQL is in read-only mode.
-//   * Semi-sync settings are consistent with a REPLICA tablet.
+//   - No future writes will be accepted.
+//   - No writes are in-flight.
+//   - MySQL is in read-only mode.
+//   - Semi-sync settings are consistent with a REPLICA tablet.
 //
 // If necessary, it waits for all in-flight writes to complete or time out.
 //
