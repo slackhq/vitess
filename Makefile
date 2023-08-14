@@ -66,12 +66,8 @@ ifndef NOBANNER
 	echo $$(date): Building source tree
 endif
 	bash ./build.env
-	# build all the binaries by default with CGO disabled.
-	# Binaries will be placed in ${VTROOTBIN}.
-	CGO_ENABLED=0 go build \
-		    -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) \
-		    -ldflags "$(shell tools/build_version_flags.sh)" \
-		    -o ${VTROOTBIN} ./go/...
+	# build all the binaries by default with CGO disabled
+	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 	# embed local resources in the vttablet executable
 	(cd go/cmd/vttablet && go run github.com/GeertJohan/go.rice/rice append --exec=../../../bin/vttablet)
 
@@ -114,7 +110,7 @@ install: build
 cross-install: cross-build
 	# binaries
 	mkdir -p "$${PREFIX}/bin"
-	cp "${VTROOTBIN}/${GOOS}_${GOARCH}/"{mysqlctl,mysqlctld,vtorc,vtadmin,vtctld,vtctlclient,vtctldclient,vtgate,vttablet,vtbackup} "$${PREFIX}/bin/"
+	cp "/go/bin/${GOOS}_${GOARCH}/"{mysqlctl,mysqlctld,vtorc,vtadmin,vtctld,vtctlclient,vtctldclient,vtgate,vttablet,vtbackup} "$${PREFIX}/bin/"
 
 # Install local install the binaries needed to run vitess locally
 # Usage: make install-local PREFIX=/path/to/install/root
