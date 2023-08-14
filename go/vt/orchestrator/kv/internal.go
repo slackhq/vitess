@@ -17,9 +17,9 @@
 package kv
 
 import (
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 // Internal key-value store, based on relational backend

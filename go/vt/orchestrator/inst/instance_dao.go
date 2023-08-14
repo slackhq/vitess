@@ -36,9 +36,9 @@ import (
 	"github.com/sjmudd/stopwatch"
 
 	"vitess.io/vitess/go/tb"
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/math"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/topoproto"

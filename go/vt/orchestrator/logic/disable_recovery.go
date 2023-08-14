@@ -30,9 +30,9 @@ package logic
 // go to the database each time.
 
 import (
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 // IsRecoveryDisabled returns true if Recoveries are disabled globally

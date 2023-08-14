@@ -19,8 +19,8 @@ package inst
 import (
 	"errors"
 
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
 )

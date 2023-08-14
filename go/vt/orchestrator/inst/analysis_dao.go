@@ -34,8 +34,8 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/rcrowley/go-metrics"
 
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 var analysisChangeWriteAttemptCounter = metrics.NewCounter()

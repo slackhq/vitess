@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"strings"
 
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 // SetHostAttributes is used to set host attributes

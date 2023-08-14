@@ -31,9 +31,9 @@ import (
 
 	"vitess.io/vitess/go/vt/orchestrator/config"
 
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
 	"vitess.io/vitess/go/vt/orchestrator/external/golib/log"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/inst"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"

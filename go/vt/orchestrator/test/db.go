@@ -19,8 +19,8 @@ package test
 import (
 	"fmt"
 
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/db"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 )
 
 var _ db.DB = (*DB)(nil)

@@ -27,10 +27,10 @@ import (
 	gouuid "github.com/google/uuid"
 
 	"vitess.io/vitess/go/mysql"
-	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/orchestrator/config"
 	"vitess.io/vitess/go/vt/orchestrator/db"
+	"vitess.io/vitess/go/vt/orchestrator/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/orchestrator/inst"
 )
 
