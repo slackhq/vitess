@@ -113,10 +113,6 @@ jobs:
 
           set -x
 
-<<<<<<< HEAD:.github/workflows/cluster_endtoend_24.yml
-          # run the tests however you normally do, then produce a JUnit XML file
-          eatmydata -- go run test.go -docker=false -follow -shard 24
-=======
         # run the tests however you normally do, then produce a JUnit XML file
         eatmydata -- go run test.go -docker=false -follow -shard mysql_server_vault | tee -a output.txt | go-junit-report -set-exit-code > report.xml
 
@@ -128,4 +124,3 @@ jobs:
 
         # print test output
         cat output.txt
->>>>>>> a1f1f12be8 (Delete all legacy sharding related code (#10278)):.github/workflows/cluster_endtoend_mysql_server_vault.yml
