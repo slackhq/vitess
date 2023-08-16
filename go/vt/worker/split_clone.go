@@ -1139,7 +1139,8 @@ func (scw *SplitCloneWorker) startCloningData(ctx context.Context, state StatusW
 }
 
 // copy phase:
-//	- copy the data from source tablets to destination primaries (with replication on)
+//   - copy the data from source tablets to destination primaries (with replication on)
+//
 // Assumes that the schema has already been created on each destination tablet
 // (probably from vtctl's CopySchemaShard)
 func (scw *SplitCloneWorker) clone(ctx context.Context, state StatusWorkerState) error {

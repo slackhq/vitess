@@ -384,10 +384,11 @@ func (msdw *MultiSplitDiffWorker) getPrimaryTabletInfoForShard(ctx context.Conte
 	return primaryInfo, nil
 }
 
-//  stop the source tablet at a binlog position higher than the
-//  destination primaries. Return the reached position
-//  (add a cleanup task to restart binlog replication on the source tablet, and
-//   change the existing ChangeTabletType cleanup action to 'spare' type)
+// stop the source tablet at a binlog position higher than the
+// destination primaries. Return the reached position
+// (add a cleanup task to restart binlog replication on the source tablet, and
+//
+//	change the existing ChangeTabletType cleanup action to 'spare' type)
 func (msdw *MultiSplitDiffWorker) stopReplicationOnSourceTabletAt(ctx context.Context, destVreplicationPos []string) (string, error) {
 	shortCtx, cancel := context.WithTimeout(ctx, *remoteActionsTimeout)
 	sourceTablet, err := msdw.wr.TopoServer().GetTablet(shortCtx, msdw.sourceAlias)
@@ -457,7 +458,8 @@ func (msdw *MultiSplitDiffWorker) stopVreplicationAt(ctx context.Context, shardI
 // wait until the destination tablet is equal or passed that primary
 // binlog position, and stop its replication.
 // (add a cleanup task to restart binlog replication on it, and change
-//  the existing ChangeTabletType cleanup action to 'spare' type)
+//
+//	the existing ChangeTabletType cleanup action to 'spare' type)
 func (msdw *MultiSplitDiffWorker) stopReplicationAt(ctx context.Context, destinationAlias *topodatapb.TabletAlias, primaryPos string) error {
 	if msdw.waitForFixedTimeRatherThanGtidSet {
 		msdw.wr.Logger().Infof("workaround for broken GTID set in destination RDONLY. Just waiting for 1 minute for %v and assuming replication has caught up. (should be at %v)", destinationAlias, primaryPos)
