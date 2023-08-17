@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/test/endtoend/cluster"
+	"vitess.io/vitess/go/test/endtoend/sharding"
 	"vitess.io/vitess/go/vt/proto/topodata"
 )
 
