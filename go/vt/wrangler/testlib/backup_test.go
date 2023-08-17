@@ -260,7 +260,7 @@ func testBackupRestore(t *testing.T, cDetails *compressionDetails) error {
 		RelayLogInfoPath:      path.Join(root, "relay-log.info"),
 	}
 
-	err := destTablet.TM.RestoreData(ctx, logutil.NewConsoleLogger(), 0 /* waitForBackupInterval */, false /* deleteBeforeRestore */, time.Time{} /* backupTime */)
+	err = destTablet.TM.RestoreData(ctx, logutil.NewConsoleLogger(), 0 /* waitForBackupInterval */, false /* deleteBeforeRestore */, time.Time{} /* backupTime */)
 	if err != nil {
 		return err
 	}
