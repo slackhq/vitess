@@ -50,6 +50,11 @@ jobs:
       with:
         go-version: 1.21.8
 
+    - name: Set up python
+      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
+      uses: actions/setup-python@v4
+>>>>>>> 0ac8cd4d4e ([main] Upgrade the Golang version to `go1.21.0` (#13853))
+
     - name: Tune the OS
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
       run: |
