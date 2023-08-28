@@ -1,4 +1,4 @@
-Usage of ./vttablet:
+Usage of vttablet:
   --allowed_tablet_types value
 	Specifies the tablet types this vtgate is allowed to route queries to
   --alsologtostderr
