@@ -67,15 +67,10 @@ ifndef NOBANNER
 	echo $$(date): Building source tree
 endif
 	bash ./build.env
-	# build all the binaries by default with CGO disabled.
-	# Binaries will be placed in ${VTROOTBIN}.
-	CGO_ENABLED=0 go build \
-		    -buildvcs=false \
-		    -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) \
-		    -ldflags "$(shell tools/build_version_flags.sh)" \
-		    -o ${VTROOTBIN} ./go/...
-
-	CGO_ENABLED=1 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/cmd/vtorc/...
+	# build all the binaries by default with CGO disabled
+	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
+	# embed local resources in the vttablet executable
+	(cd go/cmd/vttablet && go run github.com/GeertJohan/go.rice/rice append --exec=../../../bin/vttablet)
 
 # cross-build can be used to cross-compile Vitess client binaries
 # Outside of select client binaries (namely vtctlclient & vtexplain), cross-compiled Vitess Binaries are not recommended for production deployments
@@ -93,8 +88,6 @@ endif
 	if [ ! -x "${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" ]; then \
 		echo "Missing vttablet at: ${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" && exit; \
 	fi
-
-	# Cross-compiling w/ cgo isn't trivial and we don't need vtorc, so we can skip building it
 
 debug:
 ifndef NOBANNER
@@ -116,7 +109,7 @@ cross-install: cross-build
 	# binaries
 	mkdir -p "$${PREFIX}/bin"
 	# Still no vtorc for cross-compile
-	cp "/go/bin/${GOOS}_${GOARCH}/"{mysqlctl,mysqlctld,vtadmin,vtctld,vtctlclient,vtctldclient,vtgate,vttablet,vtworker,vtbackup} "$${PREFIX}/bin/"
+	cp "/go/bin/${GOOS}_${GOARCH}/"{mysqlctl,mysqlctld,vtorc,vtadmin,vtctld,vtctlclient,vtctldclient,vtgate,vttablet,vtworker,vtbackup} "$${PREFIX}/bin/"
 
 # Install local install the binaries needed to run vitess locally
 # Usage: make install-local PREFIX=/path/to/install/root
