@@ -133,16 +133,9 @@ require (
 )
 
 require (
-	github.com/GeertJohan/go.incremental v1.0.0 // indirect
-	github.com/akavel/rsrc v0.8.0 // indirect
-	github.com/daaku/go.zipexe v1.0.2 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/jessevdk/go-flags v1.4.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
-	github.com/nkovacs/streamquote v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
-	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasttemplate v1.0.1 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
