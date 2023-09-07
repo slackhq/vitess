@@ -1195,6 +1195,54 @@ func TestVStreamIdleHeartbeat(t *testing.T) {
 	}
 }
 
+func TestVstreamCopy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cell := "aa"
+	ks := "TestVStreamCopy"
+	_ = createSandbox(ks)
+	hc := discovery.NewFakeHealthCheck(nil)
+
+	st := getSandboxTopo(ctx, cell, ks, []string{"-20"})
+	vsm := newTestVStreamManager(hc, st, "aa")
+	sbc0 := hc.AddTestTablet(cell, "1.1.1.1", 1001, ks, "-20", topodatapb.TabletType_PRIMARY, true, 1, nil)
+	addTabletToSandboxTopo(t, st, ks, "-20", sbc0.Tablet())
+	commit := []*binlogdatapb.VEvent{
+		{Type: binlogdatapb.VEventType_COMMIT},
+	}
+	sbc0.AddVStreamEvents(commit, nil)
+	sbc0.AddVStreamEvents(nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "aa"))
+	sbc0.AddVStreamEvents(commit, nil)
+	sbc0.AddVStreamEvents(nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "bb"))
+	sbc0.AddVStreamEvents(nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "cc"))
+	sbc0.AddVStreamEvents(nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "final error"))
+	var count sync2.AtomicInt32
+	count.Set(0)
+	// empty gtid id means no start position = bootstrapping/vstream copy
+	vgtid := &binlogdatapb.VGtid{
+		ShardGtids: []*binlogdatapb.ShardGtid{{
+			Keyspace: ks,
+			Shard:    "-20",
+			Gtid:     "",
+		}},
+	}
+	err := vsm.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, nil, &vtgatepb.VStreamFlags{}, func(events []*binlogdatapb.VEvent) error {
+		count.Add(1)
+		return nil
+	})
+	require.Error(t, err)
+	require.Equal(t, err.Error(), "vstream copy is not currently supported")
+
+	// force set vtgate flag to allow vstream copy
+	*allowVstreamCopy = true
+	err = vsm.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, nil, &vtgatepb.VStreamFlags{}, func(events []*binlogdatapb.VEvent) error {
+		count.Add(1)
+		return nil
+	})
+	require.Equal(t, err.Error(), "final error")
+}
+
 func newTestVStreamManager(hc discovery.HealthCheck, serv srvtopo.Server, cell string) *vstreamManager {
 	gw := NewTabletGateway(context.Background(), hc, serv, cell)
 	srvResolver := srvtopo.NewResolver(serv, gw, cell)
