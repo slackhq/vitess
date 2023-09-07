@@ -71,7 +71,7 @@ var (
 	defaultDDLStrategy   = flag.String("ddl_strategy", string(schema.DDLStrategyDirect), "Set default strategy for DDL statements. Override with @@ddl_strategy session variable")
 	dbDDLPlugin          = flag.String("dbddl_plugin", "fail", "controls how to handle CREATE/DROP DATABASE. use it if you are using your own database provisioning service")
 	noScatter            = flag.Bool("no_scatter", false, "when set to true, the planner will fail instead of producing a plan that includes scatter queries")
-	allowVstreamCopy     = flag.Bool("allow_vstream_copy", false, "when set to false, vstream copy will not be allowed - temporary until we can properly support RDONLY for this")
+	allowVstreamCopy     = flag.Bool("allow_vstream_copy", true, "when set to false, vstream copy will not be allowed - temporary until we can properly support RDONLY for this")
 
 	// TODO(deepthi): change these two vars to unexported and move to healthcheck.go when LegacyHealthcheck is removed
 

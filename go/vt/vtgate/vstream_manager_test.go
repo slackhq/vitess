@@ -1196,6 +1196,7 @@ func TestVStreamIdleHeartbeat(t *testing.T) {
 }
 
 func TestVstreamCopy(t *testing.T) {
+	*allowVstreamCopy = false
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
