@@ -118,6 +118,7 @@ require (
 require (
 	github.com/bndr/gotabulate v1.1.2
 	github.com/hashicorp/go-version v1.6.0
+	github.com/openark/golib v0.0.0-20210531070646-355f37940af8
 	modernc.org/sqlite v1.20.3
 )
 
