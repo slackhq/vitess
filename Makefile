@@ -90,6 +90,11 @@ endif
 	if [ ! -x "${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" ]; then \
 		echo "Missing vttablet at: ${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" && exit; \
 	fi
+<<<<<<< HEAD
+=======
+
+	# Cross-compiling w/ cgo isn't trivial and we don't need vtorc, so we can skip building it
+>>>>>>> 356828b1f1 (Upgrade go slack vitess r14.0.5 (#91))
 
 debug:
 ifndef NOBANNER
