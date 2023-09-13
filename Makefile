@@ -42,9 +42,6 @@ export VTROOT=${PWD}
 endif
 
 
-# This is where Go will install binaries in response to `go build`.
-export VTROOTBIN=${VTROOT}/bin
-
 # We now have CGO code in the build which throws warnings with newer gcc builds.
 # See: https://github.com/mattn/go-sqlite3/issues/803
 # Work around by dropping optimization level from default -O2.
@@ -57,9 +54,7 @@ ifndef NOBANNER
 	echo $$(date): Building source tree
 endif
 	bash ./build.env
-	go build -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) \
-		-ldflags "$(shell tools/build_version_flags.sh)"  \
-		-o ${VTROOTBIN} ./go/...
+	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 
 # build the vitess binaries statically
 build:
@@ -68,11 +63,7 @@ ifndef NOBANNER
 endif
 	bash ./build.env
 	# build all the binaries by default with CGO disabled.
-	# Binaries will be placed in ${VTROOTBIN}.
-	CGO_ENABLED=0 go install \
-		    -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) \
-		    -ldflags "$(shell tools/build_version_flags.sh)" \
-		    -o ${VTROOTBIN} ./go/...
+	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 
 # cross-build can be used to cross-compile Vitess client binaries
 # Outside of select client binaries (namely vtctlclient & vtexplain), cross-compiled Vitess Binaries are not recommended for production deployments
