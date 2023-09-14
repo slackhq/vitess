@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -236,6 +237,7 @@ func (vsm *vstreamManager) resolveParams(ctx context.Context, tabletType topodat
 				}
 			}
 			vgtid = newvgtid
+		}
 	}
 	newvgtid := &binlogdatapb.VGtid{}
 	for _, sgtid := range vgtid.ShardGtids {
