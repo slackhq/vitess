@@ -37,6 +37,7 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle/throttlerapp"
 )
 
 var uvstreamerTestMode = false // Only used for testing
@@ -62,6 +63,7 @@ type uvstreamer struct {
 	inTransaction bool
 	filter        *binlogdatapb.Filter
 	inTablePKs    []*binlogdatapb.TableLastPK
+	throttlerApp  throttlerapp.Name
 
 	vschema *localVSchema
 
