@@ -18,10 +18,14 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -933,7 +937,7 @@ func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcPr
 	for time.Since(startTime) < timeout {
 		vars := vtorcInstance.GetVars()
 		successfulRecoveriesMap := vars["SuccessfulRecoveries"].(map[string]interface{})
-		successCount := successfulRecoveriesMap[recoveryName]
+		successCount := getIntFromValue(successfulRecoveriesMap[recoveryName])
 		if successCount == countExpected {
 			return
 		}
@@ -941,8 +945,102 @@ func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcPr
 	}
 	vars := vtorcInstance.GetVars()
 	successfulRecoveriesMap := vars["SuccessfulRecoveries"].(map[string]interface{})
-	successCount := successfulRecoveriesMap[recoveryName]
+	successCount := getIntFromValue(successfulRecoveriesMap[recoveryName])
 	assert.EqualValues(t, countExpected, successCount)
+}
+
+// WaitForSuccessfulPRSCount waits until the given keyspace-shard's count of successful prs runs matches the count expected.
+func WaitForSuccessfulPRSCount(t *testing.T, vtorcInstance *cluster.VTOrcProcess, keyspace, shard string, countExpected int) {
+	t.Helper()
+	timeout := 15 * time.Second
+	startTime := time.Now()
+	mapKey := fmt.Sprintf("%v.%v.success", keyspace, shard)
+	for time.Since(startTime) < timeout {
+		vars := vtorcInstance.GetVars()
+		prsCountsMap := vars["planned_reparent_counts"].(map[string]interface{})
+		successCount := getIntFromValue(prsCountsMap[mapKey])
+		if successCount == countExpected {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	vars := vtorcInstance.GetVars()
+	prsCountsMap := vars["planned_reparent_counts"].(map[string]interface{})
+	successCount := getIntFromValue(prsCountsMap[mapKey])
+	assert.EqualValues(t, countExpected, successCount)
+}
+
+// WaitForSuccessfulERSCount waits until the given keyspace-shard's count of successful ers runs matches the count expected.
+func WaitForSuccessfulERSCount(t *testing.T, vtorcInstance *cluster.VTOrcProcess, keyspace, shard string, countExpected int) {
+	t.Helper()
+	timeout := 15 * time.Second
+	startTime := time.Now()
+	mapKey := fmt.Sprintf("%v.%v.success", keyspace, shard)
+	for time.Since(startTime) < timeout {
+		vars := vtorcInstance.GetVars()
+		ersCountsMap := vars["emergency_reparent_counts"].(map[string]interface{})
+		successCount := getIntFromValue(ersCountsMap[mapKey])
+		if successCount == countExpected {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	vars := vtorcInstance.GetVars()
+	ersCountsMap := vars["emergency_reparent_counts"].(map[string]interface{})
+	successCount := getIntFromValue(ersCountsMap[mapKey])
+	assert.EqualValues(t, countExpected, successCount)
+}
+
+// getIntFromValue is a helper function to get an integer from the given value.
+// If it is convertible to a float, then we round the number to the nearest integer.
+// If the value is not numeric at all, we return 0.
+func getIntFromValue(val any) int {
+	value := reflect.ValueOf(val)
+	if value.CanFloat() {
+		return int(math.Round(value.Float()))
+	}
+	if value.CanInt() {
+		return int(value.Int())
+	}
+	return 0
+}
+
+// WaitForTabletType waits for the tablet to reach a certain type.
+func WaitForTabletType(t *testing.T, tablet *cluster.Vttablet, expectedTabletType string) {
+	t.Helper()
+	err := tablet.VttabletProcess.WaitForTabletTypes([]string{expectedTabletType})
+	require.NoError(t, err)
+}
+
+// WaitForInstancePollSecondsExceededCount waits for 30 seconds and then queries api/aggregated-discovery-metrics.
+// It expects to find minimum occurrence or exact count of `keyName` provided.
+func WaitForInstancePollSecondsExceededCount(t *testing.T, vtorcInstance *cluster.VTOrcProcess, keyName string, minCountExpected float64, enforceEquality bool) {
+	t.Helper()
+	var sinceInSeconds = 30
+	duration := time.Duration(sinceInSeconds)
+	time.Sleep(duration * time.Second)
+
+	statusCode, res, err := vtorcInstance.MakeAPICall("api/aggregated-discovery-metrics?seconds=" + strconv.Itoa(sinceInSeconds))
+	if err != nil {
+		assert.Fail(t, "Not able to call api/aggregated-discovery-metrics")
+	}
+	if statusCode == 200 {
+		resultMap := make(map[string]any)
+		err := json.Unmarshal([]byte(res), &resultMap)
+		if err != nil {
+			assert.Fail(t, "invalid response from api/aggregated-discovery-metrics")
+		}
+		successCount := resultMap[keyName]
+		if iSuccessCount, ok := successCount.(float64); ok {
+			if enforceEquality {
+				assert.Equal(t, iSuccessCount, minCountExpected)
+			} else {
+				assert.GreaterOrEqual(t, iSuccessCount, minCountExpected)
+			}
+			return
+		}
+	}
+	assert.Fail(t, "invalid response from api/aggregated-discovery-metrics")
 }
 
 // PrintVTOrcLogsOnFailure prints the VTOrc logs on failure of the test.
