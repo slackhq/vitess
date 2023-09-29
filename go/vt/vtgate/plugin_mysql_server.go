@@ -175,6 +175,9 @@ func startSpanTestable(ctx context.Context, query, label string,
 	newSpanFromString func(context.Context, string, string) (trace.Span, context.Context, error)) (trace.Span, context.Context, error) {
 	_, comments := sqlparser.SplitMarginComments(query)
 	match := r.FindStringSubmatch(comments.Leading)
+	if len(match) == 0 {
+		return trace.NoopSpan{}, ctx, nil
+	}
 	span, ctx := getSpan(ctx, match, newSpan, label, newSpanFromString)
 
 	trace.AnnotateSQL(span, sqlparser.Preview(query))
