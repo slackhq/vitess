@@ -173,6 +173,7 @@ func getSpan(ctx context.Context, match []string, newSpan func(context.Context, 
 		span, ctx, err = newSpanFromString(ctx, match[1], label)
 		if err == nil {
 			span.Annotate("vt_span_context", match[0])
+			log.Infof("vt_span_context: %s", match[1])
 			return span, ctx
 		}
 		log.Warningf("Unable to parse VT_SPAN_CONTEXT: %s", err.Error())
