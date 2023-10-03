@@ -158,6 +158,7 @@ func startSpanTestable(ctx context.Context, query, label string,
 	match := r.FindStringSubmatch(comments.Leading)
 	span, ctx := getSpan(ctx, match, newSpan, label, newSpanFromString)
 	if len(match) == 0 {
+		log.Info("No match found for span context")
 		return trace.NoopSpan{}, ctx, nil
 	}
 
