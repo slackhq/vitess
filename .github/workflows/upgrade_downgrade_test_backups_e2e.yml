@@ -11,7 +11,8 @@ jobs:
   get_previous_release:
     if: always()
     name: Get Previous Release - Backups - E2E
-    runs-on: ubuntu-latest
+    runs-on:
+      group: vitess-ubuntu20
     needs:
       - get_upgrade_downgrade_label
     outputs:
