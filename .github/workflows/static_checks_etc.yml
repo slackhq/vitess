@@ -24,6 +24,7 @@ jobs:
         if: steps.skip-workflow.outputs.skip-workflow == 'false'
         uses: actions/checkout@v3
 
+
       - name: Check for changes in Go files
         if: steps.skip-workflow.outputs.skip-workflow == 'false'
         uses: frouioui/paths-filter@main
