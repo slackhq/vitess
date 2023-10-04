@@ -157,9 +157,8 @@ func startSpanTestable(ctx context.Context, query, label string,
 	_, comments := sqlparser.SplitMarginComments(query)
 	match := r.FindStringSubmatch(comments.Leading)
 	span, ctx := getSpan(ctx, match, newSpan, label, newSpanFromString)
-	if len(match) == 0 {
-		log.Info("No match found for span context")
-		return trace.NoopSpan{}, ctx, nil
+	if len(match) != 0 {
+		log.Infof("Span Context Match: %v", match)
 	}
 
 	trace.AnnotateSQL(span, sqlparser.Preview(query))
