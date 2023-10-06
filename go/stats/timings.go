@@ -66,8 +66,8 @@ func NewTimings(name, help, label string, categories ...string) *Timings {
 func (t *Timings) Reset() {
 	t.mu.RLock()
 	t.histograms = make(map[string]*Histogram)
-	t.totalCount.Store(0)
-	t.totalTime.Store(0)
+	t.totalCount.Set(0)
+	t.totalTime.Set(0)
 	t.mu.RUnlock()
 }
 
