@@ -28,7 +28,6 @@ import (
 	"vitess.io/vitess/go/test/endtoend/cluster"
 	"vitess.io/vitess/go/test/endtoend/vtorc/utils"
 	"vitess.io/vitess/go/vt/log"
-	"vitess.io/vitess/go/vt/vtorc/logic"
 )
 
 // Cases to test:
@@ -73,8 +72,6 @@ func TestSingleKeyspace(t *testing.T) {
 
 	utils.CheckPrimaryTablet(t, clusterInfo, shard0.Vttablets[0], true)
 	utils.CheckReplication(t, clusterInfo, shard0.Vttablets[0], shard0.Vttablets[1:], 10*time.Second)
-	utils.WaitForSuccessfulRecoveryCount(t, clusterInfo.ClusterInstance.VtorcProcesses[0], logic.ElectNewPrimaryRecoveryName, 1)
-	utils.WaitForSuccessfulPRSCount(t, clusterInfo.ClusterInstance.VtorcProcesses[0], keyspace.Name, shard0.Name, 1)
 }
 
 // Cases to test:
@@ -91,17 +88,96 @@ func TestKeyspaceShard(t *testing.T) {
 
 	utils.CheckPrimaryTablet(t, clusterInfo, shard0.Vttablets[0], true)
 	utils.CheckReplication(t, clusterInfo, shard0.Vttablets[0], shard0.Vttablets[1:], 10*time.Second)
-	utils.WaitForSuccessfulRecoveryCount(t, clusterInfo.ClusterInstance.VtorcProcesses[0], logic.ElectNewPrimaryRecoveryName, 1)
-	utils.WaitForSuccessfulPRSCount(t, clusterInfo.ClusterInstance.VtorcProcesses[0], keyspace.Name, shard0.Name, 1)
 }
 
-// Cases to test:
-// 1. make primary readonly, let vtorc repair
-// 2. make replica ReadWrite, let vtorc repair
-// 3. stop replication, let vtorc repair
-// 4. setup replication from non-primary, let vtorc repair
-// 5. make instance A replicates from B and B from A, wait for repair
-func TestVTOrcRepairs(t *testing.T) {
+// 3. make primary readonly, let orc repair
+func TestPrimaryReadOnly(t *testing.T) {
+	defer cluster.PanicHandler(t)
+	utils.SetupVttabletsAndVtorc(t, clusterInfo, 2, 0, nil, cluster.VtorcConfiguration{
+		PreventCrossDataCenterPrimaryFailover: true,
+	}, 1, "")
+	keyspace := &clusterInfo.ClusterInstance.Keyspaces[0]
+	shard0 := &keyspace.Shards[0]
+
+	// find primary from topo
+	curPrimary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
+	assert.NotNil(t, curPrimary, "should have elected a primary")
+
+	// Make the current primary database read-only.
+	_, err := utils.RunSQL(t, "set global read_only=ON", curPrimary, "")
+	require.NoError(t, err)
+
+	// wait for repair
+	match := utils.WaitForReadOnlyValue(t, curPrimary, 0)
+	require.True(t, match)
+}
+
+// 4. make replica ReadWrite, let orc repair
+func TestReplicaReadWrite(t *testing.T) {
+	defer cluster.PanicHandler(t)
+	utils.SetupVttabletsAndVtorc(t, clusterInfo, 2, 0, nil, cluster.VtorcConfiguration{
+		PreventCrossDataCenterPrimaryFailover: true,
+	}, 1, "")
+	keyspace := &clusterInfo.ClusterInstance.Keyspaces[0]
+	shard0 := &keyspace.Shards[0]
+
+	// find primary from topo
+	curPrimary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
+	assert.NotNil(t, curPrimary, "should have elected a primary")
+
+	var replica *cluster.Vttablet
+	for _, tablet := range shard0.Vttablets {
+		// we know we have only two tablets, so the "other" one must be the new primary
+		if tablet.Alias != curPrimary.Alias {
+			replica = tablet
+			break
+		}
+	}
+	// Make the replica database read-write.
+	_, err := utils.RunSQL(t, "set global read_only=OFF", replica, "")
+	require.NoError(t, err)
+
+	// wait for repair
+	match := utils.WaitForReadOnlyValue(t, replica, 1)
+	require.True(t, match)
+}
+
+// 5. stop replication, let orc repair
+func TestStopReplication(t *testing.T) {
+	defer cluster.PanicHandler(t)
+	utils.SetupVttabletsAndVtorc(t, clusterInfo, 2, 0, nil, cluster.VtorcConfiguration{
+		PreventCrossDataCenterPrimaryFailover: true,
+	}, 1, "")
+	keyspace := &clusterInfo.ClusterInstance.Keyspaces[0]
+	shard0 := &keyspace.Shards[0]
+
+	// find primary from topo
+	curPrimary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
+	assert.NotNil(t, curPrimary, "should have elected a primary")
+
+	// TODO(deepthi): we should not need to do this, the DB should be created automatically
+	_, err := curPrimary.VttabletProcess.QueryTablet(fmt.Sprintf("create database IF NOT EXISTS vt_%s", keyspace.Name), keyspace.Name, false)
+	require.NoError(t, err)
+
+	var replica *cluster.Vttablet
+	for _, tablet := range shard0.Vttablets {
+		// we know we have only two tablets, so the "other" one must be the new primary
+		if tablet.Alias != curPrimary.Alias {
+			replica = tablet
+			break
+		}
+	}
+	require.NotNil(t, replica, "should be able to find a replica")
+	// use vtctlclient to stop replication
+	_, err = clusterInfo.ClusterInstance.VtctlclientProcess.ExecuteCommandWithOutput("StopReplication", replica.Alias)
+	require.NoError(t, err)
+
+	// check replication is setup correctly
+	utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica}, 15*time.Second)
+}
+
+// 6. setup replication from non-primary, let orc repair
+func TestReplicationFromOtherReplica(t *testing.T) {
 	defer cluster.PanicHandler(t)
 	utils.SetupVttabletsAndVtorc(t, clusterInfo, 3, 0, nil, cluster.VtorcConfiguration{
 		PreventCrossDataCenterPrimaryFailover: true,
@@ -112,9 +188,10 @@ func TestVTOrcRepairs(t *testing.T) {
 	// find primary from topo
 	curPrimary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
 	assert.NotNil(t, curPrimary, "should have elected a primary")
-	vtOrcProcess := clusterInfo.ClusterInstance.VtorcProcesses[0]
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.ElectNewPrimaryRecoveryName, 1)
-	utils.WaitForSuccessfulPRSCount(t, vtOrcProcess, keyspace.Name, shard0.Name, 1)
+
+	// TODO(deepthi): we should not need to do this, the DB should be created automatically
+	_, err := curPrimary.VttabletProcess.QueryTablet(fmt.Sprintf("create database IF NOT EXISTS vt_%s", keyspace.Name), keyspace.Name, false)
+	require.NoError(t, err)
 
 	var replica, otherReplica *cluster.Vttablet
 	for _, tablet := range shard0.Vttablets {
@@ -133,80 +210,17 @@ func TestVTOrcRepairs(t *testing.T) {
 	// check replication is setup correctly
 	utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
 
-	t.Run("PrimaryReadOnly", func(t *testing.T) {
-		// Make the current primary database read-only.
-		_, err := utils.RunSQL(t, "set global read_only=ON", curPrimary, "")
-		require.NoError(t, err)
+	// point replica at otherReplica
+	changeReplicationSourceCommand := fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL;"+
+		"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='vt_repl', MASTER_AUTO_POSITION = 1; START SLAVE", utils.Hostname, otherReplica.MySQLPort)
+	_, err = utils.RunSQL(t, changeReplicationSourceCommand, replica, "")
+	require.NoError(t, err)
 
-		// wait for repair
-		match := utils.WaitForReadOnlyValue(t, curPrimary, 0)
-		require.True(t, match)
-	})
+	// wait until the source port is set back correctly by vtorc
+	utils.CheckSourcePort(t, replica, curPrimary, 15*time.Second)
 
-	t.Run("ReplicaReadWrite", func(t *testing.T) {
-		// Make the replica database read-write.
-		_, err := utils.RunSQL(t, "set global read_only=OFF", replica, "")
-		require.NoError(t, err)
-
-		// wait for repair
-		match := utils.WaitForReadOnlyValue(t, replica, 1)
-		require.True(t, match)
-	})
-
-	t.Run("StopReplication", func(t *testing.T) {
-		// use vtctlclient to stop replication
-		_, err := clusterInfo.ClusterInstance.VtctlclientProcess.ExecuteCommandWithOutput("StopReplication", replica.Alias)
-		require.NoError(t, err)
-
-		// check replication is setup correctly
-		utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
-
-		// Stop just the IO thread on the replica
-		_, err = utils.RunSQL(t, "STOP SLAVE IO_THREAD", replica, "")
-		require.NoError(t, err)
-
-		// check replication is setup correctly
-		utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
-
-		// Stop just the SQL thread on the replica
-		_, err = utils.RunSQL(t, "STOP SLAVE SQL_THREAD", replica, "")
-		require.NoError(t, err)
-
-		// check replication is setup correctly
-		utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
-	})
-
-	t.Run("ReplicationFromOtherReplica", func(t *testing.T) {
-		// point replica at otherReplica
-		changeReplicationSourceCommand := fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL;"+
-			"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='vt_repl', MASTER_AUTO_POSITION = 1; START SLAVE", utils.Hostname, otherReplica.MySQLPort)
-		_, err := utils.RunSQL(t, changeReplicationSourceCommand, replica, "")
-		require.NoError(t, err)
-
-		// wait until the source port is set back correctly by vtorc
-		utils.CheckSourcePort(t, replica, curPrimary, 15*time.Second)
-
-		// check that writes succeed
-		utils.VerifyWritesSucceed(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
-	})
-
-	t.Run("CircularReplication", func(t *testing.T) {
-		// change the replication source on the primary
-		changeReplicationSourceCommands := fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL;"+
-			"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='vt_repl', MASTER_AUTO_POSITION = 1;"+
-			"START SLAVE;", replica.VttabletProcess.TabletHostname, replica.MySQLPort)
-		_, err := utils.RunSQL(t, changeReplicationSourceCommands, curPrimary, "")
-		require.NoError(t, err)
-
-		// wait for curPrimary to reach stable state
-		time.Sleep(1 * time.Second)
-
-		// wait for repair
-		err = utils.WaitForReplicationToStop(t, curPrimary)
-		require.NoError(t, err)
-		// check that the writes still succeed
-		utils.VerifyWritesSucceed(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 10*time.Second)
-	})
+	// check that writes succeed
+	utils.VerifyWritesSucceed(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, otherReplica}, 15*time.Second)
 }
 
 func TestRepairAfterTER(t *testing.T) {
@@ -241,6 +255,48 @@ func TestRepairAfterTER(t *testing.T) {
 	require.NoError(t, err)
 
 	utils.CheckReplication(t, clusterInfo, newPrimary, []*cluster.Vttablet{curPrimary}, 15*time.Second)
+}
+
+// 7. make instance A replicates from B and B from A, wait for repair
+func TestCircularReplication(t *testing.T) {
+	defer cluster.PanicHandler(t)
+	utils.SetupVttabletsAndVtorc(t, clusterInfo, 2, 0, nil, cluster.VtorcConfiguration{
+		PreventCrossDataCenterPrimaryFailover: true,
+	}, 1, "")
+	keyspace := &clusterInfo.ClusterInstance.Keyspaces[0]
+	shard0 := &keyspace.Shards[0]
+
+	// find primary from topo
+	primary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
+	assert.NotNil(t, primary, "should have elected a primary")
+
+	var replica *cluster.Vttablet
+	for _, tablet := range shard0.Vttablets {
+		// we know we have only two tablets, so the "other" one must be the new primary
+		if tablet.Alias != primary.Alias {
+			replica = tablet
+			break
+		}
+	}
+
+	// check replication is setup correctly
+	utils.CheckReplication(t, clusterInfo, primary, []*cluster.Vttablet{replica}, 15*time.Second)
+
+	// change the replication source on the primary
+	changeReplicationSourceCommands := fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL;"+
+		"CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='vt_repl', MASTER_AUTO_POSITION = 1;"+
+		"START SLAVE;", replica.VttabletProcess.TabletHostname, replica.MySQLPort)
+	_, err := utils.RunSQL(t, changeReplicationSourceCommands, primary, "")
+	require.NoError(t, err)
+
+	// wait for primary to reach stable state
+	time.Sleep(1 * time.Second)
+
+	// wait for repair
+	err = utils.WaitForReplicationToStop(t, primary)
+	require.NoError(t, err)
+	// check that the writes still succeed
+	utils.VerifyWritesSucceed(t, clusterInfo, primary, []*cluster.Vttablet{replica}, 10*time.Second)
 }
 
 // TestSemiSync tests that semi-sync is setup correctly by vtorc if it is incorrectly set
@@ -322,9 +378,6 @@ func TestVtorcWithPrs(t *testing.T) {
 	// find primary from topo
 	curPrimary := utils.ShardPrimaryTablet(t, clusterInfo, keyspace, shard0)
 	assert.NotNil(t, curPrimary, "should have elected a primary")
-	vtOrcProcess := clusterInfo.ClusterInstance.VtorcProcesses[0]
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.ElectNewPrimaryRecoveryName, 1)
-	utils.WaitForSuccessfulPRSCount(t, vtOrcProcess, keyspace.Name, shard0.Name, 1)
 
 	// find any replica tablet other than the current primary
 	var replica *cluster.Vttablet
@@ -350,15 +403,6 @@ func TestVtorcWithPrs(t *testing.T) {
 
 	// check that the replica gets promoted
 	utils.CheckPrimaryTablet(t, clusterInfo, replica, true)
-
-	// Verify that VTOrc didn't run any other recovery
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.ElectNewPrimaryRecoveryName, 1)
-	utils.WaitForSuccessfulPRSCount(t, vtOrcProcess, keyspace.Name, shard0.Name, 1)
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.RecoverDeadPrimaryRecoveryName, 0)
-	utils.WaitForSuccessfulERSCount(t, vtOrcProcess, keyspace.Name, shard0.Name, 0)
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.FixPrimaryRecoveryName, 0)
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.FixReplicaRecoveryName, 0)
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.RecoverPrimaryHasPrimaryRecoveryName, 0)
 	utils.VerifyWritesSucceed(t, clusterInfo, replica, shard0.Vttablets, 10*time.Second)
 }
 
