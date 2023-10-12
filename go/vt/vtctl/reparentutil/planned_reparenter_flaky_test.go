@@ -3790,7 +3790,7 @@ func TestPlannedReparenterStats(t *testing.T) {
 	}
 	keyspace := "testkeyspace"
 	shard := "-"
-	ts := memorytopo.NewServer(context.Background(), "zone1")
+	ts := memorytopo.NewServer("zone1")
 
 	ctx := context.Background()
 	logger := logutil.NewMemoryLogger()
