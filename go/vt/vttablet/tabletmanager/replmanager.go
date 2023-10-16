@@ -105,7 +105,7 @@ func (rm *replManager) check() {
 func (rm *replManager) checkActionLocked() {
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus()
 	if err != nil {
-		if err != mysql.ErrNotReplica {
+		if err.Error() != mysql.ErrNotReplica.Error() {
 			return
 		}
 		log.Infof("slack error: check replication status failed with err: %v, sql err: %v", err, mysql.ErrNotReplica)
