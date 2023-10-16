@@ -114,6 +114,7 @@ func (rm *replManager) checkActionLocked() {
 		if status.SQLHealthy() || status.IOHealthy() {
 			return
 		}
+		log.Infof("slack error: either sql or io thread is not healthy: sql: %v, io: %v", status.SQLHealthy(), status.IOHealthy())
 	}
 
 	if !rm.failed {
