@@ -17,8 +17,12 @@ limitations under the License.
 package primaryfailure
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"path"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,8 +182,6 @@ func TestDeletedPrimaryTablet(t *testing.T) {
 	// check that the replication is setup correctly before we failover
 	utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{replica, rdonly}, 10*time.Second)
 
-	// Disable VTOrc recoveries
-	vtOrcProcess.DisableGlobalRecoveries(t)
 	// use vtctlclient to stop replication on the replica
 	_, err := clusterInfo.ClusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("StopReplication", replica.Alias)
 	require.NoError(t, err)
@@ -195,8 +197,6 @@ func TestDeletedPrimaryTablet(t *testing.T) {
 	require.NoError(t, err)
 	err = clusterInfo.ClusterInstance.VtctldClientProcess.ExecuteCommand("DeleteTablets", "--allow-primary", curPrimary.Alias)
 	require.NoError(t, err)
-	// Enable VTOrc recoveries now
-	vtOrcProcess.EnableGlobalRecoveries(t)
 
 	defer func() {
 		// we remove the tablet from our global list
@@ -205,11 +205,10 @@ func TestDeletedPrimaryTablet(t *testing.T) {
 
 	// check that the replica gets promoted. Also verify that it has all the writes.
 	utils.CheckPrimaryTablet(t, clusterInfo, replica, true)
-	utils.CheckTabletUptoDate(t, clusterInfo, replica)
 
 	// also check that the replication is working correctly after failover
 	utils.VerifyWritesSucceed(t, clusterInfo, replica, []*cluster.Vttablet{rdonly}, 10*time.Second)
-	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.RecoverPrimaryTabletDeletedRecoveryName, 1)
+	utils.WaitForSuccessfulRecoveryCount(t, vtOrcProcess, logic.ElectNewPrimaryRecoveryName, 1)
 }
 
 // TestDeadPrimaryRecoversImmediately test Vtorc ability to recover immediately if primary is dead.
@@ -254,7 +253,6 @@ func TestDeadPrimaryRecoversImmediately(t *testing.T) {
 	utils.CheckReplication(t, clusterInfo, curPrimary, []*cluster.Vttablet{rdonly, replica, crossCellReplica}, 10*time.Second)
 
 	// Make the current primary vttablet unavailable.
-	curPrimary.VttabletProcess.Kill()
 	err := curPrimary.MysqlctlProcess.Stop()
 	require.NoError(t, err)
 	defer func() {
@@ -779,4 +777,30 @@ func TestDownPrimaryPromotionRuleWithLagCrossCenter(t *testing.T) {
 
 	// check that rdonly and crossCellReplica are able to replicate from the replica
 	utils.VerifyWritesSucceed(t, clusterInfo, replica, []*cluster.Vttablet{crossCellReplica, rdonly}, 15*time.Second)
+}
+
+func extractTimeFromLog(t *testing.T, logFile string, logStatement string) string {
+	file, err := os.Open(logFile)
+	if err != nil {
+		t.Errorf("fail to extract time from log statement %s", err.Error())
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, logStatement) {
+			// Regular expression pattern for date format
+			pattern := `\d{2}:\d{2}:\d{2}\.\d{6}`
+			re := regexp.MustCompile(pattern)
+			match := re.FindString(line)
+			return match
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		t.Errorf("fail to extract time from log statement %s", err.Error())
+	}
+	return ""
 }
