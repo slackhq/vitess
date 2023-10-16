@@ -108,6 +108,7 @@ func (rm *replManager) checkActionLocked() {
 		if err != mysql.ErrNotReplica {
 			return
 		}
+		log.Infof("slack error: check replication status failed with %v", err)
 	} else {
 		// If only one of the threads is stopped, it's probably
 		// intentional. So, we don't repair replication.
