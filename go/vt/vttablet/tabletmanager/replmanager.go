@@ -106,8 +106,10 @@ func (rm *replManager) checkActionLocked() {
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus()
 	if err != nil {
 		if err != mysql.ErrNotReplica {
+			log.Infof("slack: replication check err: %v", err)
 			return
 		}
+		log.Infof("slack: replication check err: %v", err)
 	} else {
 		// If only one of the threads is stopped, it's probably
 		// intentional. So, we don't repair replication.
