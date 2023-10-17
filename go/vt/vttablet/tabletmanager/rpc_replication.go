@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/vt/proto/vtrpc"
+	"vitess.io/vitess/go/vt/topo"
 
 	"context"
 
@@ -703,13 +704,17 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 		return err
 	}
 
-	ctx, unlock, lockErr := tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
-	if lockErr != nil {
-		log.Warningf("slack: failed to lock the shard with the error: %v", lockErr)
-		return lockErr
-	}
+	if err = topo.CheckShardLocked(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard()); err != nil {
+		var unlock func(*error)
+		ctx, unlock, err = tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
 
-	defer unlock(&err)
+		if err != nil {
+			log.Warningf("slack: failed to lock the shard with the error: %v", err)
+			return err
+		}
+
+		defer unlock(&err)
+	}
 
 	return tm.setReplicationSourceLocked(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, SemiSyncActionNone)
 }
