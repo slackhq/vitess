@@ -51,6 +51,8 @@ func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockD
 
 	lockPath := path.Join(s.root, dirPath, locksFilename)
 
+	log.Infof("slack: trying to lock consul topo: dirPath: %s, lockPath: %s", dirPath, lockPath)
+
 	lockOpts := &api.LockOptions{
 		Key:   lockPath,
 		Value: []byte(contents),
@@ -72,6 +74,7 @@ func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockD
 		return nil, err
 	}
 
+	log.Infof("slack: trying to wait here until we are the only one or timeout(%vs) or ttl(%vs)", lockOpts.SessionOpts.LockDelay, lockOpts.SessionOpts.TTL)
 	// Wait until we are the only ones in this client trying to
 	// lock that path.
 	s.mu.Lock()
@@ -108,6 +111,7 @@ func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockD
 		// Consul will return empty leaderCh with nil error if we cannot get lock before the timeout
 		// therefore we return a timeout error here
 		if lost == nil {
+			log.Info("slack: sorry, tried to lock but it timed out..")
 			return nil, topo.NewError(topo.Timeout, lockPath)
 		}
 		return nil, err

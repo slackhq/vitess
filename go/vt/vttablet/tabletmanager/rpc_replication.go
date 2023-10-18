@@ -705,6 +705,7 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 	}
 
 	if err = topo.CheckShardLocked(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard()); err != nil {
+		log.Errorf("slack: CheckShardLocked failed with err: %v", err)
 		var unlock func(*error)
 		ctx, unlock, err = tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
 
