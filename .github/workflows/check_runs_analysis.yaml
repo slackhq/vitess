@@ -6,7 +6,8 @@ jobs:
   analyze:
     if: github.repository == 'vitessio/vitess'
     name: analyze_check_runs
-    runs-on: ubuntu-latest
+    runs-on:
+      group: vitess-ubuntu20
     steps:
 
     - uses: actions/checkout@v2

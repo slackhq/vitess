@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"flag"
 	"os"
+	"vitess.io/vitess/resources"
 
 	"context"
 
@@ -40,8 +41,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/yaml2"
-
-	rice "github.com/GeertJohan/go.rice"
 )
 
 var (
@@ -170,22 +169,12 @@ func initConfig(tabletAlias *topodatapb.TabletAlias) (*tabletenv.TabletConfig, *
 // extractOnlineDDL extracts the gh-ost binary from this executable. gh-ost is appended
 // to vttablet executable by `make build` and via ricebox
 func extractOnlineDDL() error {
-	riceBox, err := rice.FindBox("../../../resources/bin")
-	if err != nil {
-		return err
-	}
-
 	if binaryFileName, isOverride := onlineddl.GhostBinaryFileName(); !isOverride {
-		// there is no path override for gh-ost. We're expected to auto-extract gh-ost.
-		ghostBinary, err := riceBox.Bytes("gh-ost")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(binaryFileName, ghostBinary, 0755); err != nil {
+		if err := os.WriteFile(binaryFileName, resources.GhostBinary, 0755); err != nil {
 			// One possibility of failure is that gh-ost is up and running. In that case,
 			// let's pause and check if the running gh-ost is exact same binary as the one we wish to extract.
 			foundBytes, _ := os.ReadFile(binaryFileName)
-			if bytes.Equal(ghostBinary, foundBytes) {
+			if bytes.Equal(resources.GhostBinary, foundBytes) {
 				// OK, it's the same binary, there is no need to extract the file anyway
 				return nil
 			}

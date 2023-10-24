@@ -39,6 +39,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"vitess.io/vitess/config"
 
 	rice "github.com/GeertJohan/go.rice"
 
@@ -671,12 +672,7 @@ func (mysqld *Mysqld) Init(ctx context.Context, cnf *Mycnf, initDBSQLFile string
 	}
 
 	if initDBSQLFile == "" { // default to built-in
-		riceBox := rice.MustFindBox("../../../config")
-		sqlFile, err := riceBox.Open("init_db.sql")
-		if err != nil {
-			return fmt.Errorf("could not open built-in init_db.sql file")
-		}
-		if err := mysqld.executeMysqlScript(params, sqlFile); err != nil {
+		if err := mysqld.executeMysqlScript(params, strings.NewReader(config.DefaultInitDB)); err != nil {
 			return fmt.Errorf("failed to initialize mysqld: %v", err)
 		}
 		return nil

@@ -11,7 +11,8 @@ jobs:
   check_pull_request_labels:
     name: Check Pull Request labels
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on:
+      group: vitess-ubuntu20
     if: github.repository == 'vitessio/vitess'
     steps:
       - uses: mheap/github-action-required-labels@v1
