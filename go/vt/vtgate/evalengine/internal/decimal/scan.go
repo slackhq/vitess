@@ -143,9 +143,10 @@ func NewFromMySQL(s []byte) (Decimal, error) {
 //
 // Example:
 //
-//	d, err := NewFromString("-123.45")
-//	d2, err := NewFromString(".0001")
-//	d3, err := NewFromString("1.47000")
+//     d, err := NewFromString("-123.45")
+//     d2, err := NewFromString(".0001")
+//     d3, err := NewFromString("1.47000")
+//
 func NewFromString(value string) (Decimal, error) {
 	originalInput := value
 	var intString string
@@ -222,8 +223,9 @@ func NewFromString(value string) (Decimal, error) {
 //
 // Example:
 //
-//	d := RequireFromString("-123.45")
-//	d2 := RequireFromString(".0001")
+//     d := RequireFromString("-123.45")
+//     d2 := RequireFromString(".0001")
+//
 func RequireFromString(value string) Decimal {
 	dec, err := NewFromString(value)
 	if err != nil {

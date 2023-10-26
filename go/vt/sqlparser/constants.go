@@ -408,7 +408,7 @@ const (
 	ReadWrite
 )
 
-// Constants for Enum type - IsolationLevel
+//Constants for Enum type - IsolationLevel
 const (
 	ReadUncommitted IsolationLevel = iota
 	ReadCommitted

@@ -94,7 +94,7 @@ func (cnf *ZkConfig) WriteMyid() error {
 }
 
 /*
-Search for first existing file in cnfFiles and subsitute in the right values.
+  Search for first existing file in cnfFiles and subsitute in the right values.
 */
 func MakeZooCfg(cnfFiles []string, cnf *ZkConfig, header string) (string, error) {
 	myTemplateSource := new(bytes.Buffer)
@@ -129,12 +129,12 @@ func MakeZooCfg(cnfFiles []string, cnf *ZkConfig, header string) (string, error)
 const GuessMyID = 0
 
 /*
-Create a config for this instance.
+  Create a config for this instance.
 
-<server_id>@<hostname>:<leader_port>:<election_port>:<client_port>
+  <server_id>@<hostname>:<leader_port>:<election_port>:<client_port>
 
-If server_id > 1000, then we assume this is a global quorum.
-server_id's must be 1-255, global id's are 1001-1255 mod 1000.
+  If server_id > 1000, then we assume this is a global quorum.
+  server_id's must be 1-255, global id's are 1001-1255 mod 1000.
 */
 func MakeZkConfigFromString(cmdLine string, myID uint32) *ZkConfig {
 	zkConfig := NewZkConfig()
