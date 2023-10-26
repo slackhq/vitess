@@ -118,7 +118,7 @@ func (v *RevertMigration) TryStreamExecute(vcursor VCursor, bindVars map[string]
 	return callback(results)
 }
 
-//GetFields implements the Primitive interface
+// GetFields implements the Primitive interface
 func (v *RevertMigration) GetFields(vcursor VCursor, bindVars map[string]*query.BindVariable) (*sqltypes.Result, error) {
 	return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "[BUG] GetFields is not reachable")
 }
