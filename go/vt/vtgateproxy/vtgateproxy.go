@@ -42,7 +42,7 @@ var (
 	defaultDDLStrategy = flag.String("ddl_strategy", string(schema.DDLStrategyDirect), "Set default strategy for DDL statements. Override with @@ddl_strategy session variable")
 	sysVarSetEnabled   = flag.Bool("enable_system_settings", true, "This will enable the system settings to be changed per session at the database connection level")
 
-	vtGateProxy *VTGateProxy
+	vtGateProxy *VTGateProxy = &VTGateProxy{}
 )
 
 type VTGateProxy struct {

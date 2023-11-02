@@ -39,10 +39,11 @@ var (
 //
 
 type DiscoveryHost struct {
-	Address string
-	Grpc    string
-	AZ_Id   string `json:az_id`
-	Type    string
+	Address       string
+	NebulaAddress string `json:"nebula_address"`
+	Grpc          string
+	AZId          string `json:"az_id"`
+	Type          string
 }
 
 type JSONGateConfigDiscovery struct {
@@ -132,14 +133,14 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, error) {
 		}
 
 		if r.filters.az_id != "" {
-			if r.filters.az_id != s.AZ_Id {
-				fmt.Printf("Dropped non matching az: %v\n", s.AZ_Id)
+			if r.filters.az_id != s.AZId {
+				fmt.Printf("Dropped non matching az: %v\n", s.AZId)
 				continue
 			}
 		}
 		// Add matching hosts to registration list
-		fmt.Printf("selected host for discovery: %v %v\n", fmt.Sprintf("%s:%s", s.Address, s.Grpc), s)
-		addrs = append(addrs, resolver.Address{Addr: fmt.Sprintf("%s:%s", s.Address, s.Grpc)})
+		fmt.Printf("selected host for discovery: %v %v\n", fmt.Sprintf("%s:%s", s.NebulaAddress, s.Grpc), s)
+		addrs = append(addrs, resolver.Address{Addr: fmt.Sprintf("%s:%s", s.NebulaAddress, s.Grpc)})
 	}
 
 	// Shuffle to ensure every host has a different order to iterate through
