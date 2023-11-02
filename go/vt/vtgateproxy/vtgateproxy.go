@@ -54,6 +54,10 @@ func (proxy *VTGateProxy) connect(ctx context.Context) error {
 		return append(opts, grpc.WithBlock()), nil
 	})
 
+	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
+		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
+	})
+
 	conn, err := vtgateconn.DialProtocol(ctx, "grpc", *target)
 	if err != nil {
 		return err
@@ -104,8 +108,6 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 }
 
 func Init() error {
-	vtGateProxy = &VTGateProxy{}
-
 	// XXX maybe add connect timeout?
 	ctx, cancel := context.WithTimeout(context.Background(), *dialTimeout)
 	defer cancel()
