@@ -121,8 +121,8 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, error) {
 
 	fmt.Printf("%v\n", config)
 
-	addrs := make([]resolver.Address, len(config))
-	for i, s := range config {
+	addrs := []resolver.Address{}
+	for _, s := range config {
 		// Apply filters
 		if r.filters.gate_type != "" {
 			if r.filters.gate_type != s.Type {
@@ -138,7 +138,8 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, error) {
 			}
 		}
 		// Add matching hosts to registration list
-		addrs[i] = resolver.Address{Addr: fmt.Sprintf("%s:%s", s.Address, s.Grpc)}
+		fmt.Printf("selected host for discovery: %v %v\n", fmt.Sprintf("%s:%s", s.Address, s.Grpc), s)
+		addrs = append(addrs, resolver.Address{Addr: fmt.Sprintf("%s:%s", s.Address, s.Grpc)})
 	}
 
 	// Shuffle to ensure every host has a different order to iterate through
