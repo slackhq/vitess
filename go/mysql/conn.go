@@ -129,6 +129,8 @@ type Conn struct {
 	// It is set during the initial handshake.
 	UserData Getter
 
+	ConnectionAttributes map[string]string
+
 	bufferedReader *bufio.Reader
 	flushTimer     *time.Timer
 	header         [packetHeaderSize]byte

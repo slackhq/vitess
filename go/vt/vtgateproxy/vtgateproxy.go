@@ -21,6 +21,7 @@ package vtgateproxy
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"time"
 
@@ -68,9 +69,14 @@ func (proxy *VTGateProxy) connect(ctx context.Context) error {
 	return nil
 }
 
-func (proxy *VTGateProxy) NewSession(options *querypb.ExecuteOptions) (*vtgateconn.VTGateSession, error) {
+func (proxy *VTGateProxy) NewSession(options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
 	if proxy.conn == nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "not connnected")
+	}
+
+	target, ok := connectionAttributes["target"]
+	if ok {
+		fmt.Printf("Creating new session from upstream provided target string: %v\n", target)
 	}
 
 	// XXX/demmer handle schemaName?
