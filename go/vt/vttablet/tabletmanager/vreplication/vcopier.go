@@ -27,6 +27,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/prototext"
 
+	"vitess.io/vitess/go/vt/vttablet"
+
 	"vitess.io/vitess/go/bytes2"
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/pools"
@@ -393,7 +395,7 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 		return fmt.Errorf("plan not found for table: %s, current plans are: %#v", tableName, plan.TargetTables)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, copyPhaseDuration)
+	ctx, cancel := context.WithTimeout(ctx, vttablet.CopyPhaseDuration)
 	defer cancel()
 
 	var lastpkpb *querypb.QueryResult
@@ -406,7 +408,7 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 	copyStateGCTicker := time.NewTicker(copyStateGCInterval)
 	defer copyStateGCTicker.Stop()
 
-	parallelism := int(math.Max(1, float64(vreplicationParallelInsertWorkers)))
+	parallelism := getInsertParallelism()
 	copyWorkerFactory := vc.newCopyWorkerFactory(parallelism)
 	copyWorkQueue := vc.newCopyWorkQueue(parallelism, copyWorkerFactory)
 	defer copyWorkQueue.close()
@@ -508,6 +510,12 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 		if parallelism > 1 {
 			rows = rows.CloneVT()
 		}
+
+		// Code below is copied from vcopier.go. It was implemented to facilitate
+		// parallel bulk inserts in https://github.com/vitessio/vitess/pull/10828.
+		// We can probably extract this into a common package and use it for both
+		// flavors of the vcopier. But cut/pasting it for now, so as to not change
+		// vcopier at the moment to avoid any regressions.
 
 		// Prepare a vcopierCopyTask for the current batch of work.
 		// TODO(maxeng) see if using a pre-allocated pool will speed things up.
@@ -671,6 +679,18 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 	return nil
 }
 
+// updatePos is called after the last table is copied in an atomic copy, to set the gtid so that the replicating phase
+// can start from the gtid where the snapshot with all tables was taken. It also updates the final copy row count.
+func (vc *vcopier) updatePos(ctx context.Context, gtid string) error {
+	pos, err := replication.DecodePosition(gtid)
+	if err != nil {
+		return err
+	}
+	update := binlogplayer.GenerateUpdatePos(vc.vr.id, pos, time.Now().Unix(), 0, vc.vr.stats.CopyRowCount.Get(), vreplicationStoreCompressedGTID)
+	_, err = vc.vr.dbClient.Execute(update)
+	return err
+}
+
 func (vc *vcopier) fastForward(ctx context.Context, copyState map[string]*sqltypes.Result, gtid string) error {
 	defer vc.vr.stats.PhaseTimings.Record("fastforward", time.Now())
 	pos, err := replication.DecodePosition(gtid)
@@ -738,7 +758,7 @@ func (vcq *vcopierCopyWorkQueue) enqueue(ctx context.Context, currT *vcopierCopy
 	}
 
 	// Get a handle on an unused worker.
-	poolH, err := vcq.workerPool.Get(ctx, nil)
+	poolH, err := vcq.workerPool.Get(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get a worker from pool: %s", err.Error())
 	}
@@ -998,11 +1018,6 @@ func (vts vcopierCopyTaskState) String() string {
 	return fmt.Sprintf("undefined(%d)", int(vts))
 }
 
-// ApplySetting implements pools.Resource.
-func (vbc *vcopierCopyWorker) ApplySetting(context.Context, *pools.Setting) error {
-	return vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "[BUG] vcopierCopyWorker does not implement ApplySetting")
-}
-
 // Close implements pool.Resource.
 func (vbc *vcopierCopyWorker) Close() {
 	if !vbc.isOpen {
@@ -1018,21 +1033,6 @@ func (vbc *vcopierCopyWorker) Close() {
 // Expired implements pools.Resource.
 func (vbc *vcopierCopyWorker) Expired(time.Duration) bool {
 	return false
-}
-
-// IsSameSetting implements pools.Resource.
-func (vbc *vcopierCopyWorker) IsSameSetting(string) bool {
-	return true
-}
-
-// IsSettingApplied implements pools.Resource.
-func (vbc *vcopierCopyWorker) IsSettingApplied() bool {
-	return false
-}
-
-// ResetSetting implements pools.Resource.
-func (vbc *vcopierCopyWorker) ResetSetting(context.Context) error {
-	return vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "[BUG] vcopierCopyWorker does not implement ResetSetting")
 }
 
 // execute advances a task through each state until it is done (= canceled,
@@ -1074,6 +1074,10 @@ func (vbc *vcopierCopyWorker) execute(ctx context.Context, task *vcopierCopyTask
 			}
 		case vcopierCopyTaskInsertCopyState:
 			advanceFn = func(ctx context.Context, args *vcopierCopyTaskArgs) error {
+				if vbc.copyStateInsert == nil { // we don't insert copy state for atomic copy
+					log.Infof("Skipping copy_state insert")
+					return nil
+				}
 				if err := vbc.insertCopyState(ctx, args.lastpk); err != nil {
 					return vterrors.Wrapf(err, "error updating _vt.copy_state")
 				}
@@ -1199,4 +1203,10 @@ func vcopierCopyTaskGetNextState(vts vcopierCopyTaskState) vcopierCopyTaskState 
 		return vcopierCopyTaskComplete
 	}
 	return vts
+}
+
+// getInsertParallelism returns the number of parallel workers to use for inserting batches during the copy phase.
+func getInsertParallelism() int {
+	parallelism := int(math.Max(1, float64(vreplicationParallelInsertWorkers)))
+	return parallelism
 }

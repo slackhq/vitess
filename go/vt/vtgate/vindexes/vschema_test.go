@@ -259,19 +259,19 @@ func TestForeignKeyMode(t *testing.T) {
 	}{
 		{
 			name:         "Default Value",
-			wantedFkMode: vschemapb.Keyspace_FK_UNMANAGED,
+			wantedFkMode: vschemapb.Keyspace_unmanaged,
 		}, {
 			name:         "Managed Value",
-			fkMode:       vschemapb.Keyspace_FK_MANAGED,
-			wantedFkMode: vschemapb.Keyspace_FK_MANAGED,
+			fkMode:       vschemapb.Keyspace_managed,
+			wantedFkMode: vschemapb.Keyspace_managed,
 		}, {
 			name:         "Unmanaged Value",
-			fkMode:       vschemapb.Keyspace_FK_UNMANAGED,
-			wantedFkMode: vschemapb.Keyspace_FK_UNMANAGED,
+			fkMode:       vschemapb.Keyspace_unmanaged,
+			wantedFkMode: vschemapb.Keyspace_unmanaged,
 		}, {
 			name:         "Disallow Value",
-			fkMode:       vschemapb.Keyspace_FK_DISALLOW,
-			wantedFkMode: vschemapb.Keyspace_FK_DISALLOW,
+			fkMode:       vschemapb.Keyspace_disallow,
+			wantedFkMode: vschemapb.Keyspace_disallow,
 		},
 	}
 
@@ -365,7 +365,7 @@ func TestVSchemaViews(t *testing.T) {
 	got := string(out)
 	want := `
 {
-  "foreignKeyMode":"FK_UNMANAGED",
+  "foreignKeyMode":"unmanaged",
   "tables": {
     "t1": {
       "name": "t1",
@@ -423,7 +423,7 @@ func TestVSchemaForeignKeys(t *testing.T) {
 	require.NoError(t, err)
 	want := `
 {
-  "foreignKeyMode": "FK_UNMANAGED",
+  "foreignKeyMode": "unmanaged",
   "tables": {
     "t1": {
       "name": "t1",
@@ -681,7 +681,7 @@ func TestVSchemaRoutingRules(t *testing.T) {
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"ks1": {
 				Sharded:        true,
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stfu1": {
 						Type: "stfu",
@@ -699,7 +699,7 @@ func TestVSchemaRoutingRules(t *testing.T) {
 				},
 			},
 			"ks2": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Tables: map[string]*vschemapb.Table{
 					"t2": {},
 				},
@@ -773,7 +773,7 @@ func TestVSchemaRoutingRules(t *testing.T) {
 		Keyspaces: map[string]*KeyspaceSchema{
 			"ks1": {
 				Keyspace:       ks1,
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Tables: map[string]*Table{
 					"t1": t1,
 				},
@@ -782,7 +782,7 @@ func TestVSchemaRoutingRules(t *testing.T) {
 				},
 			},
 			"ks2": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Keyspace:       ks2,
 				Tables: map[string]*Table{
 					"t2": t2,
@@ -805,37 +805,37 @@ func TestChooseVindexForType(t *testing.T) {
 		out: "",
 	}, {
 		in:  sqltypes.Int8,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Uint8,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Int16,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Uint16,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Int24,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Uint24,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Int32,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Uint32,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Int64,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Uint64,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Float32,
-		out: "hash",
+		out: "",
 	}, {
 		in:  sqltypes.Float64,
 		out: "",
@@ -853,7 +853,7 @@ func TestChooseVindexForType(t *testing.T) {
 		out: "",
 	}, {
 		in:  sqltypes.Year,
-		out: "hash",
+		out: "xxhash",
 	}, {
 		in:  sqltypes.Decimal,
 		out: "",
@@ -897,11 +897,16 @@ func TestChooseVindexForType(t *testing.T) {
 
 	for _, tcase := range testcases {
 		out, err := ChooseVindexForType(tcase.in)
-		if out == "" {
-			assert.Error(t, err, tcase.in)
+		// If no type is returned then we do not recommend the column be
+		// used for a vindex. If the test case provides an empty output
+		// value then we expect an error.
+		if tcase.out == "" {
+			assert.Error(t, err, "unexpectedly got a recommended vindex type of %s for input column type %v",
+				out, tcase.in)
 			continue
 		}
-		assert.Equal(t, out, tcase.out, tcase.in)
+		assert.Equal(t, out, tcase.out, "expected a recommended vindex type of %s for input column type %v but got %s",
+			tcase.out, tcase.in, out)
 	}
 }
 
@@ -1103,7 +1108,7 @@ func TestShardedVSchemaMultiColumnVindex(t *testing.T) {
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"sharded": {
 				Sharded:        true,
-				ForeignKeyMode: vschemapb.Keyspace_FK_DISALLOW,
+				ForeignKeyMode: vschemapb.Keyspace_disallow,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stfu1": {
 						Type:   "stfu",
@@ -1150,7 +1155,7 @@ func TestShardedVSchemaMultiColumnVindex(t *testing.T) {
 		},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"sharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_DISALLOW,
+				ForeignKeyMode: vschemapb.Keyspace_disallow,
 				Keyspace:       ks,
 				Tables: map[string]*Table{
 					"t1": t1},
@@ -1168,7 +1173,7 @@ func TestShardedVSchemaNotOwned(t *testing.T) {
 	good := vschemapb.SrvVSchema{
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"sharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Sharded:        true,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stlu1": {
@@ -1226,7 +1231,7 @@ func TestShardedVSchemaNotOwned(t *testing.T) {
 			"stfu1": vindex2},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"sharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Keyspace:       ks,
 				Tables: map[string]*Table{
 					"t1": t1,
@@ -1301,12 +1306,12 @@ func TestBuildVSchemaDupSeq(t *testing.T) {
 	good := vschemapb.SrvVSchema{
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Tables: map[string]*vschemapb.Table{
 					"t1": {
 						Type: "sequence"}}},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Tables: map[string]*vschemapb.Table{
 					"t1": {
 						Type: "sequence"}}}}}
@@ -1331,7 +1336,7 @@ func TestBuildVSchemaDupSeq(t *testing.T) {
 		uniqueVindexes: map[string]Vindex{},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Keyspace:       ksa,
 				Tables: map[string]*Table{
 					"t1": t1a,
@@ -1339,7 +1344,7 @@ func TestBuildVSchemaDupSeq(t *testing.T) {
 				Vindexes: map[string]Vindex{},
 			},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_managed,
 				Keyspace:       ksb,
 				Tables: map[string]*Table{
 					"t1": t1b,
@@ -1356,13 +1361,13 @@ func TestBuildVSchemaDupTable(t *testing.T) {
 	good := vschemapb.SrvVSchema{
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Tables: map[string]*vschemapb.Table{
 					"t1": {},
 				},
 			},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Tables: map[string]*vschemapb.Table{
 					"t1": {},
 				},
@@ -1392,7 +1397,7 @@ func TestBuildVSchemaDupTable(t *testing.T) {
 		uniqueVindexes: map[string]Vindex{},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Keyspace:       ksa,
 				Tables: map[string]*Table{
 					"t1": t1a,
@@ -1400,7 +1405,7 @@ func TestBuildVSchemaDupTable(t *testing.T) {
 				Vindexes: map[string]Vindex{},
 			},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Keyspace:       ksb,
 				Tables: map[string]*Table{
 					"t1": t1b,
@@ -1420,7 +1425,7 @@ func TestBuildVSchemaDupVindex(t *testing.T) {
 	good := vschemapb.SrvVSchema{
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Sharded:        true,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stlu1": {
@@ -1440,7 +1445,7 @@ func TestBuildVSchemaDupVindex(t *testing.T) {
 				},
 			},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Sharded:        true,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stlu1": {
@@ -1523,7 +1528,7 @@ func TestBuildVSchemaDupVindex(t *testing.T) {
 		},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"ksa": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Keyspace:       ksa,
 				Tables: map[string]*Table{
 					"t1": t1,
@@ -1533,7 +1538,7 @@ func TestBuildVSchemaDupVindex(t *testing.T) {
 				},
 			},
 			"ksb": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Keyspace:       ksb,
 				Tables: map[string]*Table{
 					"t1": t2,
@@ -1992,7 +1997,7 @@ func TestSequence(t *testing.T) {
 	good := vschemapb.SrvVSchema{
 		Keyspaces: map[string]*vschemapb.Keyspace{
 			"unsharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_DISALLOW,
+				ForeignKeyMode: vschemapb.Keyspace_disallow,
 				Tables: map[string]*vschemapb.Table{
 					"seq": {
 						Type: "sequence",
@@ -2001,7 +2006,7 @@ func TestSequence(t *testing.T) {
 			},
 			"sharded": {
 				Sharded:        true,
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Vindexes: map[string]*vschemapb.Vindex{
 					"stfu1": {
 						Type:   "stfu",
@@ -2111,7 +2116,7 @@ func TestSequence(t *testing.T) {
 		},
 		Keyspaces: map[string]*KeyspaceSchema{
 			"unsharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_DISALLOW,
+				ForeignKeyMode: vschemapb.Keyspace_disallow,
 				Keyspace:       ksu,
 				Tables: map[string]*Table{
 					"seq": seq,
@@ -2119,7 +2124,7 @@ func TestSequence(t *testing.T) {
 				Vindexes: map[string]Vindex{},
 			},
 			"sharded": {
-				ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+				ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 				Keyspace:       kss,
 				Tables: map[string]*Table{
 					"t1": t1,
@@ -2550,7 +2555,7 @@ func TestBuildKeyspaceSchema(t *testing.T) {
 	}
 	want := &KeyspaceSchema{
 		Keyspace:       ks,
-		ForeignKeyMode: vschemapb.Keyspace_FK_UNMANAGED,
+		ForeignKeyMode: vschemapb.Keyspace_unmanaged,
 		Tables: map[string]*Table{
 			"t1": t1,
 			"t2": t2,
@@ -2672,7 +2677,7 @@ func TestVSchemaJSON(t *testing.T) {
 
 	in := map[string]*KeyspaceSchema{
 		"unsharded": {
-			ForeignKeyMode: vschemapb.Keyspace_FK_MANAGED,
+			ForeignKeyMode: vschemapb.Keyspace_managed,
 			Keyspace: &Keyspace{
 				Name: "k1",
 			},
@@ -2693,7 +2698,7 @@ func TestVSchemaJSON(t *testing.T) {
 			},
 		},
 		"sharded": {
-			ForeignKeyMode: vschemapb.Keyspace_FK_DISALLOW,
+			ForeignKeyMode: vschemapb.Keyspace_disallow,
 			Keyspace: &Keyspace{
 				Name:    "k2",
 				Sharded: true,
@@ -2720,7 +2725,7 @@ func TestVSchemaJSON(t *testing.T) {
 	want := `{
   "sharded": {
     "sharded": true,
-    "foreignKeyMode": "FK_DISALLOW",
+    "foreignKeyMode": "disallow",
     "tables": {
       "t3": {
         "name": "n3",
@@ -2745,7 +2750,7 @@ func TestVSchemaJSON(t *testing.T) {
     }
   },
   "unsharded": {
-    "foreignKeyMode": "FK_MANAGED",
+    "foreignKeyMode": "managed",
     "tables": {
       "t1": {
         "name": "n1",

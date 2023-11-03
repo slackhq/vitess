@@ -126,7 +126,7 @@ func TestVStreamCopyFilterValidations(t *testing.T) {
 			require.Error(t, uvs.init(), expectedError)
 			return
 		}
-		require.Equal(t, len(expected), len(uvs.plans))
+		require.Equalf(t, len(expected), len(uvs.plans), "Plans: %+v", uvs.plans)
 		for _, tableName := range expected {
 			require.True(t, uvs.plans[tableName].tablePK.TableName == tableName)
 			if tablePKs == nil {
@@ -449,6 +449,9 @@ func startVStreamCopy(ctx context.Context, t *testing.T, filter *binlogdatapb.Fi
 			for _, ev := range evs {
 				if ev.Type == binlogdatapb.VEventType_HEARTBEAT {
 					continue
+				}
+				if ev.Type == binlogdatapb.VEventType_ROW {
+					ev.RowEvent.Flags = 0
 				}
 				if ev.Throttled {
 					continue

@@ -48,6 +48,10 @@ func TestExpandStar(t *testing.T) {
 				}, {
 					Name: sqlparser.NewIdentifierCI("c"),
 					Type: sqltypes.VarChar,
+				}, {
+					Name:      sqlparser.NewIdentifierCI("secret"),
+					Type:      sqltypes.Decimal,
+					Invisible: true,
 				}},
 				ColumnListAuthoritative: true,
 			},
@@ -145,35 +149,41 @@ func TestExpandStar(t *testing.T) {
 		sql:    "select * from t1 join t2 on t1.a = t2.c1",
 		expSQL: "select t1.a as a, t1.b as b, t1.c as c, t2.c1 as c1, t2.c2 as c2 from t1 join t2 on t1.a = t2.c1",
 	}, {
+		sql:    "select * from t1 left join t2 on t1.a = t2.c1",
+		expSQL: "select t1.a as a, t1.b as b, t1.c as c, t2.c1 as c1, t2.c2 as c2 from t1 left join t2 on t1.a = t2.c1",
+	}, {
+		sql:    "select * from t1 right join t2 on t1.a = t2.c1",
+		expSQL: "select t1.a as a, t1.b as b, t1.c as c, t2.c1 as c1, t2.c2 as c2 from t1 right join t2 on t1.a = t2.c1",
+	}, {
 		sql:      "select * from t2 join t4 using (c1)",
-		expSQL:   "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4 from t2 join t4 where t2.c1 = t4.c1",
+		expSQL:   "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4 from t2 join t4 on t2.c1 = t4.c1",
 		expanded: "main.t2.c1, main.t2.c2, main.t4.c4",
 	}, {
 		sql:    "select * from t2 join t4 using (c1) join t2 as X using (c1)",
-		expSQL: "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4, X.c2 as c2 from t2 join t4 join t2 as X where t2.c1 = t4.c1 and t2.c1 = X.c1 and t4.c1 = X.c1",
+		expSQL: "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4, X.c2 as c2 from t2 join t4 on t2.c1 = t4.c1 join t2 as X on t2.c1 = t4.c1 and t2.c1 = X.c1 and t4.c1 = X.c1",
 	}, {
 		sql:    "select * from t2 join t4 using (c1), t2 as t2b join t4 as t4b using (c1)",
-		expSQL: "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4, t2b.c1 as c1, t2b.c2 as c2, t4b.c4 as c4 from t2 join t4, t2 as t2b join t4 as t4b where t2b.c1 = t4b.c1 and t2.c1 = t4.c1",
+		expSQL: "select t2.c1 as c1, t2.c2 as c2, t4.c4 as c4, t2b.c1 as c1, t2b.c2 as c2, t4b.c4 as c4 from t2 join t4 on t2.c1 = t4.c1, t2 as t2b join t4 as t4b on t2b.c1 = t4b.c1",
 	}, {
 		sql:      "select * from t1 join t5 using (b)",
-		expSQL:   "select t1.b as b, t1.a as a, t1.c as c, t5.a as a from t1 join t5 where t1.b = t5.b",
+		expSQL:   "select t1.b as b, t1.a as a, t1.c as c, t5.a as a from t1 join t5 on t1.b = t5.b",
 		expanded: "main.t1.a, main.t1.b, main.t1.c, main.t5.a",
 	}, {
 		sql:    "select * from t1 join t5 using (b) having b = 12",
-		expSQL: "select t1.b as b, t1.a as a, t1.c as c, t5.a as a from t1 join t5 where t1.b = t5.b having b = 12",
+		expSQL: "select t1.b as b, t1.a as a, t1.c as c, t5.a as a from t1 join t5 on t1.b = t5.b having b = 12",
 	}, {
 		sql:    "select 1 from t1 join t5 using (b) having b = 12",
-		expSQL: "select 1 from t1 join t5 where t1.b = t5.b having t1.b = 12",
+		expSQL: "select 1 from t1 join t5 on t1.b = t5.b having t1.b = 12",
 	}, {
 		sql:    "select * from (select 12) as t",
-		expSQL: "select t.`12` from (select 12 from dual) as t",
+		expSQL: "select `12` from (select 12 from dual) as t",
 	}, {
 		sql:    "SELECT * FROM (SELECT *, 12 AS foo FROM t3) as results",
 		expSQL: "select * from (select *, 12 as foo from t3) as results",
 	}, {
 		// if we are only star-expanding authoritative tables, we don't need to stop the expansion
 		sql:    "SELECT * FROM (SELECT t2.*, 12 AS foo FROM t3, t2) as results",
-		expSQL: "select results.c1, results.c2, results.foo from (select t2.c1 as c1, t2.c2 as c2, 12 as foo from t3, t2) as results",
+		expSQL: "select c1, c2, foo from (select t2.c1 as c1, t2.c2 as c2, 12 as foo from t3, t2) as results",
 	}}
 	for _, tcase := range tcases {
 		t.Run(tcase.sql, func(t *testing.T) {
@@ -265,13 +275,16 @@ func TestRewriteJoinUsingColumns(t *testing.T) {
 		expErr string
 	}{{
 		sql:    "select 1 from t1 join t2 using (a) where a = 42",
-		expSQL: "select 1 from t1 join t2 where t1.a = t2.a and t1.a = 42",
+		expSQL: "select 1 from t1 join t2 on t1.a = t2.a where t1.a = 42",
 	}, {
 		sql:    "select 1 from t1 join t2 using (a), t3 where a = 42",
 		expErr: "Column 'a' in field list is ambiguous",
 	}, {
 		sql:    "select 1 from t1 join t2 using (a), t1 as b join t3 on (a) where a = 42",
 		expErr: "Column 'a' in field list is ambiguous",
+	}, {
+		sql:    "select 1 from t1 left join t2 using (a) where a = 42",
+		expSQL: "select 1 from t1 left join t2 on t1.a = t2.a where t1.a = 42",
 	}}
 	for _, tcase := range tcases {
 		t.Run(tcase.sql, func(t *testing.T) {
@@ -432,6 +445,131 @@ func TestSemTableDependenciesAfterExpandStar(t *testing.T) {
 					semTable.RecursiveDeps(selectStatement.SelectExprs[tcase.expandedCol].(*sqlparser.AliasedExpr).Expr),
 				)
 			}
+		})
+	}
+}
+
+func TestRewriteNot(t *testing.T) {
+	ks := &vindexes.Keyspace{
+		Name:    "main",
+		Sharded: false,
+	}
+	schemaInfo := &FakeSI{
+		Tables: map[string]*vindexes.Table{
+			"t1": {
+				Keyspace: ks,
+				Name:     sqlparser.NewIdentifierCS("t1"),
+				Columns: []vindexes.Column{{
+					Name: sqlparser.NewIdentifierCI("a"),
+					Type: sqltypes.VarChar,
+				}, {
+					Name: sqlparser.NewIdentifierCI("b"),
+					Type: sqltypes.VarChar,
+				}, {
+					Name: sqlparser.NewIdentifierCI("c"),
+					Type: sqltypes.VarChar,
+				}},
+				ColumnListAuthoritative: true,
+			},
+		},
+	}
+	cDB := "db"
+	tcases := []struct {
+		sql      string
+		expected string
+	}{{
+		sql:      "select a,b,c from t1 where not a = 12",
+		expected: "select a, b, c from t1 where a != 12",
+	}, {
+		sql:      "select a from t1 where not a > 12",
+		expected: "select a from t1 where a <= 12",
+	}}
+	for _, tcase := range tcases {
+		t.Run(tcase.sql, func(t *testing.T) {
+			ast, err := sqlparser.Parse(tcase.sql)
+			require.NoError(t, err)
+			selectStatement, isSelectStatement := ast.(*sqlparser.Select)
+			require.True(t, isSelectStatement, "analyzer expects a select statement")
+			st, err := Analyze(selectStatement, cDB, schemaInfo)
+
+			require.NoError(t, err)
+			require.NoError(t, st.NotUnshardedErr)
+			require.NoError(t, st.NotSingleRouteErr)
+			assert.Equal(t, tcase.expected, sqlparser.String(selectStatement))
+		})
+	}
+}
+
+// TestConstantFolding tests that the rewriter is able to do various constant foldings properly.
+func TestConstantFolding(t *testing.T) {
+	ks := &vindexes.Keyspace{
+		Name:    "main",
+		Sharded: false,
+	}
+	schemaInfo := &FakeSI{
+		Tables: map[string]*vindexes.Table{
+			"t1": {
+				Keyspace: ks,
+				Name:     sqlparser.NewIdentifierCS("t1"),
+				Columns: []vindexes.Column{{
+					Name: sqlparser.NewIdentifierCI("a"),
+					Type: sqltypes.VarChar,
+				}, {
+					Name: sqlparser.NewIdentifierCI("b"),
+					Type: sqltypes.VarChar,
+				}, {
+					Name: sqlparser.NewIdentifierCI("c"),
+					Type: sqltypes.VarChar,
+				}},
+				ColumnListAuthoritative: true,
+			},
+		},
+	}
+	cDB := "db"
+	tcases := []struct {
+		sql    string
+		expSQL string
+	}{{
+		sql:    "select 1 from t1 where (a, b) in ::fkc_vals and (2 is null or (1 is null or a in (1)))",
+		expSQL: "select 1 from t1 where (a, b) in ::fkc_vals and a in (1)",
+	}, {
+		sql:    "select 1 from t1 where (false or (false or a in (1)))",
+		expSQL: "select 1 from t1 where a in (1)",
+	}}
+	for _, tcase := range tcases {
+		t.Run(tcase.sql, func(t *testing.T) {
+			ast, err := sqlparser.Parse(tcase.sql)
+			require.NoError(t, err)
+			_, err = Analyze(ast, cDB, schemaInfo)
+			require.NoError(t, err)
+			require.Equal(t, tcase.expSQL, sqlparser.String(ast))
+		})
+	}
+}
+
+// TestCTEToDerivedTableRewrite checks that CTEs are correctly rewritten to derived tables
+func TestCTEToDerivedTableRewrite(t *testing.T) {
+	cDB := "db"
+	tcases := []struct {
+		sql    string
+		expSQL string
+	}{{
+		sql:    "with x as (select 1 as id) select * from x",
+		expSQL: "select id from (select 1 as id from dual) as x",
+	}, {
+		sql:    "with x as (select 1 as id), z as (select id + 1 from x) select * from z",
+		expSQL: "select `id + 1` from (select id + 1 from (select 1 as id from dual) as x) as z",
+	}, {
+		sql:    "with x(id) as (select 1) select * from x",
+		expSQL: "select id from (select 1 from dual) as x(id)",
+	}}
+	for _, tcase := range tcases {
+		t.Run(tcase.sql, func(t *testing.T) {
+			ast, err := sqlparser.Parse(tcase.sql)
+			require.NoError(t, err)
+			_, err = Analyze(ast, cDB, fakeSchemaInfo())
+			require.NoError(t, err)
+			require.Equal(t, tcase.expSQL, sqlparser.String(ast))
 		})
 	}
 }

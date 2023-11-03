@@ -66,7 +66,8 @@ const (
 			migration_uuid=%a
 	`
 	sqlUpdateMigrationStatusFailedOrCancelled = `UPDATE _vt.schema_migrations
-			SET migration_status=IF(cancelled_timestamp IS NULL, 'failed', 'cancelled')
+			SET migration_status=IF(cancelled_timestamp IS NULL, 'failed', 'cancelled'),
+			completed_timestamp=NOW(6)
 		WHERE
 			migration_uuid=%a
 	`
@@ -345,7 +346,7 @@ const (
 			log_path
 		FROM _vt.schema_migrations
 		WHERE
-			migration_status IN ('complete', 'failed')
+			migration_status IN ('complete', 'cancelled', 'failed')
 			AND cleanup_timestamp IS NULL
 			AND completed_timestamp <= IF(retain_artifacts_seconds=0,
 				NOW() - INTERVAL %a SECOND,
@@ -356,7 +357,7 @@ const (
 		SET
 			completed_timestamp=NOW(6)
 		WHERE
-			migration_status='failed'
+			migration_status IN ('cancelled', 'failed')
 			AND cleanup_timestamp IS NULL
 			AND completed_timestamp IS NULL
 	`
@@ -515,15 +516,18 @@ const (
 		END,
 		COUNT_COLUMN_IN_INDEX
 	`
-	sqlDropTrigger       = "DROP TRIGGER IF EXISTS `%a`.`%a`"
-	sqlShowTablesLike    = "SHOW TABLES LIKE '%a'"
-	sqlDropTable         = "DROP TABLE `%a`"
-	sqlDropTableIfExists = "DROP TABLE IF EXISTS `%a`"
-	sqlShowColumnsFrom   = "SHOW COLUMNS FROM `%a`"
-	sqlShowTableStatus   = "SHOW TABLE STATUS LIKE '%a'"
-	sqlAnalyzeTable      = "ANALYZE NO_WRITE_TO_BINLOG TABLE `%a`"
-	sqlShowCreateTable   = "SHOW CREATE TABLE `%a`"
-	sqlGetAutoIncrement  = `
+	sqlDropTrigger                         = "DROP TRIGGER IF EXISTS `%a`.`%a`"
+	sqlShowTablesLike                      = "SHOW TABLES LIKE '%a'"
+	sqlDropTable                           = "DROP TABLE `%a`"
+	sqlDropTableIfExists                   = "DROP TABLE IF EXISTS `%a`"
+	sqlShowColumnsFrom                     = "SHOW COLUMNS FROM `%a`"
+	sqlShowTableStatus                     = "SHOW TABLE STATUS LIKE '%a'"
+	sqlAnalyzeTable                        = "ANALYZE NO_WRITE_TO_BINLOG TABLE `%a`"
+	sqlShowCreateTable                     = "SHOW CREATE TABLE `%a`"
+	sqlShowVariablesLikePreserveForeignKey = "show global variables like 'rename_table_preserve_foreign_key'"
+	sqlEnablePreserveForeignKey            = "set @@rename_table_preserve_foreign_key = 1"
+	sqlDisablePreserveForeignKey           = "set @@rename_table_preserve_foreign_key = 0"
+	sqlGetAutoIncrement                    = `
 		SELECT
 			AUTO_INCREMENT
 		FROM INFORMATION_SCHEMA.TABLES

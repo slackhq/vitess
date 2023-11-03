@@ -40,6 +40,14 @@ const (
 	ThrottledAppsTimeout = 60 * time.Second
 )
 
+var (
+	testsStartupTime time.Time
+)
+
+func init() {
+	testsStartupTime = time.Now()
+}
+
 // VtgateExecQuery runs a query on VTGate using given query params
 func VtgateExecQuery(t *testing.T, vtParams *mysql.ConnParams, query string, expectError string) *sqltypes.Result {
 	t.Helper()
@@ -199,7 +207,7 @@ func CheckLaunchAllMigrations(t *testing.T, vtParams *mysql.ConnParams, expectCo
 }
 
 // CheckMigrationStatus verifies that the migration indicated by given UUID has the given expected status
-func CheckMigrationStatus(t *testing.T, vtParams *mysql.ConnParams, shards []cluster.Shard, uuid string, expectStatuses ...schema.OnlineDDLStatus) {
+func CheckMigrationStatus(t *testing.T, vtParams *mysql.ConnParams, shards []cluster.Shard, uuid string, expectStatuses ...schema.OnlineDDLStatus) bool {
 	query, err := sqlparser.ParseAndBind("show vitess_migrations like %a",
 		sqltypes.StringBindVariable(uuid),
 	)
@@ -221,7 +229,7 @@ func CheckMigrationStatus(t *testing.T, vtParams *mysql.ConnParams, shards []clu
 			}
 		}
 	}
-	assert.Equal(t, len(shards), count)
+	return assert.Equal(t, len(shards), count)
 }
 
 // WaitForMigrationStatus waits for a migration to reach either provided statuses (returns immediately), or eventually time out
@@ -239,9 +247,13 @@ func WaitForMigrationStatus(t *testing.T, vtParams *mysql.ConnParams, shards []c
 	for _, status := range expectStatuses {
 		statusesMap[string(status)] = true
 	}
-	startTime := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	lastKnownStatus := ""
-	for time.Since(startTime) < timeout {
+	for {
 		countMatchedShards := 0
 		r := VtgateExecQuery(t, vtParams, query, "")
 		for _, row := range r.Named().Rows {
@@ -258,9 +270,12 @@ func WaitForMigrationStatus(t *testing.T, vtParams *mysql.ConnParams, shards []c
 		if countMatchedShards == len(shards) {
 			return schema.OnlineDDLStatus(lastKnownStatus)
 		}
-		time.Sleep(1 * time.Second)
+		select {
+		case <-ctx.Done():
+			return schema.OnlineDDLStatus(lastKnownStatus)
+		case <-ticker.C:
+		}
 	}
-	return schema.OnlineDDLStatus(lastKnownStatus)
 }
 
 // CheckMigrationArtifacts verifies given migration exists, and checks if it has artifacts
@@ -404,4 +419,32 @@ func ValidateSequentialMigrationIDs(t *testing.T, vtParams *mysql.ConnParams, sh
 		assert.NotZero(t, count)
 		assert.Equalf(t, count, shardMax[shard]-shardMin[shard]+1, "mismatch: shared=%v, count=%v, min=%v, max=%v", shard, count, shardMin[shard], shardMax[shard])
 	}
+}
+
+// ValidateCompletedTimestamp ensures that any migration in `cancelled`, `completed`, `failed` statuses
+// has a non-nil and valid `completed_timestamp` value.
+func ValidateCompletedTimestamp(t *testing.T, vtParams *mysql.ConnParams) {
+	require.False(t, testsStartupTime.IsZero())
+	r := VtgateExecQuery(t, vtParams, "show vitess_migrations", "")
+
+	completedTimestampNumValidations := 0
+	for _, row := range r.Named().Rows {
+		migrationStatus := row.AsString("migration_status", "")
+		require.NotEmpty(t, migrationStatus)
+		switch migrationStatus {
+		case string(schema.OnlineDDLStatusComplete),
+			string(schema.OnlineDDLStatusFailed),
+			string(schema.OnlineDDLStatusCancelled):
+			{
+				assert.False(t, row["completed_timestamp"].IsNull())
+				// Also make sure the timestamp is "real", and that it is recent.
+				timestamp := row.AsString("completed_timestamp", "")
+				completedTime, err := time.Parse(sqltypes.TimestampFormat, timestamp)
+				assert.NoError(t, err)
+				assert.Greater(t, completedTime.Unix(), testsStartupTime.Unix())
+				completedTimestampNumValidations++
+			}
+		}
+	}
+	assert.NotZero(t, completedTimestampNumValidations)
 }

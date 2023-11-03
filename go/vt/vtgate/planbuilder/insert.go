@@ -19,6 +19,7 @@ package planbuilder
 import (
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	"vitess.io/vitess/go/vt/sqlparser"
+	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/engine"
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/operators"
 	"vitess.io/vitess/go/vt/vtgate/planbuilder/plancontext"
@@ -43,18 +44,26 @@ func gen4InsertStmtPlanner(version querypb.ExecuteOptions_PlannerVersion, insStm
 	// Check single unsharded. Even if the table is for single unsharded but sequence table is used.
 	// We cannot shortcut here as sequence column needs additional planning.
 	ks, tables := ctx.SemTable.SingleUnshardedKeyspace()
-	if ks != nil && tables[0].AutoIncrement == nil {
-		plan := insertUnshardedShortcut(insStmt, ks, tables)
-		plan = pushCommentDirectivesOnPlan(plan, insStmt)
-		return newPlanResult(plan.Primitive(), operators.QualifiedTables(ks, tables)...), nil
+	// Remove all the foreign keys that don't require any handling.
+	err = ctx.SemTable.RemoveNonRequiredForeignKeys(ctx.VerifyAllFKs, vindexes.UpdateAction)
+	if err != nil {
+		return nil, err
+	}
+	if ks != nil {
+		if tables[0].AutoIncrement == nil && !ctx.SemTable.ForeignKeysPresent() {
+			plan := insertUnshardedShortcut(insStmt, ks, tables)
+			setCommentDirectivesOnPlan(plan, insStmt)
+			return newPlanResult(plan.Primitive(), operators.QualifiedTables(ks, tables)...), nil
+		}
 	}
 
 	tblInfo, err := ctx.SemTable.TableInfoFor(ctx.SemTable.TableSetFor(insStmt.Table))
 	if err != nil {
 		return nil, err
 	}
-	if tblInfo.GetVindexTable().Keyspace.Sharded && ctx.SemTable.NotUnshardedErr != nil {
-		return nil, ctx.SemTable.NotUnshardedErr
+
+	if err = errOutIfPlanCannotBeConstructed(ctx, tblInfo.GetVindexTable(), insStmt, ctx.SemTable.ForeignKeysPresent()); err != nil {
+		return nil, err
 	}
 
 	err = queryRewrite(ctx.SemTable, reservedVars, insStmt)
@@ -72,15 +81,20 @@ func gen4InsertStmtPlanner(version querypb.ExecuteOptions_PlannerVersion, insStm
 		return nil, err
 	}
 
-	plan = pushCommentDirectivesOnPlan(plan, insStmt)
-
-	setLockOnAllSelect(plan)
-
-	if err := plan.Wireup(ctx); err != nil {
-		return nil, err
-	}
-
 	return newPlanResult(plan.Primitive(), operators.TablesUsed(op)...), nil
+}
+
+func errOutIfPlanCannotBeConstructed(ctx *plancontext.PlanningContext, vTbl *vindexes.Table, insStmt *sqlparser.Insert, fkPlanNeeded bool) error {
+	if vTbl.Keyspace.Sharded && ctx.SemTable.NotUnshardedErr != nil {
+		return ctx.SemTable.NotUnshardedErr
+	}
+	if insStmt.Action != sqlparser.ReplaceAct {
+		return nil
+	}
+	if fkPlanNeeded {
+		return vterrors.VT12001("REPLACE INTO with foreign keys")
+	}
+	return nil
 }
 
 func insertUnshardedShortcut(stmt *sqlparser.Insert, ks *vindexes.Keyspace, tables []*vindexes.Table) logicalPlan {
@@ -99,13 +113,6 @@ type insert struct {
 
 var _ logicalPlan = (*insert)(nil)
 
-func (i *insert) Wireup(ctx *plancontext.PlanningContext) error {
-	if i.source == nil {
-		return nil
-	}
-	return i.source.Wireup(ctx)
-}
-
 func (i *insert) Primitive() engine.Primitive {
 	if i.source != nil {
 		i.eInsert.Input = i.source.Primitive()
@@ -113,21 +120,6 @@ func (i *insert) Primitive() engine.Primitive {
 	return i.eInsert
 }
 
-func (i *insert) Inputs() []logicalPlan {
-	if i.source == nil {
-		return nil
-	}
-	return []logicalPlan{i.source}
-}
-
-func (i *insert) Rewrite(inputs ...logicalPlan) error {
-	panic("does not expect insert to get rewrite call")
-}
-
 func (i *insert) ContainsTables() semantics.TableSet {
 	panic("does not expect insert to get contains tables call")
-}
-
-func (i *insert) OutputColumns() []sqlparser.SelectExpr {
-	panic("does not expect insert to get output columns call")
 }
