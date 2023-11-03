@@ -101,8 +101,6 @@ func (proxy *VTGateProxy) Prepare(ctx context.Context, session *vtgateconn.VTGat
 }
 
 func (proxy *VTGateProxy) Execute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable) (qr *sqltypes.Result, err error) {
-	log.Infof("Execute %s", sql)
-
 	if proxy.conn == nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "not connnected")
 	}
