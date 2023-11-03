@@ -146,9 +146,7 @@ type txThrottler struct {
 	topoServer *topo.Server
 
 	// stats
-	throttlerRunning *stats.Gauge
-	// TODO(deepthi): deprecated, should be deleted in v20
-	topoWatchers              *stats.GaugesWithSingleLabel
+	throttlerRunning          *stats.Gauge
 	healthChecksReadTotal     *stats.CountersWithMultiLabels
 	healthChecksRecordedTotal *stats.CountersWithMultiLabels
 	requestsTotal             *stats.CountersWithSingleLabel
@@ -201,7 +199,6 @@ func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server) TxThrottler {
 		config:           config,
 		topoServer:       topoServer,
 		throttlerRunning: env.Exporter().NewGauge(TxThrottlerName+"Running", "transaction throttler running state"),
-		topoWatchers:     env.Exporter().NewGaugesWithSingleLabel(TxThrottlerName+"TopoWatchers", "DEPRECATED: transaction throttler topology watchers", "cell"),
 		healthChecksReadTotal: env.Exporter().NewCountersWithMultiLabels(TxThrottlerName+"HealthchecksRead", "transaction throttler healthchecks read",
 			[]string{"cell", "DbType"}),
 		healthChecksRecordedTotal: env.Exporter().NewCountersWithMultiLabels(TxThrottlerName+"HealthchecksRecorded", "transaction throttler healthchecks recorded",
