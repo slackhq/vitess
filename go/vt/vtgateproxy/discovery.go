@@ -113,6 +113,9 @@ type resolveJSONGateConfig struct {
 	filters         resolveFilters
 }
 
+type discoverySlackAZ struct{}
+type discoverySlackType struct{}
+
 func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error) {
 	config := []DiscoveryHost{}
 	fmt.Printf("Loading config %v\n", r.jsonPath)
@@ -130,34 +133,28 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 
 	addrs := []resolver.Address{}
 	for _, s := range config {
-		// Apply filters
+		az := attributes.New(discoverySlackAZ{}, s.AZId).WithValue(discoverySlackType{}, s.Type)
+
+		// Filter hosts to this gate type
 		if r.filters.gate_type != "" {
 			if r.filters.gate_type != s.Type {
 				continue
 			}
 		}
 
-		if r.filters.az_id != "" {
-			if r.filters.az_id != s.AZId {
-				continue
-			}
-		}
 		// Add matching hosts to registration list
 		addrs = append(addrs, resolver.Address{
 			Addr:               fmt.Sprintf("%s:%s", s.NebulaAddress, s.Grpc),
-			BalancerAttributes: attributes.New("az", s.AZId),
+			BalancerAttributes: az,
 		})
 	}
+
+	fmt.Printf("Addrs: %v\n", addrs)
 
 	// Shuffle to ensure every host has a different order to iterate through
 	r.rand.Shuffle(len(addrs), func(i, j int) {
 		addrs[i], addrs[j] = addrs[j], addrs[i]
 	})
-
-	// Slice off the first N hosts, optionally
-	if r.num_connections > 0 && r.num_connections <= len(addrs) {
-		addrs = addrs[0:r.num_connections]
-	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, bytes.NewReader(data)); err != nil {
@@ -218,6 +215,7 @@ func (r *resolveJSONGateConfig) start() {
 			hash = newHash
 
 			fmt.Printf("Loaded %d hosts\n", len(*addrs))
+			fmt.Printf("Loaded %v", addrs)
 			r.cc.UpdateState(resolver.State{Addresses: *addrs})
 		}
 	}()
