@@ -3,6 +3,6 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
     target-branch: "slack-vitess-r14.0.5"
 
