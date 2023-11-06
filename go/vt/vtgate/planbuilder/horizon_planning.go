@@ -535,16 +535,9 @@ func (hp *horizonPlanning) handleDistinctAggr(ctx *plancontext.PlanningContext, 
 			aggrs = append(aggrs, expr)
 			continue
 		}
-		funcExpr := expr.Original.Expr.(*sqlparser.FuncExpr) // we wouldn't be in this method if this wasn't a function
-		aliasedExpr, ok := funcExpr.Exprs[0].(*sqlparser.AliasedExpr)
-		if !ok {
-			err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "syntax error: %s", sqlparser.String(expr.Original))
-			return
-		}
-		inner, innerWS, err := hp.qp.GetSimplifiedExpr(aliasedExpr.Expr)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+
+		inner := expr.Func.GetArg()
+		innerWS := hp.qp.GetSimplifiedExpr(inner)
 		if exprHasVindex(ctx.SemTable, innerWS, false) {
 			aggrs = append(aggrs, expr)
 			continue
@@ -600,13 +593,10 @@ func newOffset(col int) offsets {
 func (hp *horizonPlanning) createGroupingsForColumns(columns []*sqlparser.ColName) ([]abstract.GroupBy, error) {
 	var lhsGrouping []abstract.GroupBy
 	for _, lhsColumn := range columns {
-		expr, wsExpr, err := hp.qp.GetSimplifiedExpr(lhsColumn)
-		if err != nil {
-			return nil, err
-		}
+		wsExpr := hp.qp.GetSimplifiedExpr(lhsColumn)
 
 		lhsGrouping = append(lhsGrouping, abstract.GroupBy{
-			Inner:         expr,
+			Inner:         lhsColumn,
 			WeightStrExpr: wsExpr,
 		})
 	}
