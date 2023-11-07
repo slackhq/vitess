@@ -69,7 +69,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	proxy.numConnections = targetURL.Query().Get("num_connections")
 	proxy.gateType = targetURL.Host
 
-	fmt.Printf("Getting connection for %v in %v\n", target, proxy.azID)
+	fmt.Printf("Getting connection for %v in %v with %v connections\n", target, proxy.azID, proxy.numConnections)
 
 	// If the connection exists, return it
 	proxy.mu.Lock()

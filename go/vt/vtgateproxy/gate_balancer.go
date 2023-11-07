@@ -110,7 +110,7 @@ func (p *slackAZAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResul
 	ptr := val.(*uint32)
 	atomic.AddUint32(ptr, 1)
 
-	if len(subConns) >= numConnections {
+	if len(subConns) >= numConnections && numConnections > 0 {
 		fmt.Printf("Limiting to first %v\n", numConnections)
 		return p.pickFromSubconns(subConns[0:numConnections], *ptr)
 	} else {
