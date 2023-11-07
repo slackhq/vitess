@@ -535,8 +535,13 @@ func (hp *horizonPlanning) handleDistinctAggr(ctx *plancontext.PlanningContext, 
 			aggrs = append(aggrs, expr)
 			continue
 		}
-
-		inner := expr.Func.GetArg()
+		funcExpr := expr.Original.Expr.(*sqlparser.FuncExpr) // we wouldn't be in this method if this wasn't a function
+		aliasedExpr, ok := funcExpr.Exprs[0].(*sqlparser.AliasedExpr)
+		if !ok {
+			err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "syntax error: %s", sqlparser.String(expr.Original))
+			return
+		}
+		inner := aliasedExpr.Expr
 		innerWS := hp.qp.GetSimplifiedExpr(inner)
 		if exprHasVindex(ctx.SemTable, innerWS, false) {
 			aggrs = append(aggrs, expr)
