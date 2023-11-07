@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -16,12 +17,12 @@ import (
 // Name is the name of az affinity balancer.
 const Name = "slack_affinity_balancer"
 const MetadataAZKey = "grpc-slack-az-metadata"
-const MetadataGateTypeKey = "grpc-slack-gate-type-metadata"
+const MetadataHostAffinityCount = "grpc-slack-num-connections-metadata"
 
 var logger = grpclog.Component("slack_affinity_balancer")
 
-func WithSlackAZAffinityContext(ctx context.Context, azID string, gateType string) context.Context {
-	ctx = metadata.AppendToOutgoingContext(ctx, MetadataAZKey, azID, MetadataGateTypeKey, gateType)
+func WithSlackAZAffinityContext(ctx context.Context, azID string, numConnections string) context.Context {
+	ctx = metadata.AppendToOutgoingContext(ctx, MetadataAZKey, azID, MetadataHostAffinityCount, numConnections)
 	return ctx
 }
 
@@ -82,21 +83,24 @@ func (p *slackAZAffinityPicker) pickFromSubconns(scList []balancer.SubConn, next
 
 func (p *slackAZAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	hdrs, _ := metadata.FromOutgoingContext(info.Ctx)
-	fmt.Printf("Headers: %v %v\n", hdrs, info)
+	numConnections := 0
 	keys := hdrs.Get(MetadataAZKey)
 	if len(keys) < 1 {
-		fmt.Printf("uh oh - missing keys: %v %v %v\n", keys, hdrs, info.Ctx)
-		fmt.Printf("no header - pick from anywhere\n")
 		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
 	}
 	az := keys[0]
 
 	if az == "" {
-		fmt.Printf("Header unset, pick from anywhere\n")
 		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
 	}
 
-	fmt.Printf("Selecting from az: %v\n", az)
+	keys = hdrs.Get(MetadataHostAffinityCount)
+	if len(keys) > 0 {
+		if i, err := strconv.Atoi(keys[0]); err != nil {
+			numConnections = i
+		}
+	}
+
 	subConns := p.subConnsByAZ[az]
 	if len(subConns) == 0 {
 		fmt.Printf("No subconns in az and gate type, pick from anywhere\n")
@@ -106,9 +110,9 @@ func (p *slackAZAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResul
 	ptr := val.(*uint32)
 	atomic.AddUint32(ptr, 1)
 
-	if len(subConns) >= 2 {
-		fmt.Printf("Limiting to first 2\n")
-		return p.pickFromSubconns(subConns[0:2], *ptr)
+	if len(subConns) >= numConnections {
+		fmt.Printf("Limiting to first %v\n", numConnections)
+		return p.pickFromSubconns(subConns[0:numConnections], *ptr)
 	} else {
 		return p.pickFromSubconns(subConns, *ptr)
 	}

@@ -52,10 +52,11 @@ var (
 )
 
 type VTGateProxy struct {
-	targetConns map[string]*vtgateconn.VTGateConn
-	mu          sync.Mutex
-	azID        string
-	gateType    string
+	targetConns    map[string]*vtgateconn.VTGateConn
+	mu             sync.Mutex
+	azID           string
+	gateType       string
+	numConnections string
 }
 
 func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
@@ -65,6 +66,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	}
 
 	proxy.azID = targetURL.Query().Get("az_id")
+	proxy.numConnections = targetURL.Query().Get("num_connections")
 	proxy.gateType = targetURL.Host
 
 	fmt.Printf("Getting connection for %v in %v\n", target, proxy.azID)
@@ -87,7 +89,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"slack_affinity_balancer":{}}]}`)), nil
 	})
 
-	conn, err := vtgateconn.DialProtocol(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType), "grpc", target)
+	conn, err := vtgateconn.DialProtocol(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.numConnections), "grpc", target)
 	if err != nil {
 		return nil, err
 	}
