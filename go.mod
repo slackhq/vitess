@@ -55,7 +55,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/minio/minio-go v0.0.0-20190131015406-c8a261de75c1
 	github.com/mitchellh/go-testing-interface v1.14.0 // indirect
-	github.com/montanaflynn/stats v0.6.3
+	github.com/montanaflynn/stats v0.7.1
 	github.com/olekukonko/tablewriter v0.0.5-0.20200416053754-163badb3bac6
 	github.com/opentracing-contrib/go-grpc v0.0.0-20180928155321-4b5a12d3ff02
 	github.com/opentracing/opentracing-go v1.1.0
