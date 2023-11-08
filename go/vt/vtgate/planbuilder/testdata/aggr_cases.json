@@ -4851,7 +4851,7 @@
       "Instructions": {
         "OperatorType": "Aggregate",
         "Variant": "Ordered",
-        "GroupBy": "(0|1)",
+        "GroupBy": "(1|0)",
         "ResultColumns": 1,
         "Inputs": [
           {
