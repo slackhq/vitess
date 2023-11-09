@@ -152,7 +152,6 @@ func CreateQPFromSelect(sel *sqlparser.Select) (*QueryProjection, error) {
 	}
 	for _, group := range sel.GroupBy {
 		selectExprIdx, aliasExpr := qp.FindSelectExprIndexForExpr(group)
-		selectExprIdx, aliasExpr := qp.FindSelectExprIndexForExpr(ctx, group)
 		weightStrExpr := qp.GetSimplifiedExpr(group)
 		err = checkForInvalidGroupingExpressions(weightStrExpr)
 		if err != nil {
