@@ -21,8 +21,9 @@
 # TODO(mberlin): Remove the symlink and this note once
 # https://github.com/docker/hub-feedback/issues/292 is fixed.
 
-ARG bootstrap_version=3.2
-ARG image="vitess/bootstrap:${bootstrap_version}-mysql57"
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.17.12'ARG image="vitess/bootstrap:${bootstrap_version}-mysql57"
 
 FROM "${image}"
 
