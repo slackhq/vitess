@@ -62,10 +62,9 @@ func RestoreTablet(t *testing.T, localCluster *cluster.LocalProcessCluster, tabl
 	_, err := localCluster.VtctlProcess.ExecuteCommandWithOutput("GetKeyspace", restoreKSName)
 
 	if err != nil {
-		tm := time.Now().UTC()
 		_, err := localCluster.VtctlProcess.ExecuteCommandWithOutput("CreateKeyspace", "--",
 			"--keyspace_type=SNAPSHOT", "--base_keyspace="+keyspaceName,
-			"--snapshot_time", tm.Format(time.RFC3339), restoreKSName)
+			"--snapshot_time", restoreTime.Format(time.RFC3339), restoreKSName)
 		require.Nil(t, err)
 	}
 
