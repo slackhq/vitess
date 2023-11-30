@@ -27,12 +27,10 @@ run against a given flavor, it may take some time for the corresponding
 bootstrap image (vitess/bootstrap:<flavor>) to be downloaded.
 
 It is meant to be run from the Vitess root, like so:
-
-	$ go run test.go [args]
+  $ go run test.go [args]
 
 For a list of options, run:
-
-	$ go run test.go --help
+  $ go run test.go --help
 */
 package main
 
@@ -76,7 +74,7 @@ For example:
 // Flags
 var (
 	flavor           = flag.String("flavor", "mysql57", "comma-separated bootstrap flavor(s) to run against (when using Docker mode). Available flavors: all,"+flavors)
-	bootstrapVersion = flag.String("bootstrap-version", "3.2", "the version identifier to use for the docker images")
+	bootstrapVersion = flag.String("bootstrap-version", "3.1", "the version identifier to use for the docker images")
 	runCount         = flag.Int("runs", 1, "run each test this many times")
 	retryMax         = flag.Int("retry", 3, "max number of retries, to detect flaky tests")
 	logPass          = flag.Bool("log-pass", false, "log test output even if it passes")
