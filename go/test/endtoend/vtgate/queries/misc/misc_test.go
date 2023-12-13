@@ -81,6 +81,16 @@ func TestTimeFunctionWithPrecision(t *testing.T) {
 	mcmp.Exec("insert into t1(id1, id2) values (3, NOW())")
 }
 
+// TestTimeFunctionWithPrecision tests that inserting data with NOW(1) works as intended.
+func TestTimeFunctionWithPrecision(t *testing.T) {
+	mcmp, closer := start(t)
+	defer closer()
+
+	mcmp.Exec("insert into t1(id1, id2) values (1, NOW(1))")
+	mcmp.Exec("insert into t1(id1, id2) values (2, NOW(2))")
+	mcmp.Exec("insert into t1(id1, id2) values (3, NOW())")
+}
+
 func TestHexVals(t *testing.T) {
 	mcmp, closer := start(t)
 	defer closer()
@@ -214,6 +224,7 @@ func TestHighNumberOfParams(t *testing.T) {
 }
 
 func TestPrepareStatements(t *testing.T) {
+	utils.SkipIfBinaryIsBelowVersion(t, 17, "vtgate")
 	mcmp, closer := start(t)
 	defer closer()
 
