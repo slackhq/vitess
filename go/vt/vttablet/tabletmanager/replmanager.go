@@ -17,13 +17,13 @@ limitations under the License.
 package tabletmanager
 
 import (
+	"context"
 	"os"
 	"path"
 	"sync"
 	"time"
 
-	"context"
-
+	"github.com/davecgh/go-spew/spew"
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/timer"
 	"vitess.io/vitess/go/vt/log"
@@ -104,6 +104,7 @@ func (rm *replManager) check() {
 
 func (rm *replManager) checkActionLocked() {
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus()
+	log.Infof("vm-debug: %s", spew.Sdump(status))
 	if err != nil {
 		if err != mysql.ErrNotReplica {
 			return
@@ -112,6 +113,8 @@ func (rm *replManager) checkActionLocked() {
 		// If only one of the threads is stopped, it's probably
 		// intentional. So, we don't repair replication.
 		if status.SQLHealthy() || status.IOHealthy() {
+			log.Infof("vm-debug: status.SQLHealthy:%v status.IOHealthy:%v", status.SQLHealthy(), status.IOHealthy())
+
 			return
 		}
 	}
