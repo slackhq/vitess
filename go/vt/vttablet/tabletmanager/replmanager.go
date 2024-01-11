@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/timer"
 	"vitess.io/vitess/go/vt/log"
@@ -120,7 +119,7 @@ func (rm *replManager) checkActionLocked() {
 		}
 	}
 
-	log.Infof("vm-debug: replManager=%s", spew.Sdump(rm))
+	log.Infof("vm-debug: rm.failed=%v", rm.failed)
 	if !rm.failed {
 		log.Infof("Replication is stopped, reconnecting to primary.")
 	}
