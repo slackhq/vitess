@@ -126,6 +126,7 @@ func (rm *replManager) checkActionLocked() {
 	ctx, cancel := context.WithTimeout(rm.ctx, 5*time.Second)
 	defer cancel()
 	if err := rm.tm.repairReplication(ctx); err != nil {
+		log.Infof("vm-debug: repairReplication failed with=%v", err)
 		if !rm.failed {
 			rm.failed = true
 			log.Infof("Failed to reconnect to primary: %v, will keep retrying.", err)

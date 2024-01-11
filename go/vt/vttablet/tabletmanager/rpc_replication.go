@@ -1149,6 +1149,7 @@ func (tm *TabletManager) handleRelayLogError(err error) error {
 // repairReplication tries to connect this server to whoever is
 // the current primary of the shard, and start replicating.
 func (tm *TabletManager) repairReplication(ctx context.Context) error {
+	log.Infof("vm-debug: entering repairReplication")
 	tablet := tm.Tablet()
 
 	si, err := tm.TopoServer.GetShard(ctx, tablet.Keyspace, tablet.Shard)
