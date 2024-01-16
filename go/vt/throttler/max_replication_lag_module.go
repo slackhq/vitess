@@ -381,7 +381,6 @@ logResult:
 		r.Reason += clearReason
 	}
 
-	log.Infof("%v", r)
 	m.results.add(r)
 }
 
