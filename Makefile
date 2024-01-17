@@ -52,6 +52,7 @@ export CGO_CFLAGS := -O1
 build-dyn:
 ifndef NOBANNER
 	echo $$(date): Building source tree
+	go version
 endif
 	bash ./build.env
 	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
@@ -60,6 +61,7 @@ endif
 build:
 ifndef NOBANNER
 	echo $$(date): Building source tree
+	go version
 endif
 	bash ./build.env
 	# build all the binaries by default with CGO disabled.
@@ -71,6 +73,7 @@ endif
 cross-build:
 ifndef NOBANNER
 	echo $$(date): Building source tree
+	go version
 endif
 	bash ./build.env
 	# In order to cross-compile, go install requires GOBIN to be unset
@@ -85,6 +88,7 @@ endif
 debug:
 ifndef NOBANNER
 	echo $$(date): Building source tree
+	go version
 endif
 	bash ./build.env
 	go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" -gcflags -'N -l' ./go/...
