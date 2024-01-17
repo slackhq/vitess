@@ -103,9 +103,8 @@ func (rm *replManager) check() {
 
 func (rm *replManager) checkActionLocked() {
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus()
-	// log.Infof("vm-debug: %s", spew.Sdump(status))
 	if err != nil {
-		log.Infof("vm-debug: %v", err)
+		log.Infof("slack-debug: %v", err)
 		if err != mysql.ErrNotReplica {
 			return
 		}
@@ -113,20 +112,19 @@ func (rm *replManager) checkActionLocked() {
 		// If only one of the threads is stopped, it's probably
 		// intentional. So, we don't repair replication.
 		if status.SQLHealthy() || status.IOHealthy() {
-			// log.Infof("vm-debug: status.SQLHealthy:%v status.IOHealthy:%v", status.SQLHealthy(), status.IOHealthy())
 
 			return
 		}
 	}
 
-	log.Infof("vm-debug: rm.failed=%v", rm.failed)
+	log.Infof("slack-debug: rm.failed=%v", rm.failed)
 	if !rm.failed {
 		log.Infof("Replication is stopped, reconnecting to primary.")
 	}
 	ctx, cancel := context.WithTimeout(rm.ctx, 5*time.Second)
 	defer cancel()
 	if err := rm.tm.repairReplication(ctx); err != nil {
-		log.Infof("vm-debug: repairReplication failed with=%v", err)
+		log.Infof("slack-debug: repairReplication failed with=%v", err)
 		if !rm.failed {
 			rm.failed = true
 			log.Infof("Failed to reconnect to primary: %v, will keep retrying.", err)
