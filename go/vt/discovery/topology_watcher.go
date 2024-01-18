@@ -73,6 +73,7 @@ type TopologyWatcher struct {
 	refreshKnownTablets bool
 	getTablets          func(tw *TopologyWatcher) ([]*topodata.TabletAlias, error)
 	sem                 chan int
+	tabletDiscoverySem  chan int
 	ctx                 context.Context
 	cancelFunc          context.CancelFunc
 	// wg keeps track of all launched Go routines.
@@ -94,7 +95,7 @@ type TopologyWatcher struct {
 
 // NewTopologyWatcher returns a TopologyWatcher that monitors all
 // the tablets in a cell, and starts refreshing.
-func NewTopologyWatcher(ctx context.Context, topoServer *topo.Server, tr TabletRecorder, filter TabletFilter, cell string, refreshInterval time.Duration, refreshKnownTablets bool, topoReadConcurrency int, getTablets func(tw *TopologyWatcher) ([]*topodata.TabletAlias, error)) *TopologyWatcher {
+func NewTopologyWatcher(ctx context.Context, topoServer *topo.Server, tr TabletRecorder, filter TabletFilter, cell string, refreshInterval time.Duration, refreshKnownTablets bool, topoReadConcurrency, tabletDiscoveryConcurrency int, getTablets func(tw *TopologyWatcher) ([]*topodata.TabletAlias, error)) *TopologyWatcher {
 	tw := &TopologyWatcher{
 		topoServer:          topoServer,
 		tabletRecorder:      tr,
@@ -104,6 +105,7 @@ func NewTopologyWatcher(ctx context.Context, topoServer *topo.Server, tr TabletR
 		refreshKnownTablets: refreshKnownTablets,
 		getTablets:          getTablets,
 		sem:                 make(chan int, topoReadConcurrency),
+		tabletDiscoverySem:  make(chan int, tabletDiscoveryConcurrency),
 		tablets:             make(map[string]*tabletInfo),
 	}
 	tw.firstLoadChan = make(chan struct{})
@@ -116,8 +118,8 @@ func NewTopologyWatcher(ctx context.Context, topoServer *topo.Server, tr TabletR
 
 // NewCellTabletsWatcher returns a TopologyWatcher that monitors all
 // the tablets in a cell, and starts refreshing.
-func NewCellTabletsWatcher(ctx context.Context, topoServer *topo.Server, tr TabletRecorder, f TabletFilter, cell string, refreshInterval time.Duration, refreshKnownTablets bool, topoReadConcurrency int) *TopologyWatcher {
-	return NewTopologyWatcher(ctx, topoServer, tr, f, cell, refreshInterval, refreshKnownTablets, topoReadConcurrency, func(tw *TopologyWatcher) ([]*topodata.TabletAlias, error) {
+func NewCellTabletsWatcher(ctx context.Context, topoServer *topo.Server, tr TabletRecorder, f TabletFilter, cell string, refreshInterval time.Duration, refreshKnownTablets bool, topoReadConcurrency, tabletDiscoveryConcurrency int) *TopologyWatcher {
+	return NewTopologyWatcher(ctx, topoServer, tr, f, cell, refreshInterval, refreshKnownTablets, topoReadConcurrency, tabletDiscoveryConcurrency, func(tw *TopologyWatcher) ([]*topodata.TabletAlias, error) {
 		return tw.topoServer.GetTabletAliasesByCell(ctx, tw.cell)
 	})
 }
@@ -230,11 +232,11 @@ func (tw *TopologyWatcher) loadTablets() {
 				topologyWatcherOperations.Add(topologyWatcherOpReplaceTablet, 1)
 			}
 		} else {
-			tw.sem <- 1 // Wait for active queue to drain.
+			tw.tabletDiscoverySem <- 1 // Wait for active queue to drain.
 			// This is a new tablet record, let's add it to the healthcheck
 			tw.tabletRecorder.AddTablet(newVal.tablet)
 			topologyWatcherOperations.Add(topologyWatcherOpAddTablet, 1)
-			<-tw.sem // Done; enable next request to run
+			<-tw.tabletDiscoverySem // Done; enable next request to run
 		}
 	}
 

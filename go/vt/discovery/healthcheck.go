@@ -81,6 +81,8 @@ var (
 	refreshKnownTablets = flag.Bool("tablet_refresh_known_tablets", true, "tablet refresh reloads the tablet address/port map from topo in case it changes")
 	// topoReadConcurrency tells us how many topo reads are allowed in parallel
 	topoReadConcurrency = flag.Int("topo_read_concurrency", 32, "concurrent topo reads")
+	// tabletDiscoveryConcurrency tells us how many tablets can be discovered in parallel
+	tabletDiscoveryConcurrency = flag.Int("tablet_discovery_concurrency", 1024, "concurrent tablet discoveries")
 )
 
 // See the documentation for NewHealthCheck below for an explanation of these parameters.
@@ -324,7 +326,7 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 		} else if len(KeyspacesToWatch) > 0 {
 			filter = NewFilterByKeyspace(KeyspacesToWatch)
 		}
-		topoWatchers = append(topoWatchers, NewCellTabletsWatcher(ctx, topoServer, hc, filter, c, *refreshInterval, *refreshKnownTablets, *topoReadConcurrency))
+		topoWatchers = append(topoWatchers, NewCellTabletsWatcher(ctx, topoServer, hc, filter, c, *refreshInterval, *refreshKnownTablets, *topoReadConcurrency, *tabletDiscoveryConcurrency))
 	}
 
 	hc.topoWatchers = topoWatchers
