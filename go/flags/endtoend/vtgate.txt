@@ -314,7 +314,7 @@ Usage of vtgate:
   --structured-logging
 	whether to use structured logging (Zap) or the original (glog) logger
   --tablet_discovery_concurrency int
-	concurrent tablet discoveries (default 128)
+	concurrent tablet discoveries (default 1024)
   --tablet_filters value
 	Specifies a comma-separated list of 'keyspace|shard_name or keyrange' values to filter the tablets to watch
   --tablet_grpc_ca string
