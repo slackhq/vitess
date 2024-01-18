@@ -59,7 +59,7 @@ func TestStartAndCloseTopoWatcher(t *testing.T) {
 	ts := memorytopo.NewServer("aa")
 	fhc := NewFakeHealthCheck(nil)
 	topologyWatcherOperations.ZeroAll()
-	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, nil, "aa", 100*time.Microsecond, true, 5)
+	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, nil, "aa", 100*time.Microsecond, true, 5, 5)
 
 	done := make(chan bool, 3)
 	result := make(chan bool, 1)
@@ -115,7 +115,7 @@ func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	logger := logutil.NewMemoryLogger()
 	topologyWatcherOperations.ZeroAll()
 	counts := topologyWatcherOperations.Counts()
-	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, nil, "aa", 10*time.Minute, refreshKnownTablets, 5)
+	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, nil, "aa", 10*time.Minute, refreshKnownTablets, 5, 5)
 
 	counts = checkOpCounts(t, counts, map[string]int64{})
 	checkChecksum(t, tw, 0)
@@ -432,7 +432,7 @@ func TestFilterByKeyspace(t *testing.T) {
 	hc := NewFakeHealthCheck(nil)
 	f := NewFilterByKeyspace(testKeyspacesToWatch)
 	ts := memorytopo.NewServer(testCell)
-	tw := NewCellTabletsWatcher(context.Background(), ts, hc, f, testCell, 10*time.Minute, true, 5)
+	tw := NewCellTabletsWatcher(context.Background(), ts, hc, f, testCell, 10*time.Minute, true, 5, 5)
 
 	for _, test := range testFilterByKeyspace {
 		// Add a new tablet to the topology.
@@ -514,7 +514,7 @@ func TestFilterByKeypsaceSkipsIgnoredTablets(t *testing.T) {
 	topologyWatcherOperations.ZeroAll()
 	counts := topologyWatcherOperations.Counts()
 	f := NewFilterByKeyspace(testKeyspacesToWatch)
-	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, f, "aa", 10*time.Minute, false /*refreshKnownTablets*/, 5)
+	tw := NewCellTabletsWatcher(context.Background(), ts, fhc, f, "aa", 10*time.Minute, false /*refreshKnownTablets*/, 5, 5)
 
 	counts = checkOpCounts(t, counts, map[string]int64{})
 	checkChecksum(t, tw, 0)
