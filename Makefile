@@ -48,13 +48,16 @@ endif
 # Safe, since this code isn't performance critical.
 export CGO_CFLAGS := -O1
 
+# Disable CGO explicitly
+export CGO_ENABLED=0
+
 # build the vitess binaries with dynamic dependency on libc
 build-dyn:
 ifndef NOBANNER
 	echo $$(date): Building source tree
 endif
 	bash ./build.env
-	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
+	go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 
 # build the vitess binaries statically
 build:
@@ -63,7 +66,7 @@ ifndef NOBANNER
 endif
 	bash ./build.env
 	# build all the binaries by default with CGO disabled.
-	CGO_ENABLED=0 go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
+	go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 
 # cross-build can be used to cross-compile Vitess client binaries
 # Outside of select client binaries (namely vtctlclient & vtexplain), cross-compiled Vitess Binaries are not recommended for production deployments
@@ -76,7 +79,7 @@ endif
 	# In order to cross-compile, go install requires GOBIN to be unset
 	export GOBIN=""
 	# For the specified GOOS + GOARCH, build all the binaries by default with CGO disabled
-	CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
+	GOOS=${GOOS} GOARCH=${GOARCH} go install -trimpath $(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) -ldflags "$(shell tools/build_version_flags.sh)" ./go/...
 
 	if [ ! -x "${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" ]; then \
 		echo "Missing vttablet at: ${HOME}/go/bin/${GOOS}_${GOARCH}/vttablet" && exit; \
