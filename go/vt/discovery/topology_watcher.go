@@ -230,9 +230,11 @@ func (tw *TopologyWatcher) loadTablets() {
 				topologyWatcherOperations.Add(topologyWatcherOpReplaceTablet, 1)
 			}
 		} else {
+			tw.sem <- 1 // Wait for active queue to drain.
 			// This is a new tablet record, let's add it to the healthcheck
 			tw.tabletRecorder.AddTablet(newVal.tablet)
 			topologyWatcherOperations.Add(topologyWatcherOpAddTablet, 1)
+			<-tw.sem // Done; enable next request to run
 		}
 	}
 
