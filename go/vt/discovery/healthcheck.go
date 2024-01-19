@@ -81,8 +81,8 @@ var (
 	refreshKnownTablets = flag.Bool("tablet_refresh_known_tablets", true, "tablet refresh reloads the tablet address/port map from topo in case it changes")
 	// topoReadConcurrency tells us how many topo reads are allowed in parallel
 	topoReadConcurrency = flag.Int("topo_read_concurrency", 32, "concurrent topo reads")
-	// tabletDiscoveryConcurrency tells us how many tablets can be discovered in parallel
-	tabletDiscoveryConcurrency = flag.Int("tablet_discovery_concurrency", 1024, "concurrent tablet discoveries")
+	// healthCheckConcurrency tells us how many tablets can be healthchecked in parallel
+	healthCheckConcurrency = flag.Int("healthcheck_concurrency", 32, "concurrent healthchecks")
 )
 
 // See the documentation for NewHealthCheck below for an explanation of these parameters.
@@ -262,6 +262,8 @@ type HealthCheckImpl struct {
 	subMu sync.Mutex
 	// subscribers
 	subscribers map[chan *TabletHealth]struct{}
+	// healthCheckSem
+	healthCheckSem chan int
 }
 
 // NewHealthCheck creates a new HealthCheck object.
@@ -296,6 +298,7 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 		cell:               localCell,
 		retryDelay:         retryDelay,
 		healthCheckTimeout: healthCheckTimeout,
+		healthCheckSem:     make(chan int, *healthCheckConcurrency),
 		healthByAlias:      make(map[tabletAliasString]*tabletHealthCheck),
 		healthData:         make(map[KeyspaceShardTabletType]map[tabletAliasString]*TabletHealth),
 		healthy:            make(map[KeyspaceShardTabletType][]*TabletHealth),
@@ -326,7 +329,7 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 		} else if len(KeyspacesToWatch) > 0 {
 			filter = NewFilterByKeyspace(KeyspacesToWatch)
 		}
-		topoWatchers = append(topoWatchers, NewCellTabletsWatcher(ctx, topoServer, hc, filter, c, *refreshInterval, *refreshKnownTablets, *topoReadConcurrency, *tabletDiscoveryConcurrency))
+		topoWatchers = append(topoWatchers, NewCellTabletsWatcher(ctx, topoServer, hc, filter, c, *refreshInterval, *refreshKnownTablets, *topoReadConcurrency))
 	}
 
 	hc.topoWatchers = topoWatchers
@@ -386,9 +389,11 @@ func (hc *HealthCheckImpl) AddTablet(tablet *topodata.Tablet) {
 	}
 	hc.healthData[key][tabletAliasString(tabletAlias)] = res
 
+	hc.healthCheckSem <- 1 // Wait for active queue to drain.
 	hc.broadcast(res)
 	hc.connsWG.Add(1)
 	go thc.checkConn(hc)
+	<-hc.healthCheckSem
 }
 
 // RemoveTablet removes the tablet, and stops the health check.

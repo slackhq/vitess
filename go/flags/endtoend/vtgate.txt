@@ -121,6 +121,8 @@ Usage of vtgate:
 	gRPC server permit client keepalive pings even when there are no active streams (RPCs)
   --grpc_use_effective_callerid
 	If set, and SSL is not used, will set the immediate caller id from the effective caller id's principal.
+  --healthcheck_concurrency int
+	concurrent healthchecks (default 32)
   --healthcheck_retry_delay duration
 	health check retry delay (default 2ms)
   --healthcheck_timeout duration
@@ -313,8 +315,6 @@ Usage of vtgate:
 	the number of bytes sent from vtgate for each stream call. It's recommended to keep this value in sync with vttablet's query-server-config-stream-buffer-size. (default 32768)
   --structured-logging
 	whether to use structured logging (Zap) or the original (glog) logger
-  --tablet_discovery_concurrency int
-	concurrent tablet discoveries (default 1024)
   --tablet_filters value
 	Specifies a comma-separated list of 'keyspace|shard_name or keyrange' values to filter the tablets to watch
   --tablet_grpc_ca string
