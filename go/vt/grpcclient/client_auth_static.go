@@ -32,7 +32,7 @@ var (
 	// StaticAuthClientCreds implements client interface to be able to WithPerRPCCredentials
 	_ credentials.PerRPCCredentials = (*StaticAuthClientCreds)(nil)
 
-	grpcDialOptions = ([]grpc.DialOption) (nil)
+	credsData = ([]byte)(nil)
 )
 
 // StaticAuthClientCreds holder for client credentials
@@ -58,19 +58,20 @@ func (c *StaticAuthClientCreds) RequireTransportSecurity() bool {
 
 // AppendStaticAuth optionally appends static auth credentials if provided.
 func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-	if grpcDialOptions != nil {
-		return grpcDialOptions, nil
-	}
-
 	if *credsFile == "" {
 		return opts, nil
 	}
-	data, err := os.ReadFile(*credsFile)
-	if err != nil {
-		return nil, err
+
+	var err error
+	if credsData == nil {
+		credsData, err = os.ReadFile(*credsFile)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	clientCreds := &StaticAuthClientCreds{}
-	err = json.Unmarshal(data, clientCreds)
+	err = json.Unmarshal(credsData, clientCreds)
 	if err != nil {
 		return nil, err
 	}
