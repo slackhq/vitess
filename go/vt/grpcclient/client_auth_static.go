@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"sync"
 
 	"context"
 
@@ -64,7 +65,10 @@ func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
 
 	var err error
 	if credsData == nil {
-		credsData, err = os.ReadFile(*credsFile)
+		var once sync.Once
+		once.Do(func() {
+			credsData, err = os.ReadFile(*credsFile)
+		})
 		if err != nil {
 			return nil, err
 		}
