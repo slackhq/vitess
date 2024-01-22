@@ -685,13 +685,7 @@ func (tm *TabletManager) SetReplicationSource(ctx context.Context, parentAlias *
 	if err := tm.lock(ctx); err != nil {
 		return err
 	}
-
-	tm._isSetReplicationSourceRunning = true
-
-	defer func() {
-		tm._isSetReplicationSourceRunning = false
-		tm.unlock()
-	}()
+	defer tm.unlock()
 
 	// setReplicationSourceLocked also fixes the semi-sync. In case the tablet type is primary it assumes that it will become a replica if SetReplicationSource
 	// is called, so we always call fixSemiSync with a non-primary tablet type. This will always set the source side replication to false.
@@ -731,6 +725,12 @@ func (tm *TabletManager) setReplicationSourceSemiSyncNoAction(ctx context.Contex
 }
 
 func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync SemiSyncAction) (err error) {
+	tm._isSetReplicationSourceLockedRunning = true
+
+	defer func() {
+		tm._isSetReplicationSourceLockedRunning = false
+	}()
+
 	// End orchestrator maintenance at the end of fixing replication.
 	// This is a best effort operation, so it should happen in a goroutine
 	defer func() {
@@ -1157,7 +1157,7 @@ func (tm *TabletManager) handleRelayLogError(err error) error {
 func (tm *TabletManager) repairReplication(ctx context.Context) error {
 	log.Infof("slack-debug: entering repairReplication")
 
-	if tm._isSetReplicationSourceRunning {
+	if tm._isSetReplicationSourceLockedRunning {
 		// we are actively setting replication source,
 		// repairReplication will block due to higher
 		// authority holding a shard lock (PRS on vtctld)
