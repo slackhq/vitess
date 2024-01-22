@@ -80,7 +80,7 @@ func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
 		}
 	})
 
-	if clientCreds == nil || err != nil {
+	if clientCreds == nil {
 		return nil, err
 	}
 
