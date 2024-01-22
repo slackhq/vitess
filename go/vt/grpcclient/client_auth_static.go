@@ -65,23 +65,23 @@ func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
 		return opts, nil
 	}
 
-	var err error
 	once.Do(func() {
-		var credsData []byte
-		credsData, err = os.ReadFile(*credsFile)
+		credsData, err := os.ReadFile(*credsFile)
 		if err != nil {
+			// to-do: log the error message
 			return
 		}
 
 		clientCreds = &StaticAuthClientCreds{}
 		err = json.Unmarshal(credsData, clientCreds)
 		if err != nil {
+			// to-do: log the error message
 			return
 		}
 	})
 
 	if clientCreds == nil {
-		return nil, err
+		return nil, errors.New("no client creds found")
 	}
 
 	creds := grpc.WithPerRPCCredentials(clientCreds)
