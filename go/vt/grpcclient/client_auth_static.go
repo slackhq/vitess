@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"sync"
 
 	"context"
 
@@ -31,6 +32,9 @@ var (
 	credsFile = flag.String("grpc_auth_static_client_creds", "", "when using grpc_static_auth in the server, this file provides the credentials to use to authenticate with server")
 	// StaticAuthClientCreds implements client interface to be able to WithPerRPCCredentials
 	_ credentials.PerRPCCredentials = (*StaticAuthClientCreds)(nil)
+
+	credsFileOnce sync.Once
+	clientCreds   *StaticAuthClientCreds
 )
 
 // StaticAuthClientCreds holder for client credentials
@@ -54,21 +58,30 @@ func (c *StaticAuthClientCreds) RequireTransportSecurity() bool {
 	return false
 }
 
-// AppendStaticAuth optionally appends static auth credentials if provided.
-func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-	if *credsFile == "" {
-		return opts, nil
-	}
-	data, err := os.ReadFile(*credsFile)
+// loadStaticAuthCredsFromFile loads static auth credentials from a file.
+func loadStaticAuthCredsFromFile(credsFile string) (*StaticAuthClientCreds, error) {
+	data, err := os.ReadFile(credsFile)
 	if err != nil {
 		return nil, err
 	}
 	clientCreds := &StaticAuthClientCreds{}
 	err = json.Unmarshal(data, clientCreds)
+	return clientCreds, err
+}
+
+// AppendStaticAuth optionally appends static auth credentials if provided.
+func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
+	if credsFile == "" {
+		return opts, nil
+	}
+	var err error
+	credsFileOnce.Do(func() {
+		clientCreds, err = loadStaticAuthCredsFromFile(credsFile)
+	})
 	if err != nil {
 		return nil, err
 	}
-	creds := grpc.WithPerRPCCredentials(clientCreds)
+	creds := grpc.WithPerRPCCredentials(*clientCreds)
 	opts = append(opts, creds)
 	return opts, nil
 }
