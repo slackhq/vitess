@@ -112,7 +112,6 @@ func (rm *replManager) checkActionLocked() {
 		// If only one of the threads is stopped, it's probably
 		// intentional. So, we don't repair replication.
 		if status.SQLHealthy() || status.IOHealthy() {
-
 			return
 		}
 	}
