@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"vitess.io/vitess/go/vt/proto/vtrpc"
 
 	"vitess.io/vitess/go/mysql"
@@ -703,7 +702,7 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 		return err
 	}
 
-	log.Infof("slack-debug: calling tm.TopoServer.LockShard ctx=%s", spew.Sdump(ctx))
+	log.Infof("slack-debug: calling tm.TopoServer.LockShard")
 	ctx, unlock, lockErr := tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
 	if lockErr != nil {
 		return lockErr
