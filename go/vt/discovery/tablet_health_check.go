@@ -19,7 +19,6 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -273,7 +272,7 @@ func (thc *tabletHealthCheck) checkConn(hc *HealthCheckImpl) {
 		}()
 
 		// Read stream health responses.
-		err := thc.stream(streamCtx, func(shr *query.StreamHealthResponse) error {
+		thc.stream(streamCtx, func(shr *query.StreamHealthResponse) error {
 			// We received a message. Reset the back-off.
 			retryDelay = hc.retryDelay
 			// Don't block on send to avoid deadlocks.
@@ -287,7 +286,7 @@ func (thc *tabletHealthCheck) checkConn(hc *HealthCheckImpl) {
 		// streamCancel to make sure the watcher goroutine terminates.
 		streamCancel()
 
-		if err != nil {
+		/*if err != nil {
 			hcErrorCounters.Add([]string{thc.Target.Keyspace, thc.Target.Shard, topoproto.TabletTypeLString(thc.Target.TabletType)}, 1)
 			// This means that another tablet has taken over the host:port that we were connected to.
 			// So let's remove the tablet's data from the healthcheck, and if it is still a part of the
@@ -302,7 +301,8 @@ func (thc *tabletHealthCheck) checkConn(hc *HealthCheckImpl) {
 			// trivialUpdate = false because this is an error
 			// up = false because we did not get a healthy response
 			hc.updateHealth(thc.SimpleCopy(), thc.Target, false, false)
-		}
+		}*/
+
 		// If there was a timeout send an error. We do this after stream has returned.
 		// This will ensure that this update prevails over any previous message that
 		// stream could have sent.
