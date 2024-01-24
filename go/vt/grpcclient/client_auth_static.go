@@ -71,17 +71,17 @@ func loadStaticAuthCredsFromFile(credsFile string) (*StaticAuthClientCreds, erro
 
 // AppendStaticAuth optionally appends static auth credentials if provided.
 func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-	if credsFile == "" {
+	if *credsFile == "" {
 		return opts, nil
 	}
 	var err error
 	credsFileOnce.Do(func() {
-		clientCreds, err = loadStaticAuthCredsFromFile(credsFile)
+		clientCreds, err = loadStaticAuthCredsFromFile(*credsFile)
 	})
 	if err != nil {
 		return nil, err
 	}
-	creds := grpc.WithPerRPCCredentials(*clientCreds)
+	creds := grpc.WithPerRPCCredentials(clientCreds)
 	opts = append(opts, creds)
 	return opts, nil
 }
