@@ -17,12 +17,11 @@ limitations under the License.
 package tabletmanager
 
 import (
+	"context"
 	"os"
 	"path"
 	"sync"
 	"time"
-
-	"context"
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/timer"
@@ -105,6 +104,7 @@ func (rm *replManager) check() {
 func (rm *replManager) checkActionLocked() {
 	status, err := rm.tm.MysqlDaemon.ReplicationStatus()
 	if err != nil {
+		log.Infof("slack-debug: %v", err)
 		if err != mysql.ErrNotReplica {
 			return
 		}
@@ -116,12 +116,14 @@ func (rm *replManager) checkActionLocked() {
 		}
 	}
 
+	log.Infof("slack-debug: rm.failed=%v", rm.failed)
 	if !rm.failed {
 		log.Infof("Replication is stopped, reconnecting to primary.")
 	}
 	ctx, cancel := context.WithTimeout(rm.ctx, 5*time.Second)
 	defer cancel()
 	if err := rm.tm.repairReplication(ctx); err != nil {
+		log.Infof("slack-debug: repairReplication failed with=%v", err)
 		if !rm.failed {
 			rm.failed = true
 			log.Infof("Failed to reconnect to primary: %v, will keep retrying.", err)
