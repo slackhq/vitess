@@ -18,8 +18,12 @@ package grpcclient
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"reflect"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -73,4 +77,48 @@ func TestLoadStaticAuthCredsFromFile(t *testing.T) {
 		_, err := loadStaticAuthCredsFromFile(`does-not-exist`)
 		assert.NotNil(t, err)
 	}
+}
+
+func TestHandleStaticAuthCredsFileSignals(t *testing.T) {
+	tmp, err := os.CreateTemp("", t.Name())
+	assert.Nil(t, err)
+	defer os.Remove(tmp.Name())
+	credsFileName := tmp.Name()
+	credsFile = &credsFileName
+
+	// load old creds
+	fmt.Fprintln(tmp, `{"Username": "old", "Password": "123456"}`)
+	ResetStaticAuth()
+	AppendStaticAuth([]grpc.DialOption{})
+
+	// write new creds to the same file
+	tmp.Truncate(0)
+	tmp.Seek(0, 0)
+	fmt.Fprintln(tmp, `{"Username": "new", "Password": "123456789"}`)
+
+	// test the creds did not change yet
+	AppendStaticAuth([]grpc.DialOption{})
+	assert.Equal(t, &StaticAuthClientCreds{Username: "old", Password: "123456"}, clientCreds)
+
+	// test SIGHUP signal triggers reload
+	reloadedChan := make(chan bool, 1)
+	go func(reloadedChan chan bool) {
+		clientCredsOld := clientCreds
+		for {
+			select {
+			case <-time.After(time.Second * 15):
+				reloadedChan <- false
+				return
+			default:
+				if !reflect.DeepEqual(clientCreds, clientCredsOld) {
+					reloadedChan <- true
+					return
+				}
+			}
+		}
+	}(reloadedChan)
+	clientCredsSigChan <- syscall.SIGHUP
+	assert.True(t, <-reloadedChan)
+	assert.Nil(t, clientCredsErr)
+	assert.Equal(t, &StaticAuthClientCreds{Username: "new", Password: "123456789"}, clientCreds)
 }
