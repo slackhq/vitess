@@ -93,11 +93,11 @@ func TestHandleStaticAuthCredsFileSignals(t *testing.T) {
 
 	// write new creds to the same file
 	tmp.Truncate(0)
-	tmp.Seek(0, 0)
+	_, _ = tmp.Seek(0, 0)
 	fmt.Fprintln(tmp, `{"Username": "new", "Password": "123456789"}`)
 
 	// test the creds did not change yet
-	AppendStaticAuth([]grpc.DialOption{})
+	_, _ = AppendStaticAuth([]grpc.DialOption{})
 	assert.Equal(t, &StaticAuthClientCreds{Username: "old", Password: "123456"}, clientCreds)
 
 	// test SIGHUP signal triggers reload
@@ -110,10 +110,12 @@ func TestHandleStaticAuthCredsFileSignals(t *testing.T) {
 				reloadedChan <- false
 				return
 			default:
+				clientCredsMu.Lock()
 				if !reflect.DeepEqual(clientCreds, clientCredsOld) {
 					reloadedChan <- true
 					return
 				}
+				clientCredsMu.Unlock()
 			}
 		}
 	}(reloadedChan)
