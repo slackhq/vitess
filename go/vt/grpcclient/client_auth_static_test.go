@@ -89,10 +89,10 @@ func TestHandleStaticAuthCredsFileSignals(t *testing.T) {
 	// load old creds
 	fmt.Fprintln(tmp, `{"Username": "old", "Password": "123456"}`)
 	ResetStaticAuth()
-	AppendStaticAuth([]grpc.DialOption{})
+	_, _ = AppendStaticAuth([]grpc.DialOption{})
 
 	// write new creds to the same file
-	tmp.Truncate(0)
+	_ = tmp.Truncate(0)
 	_, _ = tmp.Seek(0, 0)
 	fmt.Fprintln(tmp, `{"Username": "new", "Password": "123456789"}`)
 
