@@ -20,6 +20,9 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	"context"
 
@@ -31,15 +34,21 @@ var (
 	credsFile = flag.String("grpc_auth_static_client_creds", "", "when using grpc_static_auth in the server, this file provides the credentials to use to authenticate with server")
 	// StaticAuthClientCreds implements client interface to be able to WithPerRPCCredentials
 	_ credentials.PerRPCCredentials = (*StaticAuthClientCreds)(nil)
+
+	clientCreds        *StaticAuthClientCreds
+	clientCredsCancel  context.CancelFunc
+	clientCredsErr     error
+	clientCredsMu      sync.Mutex
+	clientCredsSigChan chan os.Signal
 )
 
-// StaticAuthClientCreds holder for client credentials
+// StaticAuthClientCreds holder for client credentials.
 type StaticAuthClientCreds struct {
 	Username string
 	Password string
 }
 
-// GetRequestMetadata  gets the request metadata as a map from StaticAuthClientCreds
+// GetRequestMetadata gets the request metadata as a map from StaticAuthClientCreds.
 func (c *StaticAuthClientCreds) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
 	return map[string]string{
 		"username": c.Username,
@@ -49,30 +58,73 @@ func (c *StaticAuthClientCreds) GetRequestMetadata(context.Context, ...string) (
 
 // RequireTransportSecurity indicates whether the credentials requires transport security.
 // Given that people can use this with or without TLS, at the moment we are not enforcing
-// transport security
+// transport security.
 func (c *StaticAuthClientCreds) RequireTransportSecurity() bool {
 	return false
 }
 
 // AppendStaticAuth optionally appends static auth credentials if provided.
 func AppendStaticAuth(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-	if *credsFile == "" {
+	clientCredsMu.Lock()
+	defer clientCredsMu.Unlock()
+	if *credsFile != "" && clientCreds == nil {
+		var ctx context.Context
+		ctx, clientCredsCancel = context.WithCancel(context.Background())
+		go handleStaticAuthCredsFileSignals(ctx, *credsFile)
+		clientCreds, clientCredsErr = loadStaticAuthCredsFromFile(*credsFile)
+	}
+	if clientCredsErr != nil {
+		return nil, clientCredsErr
+	}
+	if clientCreds == nil {
 		return opts, nil
-	}
-	data, err := os.ReadFile(*credsFile)
-	if err != nil {
-		return nil, err
-	}
-	clientCreds := &StaticAuthClientCreds{}
-	err = json.Unmarshal(data, clientCreds)
-	if err != nil {
-		return nil, err
 	}
 	creds := grpc.WithPerRPCCredentials(clientCreds)
 	opts = append(opts, creds)
 	return opts, nil
 }
 
+// ResetStaticAuth resets static auth.
+func ResetStaticAuth() {
+	clientCredsMu.Lock()
+	defer clientCredsMu.Unlock()
+	if clientCredsCancel != nil {
+		clientCredsCancel()
+	}
+	clientCreds = nil
+	clientCredsErr = nil
+}
+
+// loadStaticAuthCredsFromFile loads static auth credentials from a file.
+func loadStaticAuthCredsFromFile(path string) (*StaticAuthClientCreds, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	creds := &StaticAuthClientCreds{}
+	err = json.Unmarshal(data, creds)
+	return creds, err
+}
+
+// handleStaticAuthCredsFileSignals handles reloading the static auth creds file via signals.
+func handleStaticAuthCredsFileSignals(ctx context.Context, path string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-clientCredsSigChan:
+			if newClientCreds, err := loadStaticAuthCredsFromFile(*credsFile); err == nil {
+				clientCredsMu.Lock()
+				clientCreds = newClientCreds
+				clientCredsErr = err
+				clientCredsMu.Unlock()
+			}
+		}
+	}
+}
+
 func init() {
+	clientCredsSigChan = make(chan os.Signal, 1)
+	signal.Notify(clientCredsSigChan, syscall.SIGHUP)
 	RegisterGRPCDialOptions(AppendStaticAuth)
 }
