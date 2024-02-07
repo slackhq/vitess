@@ -155,7 +155,7 @@ func (rt *ReplTracker) Status() (time.Duration, error) {
 	// rt.mode == tabletenv.Poller or fallback after heartbeat error
 	mysqlLag, mysqlErr = rt.poller.Status()
 	if fallbackToPoller && mysqlErr != nil {
-		return 0, errors.Join(errFallback, heartbeatErr, mysqlErr)
+		return 0, errFallback
 	}
 
 	return mysqlLag, mysqlErr
