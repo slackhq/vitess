@@ -53,6 +53,51 @@ func TestAppendStaticAuth(t *testing.T) {
 	}
 }
 
+func TestGetStaticAuthCreds(t *testing.T) {
+	tmp, err := os.CreateTemp("", t.Name())
+	assert.Nil(t, err)
+	defer os.Remove(tmp.Name())
+	credsFileTmp := tmp.Name()
+	credsFile = &credsFileTmp
+
+	// load old creds
+	fmt.Fprint(tmp, `{"Username": "old", "Password": "123456"}`)
+	ResetStaticAuth()
+	creds, err := getStaticAuthCreds()
+	assert.Nil(t, err)
+	assert.Equal(t, &StaticAuthClientCreds{Username: "old", Password: "123456"}, creds)
+
+	// write new creds to the same file
+	_ = tmp.Truncate(0)
+	_, _ = tmp.Seek(0, 0)
+	fmt.Fprint(tmp, `{"Username": "new", "Password": "123456789"}`)
+
+	// test the creds did not change yet
+	creds, err = getStaticAuthCreds()
+	assert.Nil(t, err)
+	assert.Equal(t, &StaticAuthClientCreds{Username: "old", Password: "123456"}, creds)
+
+	// test SIGHUP signal triggers reload
+	credsOld := creds
+	clientCredsSigChan <- syscall.SIGHUP
+	for {
+		select {
+		case <-time.After(time.Second * 10):
+			assert.Fail(t, "timed out waiting for SIGHUP reload of static auth creds")
+			return
+		default:
+			// confirm new creds get loaded
+			creds, err = getStaticAuthCreds()
+			if reflect.DeepEqual(creds, credsOld) {
+				continue // not changed yet
+			}
+			assert.Nil(t, err)
+			assert.Equal(t, &StaticAuthClientCreds{Username: "new", Password: "123456789"}, creds)
+			return
+		}
+	}
+}
+
 func TestLoadStaticAuthCredsFromFile(t *testing.T) {
 	{
 		f, err := os.CreateTemp("", t.Name())
@@ -77,50 +122,4 @@ func TestLoadStaticAuthCredsFromFile(t *testing.T) {
 		_, err := loadStaticAuthCredsFromFile(`does-not-exist`)
 		assert.NotNil(t, err)
 	}
-}
-
-func TestHandleStaticAuthCredsFileSignals(t *testing.T) {
-	tmp, err := os.CreateTemp("", t.Name())
-	assert.Nil(t, err)
-	defer os.Remove(tmp.Name())
-	credsFileName := tmp.Name()
-	credsFile = &credsFileName
-
-	// load old creds
-	fmt.Fprintln(tmp, `{"Username": "old", "Password": "123456"}`)
-	ResetStaticAuth()
-	_, _ = AppendStaticAuth([]grpc.DialOption{})
-
-	// write new creds to the same file
-	_ = tmp.Truncate(0)
-	_, _ = tmp.Seek(0, 0)
-	fmt.Fprintln(tmp, `{"Username": "new", "Password": "123456789"}`)
-
-	// test the creds did not change yet
-	_, _ = AppendStaticAuth([]grpc.DialOption{})
-	assert.Equal(t, &StaticAuthClientCreds{Username: "old", Password: "123456"}, clientCreds)
-
-	// test SIGHUP signal triggers reload
-	reloadedChan := make(chan bool, 1)
-	go func(reloadedChan chan bool) {
-		clientCredsOld := clientCreds
-		for {
-			select {
-			case <-time.After(time.Second * 15):
-				reloadedChan <- false
-				return
-			default:
-				clientCredsMu.Lock()
-				if !reflect.DeepEqual(clientCreds, clientCredsOld) {
-					reloadedChan <- true
-					return
-				}
-				clientCredsMu.Unlock()
-			}
-		}
-	}(reloadedChan)
-	clientCredsSigChan <- syscall.SIGHUP
-	assert.True(t, <-reloadedChan)
-	assert.Nil(t, clientCredsErr)
-	assert.Equal(t, &StaticAuthClientCreds{Username: "new", Password: "123456789"}, clientCreds)
 }
