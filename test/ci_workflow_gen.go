@@ -29,7 +29,6 @@ import (
 type mysqlVersion string
 
 const (
-	mysql57 mysqlVersion = "mysql57"
 	mysql80 mysqlVersion = "mysql80"
 
 	defaultMySQLVersion = mysql80
@@ -40,11 +39,11 @@ type mysqlVersions []mysqlVersion
 var (
 	defaultMySQLVersions = []mysqlVersion{defaultMySQLVersion}
 	mysql80OnlyVersions  = []mysqlVersion{mysql80}
-	allMySQLVersions     = []mysqlVersion{mysql57, mysql80}
+	allMySQLVersions     = []mysqlVersion{mysql80}
 )
 
 var (
-	unitTestDatabases = []mysqlVersion{mysql57, mysql80}
+	unitTestDatabases = []mysqlVersion{mysql80}
 )
 
 const (
@@ -115,7 +114,6 @@ var (
 		"vtgate_queries",
 		"vtgate_schema_tracker",
 		"xb_recovery",
-		"mysql57",
 		"mysql80",
 		"vreplication_across_db_versions",
 		"vreplication_multicell",
@@ -169,8 +167,6 @@ func clusterMySQLVersions(clusterName string) mysqlVersions {
 		return allMySQLVersions
 	case clusterName == "tabletmanager_tablegc":
 		return allMySQLVersions
-	case clusterName == "mysql57":
-		return []mysqlVersion{mysql57}
 	case clusterName == "mysql80":
 		return []mysqlVersion{mysql80}
 	case clusterName == "vtorc_8.0":
@@ -283,7 +279,7 @@ func generateSelfHostedClusterWorkflows() error {
 			test := &selfHostedTest{
 				Name:              fmt.Sprintf("Cluster (%s)(%s)", cluster, mysqlVersion),
 				ImageName:         fmt.Sprintf("cluster_test_%s%s", cluster, mysqlVersionIndicator),
-				Platform:          "mysql57",
+				Platform:          "mysql80",
 				directoryName:     directoryName,
 				Dockerfile:        fmt.Sprintf("./.github/docker/%s/Dockerfile", directoryName),
 				Shard:             cluster,
@@ -344,9 +340,6 @@ func generateClusterWorkflows(list []string, tpl string) {
 					test.InstallXtraBackup = true
 					break
 				}
-			}
-			if mysqlVersion == mysql57 {
-				test.Platform = string(mysql57)
 			}
 			if strings.HasPrefix(cluster, "vreplication") || strings.HasSuffix(cluster, "heavy") {
 				test.LimitResourceUsage = true
