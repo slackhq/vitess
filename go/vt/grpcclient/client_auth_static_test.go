@@ -59,6 +59,7 @@ func TestGetStaticAuthCreds(t *testing.T) {
 	defer os.Remove(tmp.Name())
 	credsFileTmp := tmp.Name()
 	credsFile = &credsFileTmp
+	clientCredsSigChan = make(chan os.Signal, 1)
 
 	// load old creds
 	fmt.Fprint(tmp, `{"Username": "old", "Password": "123456"}`)
