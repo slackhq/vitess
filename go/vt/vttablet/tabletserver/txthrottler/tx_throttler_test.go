@@ -116,14 +116,12 @@ func TestEnabledThrottler(t *testing.T) {
 	calls = append(calls, call)
 
 	// 3
-	call = mockThrottler.EXPECT().Throttle(0)
-	call.Return(1 * time.Second)
-	calls = append(calls, call)
+	// Nothing gets mocked here because the order of evaluation in txThrottler.Throttle() evaluates first
+	// whether the priority allows for throttling or not, so no need to mock calls in mockThrottler.Throttle()
 
 	// 4
-	call = mockThrottler.EXPECT().Throttle(0)
-	call.Return(1 * time.Second)
-	calls = append(calls, call)
+	// Nothing gets mocked here because the order of evaluation in txThrottlerStateImpl.Throttle() evaluates first
+	// whether there is lag or not, so no call to the underlying mockThrottler is issued.
 
 	call = mockThrottler.EXPECT().Close()
 	calls = append(calls, call)
@@ -151,10 +149,10 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.True(t, ok)
 	// Stop the go routine that keeps updating the cached  shard's max lag to preventi it from changing the value in a
 	// way that will interfere with how we manipulate that value in our tests to evaluate different cases:
-	throttlerImpl.endChannel <- true
+	throttlerImpl.done <- true
 
 	// 1 should not throttle due to return value of underlying Throttle(), despite high lag
-	atomic.StoreInt64(&throttlerImpl.shardMaxLag, 20)
+	atomic.StoreInt64(&throttlerImpl.maxLag, 20)
 	assert.False(t, throttler.Throttle(100, "some-workload"))
 	assert.Equal(t, int64(1), throttler.requestsTotal.Counts()["some-workload"])
 	assert.Zero(t, throttler.requestsThrottled.Counts()["some-workload"])
@@ -179,7 +177,7 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
 
 	// 4 should not throttle despite return value of underlying Throttle() and priority = 100, due to low lag
-	atomic.StoreInt64(&throttlerImpl.shardMaxLag, 1)
+	atomic.StoreInt64(&throttlerImpl.maxLag, 1)
 	assert.False(t, throttler.Throttle(100, "some-workload"))
 	assert.Equal(t, int64(4), throttler.requestsTotal.Counts()["some-workload"])
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
