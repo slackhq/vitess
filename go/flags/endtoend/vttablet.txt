@@ -487,6 +487,8 @@ Usage of vttablet:
 	gRPC server permit client keepalive pings even when there are no active streams (RPCs)
   --health_check_interval duration
 	Interval between health checks (default 20s)
+  --healthcheck-dial-concurrency int
+	Maxiumum concurrency of new healthcheck connections. This should be less than the golang max thread limit of 10000. (default 1024)
   --heartbeat_enable
 	If true, vttablet records (if master) or checks (if replica) the current time of a replication heartbeat in the table _vt.heartbeat. The result is used to inform the serving state of the vttablet via healthchecks.
   --heartbeat_interval duration

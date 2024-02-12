@@ -47,6 +47,7 @@ import (
 
 	"vitess.io/vitess/go/flagutil"
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/proto/query"
 	"vitess.io/vitess/go/vt/proto/topodata"
@@ -81,6 +82,8 @@ var (
 	refreshKnownTablets = flag.Bool("tablet_refresh_known_tablets", true, "tablet refresh reloads the tablet address/port map from topo in case it changes")
 	// topoReadConcurrency tells us how many topo reads are allowed in parallel
 	topoReadConcurrency = flag.Int("topo_read_concurrency", 32, "concurrent topo reads")
+	// healthCheckDialConcurrency tells us how many healthcheck connections can be opened to tablets at once. This should be less than the golang max thread limit of 10000.
+	healthCheckDialConcurrency = flag.Int("healthcheck-dial-concurrency", 1024, "Maxiumum concurrency of new healthcheck connections. This should be less than the golang max thread limit of 10000.")
 )
 
 // See the documentation for NewHealthCheck below for an explanation of these parameters.
@@ -260,6 +263,8 @@ type HealthCheckImpl struct {
 	subMu sync.Mutex
 	// subscribers
 	subscribers map[chan *TabletHealth]struct{}
+	// healthCheckDialSem is used to limit how many healthchecks initiate in parallel.
+	healthCheckDialSem *sync2.Semaphore
 }
 
 // NewHealthCheck creates a new HealthCheck object.
@@ -294,6 +299,7 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 		cell:               localCell,
 		retryDelay:         retryDelay,
 		healthCheckTimeout: healthCheckTimeout,
+		healthCheckDialSem: sync2.NewSemaphore(*healthCheckDialConcurrency, 0),
 		healthByAlias:      make(map[tabletAliasString]*tabletHealthCheck),
 		healthData:         make(map[KeyspaceShardTabletType]map[tabletAliasString]*TabletHealth),
 		healthy:            make(map[KeyspaceShardTabletType][]*TabletHealth),
@@ -780,7 +786,7 @@ func (hc *HealthCheckImpl) TabletConnection(alias *topodata.TabletAlias, target 
 		// TODO: test that throws this error
 		return nil, vterrors.Errorf(vtrpc.Code_NOT_FOUND, "tablet: %v is either down or nonexistent", alias)
 	}
-	return thc.Connection(), nil
+	return thc.Connection(hc), nil
 }
 
 // getAliasByCell should only be called while holding hc.mu
