@@ -17,6 +17,7 @@ limitations under the License.
 package tabletmanager
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"strconv"
@@ -24,8 +25,6 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/vt/proto/vtrpc"
-
-	"context"
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/vt/log"
@@ -476,10 +475,10 @@ func (tm *TabletManager) InitReplica(ctx context.Context, parent *topodatapb.Tab
 //
 // It attemps to idempotently ensure the following guarantees upon returning
 // successfully:
-//   * No future writes will be accepted.
-//   * No writes are in-flight.
-//   * MySQL is in read-only mode.
-//   * Semi-sync settings are consistent with a REPLICA tablet.
+//   - No future writes will be accepted.
+//   - No writes are in-flight.
+//   - MySQL is in read-only mode.
+//   - Semi-sync settings are consistent with a REPLICA tablet.
 //
 // If necessary, it waits for all in-flight writes to complete or time out.
 //
@@ -703,6 +702,7 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 		return err
 	}
 
+	log.Infof("slack-debug: calling tm.TopoServer.LockShard")
 	ctx, unlock, lockErr := tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
 	if lockErr != nil {
 		return lockErr
@@ -724,6 +724,12 @@ func (tm *TabletManager) setReplicationSourceSemiSyncNoAction(ctx context.Contex
 }
 
 func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync SemiSyncAction) (err error) {
+	tm._isSetReplicationSourceLockedRunning = true
+
+	defer func() {
+		tm._isSetReplicationSourceLockedRunning = false
+	}()
+
 	// End orchestrator maintenance at the end of fixing replication.
 	// This is a best effort operation, so it should happen in a goroutine
 	defer func() {
@@ -745,6 +751,7 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	// unintentionally change the type of RDONLY tablets
 	tablet := tm.Tablet()
 	if tablet.Type == topodatapb.TabletType_PRIMARY {
+		log.Infof("slack-debug: calling tm.tmState.ChangeTabletType")
 		if err := tm.tmState.ChangeTabletType(ctx, topodatapb.TabletType_REPLICA, DBActionNone); err != nil {
 			return err
 		}
@@ -755,6 +762,7 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	shouldbeReplicating := false
 	status, err := tm.MysqlDaemon.ReplicationStatus()
 	if err == mysql.ErrNotReplica {
+		log.Infof("slack-debug: err == mysql.ErrNotReplica")
 		// This is a special error that means we actually succeeded in reading
 		// the status, but the status is empty because replication is not
 		// configured. We assume this means we used to be a primary, so we always
@@ -781,6 +789,7 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	if tabletType == topodatapb.TabletType_PRIMARY {
 		tabletType = topodatapb.TabletType_REPLICA
 	}
+	log.Infof("slack-debug: calling tm.fixSemiSync")
 	if err := tm.fixSemiSync(tabletType, semiSync); err != nil {
 		return err
 	}
@@ -797,6 +806,7 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	host := parent.Tablet.MysqlHostname
 	port := int(parent.Tablet.MysqlPort)
 	if status.SourceHost != host || status.SourcePort != port {
+		log.Infof("slack-debug: calling tm.MysqlDaemon.SetReplicationSource")
 		// This handles both changing the address and starting replication.
 		if err := tm.MysqlDaemon.SetReplicationSource(ctx, host, port, wasReplicating, shouldbeReplicating); err != nil {
 			if err := tm.handleRelayLogError(err); err != nil {
@@ -1053,18 +1063,18 @@ func (tm *TabletManager) fixSemiSync(tabletType topodatapb.TabletType, semiSync 
 	// This following code will be uncommented and the above deleted when we are ready to use the
 	// durability policies for setting the semi_sync information
 
-	//switch semiSync {
-	//case SemiSyncActionNone:
+	// switch semiSync {
+	// case SemiSyncActionNone:
 	//	return nil
-	//case SemiSyncActionSet:
+	// case SemiSyncActionSet:
 	//	// Always enable replica-side since it doesn't hurt to keep it on for a primary.
 	//	// The primary-side needs to be off for a replica, or else it will get stuck.
 	//	return tm.MysqlDaemon.SetSemiSyncEnabled(tabletType == topodatapb.TabletType_PRIMARY, true)
-	//case SemiSyncActionUnset:
+	// case SemiSyncActionUnset:
 	//	return tm.MysqlDaemon.SetSemiSyncEnabled(false, false)
-	//default:
+	// default:
 	//	return vterrors.Errorf(vtrpc.Code_INTERNAL, "Unknown SemiSyncAction - %v", semiSync)
-	//}
+	// }
 }
 
 func (tm *TabletManager) isPrimarySideSemiSyncEnabled() bool {
@@ -1077,10 +1087,10 @@ func (tm *TabletManager) fixSemiSyncAndReplication(tabletType topodatapb.TabletT
 		// Semi-sync handling is not enabled.
 		return nil
 	}
-	//if semiSync == SemiSyncActionNone {
+	// if semiSync == SemiSyncActionNone {
 	//	// Semi-sync handling is not required.
 	//	return nil
-	//}
+	// }
 
 	if tabletType == topodatapb.TabletType_PRIMARY {
 		// Primary is special. It is always handled at the
@@ -1106,7 +1116,7 @@ func (tm *TabletManager) fixSemiSyncAndReplication(tabletType topodatapb.TabletT
 		return nil
 	}
 
-	//shouldAck := semiSync == SemiSyncActionSet
+	// shouldAck := semiSync == SemiSyncActionSet
 	shouldAck := isPrimaryEligible(tabletType)
 	acking, err := tm.MysqlDaemon.SemiSyncReplicationStatus()
 	if err != nil {
@@ -1144,6 +1154,17 @@ func (tm *TabletManager) handleRelayLogError(err error) error {
 // repairReplication tries to connect this server to whoever is
 // the current primary of the shard, and start replicating.
 func (tm *TabletManager) repairReplication(ctx context.Context) error {
+	log.Infof("slack-debug: entering repairReplication")
+
+	if tm._isSetReplicationSourceLockedRunning {
+		// we are actively setting replication source,
+		// repairReplication will block due to higher
+		// authority holding a shard lock (PRS on vtctld)
+		log.Infof("slack-debug: we are actively setting replication source, exiting")
+
+		return nil
+	}
+
 	tablet := tm.Tablet()
 
 	si, err := tm.TopoServer.GetShard(ctx, tablet.Keyspace, tablet.Shard)
@@ -1164,6 +1185,7 @@ func (tm *TabletManager) repairReplication(ctx context.Context) error {
 
 	// If Orchestrator is configured and if Orchestrator is actively reparenting, we should not repairReplication
 	if tm.orc != nil {
+		log.Infof("slack-debug: tm.orc != nil")
 		re, err := tm.orc.InActiveShardRecovery(tablet)
 		if err != nil {
 			return err
