@@ -50,7 +50,7 @@ var (
 		"Histogram of lag values in nanoseconds", []int64{0, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12},
 		[]string{"0", "1ms", "10ms", "100ms", "1s", "10s", "100s", "1000s", ">1000s"}, "Count", "Total")
 
-	errFallback = errors.New("failed to obtain replicaiton lag from poller after attempting to use it as fall-back for heartbeat")
+	errFallback = errors.New("failed to obtain replication lag from poller after attempting to use it as fall-back for heartbeat")
 )
 
 // ReplTracker tracks replication lag.
