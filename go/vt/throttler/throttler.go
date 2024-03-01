@@ -33,6 +33,8 @@ import (
 	"sync"
 	"time"
 
+	"vitess.io/vitess/go/vt/proto/topodata"
+
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/log"
 
@@ -71,7 +73,8 @@ const (
 // Calls of Throttle() and ThreadFinished() take threadID as parameter which is
 // in the range [0, threadCount). (threadCount is set in NewThrottler().)
 // NOTE: Trottle() and ThreadFinished() assume that *per thread* calls to them
-//       are serialized and must not happen concurrently.
+//
+//	are serialized and must not happen concurrently.
 type Throttler struct {
 	// name describes the Throttler instance and is used e.g. in the webinterface.
 	name string
@@ -129,19 +132,31 @@ func NewThrottler(name, unit string, threadCount int, maxRate, maxReplicationLag
 	return newThrottler(GlobalManager, name, unit, threadCount, maxRate, maxReplicationLag, time.Now)
 }
 
+func NewThrottlerFromConfig(name, unit string, threadCount int, maxRateModuleMaxRate int64, maxReplicationLagModuleConfig MaxReplicationLagModuleConfig, nowFunc func() time.Time) (*Throttler, error) {
+	return newThrottlerFromConfig(GlobalManager, name, unit, threadCount, maxRateModuleMaxRate, maxReplicationLagModuleConfig, nowFunc)
+}
+
 func newThrottler(manager *managerImpl, name, unit string, threadCount int, maxRate, maxReplicationLag int64, nowFunc func() time.Time) (*Throttler, error) {
-	// Verify input parameters.
-	if maxRate < 0 {
-		return nil, fmt.Errorf("maxRate must be >= 0: %v", maxRate)
+	config := NewMaxReplicationLagModuleConfig(maxReplicationLag)
+	config.MaxReplicationLagSec = maxReplicationLag
+
+	return newThrottlerFromConfig(manager, name, unit, threadCount, maxRate, config, nowFunc)
+
+}
+
+func newThrottlerFromConfig(manager *managerImpl, name, unit string, threadCount int, maxRateModuleMaxRate int64, maxReplicationLagModuleConfig MaxReplicationLagModuleConfig, nowFunc func() time.Time) (*Throttler, error) {
+	err := maxReplicationLagModuleConfig.Verify()
+	if err != nil {
+		return nil, fmt.Errorf("invalid max replication lag config: %w", err)
 	}
-	if maxReplicationLag < 0 {
-		return nil, fmt.Errorf("maxReplicationLag must be >= 0: %v", maxReplicationLag)
+	if maxRateModuleMaxRate < 0 {
+		return nil, fmt.Errorf("maxRate must be >= 0: %v", maxRateModuleMaxRate)
 	}
 
 	// Enable the configured modules.
-	maxRateModule := NewMaxRateModule(maxRate)
+	maxRateModule := NewMaxRateModule(maxRateModuleMaxRate)
 	actualRateHistory := newAggregatedIntervalHistory(1024, 1*time.Second, threadCount)
-	maxReplicationLagModule, err := NewMaxReplicationLagModule(NewMaxReplicationLagModuleConfig(maxReplicationLag), actualRateHistory, nowFunc)
+	maxReplicationLagModule, err := NewMaxReplicationLagModule(maxReplicationLagModuleConfig, actualRateHistory, nowFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +224,28 @@ func (t *Throttler) Throttle(threadID int) time.Duration {
 		panic(fmt.Sprintf("BUG: thread with ID: %v already finished", threadID))
 	}
 	return t.threadThrottlers[threadID].throttle(t.nowFunc())
+}
+
+// MaxLag returns the max of all the last replication lag values seen across all tablets of
+// the provided type, excluding ignored tablets.
+func (t *Throttler) MaxLag(tabletType topodata.TabletType) uint32 {
+	cache := t.maxReplicationLagModule.lagCacheByType(tabletType)
+
+	var maxLag uint32
+	cacheEntries := cache.entries
+
+	for key := range cacheEntries {
+		if cache.isIgnored(key) {
+			continue
+		}
+
+		lag := cache.latest(key).Stats.ReplicationLagSeconds
+		if lag > maxLag {
+			maxLag = lag
+		}
+	}
+
+	return maxLag
 }
 
 // ThreadFinished marks threadID as finished and redistributes the thread's

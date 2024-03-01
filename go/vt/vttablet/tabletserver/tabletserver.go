@@ -111,7 +111,7 @@ type TabletServer struct {
 	tracker      *schema.Tracker
 	watcher      *BinlogWatcher
 	qe           *QueryEngine
-	txThrottler  *txthrottler.TxThrottler
+	txThrottler  txthrottler.TxThrottler
 	te           *TxEngine
 	messager     *messager.Engine
 	hs           *healthStreamer
@@ -179,7 +179,7 @@ func NewTabletServer(name string, config *tabletenv.TabletConfig, topoServer *to
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
-	tsv.txThrottler = txthrottler.NewTxThrottler(tsv.config, topoServer)
+	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv)
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
@@ -231,9 +231,9 @@ func NewTabletServer(name string, config *tabletenv.TabletConfig, topoServer *to
 // uses it to start/stop query buffering for a given table.
 // It is onlineDDLExecutor's responsibility to make sure beffering is stopped after some definite amount of time.
 // There are two layers to buffering/unbuffering:
-// 1. the creation and destruction of a QueryRuleSource. The existence of such source affects query plan rules
-//    for all new queries (see Execute() function and call to GetPlan())
-// 2. affecting already existing rules: a Rule has a concext.WithCancel, that is cancelled by onlineDDLExecutor
+//  1. the creation and destruction of a QueryRuleSource. The existence of such source affects query plan rules
+//     for all new queries (see Execute() function and call to GetPlan())
+//  2. affecting already existing rules: a Rule has a concext.WithCancel, that is cancelled by onlineDDLExecutor
 func (tsv *TabletServer) onlineDDLExecutorToggleTableBuffer(bufferingCtx context.Context, tableName string, bufferQueries bool) {
 	queryRuleSource := fmt.Sprintf("onlineddl/%s", tableName)
 
@@ -487,8 +487,8 @@ func (tsv *TabletServer) begin(ctx context.Context, target *querypb.Target, preQ
 		target, options, false, /* allowOnShutdown */
 		func(ctx context.Context, logStats *tabletenv.LogStats) error {
 			startTime := time.Now()
-			if tsv.txThrottler.Throttle() {
-				return vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+			if tsv.txThrottler.Throttle(tsv.getPriorityFromOptions(options), options.GetWorkloadName()) {
+				return errTxThrottled
 			}
 			var beginSQL string
 			transactionID, beginSQL, err = tsv.te.Begin(ctx, preQueries, reservedID, options)
@@ -509,6 +509,30 @@ func (tsv *TabletServer) begin(ctx context.Context, target *querypb.Target, preQ
 		},
 	)
 	return transactionID, tsv.alias, err
+}
+
+func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
+	priority := tsv.config.TxThrottlerDefaultPriority
+	if options == nil {
+		return priority
+	}
+	if options.Priority == "" {
+		return priority
+	}
+
+	optionsPriority, err := strconv.Atoi(options.Priority)
+	// This should never error out, as the value for Priority has been validated in the vtgate already.
+	// Still, handle it just to make sure.
+	if err != nil {
+		log.Errorf(
+			"The value of the %s query directive could not be converted to integer, using the "+
+				"default value. Error was: %s",
+			sqlparser.DirectivePriority, priority, err)
+
+		return priority
+	}
+
+	return optionsPriority
 }
 
 // Commit commits the specified transaction.
@@ -1422,9 +1446,10 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 }
 
 // truncateSQLAndBindVars calls TruncateForLog which:
-//  splits off trailing comments, truncates the query, re-adds the trailing comments,
-//  if sanitize is false appends quoted bindvar:value pairs in sorted order, and
-//  lastly it truncates the resulting string
+//
+//	splits off trailing comments, truncates the query, re-adds the trailing comments,
+//	if sanitize is false appends quoted bindvar:value pairs in sorted order, and
+//	lastly it truncates the resulting string
 func truncateSQLAndBindVars(sql string, bindVariables map[string]*querypb.BindVariable, sanitize bool) string {
 	truncatedQuery := sqlparser.TruncateForLog(sql)
 	buf := &bytes.Buffer{}
