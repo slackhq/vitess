@@ -46,7 +46,7 @@ require (
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.13.0
-	github.com/klauspost/pgzip v1.2.4
+	github.com/klauspost/pgzip v1.2.6
 	github.com/krishicks/yaml-patch v0.0.10
 	github.com/magiconair/properties v1.8.5
 	github.com/martini-contrib/auth v0.0.0-20150219114609-fa62c19b7ae8
