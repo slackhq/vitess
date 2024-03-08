@@ -17,13 +17,9 @@ limitations under the License.
 package main
 
 import (
-	"log"
 	"math/rand"
-	"net"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/channelz/service"
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vtgateproxy"
@@ -41,14 +37,6 @@ func main() {
 
 	servenv.ParseFlags("vtgateproxy")
 	servenv.Init()
-
-	lis, err := net.Listen("tcp", "localhost:8153")
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-	s := grpc.NewServer()
-	service.RegisterChannelzServiceToServer(s)
-	go s.Serve(lis)
 
 	servenv.OnRun(func() {
 		// Flags are parsed now. Parse the template using the actual flag value and overwrite the current template.
