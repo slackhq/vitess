@@ -21,6 +21,7 @@ package vtgateproxy
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
