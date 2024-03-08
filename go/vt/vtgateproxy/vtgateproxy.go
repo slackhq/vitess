@@ -24,10 +24,12 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/grpcclient"
 	querypb "vitess.io/vitess/go/vt/proto/query"
@@ -132,15 +134,15 @@ func (proxy *VTGateProxy) Prepare(ctx context.Context, session *vtgateconn.VTGat
 }
 
 func (proxy *VTGateProxy) Execute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable) (qr *sqltypes.Result, err error) {
-	t := time.Now()
-	qr, err = session.Execute(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType), sql, bindVariables)
-	logSql := sql
-	if len(logSql) > 40 {
-		logSql = logSql[:40]
-	}
-	fmt.Printf("Execute %s [%s]\n", logSql, time.Since(t))
-	return qr, err
 
+	// Intercept "use" statements since they just have to update the local session
+	if strings.HasPrefix(sql, "use ") {
+		targetString := sqlescape.UnescapeID(sql[4:])
+		session.SessionPb().TargetString = targetString
+		return &sqltypes.Result{}, nil
+	}
+
+	return session.Execute(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType), sql, bindVariables)
 }
 
 func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable, callback func(*sqltypes.Result) error) error {
