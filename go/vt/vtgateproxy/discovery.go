@@ -64,7 +64,7 @@ func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.Clie
 
 	filters := hostFilters{}
 	filters["type"] = gateType
-	for k, _ := range queryOpts {
+	for k := range queryOpts {
 		if strings.HasPrefix(k, queryParamFilterPrefix) {
 			filteredPrefix := strings.TrimPrefix(k, queryParamFilterPrefix)
 			filters[filteredPrefix] = queryOpts.Get(k)
@@ -91,11 +91,6 @@ func RegisterJsonDiscovery() {
 	fmt.Printf("Registered %v scheme\n", jsonDiscovery.Scheme())
 }
 
-type resolveFilters struct {
-	gate_type string
-	az_id     string
-}
-
 type hostFilters = map[string]string
 
 // exampleResolver is a
@@ -109,12 +104,10 @@ type resolveJSONGateConfig struct {
 	filters  hostFilters
 }
 
-type discoverySlackAZ struct{}
-type discoverySlackType struct{}
 type matchesFilter struct{}
 
 func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error) {
-	pairs := []map[string]string{}
+	pairs := []map[string]interface{}{}
 	fmt.Printf("Loading config %v\n", r.jsonPath)
 
 	data, err := os.ReadFile(r.jsonPath)
@@ -130,20 +123,25 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 
 	addrs := []resolver.Address{}
 	for _, pair := range pairs {
-		attributes := attributes.New(matchesFilter{}, true)
 
+		filterMatch := false
 		for k, v := range r.filters {
-			if pair[k] != v {
-				fmt.Printf("Filtering out %v", pair)
-				attributes.WithValue(matchesFilter{}, false)
-				continue
+			if pair[k] == v {
+				filterMatch = true
+			} else {
+				filterMatch = false
 			}
+		}
+
+		attrs := attributes.New(matchesFilter{}, "nomatch")
+		if filterMatch {
+			attrs = attributes.New(matchesFilter{}, "match")
 		}
 
 		// Add matching hosts to registration list
 		addrs = append(addrs, resolver.Address{
 			Addr:               fmt.Sprintf("%s:%s", pair["nebula_address"], pair["grpc"]),
-			BalancerAttributes: attributes,
+			BalancerAttributes: attrs,
 		})
 	}
 
@@ -205,7 +203,7 @@ func (r *resolveJSONGateConfig) start() {
 			}
 
 			// Make sure this wasn't a spurious change by checking the hash
-			if bytes.Compare(hash, newHash) == 0 && newHash != nil {
+			if bytes.Equal(hash, newHash) && newHash != nil {
 				fmt.Printf("No content changed in discovery file... ignoring\n")
 				continue
 			}

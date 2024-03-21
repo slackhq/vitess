@@ -1,18 +1,13 @@
 package vtgateproxy
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"sync"
 	"sync/atomic"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/grpclog"
-	"google.golang.org/grpc/metadata"
 )
 
 // Name is the name of az affinity balancer.
@@ -21,12 +16,6 @@ const MetadataHostAffinityCount = "grpc-slack-num-connections-metadata"
 const MetadataDiscoveryFilterPrefix = "grpc_discovery_filter_"
 
 var logger = grpclog.Component("slack_affinity_balancer")
-
-func WithSlackAZAffinityContext(ctx context.Context, numConnections string, filters metadata.MD) context.Context {
-	metadata.NewOutgoingContext(ctx, filters)
-	ctx = metadata.AppendToOutgoingContext(ctx, MetadataHostAffinityCount, numConnections)
-	return ctx
-}
 
 func newBuilder() balancer.Builder {
 	return base.NewBalancerBuilder(Name, &slackAZAffinityBalancer{}, base.Config{HealthCheck: true})
@@ -40,7 +29,7 @@ type slackAZAffinityBalancer struct{}
 
 func (*slackAZAffinityBalancer) Build(info base.PickerBuildInfo) balancer.Picker {
 	logger.Infof("slackAZAffinityBalancer: Build called with info: %v", info)
-	fmt.Printf("Rebuilding picker\n")
+	fmt.Printf("Rebuilding picker: %v\n", info)
 
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
@@ -49,15 +38,18 @@ func (*slackAZAffinityBalancer) Build(info base.PickerBuildInfo) balancer.Picker
 	subConnsByFiltered := []balancer.SubConn{}
 
 	for sc := range info.ReadySCs {
-		subConnInfo, _ := info.ReadySCs[sc]
-		matchesFilter := subConnInfo.Address.BalancerAttributes.Value(matchesFilter{}).(bool)
+		subConnInfo := info.ReadySCs[sc]
+		matchesFilter := subConnInfo.Address.BalancerAttributes.Value(matchesFilter{}).(string)
 
 		allSubConns = append(allSubConns, sc)
-		if matchesFilter {
+		if matchesFilter == "match" {
 			subConnsByFiltered = append(subConnsByFiltered, sc)
 		}
-
 	}
+
+	fmt.Printf("Filtered subcons: %v\n", len(subConnsByFiltered))
+	fmt.Printf("All subcons: %v\n", len(allSubConns))
+
 	return &slackAZAffinityPicker{
 		allSubConns:      allSubConns,
 		filteredSubConns: subConnsByFiltered,
@@ -68,7 +60,6 @@ type slackAZAffinityPicker struct {
 	// allSubConns is all subconns that were in the ready state when the picker was created
 	allSubConns      []balancer.SubConn
 	filteredSubConns []balancer.SubConn
-	nextByAZ         sync.Map
 	next             uint32
 }
 
@@ -77,60 +68,27 @@ func (p *slackAZAffinityPicker) pickFromSubconns(scList []balancer.SubConn, next
 	subConnsLen := uint32(len(scList))
 
 	if subConnsLen == 0 {
-		return balancer.PickResult{}, errors.New("No hosts in list")
+		return balancer.PickResult{}, errors.New("no hosts in list")
 	}
 
-	fmt.Printf("Select offset: %v %v %v\n", nextIndex, nextIndex%subConnsLen, len(scList))
-
 	sc := scList[nextIndex%subConnsLen]
+	fmt.Printf("Select offset: %v %v %v %v\n", nextIndex, nextIndex%subConnsLen, len(scList), sc)
+
 	return balancer.PickResult{SubConn: sc}, nil
 }
 
 func (p *slackAZAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
-	hdrs, _ := metadata.FromOutgoingContext(info.Ctx)
-	numConnections := 0
-	keys := hdrs.Get(MetadataAZKey)
-	if len(keys) < 1 {
-		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
-	}
-	az := keys[0]
-
-	filteredSubconns := p.allSubConns
-	for k, v := range hdrs {
-		if strings.HasPrefix(k, MetadataDiscoveryFilterPrefix) {
-			filterName := strings.TrimPrefix(k, MetadataDiscoveryFilterPrefix)
-			filterValue := v
-		}
-	}
-
-	for _, s := range v {
-
-	}
-
-	if az == "" {
+	filteredSubConns := p.filteredSubConns
+	numConnections := *numConnectionsInt
+	if len(filteredSubConns) == 0 {
+		fmt.Printf("No subconns in the filtered list, pick from anywhere in pool\n")
 		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
 	}
 
-	keys = hdrs.Get(MetadataHostAffinityCount)
-	if len(keys) > 0 {
-		if i, err := strconv.Atoi(keys[0]); err != nil {
-			numConnections = i
-		}
-	}
-
-	subConns := p.subConnsByAZ[az]
-	if len(subConns) == 0 {
-		fmt.Printf("No subconns in az and gate type, pick from anywhere\n")
-		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
-	}
-	val, _ := p.nextByAZ.LoadOrStore(az, new(uint32))
-	ptr := val.(*uint32)
-	atomic.AddUint32(ptr, 1)
-
-	if len(subConns) >= numConnections && numConnections > 0 {
+	if len(filteredSubConns) >= numConnections && numConnections > 0 {
 		fmt.Printf("Limiting to first %v\n", numConnections)
-		return p.pickFromSubconns(subConns[0:numConnections], *ptr)
+		return p.pickFromSubconns(filteredSubConns[0:numConnections], atomic.AddUint32(&p.next, 1))
 	} else {
-		return p.pickFromSubconns(subConns, *ptr)
+		return p.pickFromSubconns(filteredSubConns, atomic.AddUint32(&p.next, 1))
 	}
 }

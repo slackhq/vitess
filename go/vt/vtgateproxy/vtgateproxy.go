@@ -23,7 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strconv"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -57,13 +57,12 @@ type VTGateProxy struct {
 	mu          sync.Mutex
 }
 
-func (proxy *VTGateProxy) getConnection(ctx context.Context, target string, filters metadata.MD) (*vtgateconn.VTGateConn, error) {
-	numConnectionsString := strconv.Itoa(*numConnectionsInt)
-	fmt.Printf("Getting connection for %v in %v with %v filters\n", target, filters)
+func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
+	fmt.Printf("Getting connection for %v\n", target)
 
 	// If the connection exists, return it
 	proxy.mu.Lock()
-	existingConn, _ := proxy.targetConns[target]
+	existingConn := proxy.targetConns[target]
 	if existingConn != nil {
 		proxy.mu.Unlock()
 		return existingConn, nil
@@ -79,7 +78,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string, filt
 		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"slack_affinity_balancer":{}}]}`)), nil
 	})
 
-	conn, err := vtgateconn.DialProtocol(WithSlackAZAffinityContext(ctx, numConnectionsString, filters), "grpc", target)
+	conn, err := vtgateconn.DialProtocol(ctx, "grpc", target)
 	if err != nil {
 		return nil, err
 	}
@@ -97,14 +96,22 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 		return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "no target string supplied by client")
 	}
 
-	filters := metadata.Pairs()
-	for k, v := range connectionAttributes {
-		if strings.HasPrefix(k, MetadataDiscoveryFilterPrefix) {
-			filters.Append(k, v)
-		}
+	targetUrl := url.URL{
+		Scheme: "vtgate",
+		Host:   target,
 	}
 
-	conn, err := proxy.getConnection(ctx, target, filters)
+	filters := metadata.Pairs()
+	values := url.Values{}
+	for k, v := range connectionAttributes {
+		if strings.HasPrefix(k, queryParamFilterPrefix) {
+			filters.Append(k, v)
+			values.Set(k, v)
+		}
+	}
+	targetUrl.RawQuery = values.Encode()
+
+	conn, err := proxy.getConnection(ctx, targetUrl.String())
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +123,7 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 // same effect as if a "rollback" statement was executed, but does not affect the query
 // statistics.
 func (proxy *VTGateProxy) CloseSession(ctx context.Context, session *vtgateconn.VTGateSession) error {
-	return session.CloseSession(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType))
+	return session.CloseSession(ctx)
 }
 
 // ResolveTransaction resolves the specified 2PC transaction.
@@ -138,11 +145,11 @@ func (proxy *VTGateProxy) Execute(ctx context.Context, session *vtgateconn.VTGat
 		return &sqltypes.Result{}, nil
 	}
 
-	return session.Execute(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType), sql, bindVariables)
+	return session.Execute(ctx, sql, bindVariables)
 }
 
 func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable, callback func(*sqltypes.Result) error) error {
-	stream, err := session.StreamExecute(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.gateType), sql, bindVariables)
+	stream, err := session.StreamExecute(ctx, sql, bindVariables)
 	if err != nil {
 		return err
 	}
