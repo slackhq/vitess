@@ -29,7 +29,7 @@ type slackAZAffinityBalancer struct{}
 
 func (*slackAZAffinityBalancer) Build(info base.PickerBuildInfo) balancer.Picker {
 	logger.Infof("slackAZAffinityBalancer: Build called with info: %v", info)
-	fmt.Printf("Rebuilding picker: %v\n", info)
+	fmt.Printf("Rebuilding picker\n")
 
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
