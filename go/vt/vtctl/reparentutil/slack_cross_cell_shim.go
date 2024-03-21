@@ -7,6 +7,9 @@ import (
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
 )
 
+// slackCrossCell is a wrapper-struct that wraps the SlackCrossCell Durabler-interface
+// implementation (from github.com/slackhq/vitess-addons) using the private struct
+// methods the Durabiler interface (unfortunately) requires.
 type slackCrossCell struct {
 	*slackdur.SlackCrossCell
 }
