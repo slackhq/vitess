@@ -3,8 +3,8 @@ package reparentutil
 import (
 	slackdur "github.com/slackhq/vitess-addons/go/durability/cross_cell"
 
-         topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-         "vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
 )
 
 type slackCrossCell struct {
