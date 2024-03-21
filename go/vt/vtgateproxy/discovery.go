@@ -9,7 +9,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/attributes"
@@ -18,6 +18,7 @@ import (
 
 var (
 	jsonDiscoveryConfig = flag.String("json_config", "", "json file describing the host list to use fot vitess://vtgate resolution")
+	numConnectionsInt   = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
 )
 
 // File based discovery for vtgate grpc endpoints
@@ -54,33 +55,27 @@ type JSONGateConfigDiscovery struct {
 	JsonPath string
 }
 
+const queryParamFilterPrefix = "filter_"
+
 func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	fmt.Printf("Start registration for target: %v\n", target.URL.String())
 	queryOpts := target.URL.Query()
-	queryParamCount := queryOpts.Get("num_connections")
-	queryAZID := queryOpts.Get("az_id")
-	num_connections := 0
-
 	gateType := target.URL.Host
 
-	if queryParamCount != "" {
-		num_connections, _ = strconv.Atoi(queryParamCount)
-	}
-
-	filters := resolveFilters{
-		gate_type: gateType,
-	}
-
-	if queryAZID != "" {
-		filters.az_id = queryAZID
+	filters := hostFilters{}
+	filters["type"] = gateType
+	for k, _ := range queryOpts {
+		if strings.HasPrefix(k, queryParamFilterPrefix) {
+			filteredPrefix := strings.TrimPrefix(k, queryParamFilterPrefix)
+			filters[filteredPrefix] = queryOpts.Get(k)
+		}
 	}
 
 	r := &resolveJSONGateConfig{
-		target:          target,
-		cc:              cc,
-		jsonPath:        b.JsonPath,
-		num_connections: num_connections,
-		filters:         filters,
+		target:   target,
+		cc:       cc,
+		jsonPath: b.JsonPath,
+		filters:  filters,
 	}
 	r.start()
 	return r, nil
@@ -101,23 +96,25 @@ type resolveFilters struct {
 	az_id     string
 }
 
+type hostFilters = map[string]string
+
 // exampleResolver is a
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type resolveJSONGateConfig struct {
-	target          resolver.Target
-	cc              resolver.ClientConn
-	jsonPath        string
-	ticker          *time.Ticker
-	rand            *rand.Rand // safe for concurrent use.
-	num_connections int
-	filters         resolveFilters
+	target   resolver.Target
+	cc       resolver.ClientConn
+	jsonPath string
+	ticker   *time.Ticker
+	rand     *rand.Rand // safe for concurrent use.
+	filters  hostFilters
 }
 
 type discoverySlackAZ struct{}
 type discoverySlackType struct{}
+type matchesFilter struct{}
 
 func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error) {
-	config := []DiscoveryHost{}
+	pairs := []map[string]string{}
 	fmt.Printf("Loading config %v\n", r.jsonPath)
 
 	data, err := os.ReadFile(r.jsonPath)
@@ -125,27 +122,28 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 		return nil, nil, err
 	}
 
-	err = json.Unmarshal(data, &config)
+	err = json.Unmarshal(data, &pairs)
 	if err != nil {
 		fmt.Printf("parse err: %v\n", err)
 		return nil, nil, err
 	}
 
 	addrs := []resolver.Address{}
-	for _, s := range config {
-		az := attributes.New(discoverySlackAZ{}, s.AZId).WithValue(discoverySlackType{}, s.Type)
+	for _, pair := range pairs {
+		attributes := attributes.New(matchesFilter{}, true)
 
-		// Filter hosts to this gate type
-		if r.filters.gate_type != "" {
-			if r.filters.gate_type != s.Type {
+		for k, v := range r.filters {
+			if pair[k] != v {
+				fmt.Printf("Filtering out %v", pair)
+				attributes.WithValue(matchesFilter{}, false)
 				continue
 			}
 		}
 
 		// Add matching hosts to registration list
 		addrs = append(addrs, resolver.Address{
-			Addr:               fmt.Sprintf("%s:%s", s.NebulaAddress, s.Grpc),
-			BalancerAttributes: az,
+			Addr:               fmt.Sprintf("%s:%s", pair["nebula_address"], pair["grpc"]),
+			BalancerAttributes: attributes,
 		})
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -16,13 +17,14 @@ import (
 
 // Name is the name of az affinity balancer.
 const Name = "slack_affinity_balancer"
-const MetadataAZKey = "grpc-slack-az-metadata"
 const MetadataHostAffinityCount = "grpc-slack-num-connections-metadata"
+const MetadataDiscoveryFilterPrefix = "grpc_discovery_filter_"
 
 var logger = grpclog.Component("slack_affinity_balancer")
 
-func WithSlackAZAffinityContext(ctx context.Context, azID string, numConnections string) context.Context {
-	ctx = metadata.AppendToOutgoingContext(ctx, MetadataAZKey, azID, MetadataHostAffinityCount, numConnections)
+func WithSlackAZAffinityContext(ctx context.Context, numConnections string, filters metadata.MD) context.Context {
+	metadata.NewOutgoingContext(ctx, filters)
+	ctx = metadata.AppendToOutgoingContext(ctx, MetadataHostAffinityCount, numConnections)
 	return ctx
 }
 
@@ -44,27 +46,30 @@ func (*slackAZAffinityBalancer) Build(info base.PickerBuildInfo) balancer.Picker
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
 	allSubConns := []balancer.SubConn{}
-	subConnsByAZ := map[string][]balancer.SubConn{}
+	subConnsByFiltered := []balancer.SubConn{}
 
 	for sc := range info.ReadySCs {
 		subConnInfo, _ := info.ReadySCs[sc]
-		az := subConnInfo.Address.BalancerAttributes.Value(discoverySlackAZ{}).(string)
+		matchesFilter := subConnInfo.Address.BalancerAttributes.Value(matchesFilter{}).(bool)
 
 		allSubConns = append(allSubConns, sc)
-		subConnsByAZ[az] = append(subConnsByAZ[az], sc)
+		if matchesFilter {
+			subConnsByFiltered = append(subConnsByFiltered, sc)
+		}
+
 	}
 	return &slackAZAffinityPicker{
-		allSubConns:  allSubConns,
-		subConnsByAZ: subConnsByAZ,
+		allSubConns:      allSubConns,
+		filteredSubConns: subConnsByFiltered,
 	}
 }
 
 type slackAZAffinityPicker struct {
 	// allSubConns is all subconns that were in the ready state when the picker was created
-	allSubConns  []balancer.SubConn
-	subConnsByAZ map[string][]balancer.SubConn
-	nextByAZ     sync.Map
-	next         uint32
+	allSubConns      []balancer.SubConn
+	filteredSubConns []balancer.SubConn
+	nextByAZ         sync.Map
+	next             uint32
 }
 
 // Pick the next in the list from the list of subconns (RR)
@@ -89,6 +94,18 @@ func (p *slackAZAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResul
 		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
 	}
 	az := keys[0]
+
+	filteredSubconns := p.allSubConns
+	for k, v := range hdrs {
+		if strings.HasPrefix(k, MetadataDiscoveryFilterPrefix) {
+			filterName := strings.TrimPrefix(k, MetadataDiscoveryFilterPrefix)
+			filterValue := v
+		}
+	}
+
+	for _, s := range v {
+
+	}
 
 	if az == "" {
 		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))

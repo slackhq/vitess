@@ -23,12 +23,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/grpcclient"
@@ -41,8 +42,7 @@ import (
 )
 
 var (
-	dialTimeout = flag.Duration("dial_timeout", 5*time.Second, "dialer timeout for the GRPC connection")
-
+	dialTimeout        = flag.Duration("dial_timeout", 5*time.Second, "dialer timeout for the GRPC connection")
 	defaultDDLStrategy = flag.String("ddl_strategy", string(schema.DDLStrategyDirect), "Set default strategy for DDL statements. Override with @@ddl_strategy session variable")
 	sysVarSetEnabled   = flag.Bool("enable_system_settings", true, "This will enable the system settings to be changed per session at the database connection level")
 
@@ -53,24 +53,13 @@ var (
 )
 
 type VTGateProxy struct {
-	targetConns    map[string]*vtgateconn.VTGateConn
-	mu             sync.Mutex
-	azID           string
-	gateType       string
-	numConnections string
+	targetConns map[string]*vtgateconn.VTGateConn
+	mu          sync.Mutex
 }
 
-func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
-	targetURL, err := url.Parse(target)
-	if err != nil {
-		return nil, err
-	}
-
-	proxy.azID = targetURL.Query().Get("az_id")
-	proxy.numConnections = targetURL.Query().Get("num_connections")
-	proxy.gateType = targetURL.Host
-
-	fmt.Printf("Getting connection for %v in %v with %v connections\n", target, proxy.azID, proxy.numConnections)
+func (proxy *VTGateProxy) getConnection(ctx context.Context, target string, filters metadata.MD) (*vtgateconn.VTGateConn, error) {
+	numConnectionsString := strconv.Itoa(*numConnectionsInt)
+	fmt.Printf("Getting connection for %v in %v with %v filters\n", target, filters)
 
 	// If the connection exists, return it
 	proxy.mu.Lock()
@@ -90,7 +79,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"slack_affinity_balancer":{}}]}`)), nil
 	})
 
-	conn, err := vtgateconn.DialProtocol(WithSlackAZAffinityContext(ctx, proxy.azID, proxy.numConnections), "grpc", target)
+	conn, err := vtgateconn.DialProtocol(WithSlackAZAffinityContext(ctx, numConnectionsString, filters), "grpc", target)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +97,14 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 		return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "no target string supplied by client")
 	}
 
-	conn, err := proxy.getConnection(ctx, target)
+	filters := metadata.Pairs()
+	for k, v := range connectionAttributes {
+		if strings.HasPrefix(k, MetadataDiscoveryFilterPrefix) {
+			filters.Append(k, v)
+		}
+	}
+
+	conn, err := proxy.getConnection(ctx, target, filters)
 	if err != nil {
 		return nil, err
 	}
