@@ -118,7 +118,7 @@ require (
 require (
 	github.com/bndr/gotabulate v1.1.2
 	github.com/hashicorp/go-version v1.6.0
-	github.com/slackhq/vitess-addons v0.0.0-20240321215950-7d24cfb581dd
+	github.com/slackhq/vitess-addons v0.0.0-20240321220355-8e45e000ffb7
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 	golang.org/x/sync v0.3.0
 	golang.org/x/tools/cmd/cover v0.1.0-deprecated
