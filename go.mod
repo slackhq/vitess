@@ -1,6 +1,6 @@
 module vitess.io/vitess
 
-go 1.20
+go 1.22.1
 
 require (
 	cloud.google.com/go/storage v1.10.0
@@ -100,7 +100,7 @@ require (
 	google.golang.org/grpc v1.45.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
 	google.golang.org/grpc/examples v0.0.0-20210430044426-28078834f35b
-	google.golang.org/protobuf v1.28.0
+	google.golang.org/protobuf v1.33.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.17.0
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
 	gopkg.in/gcfg.v1 v1.2.3
@@ -118,6 +118,7 @@ require (
 require (
 	github.com/bndr/gotabulate v1.1.2
 	github.com/hashicorp/go-version v1.6.0
+	github.com/slackhq/vitess-addons v0.0.0-20240321214652-79422279fce9
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 	golang.org/x/sync v0.3.0
 	golang.org/x/tools/cmd/cover v0.1.0-deprecated
