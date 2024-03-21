@@ -30,6 +30,11 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/throttler"
+	"vitess.io/vitess/go/vt/topo/topoproto"
+	"vitess.io/vitess/go/vt/vterrors"
+
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
 // These constants represent values for various config parameters.
@@ -134,6 +139,9 @@ func init() {
 	flagutil.DualFormatBoolVar(&currentConfig.EnableTxThrottler, "enable_tx_throttler", defaultConfig.EnableTxThrottler, "If true replication-lag-based throttling on transactions will be enabled.")
 	flagutil.DualFormatStringVar(&currentConfig.TxThrottlerConfig, "tx_throttler_config", defaultConfig.TxThrottlerConfig, "The configuration of the transaction throttler as a text formatted throttlerdata.Configuration protocol buffer message")
 	flagutil.DualFormatStringListVar(&currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
+	flag.IntVar(&currentConfig.TxThrottlerDefaultPriority, "tx-throttler-default-priority", defaultConfig.TxThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information.")
+	topoproto.TabletTypeListVar(&currentConfig.TxThrottlerTabletTypes, "tx-throttler-tablet-types", "A comma-separated list of tablet types. Only tablets of this type are monitored for replication lag by the transaction throttler. Supported types are replica and/or rdonly. (default replica)")
+	flag.BoolVar(&currentConfig.TxThrottlerDryRun, "tx-throttler-dry-run", defaultConfig.TxThrottlerDryRun, "If present, the transaction throttler only records metrics about requests received and throttled, but does not actually throttle any requests.")
 
 	flag.BoolVar(&enableHotRowProtection, "enable_hot_row_protection", false, "If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.")
 	flag.BoolVar(&enableHotRowProtectionDryRun, "enable_hot_row_protection_dry_run", false, "If true, hot row protection is not enforced but logs if transactions would have been queued.")
@@ -170,6 +178,7 @@ func init() {
 
 	flag.Int64Var(&currentConfig.RowStreamer.MaxInnoDBTrxHistLen, "vreplication_copy_phase_max_innodb_history_list_length", 1000000, "The maximum InnoDB transaction history that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
 	flag.Int64Var(&currentConfig.RowStreamer.MaxMySQLReplLagSecs, "vreplication_copy_phase_max_mysql_replication_lag", 43200, "The maximum MySQL replication lag (in seconds) that can exist on a vstreamer (source) before starting another round of copying rows. This helps to limit the impact on the source tablet.")
+
 	flag.BoolVar(&currentConfig.EnablePerWorkloadTableMetrics, "enable-per-workload-table-metrics", defaultConfig.EnablePerWorkloadTableMetrics, "If true, query counts and query error metrics include a label that identifies the workload")
 }
 
@@ -239,6 +248,12 @@ func Init() {
 	if *txLogHandler != "" {
 		TxLogger.ServeLogs(*txLogHandler, streamlog.GetFormatter(TxLogger))
 	}
+
+	// HACK: set default ("replica") here because topoproto.TabletTypeListVar(...) defaults dont work
+	// and topoproto.TabletTypeListFlag doesn't exist in v14
+	if len(currentConfig.TxThrottlerTabletTypes) == 0 {
+		currentConfig.TxThrottlerTabletTypes = []topodatapb.TabletType{topodatapb.TabletType_REPLICA}
+	}
 }
 
 // TabletConfig contains all the configuration for query service
@@ -287,9 +302,12 @@ type TabletConfig struct {
 	TwoPCCoordinatorAddress string  `json:"-"`
 	TwoPCAbandonAge         Seconds `json:"-"`
 
-	EnableTxThrottler           bool     `json:"-"`
-	TxThrottlerConfig           string   `json:"-"`
-	TxThrottlerHealthCheckCells []string `json:"-"`
+	EnableTxThrottler           bool                    `json:"-"`
+	TxThrottlerConfig           string                  `json:"-"`
+	TxThrottlerHealthCheckCells []string                `json:"-"`
+	TxThrottlerDefaultPriority  int                     `json:"-"`
+	TxThrottlerTabletTypes      []topodatapb.TabletType `json:"-"`
+	TxThrottlerDryRun           bool                    `json:"-"`
 
 	EnableLagThrottler bool `json:"-"`
 
@@ -394,6 +412,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTransactionLimitConfig(); err != nil {
 		return err
 	}
+	if err := c.verifyTxThrottlerConfig(); err != nil {
+		return err
+	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("-hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
 	}
@@ -435,6 +456,22 @@ func (c *TabletConfig) verifyTransactionLimitConfig() error {
 	}
 	if limit := int(c.TransactionLimitPerUser * float64(c.TxPool.Size)); limit == 0 {
 		return fmt.Errorf("effective transaction limit per user is 0 due to rounding, increase -transaction_limit_per_user")
+	}
+	return nil
+}
+
+// verifyTxThrottlerConfig checks the TxThrottler related config for sanity.
+func (c *TabletConfig) verifyTxThrottlerConfig() error {
+	if len(c.TxThrottlerTabletTypes) == 0 {
+		return vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION, "--tx-throttler-tablet-types must be defined when transaction throttler is enabled")
+	}
+	for _, tabletType := range c.TxThrottlerTabletTypes {
+		switch tabletType {
+		case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
+			continue
+		default:
+			return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unsupported tablet type %q", tabletType)
+		}
 	}
 	return nil
 }
@@ -502,6 +539,8 @@ var defaultConfig = TabletConfig{
 	EnableTxThrottler:           false,
 	TxThrottlerConfig:           defaultTxThrottlerConfig(),
 	TxThrottlerHealthCheckCells: []string{},
+	TxThrottlerDefaultPriority:  0, // This leads to all queries being candidates to throttle
+	TxThrottlerDryRun:           false,
 
 	EnableLagThrottler: false, // Feature flag; to switch to 'true' at some stage in the future
 

@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"sync"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -39,6 +40,7 @@ import (
 )
 
 var (
+	grpcDialOptionsMu     sync.Mutex
 	keepaliveTime         = flag.Duration("grpc_keepalive_time", 10*time.Second, "After a duration of this time, if the client doesn't see any activity, it pings the server to see if the transport is still alive.")
 	keepaliveTimeout      = flag.Duration("grpc_keepalive_timeout", 10*time.Second, "After having pinged for keepalive check, the client waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
 	initialConnWindowSize = flag.Int("grpc_initial_conn_window_size", 0, "gRPC initial connection window size")
@@ -53,6 +55,8 @@ var grpcDialOptions []func(opts []grpc.DialOption) ([]grpc.DialOption, error)
 
 // RegisterGRPCDialOptions registers an implementation of AuthServer.
 func RegisterGRPCDialOptions(grpcDialOptionsFunc func(opts []grpc.DialOption) ([]grpc.DialOption, error)) {
+	grpcDialOptionsMu.Lock()
+	defer grpcDialOptionsMu.Unlock()
 	grpcDialOptions = append(grpcDialOptions, grpcDialOptionsFunc)
 }
 
@@ -101,12 +105,14 @@ func DialContext(ctx context.Context, target string, failFast FailFast, opts ...
 
 	newopts = append(newopts, opts...)
 	var err error
+	grpcDialOptionsMu.Lock()
 	for _, grpcDialOptionInitializer := range grpcDialOptions {
 		newopts, err = grpcDialOptionInitializer(newopts)
 		if err != nil {
 			log.Fatalf("There was an error initializing client grpc.DialOption: %v", err)
 		}
 	}
+	grpcDialOptionsMu.Unlock()
 
 	newopts = append(newopts, interceptors()...)
 
