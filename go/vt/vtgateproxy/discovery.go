@@ -108,7 +108,7 @@ type matchesFilter struct{}
 
 func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, error) {
 	pairs := []map[string]interface{}{}
-	fmt.Printf("Loading config %v\n", r.jsonPath)
+	fmt.Printf("Loading config %v config for %v connections\n", r.jsonPath, *numConnectionsInt)
 
 	data, err := os.ReadFile(r.jsonPath)
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 
 	allAddrs := []resolver.Address{}
 	filteredAddrs := []resolver.Address{}
-	addrs := []resolver.Address{}
+	var addrs []resolver.Address
 	for _, pair := range pairs {
 		matchesAll := true
 		for k, v := range r.filters {
