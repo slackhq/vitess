@@ -2,7 +2,6 @@ package vtgateproxy
 
 import (
 	"errors"
-	"fmt"
 	"sync/atomic"
 
 	"google.golang.org/grpc/balancer"
@@ -58,6 +57,5 @@ func (p *filteredAffinityPicker) pickFromSubconns(scList []balancer.SubConn, nex
 }
 
 func (p *filteredAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
-	fmt.Printf("Picking: subcons counts: len(%v)\n", len(p.subConns))
 	return p.pickFromSubconns(p.subConns, atomic.AddUint32(&p.next, 1))
 }

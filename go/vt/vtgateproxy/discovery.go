@@ -29,6 +29,8 @@ import (
 
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
+
+	"vitess.io/vitess/go/vt/log"
 )
 
 var (
@@ -73,7 +75,7 @@ type JSONGateConfigDiscovery struct {
 const queryParamFilterPrefix = "filter_"
 
 func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	fmt.Printf("Start registration for target: %v\n", target.URL.String())
+	log.V(100).Infof("Start registration for target: %v\n", target.URL.String())
 	queryOpts := target.URL.Query()
 	gateType := target.URL.Host
 
@@ -98,12 +100,11 @@ func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.Clie
 func (*JSONGateConfigDiscovery) Scheme() string { return "vtgate" }
 
 func RegisterJsonDiscovery() {
-	fmt.Printf("Registering: %v\n", *jsonDiscoveryConfig)
 	jsonDiscovery := &JSONGateConfigDiscovery{
 		JsonPath: *jsonDiscoveryConfig,
 	}
 	resolver.Register(jsonDiscovery)
-	fmt.Printf("Registered %v scheme\n", jsonDiscovery.Scheme())
+	log.Infof("Registered JSON discovery scheme %v to watch: %v\n", jsonDiscovery.Scheme(), *jsonDiscoveryConfig)
 }
 
 type hostFilters = map[string]string
@@ -121,9 +122,10 @@ type JSONGateConfigResolver struct {
 
 type matchesFilter struct{}
 
-func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, error) {
+func (r *JSONGateConfigResolver) resolve() (*[]resolver.Address, []byte, error) {
 	pairs := []map[string]interface{}{}
-	fmt.Printf("Loading config %v config for %v connections\n", r.jsonPath, *numConnectionsInt)
+
+	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnectionsInt)
 
 	data, err := os.ReadFile(r.jsonPath)
 	if err != nil {
@@ -132,7 +134,7 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 
 	err = json.Unmarshal(data, &pairs)
 	if err != nil {
-		fmt.Printf("parse err: %v\n", err)
+		log.Errorf("error parsing JSON discovery file %s: %v\n", r.jsonPath, err)
 		return nil, nil, err
 	}
 
@@ -167,12 +169,6 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 		}
 	}
 
-	fmt.Printf("-----\n")
-	fmt.Printf("filtered: %v\n", filteredAddrs)
-	fmt.Printf("-----\n")
-	fmt.Printf("all: %v\n", allAddrs)
-	fmt.Printf("----\n")
-
 	// Nothing in the filtered list? Get them all
 	if len(filteredAddrs) == 0 {
 		addrs = allAddrs
@@ -186,8 +182,6 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 		addrs = allAddrs
 	}
 
-	fmt.Printf("Loaded addrs from discovery file: %v\n", addrs)
-
 	// Shuffle to ensure every host has a different order to iterate through
 	r.rand.Shuffle(len(addrs), func(i, j int) {
 		addrs[i], addrs[j] = addrs[j], addrs[i]
@@ -197,17 +191,19 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 	if _, err := io.Copy(h, bytes.NewReader(data)); err != nil {
 		return nil, nil, err
 	}
+	sum := h.Sum(nil)
 
-	fmt.Printf("Returning discovery: %d hosts checksum %x\n", len(addrs), h.Sum(nil))
-	return &addrs, h.Sum(nil), nil
+	log.V(100).Infof("resolved %s to addrs: 0x%x, %v\n", r.target.URL.String(), sum, addrs)
+
+	return &addrs, sum, nil
 }
 
 func (r *JSONGateConfigResolver) start() {
-	fmt.Print("Starting discovery checker\n")
+	log.V(100).Infof("Starting discovery checker\n")
 	r.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Immediately load the initial config
-	addrs, hash, err := r.loadConfig()
+	addrs, hash, err := r.resolve()
 	if err == nil {
 		// if we parse ok, populate the local address store
 		r.cc.UpdateState(resolver.State{Addresses: *addrs})
@@ -223,7 +219,7 @@ func (r *JSONGateConfigResolver) start() {
 		for range r.ticker.C {
 			checkFileStat, err := os.Stat(r.jsonPath)
 			if err != nil {
-				fmt.Printf("Error stat'ing config %v\n", err)
+				log.Errorf("Error stat'ing config %v\n", err)
 				continue
 			}
 			isUnchanged := checkFileStat.Size() == fileStat.Size() || checkFileStat.ModTime() == fileStat.ModTime()
@@ -233,31 +229,29 @@ func (r *JSONGateConfigResolver) start() {
 			}
 
 			fileStat = checkFileStat
-			fmt.Printf("Detected config change\n")
+			log.V(100).Infof("Detected config change\n")
 
-			addrs, newHash, err := r.loadConfig()
+			addrs, newHash, err := r.resolve()
 			if err != nil {
 				// better luck next loop
 				// TODO: log this
-				fmt.Print("Can't load config: %v\n", err)
+				log.Errorf("Error resolving config: %v\n", err)
 				continue
 			}
 
 			// Make sure this wasn't a spurious change by checking the hash
 			if bytes.Equal(hash, newHash) && newHash != nil {
-				fmt.Printf("No content changed in discovery file... ignoring\n")
+				log.V(100).Infof("No content changed in discovery file... ignoring\n")
 				continue
 			}
 
 			hash = newHash
 
-			fmt.Printf("Loaded %d hosts\n", len(*addrs))
-			fmt.Printf("Loaded %v", addrs)
 			r.cc.UpdateState(resolver.State{Addresses: *addrs})
 		}
 	}()
 
-	fmt.Printf("Loaded hosts, starting ticker\n")
+	log.V(100).Infof("Loaded hosts, starting ticker\n")
 
 }
 func (r *JSONGateConfigResolver) ResolveNow(o resolver.ResolveNowOptions) {}

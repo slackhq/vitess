@@ -21,7 +21,6 @@ package vtgateproxy
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -33,6 +32,7 @@ import (
 	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/grpcclient"
+	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/schema"
@@ -58,14 +58,14 @@ type VTGateProxy struct {
 }
 
 func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
-	fmt.Printf("Getting connection for %v\n", target)
+	log.V(100).Infof("Getting connection for %v\n", target)
 
 	// If the connection exists, return it
 	proxy.mu.Lock()
 	existingConn := proxy.targetConns[target]
 	if existingConn != nil {
 		proxy.mu.Unlock()
-		fmt.Printf("Reused connection for %v\n", target)
+		log.V(100).Infof("Reused connection for %v\n", target)
 		return existingConn, nil
 	}
 	proxy.mu.Unlock()
@@ -84,8 +84,8 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 		return nil, err
 	}
 
+	log.V(100).Infof("Created new connection for %v\n", target)
 	proxy.mu.Lock()
-	fmt.Printf("Created new connection for %v\n", target)
 	proxy.targetConns[target] = conn
 	proxy.mu.Unlock()
 
