@@ -121,27 +121,52 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 		return nil, nil, err
 	}
 
+	allAddrs := []resolver.Address{}
+	filteredAddrs := []resolver.Address{}
 	addrs := []resolver.Address{}
 	for _, pair := range pairs {
-		filterMatch := false
+		matchesAll := true
 		for k, v := range r.filters {
-			if pair[k] == v {
-				filterMatch = true
-			} else {
-				filterMatch = false
+			if pair[k] != v {
+				matchesAll = false
 			}
 		}
 
-		attrs := attributes.New(matchesFilter{}, "nomatch")
-		if filterMatch {
-			attrs = attributes.New(matchesFilter{}, "match")
+		if matchesAll {
+			filteredAddrs = append(filteredAddrs, resolver.Address{
+				Addr:               fmt.Sprintf("%s:%s", pair["nebula_address"], pair["grpc"]),
+				BalancerAttributes: attributes.New(matchesFilter{}, "match"),
+			})
 		}
 
-		// Add matching hosts to registration list
-		addrs = append(addrs, resolver.Address{
-			Addr:               fmt.Sprintf("%s:%s", pair["nebula_address"], pair["grpc"]),
-			BalancerAttributes: attrs,
-		})
+		// Must filter by type
+		t, ok := r.filters["type"]
+		if ok {
+			if pair["type"] == t {
+				// Add matching hosts to registration list
+				allAddrs = append(allAddrs, resolver.Address{
+					Addr:               fmt.Sprintf("%s:%s", pair["nebula_address"], pair["grpc"]),
+					BalancerAttributes: attributes.New(matchesFilter{}, "nomatch"),
+				})
+			}
+		}
+	}
+
+	fmt.Printf("-----\n")
+	fmt.Printf("filtered: %v\n", filteredAddrs)
+	fmt.Printf("-----\n")
+	fmt.Printf("all: %v\n", allAddrs)
+	fmt.Printf("----\n")
+
+	// Nothing in the filtered list? Get them all
+	if len(filteredAddrs) == 0 {
+		addrs = allAddrs
+	} else if len(filteredAddrs) > *numConnectionsInt {
+		addrs = filteredAddrs[0:*numConnectionsInt]
+	} else if len(allAddrs) > *numConnectionsInt {
+		addrs = allAddrs[0:*numConnectionsInt]
+	} else {
+		addrs = allAddrs
 	}
 
 	fmt.Printf("Loaded addrs from discovery file: %v\n", addrs)

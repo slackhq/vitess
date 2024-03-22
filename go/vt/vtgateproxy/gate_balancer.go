@@ -27,29 +27,22 @@ func (*pickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
 	allSubConns := []balancer.SubConn{}
-	subConnsByFiltered := []balancer.SubConn{}
 
 	for sc := range info.ReadySCs {
-		subConnInfo := info.ReadySCs[sc]
-		matchesFilter := subConnInfo.Address.BalancerAttributes.Value(matchesFilter{}).(string)
-
+		//subConnInfo := info.ReadySCs[sc]
+		//matchesFilter := subConnInfo.Address.BalancerAttributes.Value(matchesFilter{}).(string)
 		allSubConns = append(allSubConns, sc)
-		if matchesFilter == "match" {
-			subConnsByFiltered = append(subConnsByFiltered, sc)
-		}
 	}
 
 	return &filteredAffinityPicker{
-		allSubConns:      allSubConns,
-		filteredSubConns: subConnsByFiltered,
+		subConns: allSubConns,
 	}
 }
 
 type filteredAffinityPicker struct {
 	// allSubConns is all subconns that were in the ready state when the picker was created
-	allSubConns      []balancer.SubConn
-	filteredSubConns []balancer.SubConn
-	next             uint32
+	subConns []balancer.SubConn
+	next     uint32
 }
 
 // Pick the next in the list from the list of subconns (RR)
@@ -61,23 +54,10 @@ func (p *filteredAffinityPicker) pickFromSubconns(scList []balancer.SubConn, nex
 	}
 
 	sc := scList[nextIndex%subConnsLen]
-	fmt.Printf("Select offset: iteration:(%v) mod:(%v) connLen:(%v)\n", nextIndex, nextIndex%subConnsLen, len(scList))
-
 	return balancer.PickResult{SubConn: sc}, nil
 }
 
 func (p *filteredAffinityPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
-	fmt.Printf("Picking: subcons counts: filtered(%v) all(%v)\n", len(p.filteredSubConns), len(p.allSubConns))
-	numConnections := *numConnectionsInt
-	if len(p.filteredSubConns) == 0 {
-		fmt.Printf("No subconns in the filtered list, pick from anywhere in pool\n")
-		return p.pickFromSubconns(p.allSubConns, atomic.AddUint32(&p.next, 1))
-	}
-
-	if len(p.filteredSubConns) >= numConnections && numConnections > 0 {
-		fmt.Printf("Limiting to first %v\n", numConnections)
-		return p.pickFromSubconns(p.filteredSubConns[0:numConnections], atomic.AddUint32(&p.next, 1))
-	} else {
-		return p.pickFromSubconns(p.filteredSubConns, atomic.AddUint32(&p.next, 1))
-	}
+	fmt.Printf("Picking: subcons counts: len(%v)\n", len(p.subConns))
+	return p.pickFromSubconns(p.subConns, atomic.AddUint32(&p.next, 1))
 }
