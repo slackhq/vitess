@@ -25,26 +25,22 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/grpcclient"
 	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
-	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/vterrors"
 	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
 )
 
 var (
-	dialTimeout        = flag.Duration("dial_timeout", 5*time.Second, "dialer timeout for the GRPC connection")
-	defaultDDLStrategy = flag.String("ddl_strategy", string(schema.DDLStrategyDirect), "Set default strategy for DDL statements. Override with @@ddl_strategy session variable")
-	sysVarSetEnabled   = flag.Bool("enable_system_settings", true, "This will enable the system settings to be changed per session at the database connection level")
+	poolTypeAttr = flag.String("pool_type_attr", "", "Attribute (both mysql connection and JSON file) used to specify the target vtgate type and filter the hosts, e.g. 'type'")
+	affinityAttr = flag.String("affinity_attr", "", "Attribute (both mysql protocol connection and JSON file) used to specify the routing affinity , e.g. 'az_id'")
 
 	vtGateProxy *VTGateProxy = &VTGateProxy{
 		targetConns: map[string]*vtgateconn.VTGateConn{},
@@ -94,23 +90,22 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 }
 
 func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
-	target, ok := connectionAttributes["target"]
-	if !ok {
-		return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "no target string supplied by client")
+
+	if *poolTypeAttr != "" {
+		_, ok := connectionAttributes[*poolTypeAttr]
+		if !ok {
+			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *poolTypeAttr)
+		}
 	}
 
 	targetUrl := url.URL{
 		Scheme: "vtgate",
-		Host:   target,
+		Host:   "pool",
 	}
 
-	filters := metadata.Pairs()
 	values := url.Values{}
 	for k, v := range connectionAttributes {
-		if strings.HasPrefix(k, queryParamFilterPrefix) {
-			filters.Append(k, v)
-			values.Set(k, v)
-		}
+		values.Set(k, v)
 	}
 	targetUrl.RawQuery = values.Encode()
 
