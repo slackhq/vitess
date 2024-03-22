@@ -72,11 +72,8 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 
 	// Otherwise create a new connection after dropping the lock, allowing multiple requests to
 	// race to create the conn for now.
-	//	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-	//		return append(opts, grpc.WithBlock()), nil
-	//	})
 	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"slack_affinity_balancer":{}}]}`)), nil
+		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
 	})
 
 	conn, err := vtgateconn.DialProtocol(ctx, "grpc", target)
