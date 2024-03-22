@@ -72,8 +72,6 @@ type JSONGateConfigDiscovery struct {
 	JsonPath string
 }
 
-const queryParamFilterPrefix = "filter_"
-
 func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	attrs := target.URL.Query()
 
