@@ -161,6 +161,8 @@ func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, erro
 	// Nothing in the filtered list? Get them all
 	if len(filteredAddrs) == 0 {
 		addrs = allAddrs
+	} else if *numConnectionsInt == 0 {
+		addrs = allAddrs
 	} else if len(filteredAddrs) > *numConnectionsInt {
 		addrs = filteredAddrs[0:*numConnectionsInt]
 	} else if len(allAddrs) > *numConnectionsInt {
