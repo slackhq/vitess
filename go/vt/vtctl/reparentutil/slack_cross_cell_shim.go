@@ -1,7 +1,7 @@
 package reparentutil
 
 import (
-	slackdur "github.com/slackhq/vitess-addons/go/durability/cross_cell"
+	slackdurability "github.com/slackhq/vitess-addons/go/durability"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
@@ -11,7 +11,7 @@ import (
 // implementation (from github.com/slackhq/vitess-addons) using the private struct
 // methods the Durabiler interface (unfortunately) requires.
 type slackCrossCell struct {
-	*slackdur.SlackCrossCell
+	*slackdurability.SlackCrossCell
 }
 
 func (scc *slackCrossCell) promotionRule(tablet *topodatapb.Tablet) promotionrule.CandidatePromotionRule {
