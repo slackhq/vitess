@@ -75,6 +75,8 @@ type JSONGateConfigDiscovery struct {
 func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	attrs := target.URL.Query()
 
+	// If the config specifies a pool type attribute, then the caller must supply it in the connection
+	// attributes, otherwise reject the request.
 	poolType := ""
 	if *poolTypeAttr != "" {
 		poolType = attrs.Get(*poolTypeAttr)
@@ -83,7 +85,7 @@ func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.Clie
 		}
 	}
 
-	// affinity is optional
+	// Affinity on the other hand is just an optimization
 	affinity := ""
 	if *affinityAttr != "" {
 		affinity = attrs.Get(*affinityAttr)
