@@ -48,27 +48,32 @@ var (
 
 	vtGateProxy *VTGateProxy = &VTGateProxy{
 		targetConns: map[string]*vtgateconn.VTGateConn{},
-		mu:          sync.Mutex{},
+		mu:          sync.RWMutex{},
 	}
 )
 
 type VTGateProxy struct {
 	targetConns map[string]*vtgateconn.VTGateConn
-	mu          sync.Mutex
+	mu          sync.RWMutex
 }
 
 func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
 	log.V(100).Infof("Getting connection for %v\n", target)
 
 	// If the connection exists, return it
-	proxy.mu.Lock()
+	proxy.mu.RLock()
 	existingConn := proxy.targetConns[target]
 	if existingConn != nil {
-		proxy.mu.Unlock()
+		proxy.mu.RUnlock()
 		log.V(100).Infof("Reused connection for %v\n", target)
 		return existingConn, nil
 	}
-	proxy.mu.Unlock()
+
+	// No luck, need to create a new one. Serialize new additions so we don't create multiple
+	// for a given target.
+	log.V(100).Infof("Need to create connection for %v\n", target)
+	proxy.mu.RUnlock()
+	proxy.mu.Lock()
 
 	// Otherwise create a new connection after dropping the lock, allowing multiple requests to
 	// race to create the conn for now.
@@ -82,7 +87,6 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	}
 
 	log.V(100).Infof("Created new connection for %v\n", target)
-	proxy.mu.Lock()
 	proxy.targetConns[target] = conn
 	proxy.mu.Unlock()
 
