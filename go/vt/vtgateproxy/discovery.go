@@ -71,7 +71,7 @@ func (b *JSONGateConfigDiscovery) Build(target resolver.Target, cc resolver.Clie
 		}
 	}
 
-	r := &resolveJSONGateConfig{
+	r := &JSONGateConfigResolver{
 		target:   target,
 		cc:       cc,
 		jsonPath: b.JsonPath,
@@ -95,7 +95,7 @@ type hostFilters = map[string]string
 
 // exampleResolver is a
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
-type resolveJSONGateConfig struct {
+type JSONGateConfigResolver struct {
 	target   resolver.Target
 	cc       resolver.ClientConn
 	jsonPath string
@@ -106,7 +106,7 @@ type resolveJSONGateConfig struct {
 
 type matchesFilter struct{}
 
-func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error) {
+func (r *JSONGateConfigResolver) loadConfig() (*[]resolver.Address, []byte, error) {
 	pairs := []map[string]interface{}{}
 	fmt.Printf("Loading config %v\n", r.jsonPath)
 
@@ -123,7 +123,6 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 
 	addrs := []resolver.Address{}
 	for _, pair := range pairs {
-
 		filterMatch := false
 		for k, v := range r.filters {
 			if pair[k] == v {
@@ -145,7 +144,7 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 		})
 	}
 
-	fmt.Printf("Addrs: %v\n", addrs)
+	fmt.Printf("Loaded addrs from discovery file: %v\n", addrs)
 
 	// Shuffle to ensure every host has a different order to iterate through
 	r.rand.Shuffle(len(addrs), func(i, j int) {
@@ -161,7 +160,7 @@ func (r *resolveJSONGateConfig) loadConfig() (*[]resolver.Address, []byte, error
 	return &addrs, h.Sum(nil), nil
 }
 
-func (r *resolveJSONGateConfig) start() {
+func (r *JSONGateConfigResolver) start() {
 	fmt.Print("Starting discovery checker\n")
 	r.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -219,8 +218,8 @@ func (r *resolveJSONGateConfig) start() {
 	fmt.Printf("Loaded hosts, starting ticker\n")
 
 }
-func (r *resolveJSONGateConfig) ResolveNow(o resolver.ResolveNowOptions) {}
-func (r *resolveJSONGateConfig) Close() {
+func (r *JSONGateConfigResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+func (r *JSONGateConfigResolver) Close() {
 	r.ticker.Stop()
 }
 

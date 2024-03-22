@@ -65,6 +65,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	existingConn := proxy.targetConns[target]
 	if existingConn != nil {
 		proxy.mu.Unlock()
+		fmt.Printf("Reused connection for %v\n", target)
 		return existingConn, nil
 	}
 	proxy.mu.Unlock()
@@ -84,6 +85,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	}
 
 	proxy.mu.Lock()
+	fmt.Printf("Created new connection for %v\n", target)
 	proxy.targetConns[target] = conn
 	proxy.mu.Unlock()
 
