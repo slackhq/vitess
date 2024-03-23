@@ -113,9 +113,6 @@ func RegisterJsonDiscovery() {
 	log.Infof("Registered JSON discovery scheme %v to watch: %v\n", jsonDiscovery.Scheme(), *jsonDiscoveryConfig)
 }
 
-type hostFilters = map[string]string
-
-// exampleResolver is a
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type JSONGateConfigResolver struct {
 	target   resolver.Target

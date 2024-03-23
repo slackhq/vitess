@@ -91,22 +91,31 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 
 func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
 
-	if *poolTypeAttr != "" {
-		_, ok := connectionAttributes[*poolTypeAttr]
-		if !ok {
-			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *poolTypeAttr)
-		}
-	}
-
 	targetUrl := url.URL{
 		Scheme: "vtgate",
 		Host:   "pool",
 	}
 
 	values := url.Values{}
-	for k, v := range connectionAttributes {
-		values.Set(k, v)
+
+	if *poolTypeAttr != "" {
+		poolType, ok := connectionAttributes[*poolTypeAttr]
+		if ok {
+			values.Set(*poolTypeAttr, poolType)
+		} else {
+			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *poolTypeAttr)
+		}
 	}
+
+	if *affinityAttr != "" {
+		affinity, ok := connectionAttributes[*affinityAttr]
+		if ok {
+			values.Set(*affinityAttr, affinity)
+		} else {
+			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *affinityAttr)
+		}
+	}
+
 	targetUrl.RawQuery = values.Encode()
 
 	conn, err := proxy.getConnection(ctx, targetUrl.String())
