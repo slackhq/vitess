@@ -111,8 +111,6 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 		affinity, ok := connectionAttributes[*affinityAttr]
 		if ok {
 			values.Set(*affinityAttr, affinity)
-		} else {
-			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *affinityAttr)
 		}
 	}
 
