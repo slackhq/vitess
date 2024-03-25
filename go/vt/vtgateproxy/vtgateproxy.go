@@ -75,12 +75,6 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	proxy.mu.RUnlock()
 	proxy.mu.Lock()
 
-	// Otherwise create a new connection after dropping the lock, allowing multiple requests to
-	// race to create the conn for now.
-	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
-	})
-
 	conn, err := vtgateconn.DialProtocol(ctx, "grpc", target)
 	if err != nil {
 		return nil, err
@@ -178,7 +172,14 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 }
 
 func Init() {
-	RegisterJsonDiscovery(
+
+	// Otherwise create a new connection after dropping the lock, allowing multiple requests to
+	// race to create the conn for now.
+	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
+		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
+	})
+
+	RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,
 		*portField,
