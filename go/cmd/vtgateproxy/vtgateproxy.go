@@ -39,8 +39,6 @@ func main() {
 	servenv.Init()
 
 	servenv.OnRun(func() {
-		// Flags are parsed now. Parse the template using the actual flag value and overwrite the current template.
-		vtgateproxy.RegisterJsonDiscovery()
 		vtgateproxy.Init()
 	})
 
