@@ -17,9 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"math/rand"
-	"time"
-
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/stats/prometheusbackend"
 	"vitess.io/vitess/go/vt/servenv"
@@ -27,7 +24,6 @@ import (
 )
 
 func init() {
-	rand.Seed(time.Now().UnixNano())
 	servenv.RegisterDefaultFlags()
 }
 

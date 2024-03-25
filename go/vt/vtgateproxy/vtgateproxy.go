@@ -188,7 +188,7 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
 	})
 
-	RegisterJsonDiscovery(
+	RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,
 		*portField,
