@@ -17,9 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"math/rand"
-	"time"
-
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vtgateproxy"
@@ -28,7 +25,6 @@ import (
 var ()
 
 func init() {
-	rand.Seed(time.Now().UnixNano())
 	servenv.RegisterDefaultFlags()
 }
 
