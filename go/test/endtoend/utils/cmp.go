@@ -30,12 +30,17 @@ import (
 	"vitess.io/vitess/go/test/utils"
 )
 
+type TestingT interface {
+	require.TestingT
+	Helper()
+}
+
 type MySQLCompare struct {
-	t                 *testing.T
+	t                 TestingT
 	MySQLConn, VtConn *mysql.Conn
 }
 
-func NewMySQLCompare(t *testing.T, vtParams, mysqlParams mysql.ConnParams) (MySQLCompare, error) {
+func NewMySQLCompare(t TestingT, vtParams, mysqlParams mysql.ConnParams) (MySQLCompare, error) {
 	ctx := context.Background()
 	vtConn, err := mysql.Connect(ctx, &vtParams)
 	if err != nil {
@@ -52,6 +57,10 @@ func NewMySQLCompare(t *testing.T, vtParams, mysqlParams mysql.ConnParams) (MySQ
 		MySQLConn: mysqlConn,
 		VtConn:    vtConn,
 	}, nil
+}
+
+func (mcmp *MySQLCompare) AsT() *testing.T {
+	return mcmp.t.(*testing.T)
 }
 
 func (mcmp *MySQLCompare) Close() {
