@@ -267,19 +267,23 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 		}
 	}
 
-	// Shuffle to ensure every host has a different order to iterate through
-	b.rand.Shuffle(len(targets), func(i, j int) {
-		targets[i], targets[j] = targets[j], targets[i]
-	})
+	// Shuffle to ensure every host has a different order to iterate through, putting
+	// the affinity matching (e.g. same az) hosts at the front and the non-matching ones
+	// at the end.
+	//
+	// Only need to do n-1 swaps since the last host is always in the right place.
+	n := len(targets)
+	head := 0
+	tail := n - 1
+	for i := 0; i < n-1; i++ {
+		j := head + rand.Intn(tail-head+1)
 
-	// If affinity is specified, then shuffle those hosts to the front
-	if r.affinity != "" {
-		i := 0
-		for j := 0; j < len(targets); j++ {
-			if r.affinity == targets[j].affinity {
-				targets[i], targets[j] = targets[j], targets[i]
-				i++
-			}
+		if r.affinity == "" || r.affinity == targets[j].affinity {
+			targets[head], targets[j] = targets[j], targets[head]
+			head++
+		} else {
+			targets[tail], targets[j] = targets[j], targets[tail]
+			tail--
 		}
 	}
 
