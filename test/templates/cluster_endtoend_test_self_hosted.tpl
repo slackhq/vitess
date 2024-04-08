@@ -9,6 +9,9 @@ jobs:
     name: Run endtoend tests on {{.Name}}
     runs-on:
       group: vitess-ubuntu20
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: {{"${{ secrets.GH_ACCESS_TOKEN }}"}}
 
     steps:
       - name: Check if workflow needs to be skipped
@@ -53,7 +56,7 @@ jobs:
       - name: Run test
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
         timeout-minutes: 30
-        run: docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c 'source build.env && go run test.go -keep-data=true -docker=false -print-log -follow -shard {{.Shard}} -- -- --keep-data=true'
+        run: docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c "source build.env && git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/ && go run test.go -keep-data=true -docker=false -print-log -follow -shard {{.Shard}} -- -- --keep-data=true"
 
       - name: Print Volume Used
         if: always() && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'

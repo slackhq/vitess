@@ -8,6 +8,9 @@ jobs:
   test:
     runs-on:
       group: vitess-ubuntu20
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
     steps:
       - name: Check if workflow needs to be skipped
@@ -51,7 +54,7 @@ jobs:
       - name: Run test
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
         timeout-minutes: 30
-        run: docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c 'make unit_test'
+        run: docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c "git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/ && make unit_test"
 
       - name: Print Volume Used
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
