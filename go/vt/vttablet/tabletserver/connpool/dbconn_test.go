@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -78,7 +79,7 @@ func TestDBConnExec(t *testing.T) {
 		t.Fatalf("should not get an error, err: %v", err)
 	}
 	expectedResult.Fields = nil
-	if !expectedResult.Equal(result) {
+	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("Exec: %v, want %v", expectedResult, result)
 	}
 
@@ -151,7 +152,7 @@ func TestDBConnExecLost(t *testing.T) {
 		t.Fatalf("should not get an error, err: %v", err)
 	}
 	expectedResult.Fields = nil
-	if !expectedResult.Equal(result) {
+	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("Exec: %v, want %v", expectedResult, result)
 	}
 
@@ -225,7 +226,7 @@ func TestDBConnDeadline(t *testing.T) {
 		t.Fatalf("should not get an error, err: %v", err)
 	}
 	expectedResult.Fields = nil
-	if !expectedResult.Equal(result) {
+	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("Exec: %v, want %v", expectedResult, result)
 	}
 
@@ -239,7 +240,7 @@ func TestDBConnDeadline(t *testing.T) {
 		t.Fatalf("should not get an error, err: %v", err)
 	}
 	expectedResult.Fields = nil
-	if !expectedResult.Equal(result) {
+	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("Exec: %v, want %v", expectedResult, result)
 	}
 
@@ -404,7 +405,7 @@ func TestDBConnStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("should not get an error, err: %v", err)
 	}
-	if !expectedResult.Equal(&result) {
+	if !reflect.DeepEqual(expectedResult, &result) {
 		t.Errorf("Exec: %v, want %v", expectedResult, &result)
 	}
 	// Stream fail

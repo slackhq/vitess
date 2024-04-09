@@ -19,6 +19,7 @@ package vtgate
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1164,7 +1165,7 @@ func TestInsertShardedIgnore(t *testing.T) {
 	query = "insert ignore into insert_ignore_test(pv, owned, verify) values (1, 1, 1)"
 	qr, err := executorExec(executor, query, nil)
 	require.NoError(t, err)
-	if !qr.Equal(&sqltypes.Result{}) {
+	if !reflect.DeepEqual(qr, &sqltypes.Result{}) {
 		t.Errorf("qr: %v, want empty result", qr)
 	}
 	assertQueries(t, sbc1, nil)

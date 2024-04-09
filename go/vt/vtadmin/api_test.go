@@ -567,7 +567,7 @@ func TestFindSchema(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Truef(t, proto.Equal(tt.expected, resp), "expected %v, got %v", tt.expected, resp)
+			assert.Equal(t, tt.expected, resp)
 		})
 	}
 
@@ -815,7 +815,7 @@ func TestFindSchema(t *testing.T) {
 		}
 
 		assert.NoError(t, err)
-		assert.Truef(t, proto.Equal(expected, schema), "expected %v, got %v", expected, schema)
+		assert.Equal(t, expected, schema)
 	})
 }
 
@@ -1091,7 +1091,7 @@ func TestGetKeyspace(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-				assert.Truef(t, proto.Equal(tt.expected, ks), "expected %v, got %v", tt.expected, ks)
+				assert.Equal(t, tt.expected, ks)
 			}, vtctlds...)
 		})
 	}
@@ -1575,7 +1575,7 @@ func TestGetSchema(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-				assert.Truef(t, proto.Equal(tt.expected, resp), "expected %v, got %v", tt.expected, resp)
+				assert.Equal(t, tt.expected, resp)
 			})
 		})
 	}
@@ -1742,7 +1742,7 @@ func TestGetSchema(t *testing.T) {
 		}
 
 		assert.NoError(t, err)
-		assert.Truef(t, proto.Equal(expected, schema), "expected %v, got %v", expected, schema)
+		assert.Equal(t, expected, schema)
 	})
 }
 
@@ -2556,7 +2556,7 @@ func TestGetSchemas(t *testing.T) {
 		}
 
 		assert.NoError(t, err)
-		assert.Truef(t, proto.Equal(expected, resp), "expected: %v, got: %v", expected, resp)
+		assert.ElementsMatch(t, expected.Schemas, resp.Schemas)
 	})
 }
 
@@ -2717,7 +2717,7 @@ func TestGetSrvVSchema(t *testing.T) {
 				}
 
 				require.NoError(t, err)
-				assert.Truef(t, proto.Equal(tt.expected, resp), "expected %v, got %v", tt.expected, resp)
+				assert.Equal(t, tt.expected, resp)
 			})
 		})
 	}
@@ -3609,7 +3609,7 @@ func TestGetVSchema(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Truef(t, proto.Equal(tt.expected, resp), "expected %v, got %v", tt.expected, resp)
+			assert.Equal(t, tt.expected, resp)
 		})
 	}
 }
@@ -4155,7 +4155,7 @@ func TestGetWorkflow(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Truef(t, proto.Equal(tt.expected, resp), "expected %v, got %v", tt.expected, resp)
+			assert.Equal(t, tt.expected, resp)
 		})
 	}
 }

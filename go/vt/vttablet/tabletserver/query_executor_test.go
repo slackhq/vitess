@@ -17,14 +17,16 @@ limitations under the License.
 package tabletserver
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
+
+	"context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -684,7 +686,7 @@ func TestQueryExecutorPlanNextval(t *testing.T) {
 			sqltypes.NewInt64(2),
 		}},
 	}
-	if !got.Equal(want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("qre.Execute() =\n%#v, want:\n%#v", got, want)
 	}
 
@@ -716,7 +718,7 @@ func TestQueryExecutorPlanNextval(t *testing.T) {
 			sqltypes.NewInt64(3),
 		}},
 	}
-	if !got.Equal(want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("qre.Execute() =\n%#v, want:\n%#v", got, want)
 	}
 
@@ -748,7 +750,7 @@ func TestQueryExecutorPlanNextval(t *testing.T) {
 			sqltypes.NewInt64(5),
 		}},
 	}
-	if !got.Equal(want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("qre.Execute() =\n%#v, want:\n%#v", got, want)
 	}
 }
@@ -855,7 +857,7 @@ func TestQueryExecutorTableAcl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got: %v, want nil", err)
 	}
-	if !got.Equal(want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("qre.Execute() = %v, want: %v", got, want)
 	}
 }
@@ -899,7 +901,7 @@ func TestQueryExecutorTableAclNoPermission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got: %v, want nil", err)
 	}
-	if !got.Equal(want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("qre.Execute() = %v, want: %v", got, want)
 	}
 	tsv.StopService()

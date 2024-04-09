@@ -175,7 +175,7 @@ func TestEngineExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantqr := &sqltypes.Result{InsertID: 1}
-	if !qr.Equal(wantqr) {
+	if !reflect.DeepEqual(qr, wantqr) {
 		t.Errorf("Exec: %v, want %v", qr, wantqr)
 	}
 	dbClient.Wait()
@@ -217,7 +217,7 @@ func TestEngineExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantqr = &sqltypes.Result{RowsAffected: 1}
-	if !qr.Equal(wantqr) {
+	if !reflect.DeepEqual(qr, wantqr) {
 		t.Errorf("Exec: %v, want %v", qr, wantqr)
 	}
 	dbClient.Wait()
@@ -257,7 +257,7 @@ func TestEngineExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantqr = &sqltypes.Result{RowsAffected: 1}
-	if !qr.Equal(wantqr) {
+	if !reflect.DeepEqual(qr, wantqr) {
 		t.Errorf("Exec: %v, want %v", qr, wantqr)
 	}
 	dbClient.Wait()
@@ -355,7 +355,7 @@ func TestEngineSelect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !qr.Equal(wantResult) {
+	if !reflect.DeepEqual(qr, wantResult) {
 		t.Errorf("Exec: %v, want %v", qr, wantResult)
 	}
 }
@@ -558,7 +558,7 @@ func TestCreateDBAndTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantqr := &sqltypes.Result{InsertID: 1}
-	if !qr.Equal(wantqr) {
+	if !reflect.DeepEqual(qr, wantqr) {
 		t.Errorf("Exec: %v, want %v", qr, wantqr)
 	}
 	dbClient.Wait()

@@ -1110,7 +1110,7 @@ func TestExecutorComment(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if !gotResult.Equal(wantResult) {
+		if !reflect.DeepEqual(gotResult, wantResult) {
 			t.Errorf("Exec %s: %v, want %v", stmt, gotResult, wantResult)
 		}
 	}
@@ -1453,7 +1453,9 @@ func TestExecutorCreateVindexDDL(t *testing.T) {
 		sbc2.ExecCount.Get(),
 		sbclookup.ExecCount.Get(),
 	}
-	require.Equal(t, wantCount, gotCount)
+	if !reflect.DeepEqual(gotCount, wantCount) {
+		t.Errorf("Exec %s: %v, want %v", stmt, gotCount, wantCount)
+	}
 }
 
 func TestExecutorAddDropVschemaTableDDL(t *testing.T) {

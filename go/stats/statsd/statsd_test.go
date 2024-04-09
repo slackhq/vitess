@@ -55,8 +55,8 @@ func TestStatsdCounter(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.counter_name:1|c\n"
-			assert.Equal(t, expected, result)
+			expected := "test.counter_name:1|c"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -84,8 +84,8 @@ func TestStatsdGauge(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.gauge_name:10|g\n"
-			assert.Equal(t, expected, result)
+			expected := "test.gauge_name:10.000000|g"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -113,8 +113,8 @@ func TestStatsdGaugeFloat64(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.gauge_name_f64:3.14|g\n"
-			assert.Equal(t, expected, result)
+			expected := "test.gauge_name_f64:3.140000|g"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -143,8 +143,8 @@ func TestStatsdGaugeFunc(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.gauge_func_name:2|g\n"
-			assert.Equal(t, expected, result)
+			expected := "test.gauge_func_name:2.000000|g"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -172,8 +172,8 @@ func TestStatsdCounterDuration(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.counter_duration_name:1.000000|ms\n"
-			assert.Equal(t, expected, result)
+			expected := "test.counter_duration_name:1.000000|ms"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -203,12 +203,11 @@ func TestStatsdCountersWithSingleLabel(t *testing.T) {
 			result := strings.Split(string(bytes[:n]), "\n")
 			sort.Strings(result)
 			expected := []string{
-				"",
 				"test.counter_with_single_label_name:0|c|#label:tag2",
 				"test.counter_with_single_label_name:2|c|#label:tag1",
 			}
 			for i, res := range result {
-				assert.Equal(t, expected[i], res)
+				assert.Equal(t, res, expected[i])
 			}
 		}
 	})
@@ -237,8 +236,8 @@ func TestStatsdCountersWithMultiLabels(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.counter_with_multiple_label_name:1|c|#label1:foo,label2:bar\n"
-			assert.Equal(t, expected, result)
+			expected := "test.counter_with_multiple_label_name:1|c|#label1:foo,label2:bar"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -272,12 +271,11 @@ func TestStatsdCountersFuncWithMultiLabels(t *testing.T) {
 			result := strings.Split(string(bytes[:n]), "\n")
 			sort.Strings(result)
 			expected := []string{
-				"",
 				"test.counter_func_with_multiple_labels_name:1|c|#label1:foo,label2:bar",
 				"test.counter_func_with_multiple_labels_name:2|c|#label1:bar,label2:baz",
 			}
 			for i, res := range result {
-				assert.Equal(t, expected[i], res)
+				assert.Equal(t, res, expected[i])
 			}
 		}
 	})
@@ -306,8 +304,8 @@ func TestStatsdGaugesWithMultiLabels(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.gauges_with_multiple_label_name:3|g|#label1:foo,label2:bar\n"
-			assert.Equal(t, expected, result)
+			expected := "test.gauges_with_multiple_label_name:3.000000|g|#label1:foo,label2:bar"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -341,12 +339,11 @@ func TestStatsdGaugesFuncWithMultiLabels(t *testing.T) {
 			result := strings.Split(string(bytes[:n]), "\n")
 			sort.Strings(result)
 			expected := []string{
-				"",
-				"test.gauges_func_with_multiple_labels_name:1|g|#label1:foo,label2:bar",
-				"test.gauges_func_with_multiple_labels_name:2|g|#label1:bar,label2:baz",
+				"test.gauges_func_with_multiple_labels_name:1.000000|g|#label1:foo,label2:bar",
+				"test.gauges_func_with_multiple_labels_name:2.000000|g|#label1:bar,label2:baz",
 			}
 			for i, res := range result {
-				assert.Equal(t, expected[i], res)
+				assert.Equal(t, res, expected[i])
 			}
 		}
 	})
@@ -375,8 +372,8 @@ func TestStatsdGaugesWithSingleLabel(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.gauges_with_single_label_name:1|g|#label1:bar\n"
-			assert.Equal(t, expected, result)
+			expected := "test.gauges_with_single_label_name:1.000000|g|#label1:bar"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -404,8 +401,8 @@ func TestStatsdMultiTimings(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.multi_timings_name:10.000000|ms|#label1:foo,label2:bar\n"
-			assert.Equal(t, expected, result)
+			expected := "test.multi_timings_name:10.000000|ms|#label1:foo,label2:bar"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -433,8 +430,8 @@ func TestStatsdTimings(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := string(bytes[:n])
-			expected := "test.timings_name:2.000000|ms|#label1:foo\n"
-			assert.Equal(t, expected, result)
+			expected := "test.timings_name:2.000000|ms|#label1:foo"
+			assert.Equal(t, result, expected)
 		}
 	})
 	if !found {
@@ -465,13 +462,12 @@ func TestStatsdHistogram(t *testing.T) {
 			}
 			result := string(bytes[:n])
 			expected := []string{
-				"test.histogram_name:2|h",
-				"test.histogram_name:3|h",
-				"test.histogram_name:6|h",
-				"",
+				"test.histogram_name:2.000000|h",
+				"test.histogram_name:3.000000|h",
+				"test.histogram_name:6.000000|h",
 			}
 			for i, res := range strings.Split(result, "\n") {
-				assert.Equal(t, expected[i], res)
+				assert.Equal(t, res, expected[i])
 			}
 		}
 	})

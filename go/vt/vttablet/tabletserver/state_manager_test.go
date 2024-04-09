@@ -639,7 +639,7 @@ func TestStateManagerNotify(t *testing.T) {
 		TabletAlias: &topodatapb.TabletAlias{},
 	}
 	sm.hcticks.Stop()
-	assert.Truef(t, proto.Equal(gotshr, wantshr), "got: %v, want: %v", gotshr, wantshr)
+	assert.Equal(t, wantshr, gotshr)
 	sm.StopService()
 }
 
