@@ -57,7 +57,7 @@ require (
 	github.com/martini-contrib/gzip v0.0.0-20151124214156-6c035326b43f
 	github.com/martini-contrib/render v0.0.0-20150707142108-ec18f8345a11
 	github.com/mattn/go-sqlite3 v1.14.6
-	github.com/minio/minio-go v0.0.0-20190131015406-c8a261de75c1
+	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/mitchellh/go-testing-interface v1.14.0 // indirect
 	github.com/montanaflynn/stats v0.6.3
 	github.com/olekukonko/tablewriter v0.0.5-0.20200416053754-163badb3bac6
@@ -144,6 +144,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
+	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
