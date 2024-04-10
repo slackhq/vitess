@@ -9,6 +9,6 @@ if [ -z "$GIT_DIR" ]; then
   GIT_DIR="${DIR}/.."
 fi
 
-for hook in $GIT_DIR/../misc/git/hooks/*; do
-  $hook
-done
+#for hook in $GIT_DIR/../misc/git/hooks/*; do
+ # $hook
+#done
