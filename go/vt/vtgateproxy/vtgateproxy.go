@@ -81,7 +81,8 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 		return existingConn, nil
 	}
 
-	// Otherwise create a new connection.
+	// Otherwise create a new connection. TODO: confirm this doesn't actually make a TCP connection, and returns quickly,
+	// otherwise we're going to have to do this while not holding the lock.
 	conn, err := vtgateconn.DialProtocol(ctx, "grpc", target)
 	if err != nil {
 		return nil, err
