@@ -308,13 +308,18 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 	}
 
 	// Count some metrics
-	var local, remote int64
+	var unknown, local, remote int64
 	for _, target := range targets {
-		if r.affinity == "" || r.affinity == target.affinity {
+		if r.affinity == "" {
+			unknown++
+		} else if r.affinity == target.affinity {
 			local++
 		} else {
 			remote++
 		}
+	}
+	if unknown != 0 {
+		affinityCount.Add("unknown", unknown)
 	}
 	affinityCount.Add("local", local)
 	affinityCount.Add("remote", remote)
