@@ -27,6 +27,7 @@ import (
 
 	"google.golang.org/grpc/resolver"
 
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 )
 
@@ -81,6 +82,13 @@ type JSONGateResolver struct {
 	poolType   string
 	affinity   string
 }
+
+var (
+	buildCount     = stats.NewCounter("JsonDiscoveryBuild", "JSON host discovery rebuilt the host list")
+	unchangedCount = stats.NewCounter("JsonDiscoveryUnchanged", "JSON host discovery parsed and determined no change to the file")
+	affinityCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
+	poolTypeCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
+)
 
 func RegisterJSONGateResolver(
 	jsonPath string,
@@ -138,6 +146,8 @@ func (b *JSONGateResolverBuilder) start() error {
 		affinityTypes[t.affinity] = count + 1
 	}
 
+	buildCount.Add(1)
+
 	log.Infof("loaded %d targets, pool types %v, affinity groups %v", len(b.targets), poolTypes, affinityTypes)
 
 	// Start a config watcher
@@ -164,8 +174,11 @@ func (b *JSONGateResolverBuilder) start() error {
 
 			contentsChanged, err := b.parse()
 			if err != nil || !contentsChanged {
+				unchangedCount.Add(1)
 				continue
 			}
+
+			buildCount.Add(1)
 
 			// notify all the resolvers that the targets changed
 			for _, r := range b.resolvers {
@@ -294,7 +307,20 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 		addrs = append(addrs, resolver.Address{Addr: target.addr})
 	}
 
-	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
+	// Count some metrics
+	var local, remote int64
+	for _, target := range targets {
+		if r.affinity == "" || r.affinity == target.affinity {
+			local++
+		} else {
+			remote++
+		}
+	}
+	affinityCount.Add("local", local)
+	affinityCount.Add("remote", remote)
+	poolTypeCount.Add(r.poolType, int64(len(targets)))
+
+	log.V(100).Infof("updated targets for %s to %v (local %d / remote %d)", r.target.URL.String(), targets, local, remote)
 
 	r.clientConn.UpdateState(resolver.State{Addresses: addrs})
 }
