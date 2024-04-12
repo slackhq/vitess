@@ -276,7 +276,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 	head := 0
 	tail := n - 1
 	for i := 0; i < n-1; i++ {
-		j := head + rand.Intn(tail-head+1)
+		j := head + b.rand.Intn(tail-head+1)
 
 		if r.affinity == "" || r.affinity == targets[j].affinity {
 			targets[head], targets[j] = targets[j], targets[head]
