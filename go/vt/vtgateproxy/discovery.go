@@ -151,7 +151,7 @@ func (b *JSONGateResolverBuilder) start() error {
 	log.Infof("loaded %d targets, pool types %v, affinity groups %v", len(b.targets), poolTypes, affinityTypes)
 
 	// Start a config watcher
-	b.ticker = time.NewTicker(100 * time.Millisecond)
+	b.ticker = time.NewTicker(1 * time.Second)
 	fileStat, err := os.Stat(b.jsonPath)
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func (b *JSONGateResolverBuilder) start() error {
 				log.Errorf("Error stat'ing config %v\n", err)
 				continue
 			}
-			isUnchanged := checkFileStat.Size() == fileStat.Size() || checkFileStat.ModTime() == fileStat.ModTime()
+			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
 			if isUnchanged {
 				// no change
 				continue
