@@ -25,5 +25,4 @@
 #
 # I will hardcode the previous Slack release here because it is static.
 #
-#echo slack-vitess-r14.0.5
-echo v14.0.5
+echo slack-vitess-r14.0.5
