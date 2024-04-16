@@ -583,7 +583,6 @@ func TestAddQueryStats(t *testing.T) {
 		rowsAffected                  int64
 		rowsReturned                  int64
 		errorCount                    int64
-		errorCode                     string
 		enablePerWorkloadTableMetrics bool
 		workload                      string
 		expectedQueryCounts           string
@@ -602,7 +601,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  0,
 			rowsReturned:                  15,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: false,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select": 1}`,
@@ -620,7 +618,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  15,
 			rowsReturned:                  0,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: false,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select": 1}`,
@@ -638,7 +635,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  0,
 			rowsReturned:                  0,
 			errorCount:                    1,
-			errorCode:                     "RESOURCE_EXHAUSTED",
 			enablePerWorkloadTableMetrics: false,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select": 1}`,
@@ -656,7 +652,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  15,
 			rowsReturned:                  0,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: false,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Insert": 1}`,
@@ -674,7 +669,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  0,
 			rowsReturned:                  15,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: true,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
@@ -692,7 +686,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  15,
 			rowsReturned:                  0,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: true,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
@@ -710,7 +703,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  0,
 			rowsReturned:                  0,
 			errorCount:                    1,
-			errorCode:                     "RESOURCE_EXHAUSTED",
 			enablePerWorkloadTableMetrics: true,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
@@ -728,7 +720,6 @@ func TestAddQueryStats(t *testing.T) {
 			rowsAffected:                  15,
 			rowsReturned:                  0,
 			errorCount:                    0,
-			errorCode:                     "OK",
 			enablePerWorkloadTableMetrics: true,
 			workload:                      "some-workload",
 			expectedQueryCounts:           `{"A.Insert.some-workload": 1}`,
