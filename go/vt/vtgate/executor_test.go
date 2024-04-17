@@ -1851,11 +1851,9 @@ func TestGetPlanPriority(t *testing.T) {
 			vCursor, err := newVCursorImpl(session, makeComments(""), r, nil, r.vm, r.VSchema(), r.resolver.resolver, nil, false, pv)
 			assert.NoError(t, err)
 
-			stmt, err := sqlparser.Parse(testCase.sql)
-			assert.NoError(t, err)
 			crticalityFromStatement, _ := sqlparser.GetPriorityFromStatement(stmt)
 
-			_, err = r.getPlan(context.Background(), vCursor, testCase.sql, stmt, makeComments("/* some comment */"), map[string]*querypb.BindVariable{}, nil, true, logStats)
+			_, err = r.getPlan(context.Background(), vCursor, testCase.sql, makeComments("/* some comment */"), map[string]*querypb.BindVariable{}, nil, true, logStats)
 			if testCase.expectedError != nil {
 				assert.ErrorIs(t, err, testCase.expectedError)
 			} else {
