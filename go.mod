@@ -126,6 +126,7 @@ require (
 )
 
 require (
+	github.com/planetscale/log v0.0.0-20221118170849-fb599bc35c50
 	github.com/planetscale/pargzip v0.0.0-20201116224723-90c7fc03ea8a
 	github.com/slok/noglog v0.2.0
 	go.uber.org/zap v1.23.0
@@ -212,3 +213,5 @@ require (
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.0.3 // indirect
 )
+
+replace github.com/google/glog => github.com/planetscale/noglog v0.2.1-0.20210421230640-bea75fcd2e8e

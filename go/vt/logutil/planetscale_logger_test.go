@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	pslog "github.com/planetscale/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -42,7 +43,8 @@ func (s *MemorySink) Close() error { return nil }
 func (s *MemorySink) Sync() error  { return nil }
 
 func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
-	// Create a sink instance, and register it with zap for the "memory" protocol.
+	// Create a sink instance, and register it with zap for the "memory"
+	// protocol.
 	sink = &MemorySink{new(bytes.Buffer)}
 	err = zap.RegisterSink("memory", func(*url.URL) (zap.Sink, error) {
 		return sink, nil
@@ -51,8 +53,10 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 		return nil, err
 	}
 
-	testLoggerConf := NewMemorySinkConfig()
-	_, err = SetVTStructureLogger(&testLoggerConf)
+	testLoggerConf := pslog.NewPlanetScaleConfig(pslog.DetectEncoding(), pslog.InfoLevel)
+	testLoggerConf.OutputPaths = []string{"memory://"}
+	testLoggerConf.ErrorOutputPaths = []string{"memory://"}
+	_, err = SetPlanetScaleLogger(&testLoggerConf)
 	if err != nil {
 		return nil, err
 	}
@@ -60,22 +64,7 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 	return
 }
 
-func NewMemorySinkConfig() zap.Config {
-	return zap.Config{
-		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
-		Development: false,
-		Sampling: &zap.SamplingConfig{
-			Initial:    100,
-			Thereafter: 100,
-		},
-		Encoding:         "json",
-		EncoderConfig:    zap.NewProductionEncoderConfig(),
-		OutputPaths:      []string{"memory://"},
-		ErrorOutputPaths: []string{"memory://"},
-	}
-}
-
-func TestVTSLogger_Replacing_glog(t *testing.T) {
+func TestPSLogger_Replacing_glog(t *testing.T) {
 	type logMsg struct {
 		Level string `json:"level"`
 		Msg   string `json:"msg"`
@@ -88,9 +77,9 @@ func TestVTSLogger_Replacing_glog(t *testing.T) {
 
 	dummyLogMessage := "testing log"
 	testCases := []testCase{
-		{"log info", zap.InfoLevel},
-		{"log warn", zap.WarnLevel},
-		{"log error", zap.ErrorLevel},
+		{"log info", pslog.InfoLevel},
+		{"log warn", pslog.WarnLevel},
+		{"log error", pslog.ErrorLevel},
 	}
 
 	sink, err := SetupLoggerWithMemSink()

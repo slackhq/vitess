@@ -17,33 +17,32 @@ limitations under the License.
 package logutil
 
 import (
+	pslog "github.com/planetscale/log"
 	noglog "github.com/slok/noglog"
-	"go.uber.org/zap"
 
 	"vitess.io/vitess/go/vt/log"
 )
 
-type VTSLogger zap.SugaredLogger
+type PSLogger pslog.SugaredLogger
 
-// SetVTStructureLogger in-place noglog replacement with Zap's logger.
-func SetVTStructureLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err error) {
-	var l *zap.Logger
-
+// SetPlanetScaleLogger in-place noglog replacement with PlanetScale's logger.
+func SetPlanetScaleLogger(conf *pslog.Config) (psLogger *pslog.SugaredLogger, err error) {
 	// Use the passed configuration instead of the default configuration
-	if conf == nil {
-		defaultProdConf := zap.NewProductionConfig()
-		conf = &defaultProdConf
+	if conf != nil {
+		configLogger, err := conf.Build()
+		if err != nil {
+			return nil, err
+		}
+		psLogger = configLogger.Sugar()
+	} else {
+		psLogger = pslog.NewPlanetScaleSugarLogger()
 	}
 
-	// Build configuration and generate a sugared logger
-	l, err = conf.Build()
-	vtSLogger = l.Sugar()
-
 	noglog.SetLogger(&noglog.LoggerFunc{
-		DebugfFunc: func(f string, a ...interface{}) { vtSLogger.Debugf(f, a...) },
-		InfofFunc:  func(f string, a ...interface{}) { vtSLogger.Infof(f, a...) },
-		WarnfFunc:  func(f string, a ...interface{}) { vtSLogger.Warnf(f, a...) },
-		ErrorfFunc: func(f string, a ...interface{}) { vtSLogger.Errorf(f, a...) },
+		DebugfFunc: func(f string, a ...interface{}) { psLogger.Debugf(f, a...) },
+		InfofFunc:  func(f string, a ...interface{}) { psLogger.Infof(f, a...) },
+		WarnfFunc:  func(f string, a ...interface{}) { psLogger.Warnf(f, a...) },
+		ErrorfFunc: func(f string, a ...interface{}) { psLogger.Errorf(f, a...) },
 	})
 
 	log.Flush = noglog.Flush

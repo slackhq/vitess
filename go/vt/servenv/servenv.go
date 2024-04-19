@@ -66,7 +66,7 @@ var (
 	_              = flag.Int("mem-profile-rate", 512*1024, "deprecated: use '-pprof=mem' instead")
 	_              = flag.Int("mutex-profile-fraction", 0, "deprecated: use '-pprof=mutex' instead")
 	catchSigpipe   = flag.Bool("catch-sigpipe", false, "catch and ignore SIGPIPE on stdout and stderr if specified")
-	useVTSLogger   = flag.Bool("structured-logging", false, "whether to use structured logging (Zap) or the original (glog) logger")
+	usePSLogger    = flag.Bool("structured-logging", false, "whether to use structured logging (PlanetScale Log) or the original (glog) logger")
 
 	// mutex used to protect the Init function
 	mu sync.Mutex
@@ -247,11 +247,11 @@ func ParseFlags(cmd string) {
 		os.Exit(0)
 	}
 
-	if *useVTSLogger {
-		// Replace glog logger with zap logger
-		_, err := logutil.SetVTStructureLogger(nil)
+	if *usePSLogger {
+		// Replace glog logger with PlanetScale logger
+		_, err := logutil.SetPlanetScaleLogger(nil)
 		if err != nil {
-			log.Exitf("error while setting the Zap logger: %s", err)
+			log.Exitf("error while setting the PlanetScale logger: %s", err)
 		}
 	}
 
