@@ -32,7 +32,7 @@ func SetVTStructureLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err e
 	// Use the passed configuration instead of the default configuration
 	if conf == nil {
 		defaultProdConf := zap.NewProductionConfig()
-		defaultProdConf.Level.SetLevel(zap.WarnLevel)
+		//defaultProdConf.Level.SetLevel(zap.WarnLevel)
 		conf = &defaultProdConf
 	}
 
