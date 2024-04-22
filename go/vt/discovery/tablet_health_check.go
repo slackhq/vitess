@@ -350,7 +350,10 @@ func (thc *tabletHealthCheck) checkConn(hc *HealthCheckImpl) {
 }
 
 func (thc *tabletHealthCheck) closeConnection(ctx context.Context, err error) {
-	log.Warningf("tablet %v healthcheck stream error: %v", thc.Tablet, err)
+	if thc.Tablet.Type != topodata.TabletType_RESTORE {
+		log.Warningf("tablet %v healthcheck stream error: %v", thc.Tablet, err)
+	}
+
 	thc.setServingState(false, err.Error())
 	thc.LastError = err
 	_ = thc.Conn.Close(ctx)
