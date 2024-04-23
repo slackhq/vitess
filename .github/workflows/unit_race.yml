@@ -8,8 +8,7 @@ jobs:
 
   build:
     name: Unit Test (Race)
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: ubuntu-latest
     steps:
     - name: Check if workflow needs to be skipped
       id: skip-workflow
