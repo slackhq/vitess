@@ -86,8 +86,8 @@ type JSONGateResolver struct {
 var (
 	buildCount     = stats.NewCounter("JsonDiscoveryBuild", "JSON host discovery rebuilt the host list")
 	unchangedCount = stats.NewCounter("JsonDiscoveryUnchanged", "JSON host discovery parsed and determined no change to the file")
-	affinityCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
-	poolTypeCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
+	affinityCount  = stats.NewGaugesWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
+	poolTypeCount  = stats.NewGaugesWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
 )
 
 func RegisterJSONGateResolver(
@@ -173,7 +173,11 @@ func (b *JSONGateResolverBuilder) start() error {
 			fileStat = checkFileStat
 
 			contentsChanged, err := b.parse()
-			if err != nil || !contentsChanged {
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			if !contentsChanged {
 				unchangedCount.Add(1)
 				continue
 			}
@@ -217,6 +221,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		return false, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
 	}
 
+	var targets []targetHost
 	for _, host := range hosts {
 		address, hasAddress := host[b.addressField]
 		port, hasPort := host[b.portField]
@@ -257,8 +262,9 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
 
-		b.targets = append(b.targets, targetHost{fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)})
+		targets = append(targets, targetHost{fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)})
 	}
+	b.targets = targets
 
 	return true, nil
 }
@@ -319,11 +325,11 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 		}
 	}
 	if unknown != 0 {
-		affinityCount.Add("unknown", unknown)
+		affinityCount.Set("unknown", unknown)
 	}
-	affinityCount.Add("local", local)
-	affinityCount.Add("remote", remote)
-	poolTypeCount.Add(r.poolType, int64(len(targets)))
+	affinityCount.Set("local", local)
+	affinityCount.Set("remote", remote)
+	poolTypeCount.Set(r.poolType, int64(len(targets)))
 
 	log.V(100).Infof("updated targets for %s to %v (local %d / remote %d)", r.target.URL.String(), targets, local, remote)
 
