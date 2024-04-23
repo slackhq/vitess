@@ -86,8 +86,8 @@ type JSONGateResolver struct {
 var (
 	buildCount     = stats.NewCounter("JsonDiscoveryBuild", "JSON host discovery rebuilt the host list")
 	unchangedCount = stats.NewCounter("JsonDiscoveryUnchanged", "JSON host discovery parsed and determined no change to the file")
-	affinityCount  = stats.NewGaugesWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
-	poolTypeCount  = stats.NewGaugesWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
+	affinityCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
+	poolTypeCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
 )
 
 func RegisterJSONGateResolver(
@@ -173,11 +173,7 @@ func (b *JSONGateResolverBuilder) start() error {
 			fileStat = checkFileStat
 
 			contentsChanged, err := b.parse()
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-			if !contentsChanged {
+			if err != nil || !contentsChanged {
 				unchangedCount.Add(1)
 				continue
 			}
@@ -325,11 +321,11 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 		}
 	}
 	if unknown != 0 {
-		affinityCount.Set("unknown", unknown)
+		affinityCount.Add("unknown", unknown)
 	}
-	affinityCount.Set("local", local)
-	affinityCount.Set("remote", remote)
-	poolTypeCount.Set(r.poolType, int64(len(targets)))
+	affinityCount.Add("local", local)
+	affinityCount.Add("remote", remote)
+	poolTypeCount.Add(r.poolType, int64(len(targets)))
 
 	log.V(100).Infof("updated targets for %s to %v (local %d / remote %d)", r.target.URL.String(), targets, local, remote)
 
