@@ -86,10 +86,8 @@ type JSONGateResolver struct {
 }
 
 var (
-	buildCount     = stats.NewCounter("JsonDiscoveryBuild", "JSON host discovery rebuilt the host list")
-	unchangedCount = stats.NewCounter("JsonDiscoveryUnchanged", "JSON host discovery parsed and determined no change to the file")
-	affinityCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostAffinity", "Count of hosts returned from discovery by AZ affinity", "affinity")
-	poolTypeCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryHostPoolType", "Count of hosts returned from discovery by pool type", "type")
+	parseCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryParseCount", "Count of results of JSON host file parsing (changed, unchanged, error)", "result")
+	targetCount = stats.NewGaugesWithSingleLabel("JsonDiscoveryTargetCount", "Count of hosts returned from discovery by pool type", "pool")
 )
 
 func RegisterJSONGateResolver(
@@ -153,7 +151,7 @@ func (b *JSONGateResolverBuilder) start() error {
 		}
 	}
 
-	buildCount.Add(1)
+	parseCount.Add("changed", 1)
 
 	log.Infof("loaded targets, pool types %v, affinity groups %v", poolTypes, affinityTypes)
 
@@ -165,10 +163,12 @@ func (b *JSONGateResolverBuilder) start() error {
 	}
 
 	go func() {
+		var parseErr error
 		for range b.ticker.C {
 			checkFileStat, err := os.Stat(b.jsonPath)
 			if err != nil {
 				log.Errorf("Error stat'ing config %v\n", err)
+				parseCount.Add("error", 1)
 				continue
 			}
 			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
@@ -180,12 +180,20 @@ func (b *JSONGateResolverBuilder) start() error {
 			fileStat = checkFileStat
 
 			contentsChanged, err := b.parse()
-			if err != nil || !contentsChanged {
-				unchangedCount.Add(1)
+			if err != nil {
+				parseCount.Add("error", 1)
+				if parseErr == nil || err.Error() != parseErr.Error() {
+					parseErr = err
+					log.Error(err)
+				}
 				continue
 			}
-
-			buildCount.Add(1)
+			if !contentsChanged {
+				parseCount.Add("unchanged", 1)
+				continue
+			}
+			parseErr = nil
+			parseCount.Add("changed", 1)
 
 			// notify all the resolvers that the targets changed
 			for _, r := range b.resolvers {
@@ -278,6 +286,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		if len(targets[poolType]) > *numConnections {
 			targets[poolType] = targets[poolType][:*numConnections]
 		}
+		targetCount.Set(poolType, int64(len(targets[poolType])))
 	}
 
 	b.targets = targets
