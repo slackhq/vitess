@@ -191,11 +191,11 @@ func (b *JSONGateResolverBuilder) start() error {
 				}
 				continue
 			}
+			parseErr = nil
 			if !contentsChanged {
 				parseCount.Add("unchanged", 1)
 				continue
 			}
-			parseErr = nil
 			parseCount.Add("changed", 1)
 
 			// notify all the resolvers that the targets changed
