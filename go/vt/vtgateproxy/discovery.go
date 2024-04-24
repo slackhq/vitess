@@ -30,6 +30,7 @@ import (
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/servenv"
 )
 
 // File based discovery for vtgate grpc endpoints
@@ -72,9 +73,9 @@ type JSONGateResolverBuilder struct {
 }
 
 type targetHost struct {
-	addr     string
-	poolType string
-	affinity string
+	Addr     string
+	PoolType string
+	Affinity string
 }
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
@@ -116,6 +117,8 @@ func RegisterJSONGateResolver(
 		return nil, err
 	}
 
+	servenv.AddStatusPart("JSON Discovery", targetsTemplate, jsonDiscovery.debugTargets)
+
 	return jsonDiscovery, nil
 }
 
@@ -143,11 +146,11 @@ func (b *JSONGateResolverBuilder) start() error {
 
 	for _, ts := range b.targets {
 		for _, t := range ts {
-			count := poolTypes[t.poolType]
-			poolTypes[t.poolType] = count + 1
+			count := poolTypes[t.PoolType]
+			poolTypes[t.PoolType] = count + 1
 
-			count = affinityTypes[t.affinity]
-			affinityTypes[t.affinity] = count + 1
+			count = affinityTypes[t.Affinity]
+			affinityTypes[t.Affinity] = count + 1
 		}
 	}
 
@@ -274,13 +277,13 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		}
 
 		target := targetHost{fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
-		targets[target.poolType] = append(targets[target.poolType], target)
+		targets[target.PoolType] = append(targets[target.PoolType], target)
 	}
 
 	for poolType := range targets {
 		if b.affinityField != "" {
 			sort.Slice(targets[poolType], func(i, j int) bool {
-				return b.affinityValue == targets[poolType][i].affinity
+				return b.affinityValue == targets[poolType][i].Affinity
 			})
 		}
 		if len(targets[poolType]) > *numConnections {
@@ -312,7 +315,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 	for i := 0; i < n-1; i++ {
 		j := head + b.rand.Intn(tail-head+1)
 
-		if r.affinity == "" || r.affinity == targets[j].affinity {
+		if r.affinity == "" || r.affinity == targets[j].Affinity {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -323,7 +326,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 
 	var addrs []resolver.Address
 	for _, target := range targets {
-		addrs = append(addrs, resolver.Address{Addr: target.addr})
+		addrs = append(addrs, resolver.Address{Addr: target.Addr})
 	}
 
 	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
@@ -360,8 +363,50 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 	return r, nil
 }
 
+// debugTargets will return the builder's targets with a sorted slice of
+// poolTypes for rendering debug output
+func (b *JSONGateResolverBuilder) debugTargets() any {
+	var pools []string
+	for pool := range b.targets {
+		pools = append(pools, pool)
+	}
+	sort.Strings(pools)
+	return struct {
+		Pools   []string
+		Targets map[string][]targetHost
+	}{
+		Pools:   pools,
+		Targets: b.targets,
+	}
+}
+
 func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
 
 func (r *JSONGateResolver) Close() {
 	log.Infof("Closing resolver for target %s", r.target.URL.String())
 }
+
+const (
+	// targetsTemplate is a HTML template to display the gate resolver's target hosts.
+	targetsTemplate = `
+<style>
+  table {
+    border-collapse: collapse;
+  }
+  td, th {
+    border: 1px solid #999;
+    padding: 0.2rem;
+  }
+</style>
+<table>
+{{range $i, $p := .Pools}}  <tr>
+    <th colspan="2">{{$p}}</th>
+  </tr>
+{{range index $.Targets $p}}  <tr>
+    <td>{{.Addr}}</td>
+    <td>{{.Affinity}}</td>
+  </tr>{{end}}
+{{end}}
+</table>
+`
+)
