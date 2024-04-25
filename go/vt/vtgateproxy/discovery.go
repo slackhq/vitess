@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/resolver"
@@ -64,6 +65,7 @@ type JSONGateResolverBuilder struct {
 	affinityField string
 	affinityValue string
 
+	mu        sync.RWMutex
 	targets   map[string][]targetHost
 	resolvers []*JSONGateResolver
 
@@ -83,7 +85,6 @@ type JSONGateResolver struct {
 	target     resolver.Target
 	clientConn resolver.ClientConn
 	poolType   string
-	affinity   string
 }
 
 var (
@@ -156,7 +157,7 @@ func (b *JSONGateResolverBuilder) start() error {
 
 	parseCount.Add("changed", 1)
 
-	log.Infof("loaded targets, pool types %v, affinity groups %v", poolTypes, affinityTypes)
+	log.Infof("loaded targets, pool types %v, affinity %s, groups %v", poolTypes, *affinityValue, affinityTypes)
 
 	// Start a config watcher
 	b.ticker = time.NewTicker(1 * time.Second)
@@ -292,17 +293,30 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		targetCount.Set(poolType, int64(len(targets[poolType])))
 	}
 
+	b.mu.Lock()
 	b.targets = targets
+	b.mu.Unlock()
 
 	return true, nil
 }
 
-// Update the current list of hosts for the given resolver
-func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
+func (b *JSONGateResolverBuilder) GetPools() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var pools []string
+	for pool := range b.targets {
+		pools = append(pools, pool)
+	}
+	sort.Strings(pools)
+	return pools
+}
 
-	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
-
-	targets := b.targets[r.poolType]
+func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
+	// Copy the target slice
+	b.mu.RLock()
+	targets := []targetHost{}
+	targets = append(targets, b.targets[poolType]...)
+	b.mu.RUnlock()
 
 	// Shuffle to ensure every host has a different order to iterate through, putting
 	// the affinity matching (e.g. same az) hosts at the front and the non-matching ones
@@ -315,7 +329,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 	for i := 0; i < n-1; i++ {
 		j := head + b.rand.Intn(tail-head+1)
 
-		if r.affinity == "" || r.affinity == targets[j].Affinity {
+		if *affinityField != "" && *affinityValue == targets[j].Affinity {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -323,6 +337,16 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 			tail--
 		}
 	}
+
+	return targets
+}
+
+// Update the current list of hosts for the given resolver
+func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
+
+	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
+
+	targets := b.GetTargets(r.poolType)
 
 	var addrs []resolver.Address
 	for _, target := range targets {
@@ -354,7 +378,6 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 		target:     target,
 		clientConn: cc,
 		poolType:   poolType,
-		affinity:   b.affinityValue,
 	}
 
 	b.update(r)
@@ -366,17 +389,17 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 // debugTargets will return the builder's targets with a sorted slice of
 // poolTypes for rendering debug output
 func (b *JSONGateResolverBuilder) debugTargets() any {
-	var pools []string
+	pools := b.GetPools()
+	targets := map[string][]targetHost{}
 	for pool := range b.targets {
-		pools = append(pools, pool)
+		targets[pool] = b.GetTargets(pool)
 	}
-	sort.Strings(pools)
 	return struct {
 		Pools   []string
 		Targets map[string][]targetHost
 	}{
 		Pools:   pools,
-		Targets: b.targets,
+		Targets: targets,
 	}
 }
 
