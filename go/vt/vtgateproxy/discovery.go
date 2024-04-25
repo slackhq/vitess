@@ -57,6 +57,19 @@ import (
 // type: Only select from hosts of this type (required)
 //
 
+// Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
+type JSONGateResolver struct {
+	target     resolver.Target
+	clientConn resolver.ClientConn
+	poolType   string
+}
+
+func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+
+func (r *JSONGateResolver) Close() {
+	log.Infof("Closing resolver for target %s", r.target.URL.String())
+}
+
 type JSONGateResolverBuilder struct {
 	jsonPath      string
 	addressField  string
@@ -78,13 +91,6 @@ type targetHost struct {
 	Addr     string
 	PoolType string
 	Affinity string
-}
-
-// Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
-type JSONGateResolver struct {
-	target     resolver.Target
-	clientConn resolver.ClientConn
-	poolType   string
 }
 
 var (
@@ -401,12 +407,6 @@ func (b *JSONGateResolverBuilder) debugTargets() any {
 		Pools:   pools,
 		Targets: targets,
 	}
-}
-
-func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
-
-func (r *JSONGateResolver) Close() {
-	log.Infof("Closing resolver for target %s", r.target.URL.String())
 }
 
 const (
