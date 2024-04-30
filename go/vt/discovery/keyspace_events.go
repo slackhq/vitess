@@ -125,7 +125,8 @@ func (kss *keyspaceState) beingResharded(currentShard string) bool {
 	kss.mu.Lock()
 	defer kss.mu.Unlock()
 
-	// If the keyspace is gone, has no known availability events.
+	// if the keyspace is gone, or if it has no known availability events, the keyspace
+	// cannot be in the middle of a resharding operation.
 	if kss.deleted || kss.consistent {
 		return false
 	}
