@@ -54,7 +54,6 @@ func SrvKeyspaceGetPartition(sk *topodatapb.SrvKeyspace, tabletType topodatapb.T
 	if sk == nil {
 		return nil
 	}
-
 	for _, p := range sk.Partitions {
 		if p.ServedType == tabletType {
 			return p
