@@ -162,7 +162,7 @@ func testClientServer(t *testing.T, combineCerts bool) {
 	// With TLS 1.3, the Dial will succeed and the first Read will fail.
 	clientConn, err := tls.DialWithDialer(dialer, "tcp", addr, badClientConfig)
 	if err != nil {
-		if !strings.Contains(err.Error(), "certificate required") {
+		if !strings.Contains(err.Error(), "bad certificate") {
 			t.Errorf("Wrong error returned: %v", err)
 		}
 		return
@@ -177,8 +177,7 @@ func testClientServer(t *testing.T, combineCerts bool) {
 	if err == nil {
 		t.Fatalf("Dial or first Read was expected to fail")
 	}
-
-	if !strings.Contains(err.Error(), "certificate required") {
+	if !strings.Contains(err.Error(), "bad certificate") {
 		t.Errorf("Wrong error returned: %v", err)
 	}
 }
