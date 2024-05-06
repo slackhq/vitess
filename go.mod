@@ -122,6 +122,7 @@ require (
 
 require (
 	github.com/bndr/gotabulate v1.1.2
+	go.uber.org/goleak v1.2.1
 	modernc.org/sqlite v1.20.3
 )
 
