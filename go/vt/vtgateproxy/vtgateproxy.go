@@ -37,8 +37,10 @@ import (
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
-	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
+
+	// we're blank importing this for _reasons_
+	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 )
 
 const (
@@ -58,7 +60,7 @@ var (
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
-	vtGateProxy *VTGateProxy = &VTGateProxy{
+	vtGateProxy = &VTGateProxy{
 		targetConns: map[string]*vtgateconn.VTGateConn{},
 		mu:          sync.RWMutex{},
 	}
@@ -111,7 +113,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 
 func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
 
-	targetUrl := url.URL{
+	targetURL := url.URL{
 		Scheme: "vtgate",
 		Host:   "pool",
 	}
@@ -134,9 +136,9 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 		}
 	}
 
-	targetUrl.RawQuery = values.Encode()
+	targetURL.RawQuery = values.Encode()
 
-	conn, err := proxy.getConnection(ctx, targetUrl.String())
+	conn, err := proxy.getConnection(ctx, targetURL.String())
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +196,7 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 		if err != nil {
 			return err
 		}
-		callback(qr)
+		_ = callback(qr)
 	}
 
 	return nil
@@ -206,7 +208,7 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
 	})
 
-	RegisterJSONGateResolver(
+	_, _ = RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,
 		*portField,
