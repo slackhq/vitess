@@ -86,15 +86,16 @@ require (
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.17.0
-	golang.org/x/oauth2 v0.20.0
-	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/term v0.20.0
+	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
+	golang.org/x/sync v0.3.0
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/term v0.13.0
 	golang.org/x/text v0.13.0
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac
 	golang.org/x/tools v0.12.1-0.20230815132531-74c255bcf846
 	google.golang.org/api v0.56.0
 	google.golang.org/genproto v0.0.0-20210828152312-66f60bf46e71 // indirect
-	google.golang.org/grpc v1.45.0
+	google.golang.org/grpc v1.46.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
 	google.golang.org/grpc/examples v0.0.0-20210430044426-28078834f35b
 	google.golang.org/protobuf v1.28.0
@@ -122,13 +123,17 @@ require (
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.23.0
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
-	golang.org/x/sync v0.3.0
 	golang.org/x/tools/cmd/cover v0.1.0-deprecated
 	modernc.org/sqlite v1.20.3
 )
 
 require (
 	cloud.google.com/go v0.93.3 // indirect
+	github.com/go-chi/chi/v5 v5.0.7 // indirect
+	github.com/rantav/go-grpc-channelz v0.0.4
+)
+
+require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/andybalholm/cascadia v1.1.0 // indirect
