@@ -94,7 +94,7 @@ require (
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 	golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
 	golang.org/x/text v0.3.7
@@ -102,7 +102,7 @@ require (
 	golang.org/x/tools v0.1.9
 	google.golang.org/api v0.45.0
 	google.golang.org/genproto v0.0.0-20210701191553-46259e63a0a9 // indirect
-	google.golang.org/grpc v1.45.0
+	google.golang.org/grpc v1.46.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
 	google.golang.org/grpc/examples v0.0.0-20210430044426-28078834f35b
 	google.golang.org/protobuf v1.28.0
@@ -121,6 +121,11 @@ require (
 )
 
 require github.com/bndr/gotabulate v1.1.2
+
+require (
+	github.com/go-chi/chi/v5 v5.0.7 // indirect
+	github.com/rantav/go-grpc-channelz v0.0.4 // indirect
+)
 
 require (
 	cloud.google.com/go v0.81.0 // indirect
