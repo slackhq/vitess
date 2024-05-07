@@ -286,6 +286,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		target := targetHost{fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
 		targets[target.PoolType] = append(targets[target.PoolType], target)
 	}
+	b.targets = targets
 
 	for poolType := range targets {
 		if b.affinityField != "" {

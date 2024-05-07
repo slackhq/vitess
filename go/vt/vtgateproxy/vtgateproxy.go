@@ -55,6 +55,7 @@ var (
 	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
 	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
 	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
+	reuseConns      = flag.Bool("reuse_conns", true, "Reuse the grpc connection across multiple requests (default true)")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
@@ -69,8 +70,18 @@ type VTGateProxy struct {
 	mu          sync.RWMutex
 }
 
+type proxyConn struct {
+	conn    *vtgateconn.VTGateConn
+	session *vtgateconn.VTGateSession
+}
+
 func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
 	log.V(100).Infof("Getting connection for %v\n", target)
+
+	// If we're not reusing conns, then just return a new one each time with no need to do any locking
+	if !*reuseConns {
+		return vtgateconn.DialProtocol(ctx, "grpc", target)
+	}
 
 	// If the connection exists, return it
 	proxy.mu.RLock()
@@ -109,8 +120,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 	return conn, nil
 }
 
-func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
-
+func (proxy *VTGateProxy) Connect(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*proxyConn, error) {
 	targetUrl := url.URL{
 		Scheme: "vtgate",
 		Host:   "pool",
@@ -141,47 +151,50 @@ func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.Execu
 		return nil, err
 	}
 
-	return conn.Session("", options), nil
+	session := conn.Session("", options)
+
+	return &proxyConn{conn, session}, nil
 }
 
 // CloseSession closes the session, rolling back any implicit transactions. This has the
 // same effect as if a "rollback" statement was executed, but does not affect the query
 // statistics.
-func (proxy *VTGateProxy) CloseSession(ctx context.Context, session *vtgateconn.VTGateSession) error {
-	return session.CloseSession(ctx)
-}
+func (proxy *VTGateProxy) Close(ctx context.Context, conn *proxyConn) error {
+	err := conn.session.CloseSession(ctx)
 
-// ResolveTransaction resolves the specified 2PC transaction.
-func (proxy *VTGateProxy) ResolveTransaction(ctx context.Context, dtid string) error {
-	return vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "not implemented")
+	if !*reuseConns {
+		conn.conn.Close()
+	}
+
+	return err
 }
 
 // Prepare supports non-streaming prepare statement query with multi shards
-func (proxy *VTGateProxy) Prepare(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable) (newsession *vtgateconn.VTGateSession, fld []*querypb.Field, err error) {
-	return nil, nil, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "not implemented")
+func (proxy *VTGateProxy) Prepare(ctx context.Context, conn *proxyConn, sql string, bindVariables map[string]*querypb.BindVariable) (fld []*querypb.Field, err error) {
+	return nil, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "not implemented")
 }
 
-func (proxy *VTGateProxy) Execute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable) (qr *sqltypes.Result, err error) {
+func (proxy *VTGateProxy) Execute(ctx context.Context, conn *proxyConn, sql string, bindVariables map[string]*querypb.BindVariable) (qr *sqltypes.Result, err error) {
 
 	// Intercept "use" statements since they just have to update the local session
 	if strings.HasPrefix(sql, "use ") {
 		targetString := sqlescape.UnescapeID(sql[4:])
-		session.SessionPb().TargetString = targetString
+		conn.session.SessionPb().TargetString = targetString
 		return &sqltypes.Result{}, nil
 	}
 
 	startTime := time.Now()
 	defer timings.Record(executeTimingKey, startTime)
 
-	return session.Execute(ctx, sql, bindVariables)
+	return conn.session.Execute(ctx, sql, bindVariables)
 
 }
 
-func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn.VTGateSession, sql string, bindVariables map[string]*querypb.BindVariable, callback func(*sqltypes.Result) error) error {
+func (proxy *VTGateProxy) StreamExecute(ctx context.Context, conn *proxyConn, sql string, bindVariables map[string]*querypb.BindVariable, callback func(*sqltypes.Result) error) error {
 	startTime := time.Now()
 	defer timings.Record(streamExecuteTimingKey, startTime)
 
-	stream, err := session.StreamExecute(ctx, sql, bindVariables)
+	stream, err := conn.session.StreamExecute(ctx, sql, bindVariables)
 	if err != nil {
 		return err
 	}
@@ -203,7 +216,10 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 func Init() {
 	log.V(100).Infof("Registering GRPC dial options")
 	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
+		if *reuseConns {
+			opts = append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`))
+		}
+		return opts, nil
 	})
 
 	RegisterJSONGateResolver(

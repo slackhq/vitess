@@ -99,14 +99,14 @@ func (ph *proxyHandler) NewConnection(c *mysql.Conn) {
 
 func (ph *proxyHandler) ComResetConnection(c *mysql.Conn) {
 	ctx := context.Background()
-	session, err := ph.getSession(ctx, c)
+	conn, err := ph.getProxyConn(ctx, c)
 	if err != nil {
 		return
 	}
-	if session.SessionPb().InTransaction {
+	if conn.session.SessionPb().InTransaction {
 		defer atomic.AddInt32(&busyConnections, -1)
 	}
-	err = ph.proxy.CloseSession(ctx, session)
+	err = ph.proxy.Close(ctx, conn)
 	if err != nil {
 		log.Errorf("Error happened in transaction rollback: %v", err)
 	}
@@ -127,14 +127,14 @@ func (ph *proxyHandler) ConnectionClosed(c *mysql.Conn) {
 	} else {
 		ctx = context.Background()
 	}
-	session, err := ph.getSession(ctx, c)
+	conn, err := ph.getProxyConn(ctx, c)
 	if err != nil {
 		return
 	}
-	if session.SessionPb().InTransaction {
+	if conn.session.SessionPb().InTransaction {
 		defer atomic.AddInt32(&busyConnections, -1)
 	}
-	_ = ph.proxy.CloseSession(ctx, session)
+	_ = ph.proxy.Close(ctx, conn)
 }
 
 // Regexp to extract parent span id over the sql query
@@ -199,30 +199,30 @@ func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sql
 		"VTGate MySQL Connector" /* subcomponent: part of the client */)
 	ctx = callerid.NewContext(ctx, ef, im)
 
-	session, err := ph.getSession(ctx, c)
+	conn, err := ph.getProxyConn(ctx, c)
 	if err != nil {
 		return err
 	}
-	if !session.SessionPb().InTransaction {
+	if !conn.session.SessionPb().InTransaction {
 		atomic.AddInt32(&busyConnections, 1)
 	}
 	defer func() {
-		if session == nil || !session.SessionPb().InTransaction {
+		if conn == nil || !conn.session.SessionPb().InTransaction {
 			atomic.AddInt32(&busyConnections, -1)
 		}
 	}()
 
-	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
-		err := ph.proxy.StreamExecute(ctx, session, query, make(map[string]*querypb.BindVariable), callback)
+	if conn.session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
+		err := ph.proxy.StreamExecute(ctx, conn, query, make(map[string]*querypb.BindVariable), callback)
 		return mysql.NewSQLErrorFromError(err)
 	}
 
-	result, err := ph.proxy.Execute(ctx, session, query, make(map[string]*querypb.BindVariable))
+	result, err := ph.proxy.Execute(ctx, conn, query, make(map[string]*querypb.BindVariable))
 
 	if err := mysql.NewSQLErrorFromError(err); err != nil {
 		return err
 	}
-	fillInTxStatusFlags(c, session)
+	fillInTxStatusFlags(c, conn.session)
 	return callback(result)
 }
 
@@ -264,20 +264,20 @@ func (ph *proxyHandler) ComPrepare(c *mysql.Conn, query string, bindVars map[str
 		"VTGateProxy MySQL Connector" /* subcomponent: part of the client */)
 	ctx = callerid.NewContext(ctx, ef, im)
 
-	session, err := ph.getSession(ctx, c)
+	conn, err := ph.getProxyConn(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	if !session.SessionPb().InTransaction {
+	if !conn.session.SessionPb().InTransaction {
 		atomic.AddInt32(&busyConnections, 1)
 	}
 	defer func() {
-		if !session.SessionPb().InTransaction {
+		if !conn.session.SessionPb().InTransaction {
 			atomic.AddInt32(&busyConnections, -1)
 		}
 	}()
 
-	session, fld, err := ph.proxy.Prepare(ctx, session, query, bindVars)
+	fld, err := ph.proxy.Prepare(ctx, conn, query, bindVars)
 	err = mysql.NewSQLErrorFromError(err)
 	if err != nil {
 		return nil, err
@@ -309,29 +309,29 @@ func (ph *proxyHandler) ComStmtExecute(c *mysql.Conn, prepare *mysql.PrepareData
 		"VTGateProxy MySQL Connector" /* subcomponent: part of the client */)
 	ctx = callerid.NewContext(ctx, ef, im)
 
-	session, err := ph.getSession(ctx, c)
+	conn, err := ph.getProxyConn(ctx, c)
 	if err != nil {
 		return err
 	}
-	if !session.SessionPb().InTransaction {
+	if !conn.session.SessionPb().InTransaction {
 		atomic.AddInt32(&busyConnections, 1)
 	}
 	defer func() {
-		if !session.SessionPb().InTransaction {
+		if !conn.session.SessionPb().InTransaction {
 			atomic.AddInt32(&busyConnections, -1)
 		}
 	}()
 
-	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
-		err := ph.proxy.StreamExecute(ctx, session, prepare.PrepareStmt, prepare.BindVars, callback)
+	if conn.session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
+		err := ph.proxy.StreamExecute(ctx, conn, prepare.PrepareStmt, prepare.BindVars, callback)
 		return mysql.NewSQLErrorFromError(err)
 	}
 
-	qr, err := ph.proxy.Execute(ctx, session, prepare.PrepareStmt, prepare.BindVars)
+	qr, err := ph.proxy.Execute(ctx, conn, prepare.PrepareStmt, prepare.BindVars)
 	if err != nil {
 		return mysql.NewSQLErrorFromError(err)
 	}
-	fillInTxStatusFlags(c, session)
+	fillInTxStatusFlags(c, conn.session)
 
 	return callback(qr)
 }
@@ -350,9 +350,9 @@ func (ph *proxyHandler) ComBinlogDumpGTID(c *mysql.Conn, gtidSet mysql.GTIDSet) 
 	return vterrors.New(vtrpcpb.Code_UNIMPLEMENTED, "ComBinlogDumpGTID")
 }
 
-func (ph *proxyHandler) getSession(ctx context.Context, c *mysql.Conn) (*vtgateconn.VTGateSession, error) {
-	session, _ := c.ClientData.(*vtgateconn.VTGateSession)
-	if session == nil {
+func (ph *proxyHandler) getProxyConn(ctx context.Context, c *mysql.Conn) (*proxyConn, error) {
+	conn, _ := c.ClientData.(*proxyConn)
+	if conn == nil {
 		options := &querypb.ExecuteOptions{
 			IncludedFields: querypb.ExecuteOptions_ALL,
 			Workload:       querypb.ExecuteOptions_Workload(mysqlDefaultWorkload),
@@ -363,18 +363,18 @@ func (ph *proxyHandler) getSession(ctx context.Context, c *mysql.Conn) (*vtgatec
 		}
 
 		var err error
-		session, err = ph.proxy.NewSession(ctx, options, c.Attributes)
+		conn, err = ph.proxy.Connect(ctx, options, c.Attributes)
 		if err != nil {
 			log.Errorf("error creating new session for %s: %v", c.GetRawConn().RemoteAddr().String(), err)
 			return nil, err
 		}
 
-		if session != nil {
-			c.ClientData = session
+		if conn != nil {
+			c.ClientData = conn
 		}
 	}
 
-	return session, nil
+	return conn, nil
 }
 
 var mysqlListener *mysql.Listener
