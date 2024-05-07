@@ -317,7 +317,7 @@ func (b *JSONGateResolverBuilder) GetPools() []string {
 	return pools
 }
 
-func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
+func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
 	// Copy the target slice
 	b.mu.RLock()
 	targets := []targetHost{}
@@ -352,7 +352,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
-	targets := b.GetTargets(r.poolType)
+	targets := b.getTargets(r.poolType)
 
 	var addrs []resolver.Address
 	for _, target := range targets {
@@ -361,7 +361,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 
 	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
 
-	r.clientConn.UpdateState(resolver.State{Addresses: addrs})
+	_ = r.clientConn.UpdateState(resolver.State{Addresses: addrs})
 }
 
 // Build a new Resolver to route to the given target
@@ -398,7 +398,7 @@ func (b *JSONGateResolverBuilder) debugTargets() any {
 	pools := b.GetPools()
 	targets := map[string][]targetHost{}
 	for pool := range b.targets {
-		targets[pool] = b.GetTargets(pool)
+		targets[pool] = b.getTargets(pool)
 	}
 	return struct {
 		Pools   []string
