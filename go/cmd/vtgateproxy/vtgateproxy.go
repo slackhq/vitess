@@ -17,6 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+	"net/http"
+
+	channelz "github.com/rantav/go-grpc-channelz"
+	"google.golang.org/grpc/channelz/service"
+
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/stats/prometheusbackend"
 	"vitess.io/vitess/go/vt/servenv"
@@ -36,6 +42,13 @@ func main() {
 	prometheusbackend.Init("vtgateproxy")
 
 	servenv.OnRun(func() {
+		// channelz is served over gRPC, so we bind it to the generic servenv server; the http
+		// handler queries that server locally for observability.
+		service.RegisterChannelzServiceToServer(servenv.GRPCServer)
+
+		// Register the channelz handler to /channelz/ (note trailing / which is required).
+		http.Handle("/", channelz.CreateHandler("/", fmt.Sprintf(":%d", servenv.GRPCPort())))
+
 		vtgateproxy.Init()
 	})
 
