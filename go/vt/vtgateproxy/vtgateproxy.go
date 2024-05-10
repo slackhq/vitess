@@ -225,6 +225,7 @@ func Init() {
 		*poolTypeField,
 		*affinityField,
 		*affinityValue,
+		*numConnections,
 	)
 
 	if err != nil {

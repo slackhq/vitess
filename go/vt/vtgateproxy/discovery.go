@@ -71,12 +71,13 @@ func (r *JSONGateResolver) Close() {
 }
 
 type JSONGateResolverBuilder struct {
-	jsonPath      string
-	addressField  string
-	portField     string
-	poolTypeField string
-	affinityField string
-	affinityValue string
+	jsonPath       string
+	addressField   string
+	portField      string
+	poolTypeField  string
+	affinityField  string
+	affinityValue  string
+	numConnections int
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
@@ -106,16 +107,18 @@ func RegisterJSONGateResolver(
 	poolTypeField string,
 	affinityField string,
 	affinityValue string,
+	numConnections int,
 ) (*JSONGateResolverBuilder, error) {
 	jsonDiscovery := &JSONGateResolverBuilder{
-		targets:       map[string][]targetHost{},
-		jsonPath:      jsonPath,
-		addressField:  addressField,
-		portField:     portField,
-		poolTypeField: poolTypeField,
-		affinityField: affinityField,
-		affinityValue: affinityValue,
-		sorter:        newShuffleSorter(),
+		targets:        map[string][]targetHost{},
+		jsonPath:       jsonPath,
+		addressField:   addressField,
+		portField:      portField,
+		poolTypeField:  poolTypeField,
+		affinityField:  affinityField,
+		affinityValue:  affinityValue,
+		numConnections: numConnections,
+		sorter:         newShuffleSorter(),
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -294,7 +297,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	for poolType := range targets {
 		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
-			targets[poolType] = targets[poolType][:*numConnections]
+			targets[poolType] = targets[poolType][:b.numConnections]
 		}
 		targetCount.Set(poolType, int64(len(targets[poolType])))
 	}
