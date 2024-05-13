@@ -168,6 +168,11 @@ var (
 	warnings *stats.CountersWithSingleLabel
 
 	vstreamSkewDelayCount *stats.Counter
+
+	sqlTextCounts = stats.NewCountersWithMultiLabels(
+		"VtgateSQLTextCounts",
+		"Vtgate API query SQL text counts",
+		[]string{"Operation", "Keyspace", "DbType"})
 )
 
 // VTGate is the rpc interface to vtgate. Only one instance
@@ -184,9 +189,10 @@ type VTGate struct {
 	// stats objects.
 	// TODO(sougou): This needs to be cleaned up. There
 	// are global vars that depend on this member var.
-	timings      *stats.MultiTimings
-	rowsReturned *stats.CountersWithMultiLabels
-	rowsAffected *stats.CountersWithMultiLabels
+	timings       *stats.MultiTimings
+	rowsReturned  *stats.CountersWithMultiLabels
+	rowsAffected  *stats.CountersWithMultiLabels
+	sqlTextCounts *stats.CountersWithMultiLabels
 
 	// the throttled loggers for all errors, one per API entry
 	logExecute       *logutil.ThrottledLogger
@@ -433,6 +439,7 @@ func (vtg *VTGate) Execute(ctx context.Context, session *vtgatepb.Session, sql s
 	if err == nil {
 		vtg.rowsReturned.Add(statsKey, int64(len(qr.Rows)))
 		vtg.rowsAffected.Add(statsKey, int64(qr.RowsAffected))
+		vtg.sqlTextCounts.Add(statsKey, int64(len(sql)))
 		return session, qr, nil
 	}
 
