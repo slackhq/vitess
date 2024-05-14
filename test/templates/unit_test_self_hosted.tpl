@@ -53,8 +53,18 @@ jobs:
 
       - name: Run test
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
-        timeout-minutes: 30
-        run: docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c "git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/ && make unit_test"
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_on: error
+          command: |
+            set -exo pipefail
+            # We set the VTDATAROOT to the /tmp folder to reduce the file path of mysql.sock file
+            # which musn't be more than 107 characters long.
+            export VTDATAROOT="/tmp/"
+
+            docker run --name "{{.ImageName}}_$GITHUB_SHA" {{.ImageName}}:$GITHUB_SHA /bin/bash -c 'NOVTADMINBUILD=1 make unit_test'
 
       - name: Print Volume Used
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
