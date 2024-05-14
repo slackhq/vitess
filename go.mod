@@ -119,7 +119,7 @@ require (
 	github.com/bndr/gotabulate v1.1.2
 	github.com/hashicorp/go-version v1.6.0
 	github.com/planetscale/log v0.0.0-20221118170849-fb599bc35c50
-	github.com/slackhq/vitess-addons v0.15.2
+	github.com/slackhq/vitess-addons v0.15.3
 	github.com/slok/noglog v0.2.0
 	go.uber.org/zap v1.23.0
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
