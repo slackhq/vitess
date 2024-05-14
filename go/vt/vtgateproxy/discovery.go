@@ -82,6 +82,7 @@ type JSONGateResolverBuilder struct {
 	targets   map[string][]targetHost
 	resolvers []*JSONGateResolver
 
+	sorter   *shuffleSorter
 	ticker   *time.Ticker
 	checksum []byte
 }
@@ -113,6 +114,7 @@ func RegisterJSONGateResolver(
 		poolTypeField: poolTypeField,
 		affinityField: affinityField,
 		affinityValue: affinityValue,
+		sorter:        newShuffleSorter(),
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -284,7 +286,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	}
 
 	for poolType := range targets {
-		shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
+		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
 			targets[poolType] = targets[poolType][:*numConnections]
 		}
@@ -316,21 +318,35 @@ func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
 	targets = append(targets, b.targets[poolType]...)
 	b.mu.RUnlock()
 
-	shuffleSort(targets, b.affinityField, b.affinityValue)
+	b.sorter.shuffleSort(targets, b.affinityField, b.affinityValue)
 
 	return targets
+}
+
+type shuffleSorter struct {
+	rand *rand.Rand
+	mu   *sync.Mutex
+}
+
+func newShuffleSorter() *shuffleSorter {
+	return &shuffleSorter{
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		mu:   &sync.Mutex{},
+	}
 }
 
 // shuffleSort shuffles a slice of targetHost to ensure every host has a
 // different order to iterate through, putting the affinity matching (e.g. same
 // az) hosts at the front and the non-matching ones at the end.
-func shuffleSort(targets []targetHost, affinityField, affinityValue string) {
+func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinityValue string) {
 	n := len(targets)
 	head := 0
 	// Only need to do n-1 swaps since the last host is always in the right place.
 	tail := n - 1
 	for i := 0; i < n-1; i++ {
-		j := head + rand.Intn(tail-head+1)
+		s.mu.Lock()
+		j := head + s.rand.Intn(tail-head+1)
+		s.mu.Unlock()
 
 		if affinityField != "" && affinityValue == targets[j].Affinity {
 			targets[head], targets[j] = targets[j], targets[head]
@@ -344,7 +360,6 @@ func shuffleSort(targets []targetHost, affinityField, affinityValue string) {
 
 // Update the current list of hosts for the given resolver
 func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
-
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.GetTargets(r.poolType)
