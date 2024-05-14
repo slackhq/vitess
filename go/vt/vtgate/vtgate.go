@@ -168,11 +168,6 @@ var (
 	warnings *stats.CountersWithSingleLabel
 
 	vstreamSkewDelayCount *stats.Counter
-
-	sqlTextCounts = stats.NewCountersWithMultiLabels(
-		"VtgateSQLTextCounts",
-		"Vtgate API query SQL text counts",
-		[]string{"Operation", "Keyspace", "DbType"})
 )
 
 // VTGate is the rpc interface to vtgate. Only one instance
@@ -309,6 +304,10 @@ func Init(
 		rowsAffected: stats.NewCountersWithMultiLabels(
 			"VtgateApiRowsAffected",
 			"Rows affected by a write (DML) operation through the VTgate API",
+			[]string{"Operation", "Keyspace", "DbType"}),
+		sqlTextCount: stats.NewCountersWithMultiLabels(
+			"VtgateSQLTextCounts",
+			"Vtgate API query SQL text counts",
 			[]string{"Operation", "Keyspace", "DbType"}),
 
 		logExecute:       logutil.NewThrottledLogger("Execute", 5*time.Second),
