@@ -82,7 +82,6 @@ type JSONGateResolverBuilder struct {
 	targets   map[string][]targetHost
 	resolvers []*JSONGateResolver
 
-	rand     *rand.Rand
 	ticker   *time.Ticker
 	checksum []byte
 }
@@ -133,9 +132,6 @@ func (*JSONGateResolverBuilder) Scheme() string { return "vtgate" }
 
 // Parse and validate the format of the file and start watching for changes
 func (b *JSONGateResolverBuilder) start() error {
-
-	b.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	// Perform the initial parse
 	_, err := b.parse()
 	if err != nil {
@@ -288,11 +284,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	}
 
 	for poolType := range targets {
-		if b.affinityField != "" {
-			sort.Slice(targets[poolType], func(i, j int) bool {
-				return b.affinityValue == targets[poolType][i].Affinity
-			})
-		}
+		shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
 			targets[poolType] = targets[poolType][:*numConnections]
 		}
@@ -324,18 +316,23 @@ func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
 	targets = append(targets, b.targets[poolType]...)
 	b.mu.RUnlock()
 
-	// Shuffle to ensure every host has a different order to iterate through, putting
-	// the affinity matching (e.g. same az) hosts at the front and the non-matching ones
-	// at the end.
-	//
-	// Only need to do n-1 swaps since the last host is always in the right place.
+	shuffleSort(targets, b.affinityField, b.affinityValue)
+
+	return targets
+}
+
+// shuffleSort shuffles a slice of targetHost to ensure every host has a
+// different order to iterate through, putting the affinity matching (e.g. same
+// az) hosts at the front and the non-matching ones at the end.
+func shuffleSort(targets []targetHost, affinityField, affinityValue string) {
 	n := len(targets)
 	head := 0
+	// Only need to do n-1 swaps since the last host is always in the right place.
 	tail := n - 1
 	for i := 0; i < n-1; i++ {
-		j := head + b.rand.Intn(tail-head+1)
+		j := head + rand.Intn(tail-head+1)
 
-		if *affinityField != "" && *affinityValue == targets[j].Affinity {
+		if affinityField != "" && affinityValue == targets[j].Affinity {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -343,8 +340,6 @@ func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
 			tail--
 		}
 	}
-
-	return targets
 }
 
 // Update the current list of hosts for the given resolver
