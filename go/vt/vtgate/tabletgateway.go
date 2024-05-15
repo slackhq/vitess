@@ -97,6 +97,7 @@ func NewTabletGateway(ctx context.Context, hc discovery.HealthCheck, serv srvtop
 			var err error
 			topoServer, err = serv.GetTopoServer()
 			if err != nil {
+				// debugging
 				log.Exitf("Unable to create new TabletGateway: %v", err)
 			}
 		}
