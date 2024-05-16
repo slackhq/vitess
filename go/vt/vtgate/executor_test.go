@@ -493,7 +493,6 @@ func TestExecutorShowColumns(t *testing.T) {
 			sbclookup.BatchQueries = nil
 		})
 	}
-
 }
 
 func TestExecutorShow(t *testing.T) {
@@ -1827,7 +1826,6 @@ func TestGetPlanNormalized(t *testing.T) {
 }
 
 func TestGetPlanPriority(t *testing.T) {
-
 	testCases := []struct {
 		name             string
 		sql              string
@@ -1855,7 +1853,8 @@ func TestGetPlanPriority(t *testing.T) {
 			assert.NoError(t, err)
 			crticalityFromStatement, _ := sqlparser.GetPriorityFromStatement(stmt)
 
-			_, err = r.getPlan(context.Background(), vCursor, testCase.sql, stmt, makeComments("/* some comment */"), map[string]*querypb.BindVariable{}, nil, true, logStats)
+			_, err = r.getPlan(context.Background(), vCursor, testCase.sql, makeComments("/* some comment */"), map[string]*querypb.BindVariable{},
+				NewSafeSession(nil), logStats)
 			if testCase.expectedError != nil {
 				assert.ErrorIs(t, err, testCase.expectedError)
 			} else {
@@ -1865,7 +1864,6 @@ func TestGetPlanPriority(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestPassthroughDDL(t *testing.T) {
@@ -2166,9 +2164,8 @@ func TestExecutorExplain(t *testing.T) {
 
 	result, err = executorExec(executor, "explain format = vitess select 42", bindVars)
 	require.NoError(t, err)
-	expected :=
-		`[[VARCHAR("Projection") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")] ` +
-			`[VARCHAR("└─ SingleRow") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")]]`
+	expected := `[[VARCHAR("Projection") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")] ` +
+		`[VARCHAR("└─ SingleRow") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")]]`
 	require.Equal(t,
 		`[[VARCHAR("Projection") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")] `+
 			`[VARCHAR("└─ SingleRow") VARCHAR("") VARCHAR("") VARCHAR("") VARCHAR("UNKNOWN") VARCHAR("")]]`,
