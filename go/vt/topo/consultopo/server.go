@@ -173,6 +173,9 @@ func parseConsulLockSessionChecks(s string) []string {
 // It will nil out the global and cells fields, so any attempt to
 // re-use this server will panic.
 func (s *Server) Close() {
+	if consulConfig.Transport != nil {
+		consulConfig.Transport.CloseIdleConnections()
+	}
 	s.client = nil
 	s.kv = nil
 	s.mu.Lock()
