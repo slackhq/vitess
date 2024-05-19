@@ -39,7 +39,6 @@ import (
 
 var (
 	consulAuthClientStaticFile string
-	consulConfig               = api.DefaultConfig()
 	// serfHealth is the default check from consul
 	consulLockSessionChecks = "serfHealth"
 	consulLockSessionTTL    string
