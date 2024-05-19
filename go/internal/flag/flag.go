@@ -29,11 +29,14 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 
 	flag "github.com/spf13/pflag"
 
 	"vitess.io/vitess/go/vt/log"
 )
+
+var flagsMu sync.Mutex
 
 // Parse wraps the standard library's flag.Parse to perform some sanity checking
 // and issue deprecation warnings in advance of our move to pflag.
@@ -72,6 +75,8 @@ func Parse(fs *flag.FlagSet) {
 
 // IsFlagProvided returns if the given flag has been provided by the user explicitly or not
 func IsFlagProvided(name string) bool {
+	flagsMu.Lock()
+	defer flagsMu.Unlock()
 	found := false
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == name {
