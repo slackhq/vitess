@@ -144,10 +144,10 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 		return nil, err
 	}
 	cfg := api.DefaultConfig()
+	cfg.Address = serverAddr
 	cfg.Transport.MaxConnsPerHost = consulMaxConnsPerHost
 	cfg.Transport.MaxIdleConns = consulMaxIdleConns
 	cfg.Transport.IdleConnTimeout = consulIdleConnTimeout
-	cfg.Address = serverAddr
 	if creds != nil {
 		if creds[cell] != nil {
 			cfg.Token = creds[cell].ACLToken
