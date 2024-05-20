@@ -448,6 +448,9 @@ func TestFullStatus(t *testing.T) {
 	require.NoError(t, err)
 	primaryStatus := &replicationdatapb.FullStatus{}
 	err = protojson.Unmarshal([]byte(primaryStatusString), primaryStatus)
+	if err != nil {
+		t.Logf("TestFullStatus got primaryStatusString: %s", string(primaryStatusString))
+	}
 	require.NoError(t, err)
 	assert.NotEmpty(t, primaryStatus.ServerUuid)
 	assert.NotEmpty(t, primaryStatus.ServerId)
