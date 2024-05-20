@@ -5,8 +5,8 @@ go 1.18
 require (
 	cloud.google.com/go/storage v1.10.0
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20211102141018-f7be0cbad29c
-	github.com/Azure/azure-pipeline-go v0.2.2
-	github.com/Azure/azure-storage-blob-go v0.10.0
+	github.com/Azure/azure-pipeline-go v0.2.3
+	github.com/Azure/azure-storage-blob-go v0.15.0
 	github.com/DataDog/datadog-go v2.2.0+incompatible
 	github.com/HdrHistogram/hdrhistogram-go v0.9.0 // indirect
 	github.com/PuerkitoBio/goquery v1.5.1
@@ -176,7 +176,7 @@ require (
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/mattn/go-colorable v0.1.6 // indirect
-	github.com/mattn/go-ieproxy v0.0.0-20190702010315-6dee0af9227d // indirect
+	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
 	github.com/mattn/go-runewidth v0.0.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
