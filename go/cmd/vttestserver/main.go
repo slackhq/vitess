@@ -213,7 +213,6 @@ func (t *topoFlags) buildTopology() (*vttestpb.VTTestTopology, error) {
 //
 //	flag redefined: log_rotate_max_size
 var flagsOnce sync.Once
-var parseFlagsMu sync.Mutex
 
 func parseFlags() (env vttest.Environment, err error) {
 	flagsOnce.Do(func() {
@@ -223,9 +222,7 @@ func parseFlags() (env vttest.Environment, err error) {
 		servenv.RegisterServiceMapFlag()
 	})
 
-	parseFlagsMu.Lock()
 	servenv.ParseFlags("vttestserver")
-	parseFlagsMu.Unlock()
 
 	if basePort != 0 {
 		if config.DataDir == "" {
