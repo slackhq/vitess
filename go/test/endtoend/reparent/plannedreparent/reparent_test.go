@@ -19,6 +19,7 @@ package plannedreparent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -392,6 +393,9 @@ func TestReparentDoesntHangIfPrimaryFails(t *testing.T) {
 // 1. When PRS is run with the cross_cell durability policy setup, then the semi-sync settings on all the tablets are as expected
 // 2. Bringing up a new vttablet should have its replication and semi-sync setup correctly without any manual intervention
 func TestCrossCellDurability(t *testing.T) {
+	if os.Getenv("SKIPTESTCROSSCELLDURABILITY") == "1" {
+		return
+	}
 	defer cluster.PanicHandler(t)
 	clusterInstance := utils.SetupReparentCluster(t, "cross_cell")
 	defer utils.TeardownCluster(clusterInstance)

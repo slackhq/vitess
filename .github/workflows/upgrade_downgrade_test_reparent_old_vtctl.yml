@@ -191,4 +191,5 @@ jobs:
           mkdir -p /tmp/vtdataroot
 
           source build.env
+          export SKIPTESTCROSSCELLDURABILITY=1 # skip on v14
           eatmydata -- go run test.go -skip-build -keep-data=false -docker=false -print-log -follow -tag upgrade_downgrade_reparent
