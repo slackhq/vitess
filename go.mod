@@ -77,7 +77,7 @@ require (
 	github.com/spf13/viper v1.8.1
 	github.com/spyzhov/ajson v0.4.2
 	github.com/stretchr/testify v1.8.0
-	github.com/tchap/go-patricia v2.2.6+incompatible
+	github.com/tchap/go-patricia v2.3.0+incompatible
 	github.com/tebeka/selenium v0.9.9
 	github.com/tidwall/gjson v1.12.1
 	github.com/tinylib/msgp v1.1.1 // indirect
@@ -190,7 +190,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
-	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
