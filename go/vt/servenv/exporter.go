@@ -106,10 +106,6 @@ type Exporter struct {
 	mu          sync.Mutex
 }
 
-func init() {
-	HTTPHandle("/debug/vars", expvar.Handler())
-}
-
 // NewExporter creates a new Exporter with name as namespace.
 // label is the name of the additional dimension for the stats vars.
 func NewExporter(name, label string) *Exporter {
