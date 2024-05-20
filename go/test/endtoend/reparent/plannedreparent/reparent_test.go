@@ -394,6 +394,7 @@ func TestReparentDoesntHangIfPrimaryFails(t *testing.T) {
 // 2. Bringing up a new vttablet should have its replication and semi-sync setup correctly without any manual intervention
 func TestCrossCellDurability(t *testing.T) {
 	if os.Getenv("SKIPTESTCROSSCELLDURABILITY") == "1" {
+		t.Log("skipping due to SKIPTESTCROSSCELLDURABILITY=1")
 		return
 	}
 	defer cluster.PanicHandler(t)
