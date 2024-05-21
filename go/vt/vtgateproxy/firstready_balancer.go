@@ -57,7 +57,7 @@ type frPickerBuilder struct {
 }
 
 func (f *frPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
-	log.V(100).Infof("firstreadyPicker: Build called with info: %v", info)
+	log.V(100).Infof("first_ready: Build called with info: %v", info)
 
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
@@ -69,10 +69,10 @@ func (f *frPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	// If we've already chosen a subconn, and it is still in the ready list, then
 	// no need to change state
 	if f.currentConn != nil {
-		log.V(100).Infof("firstreadyPicker: currentConn is active, checking if still ready")
+		log.V(100).Infof("first_ready: currentConn is active, checking if still ready")
 		for sc := range info.ReadySCs {
 			if f.currentConn == sc {
-				log.V(100).Infof("firstreadyPicker: currentConn still active - not changing")
+				log.V(100).Infof("first_ready: currentConn still active - not changing")
 				return f
 			}
 		}
@@ -80,7 +80,7 @@ func (f *frPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 
 	// Otherwise either we don't have an active conn or the conn we were using is
 	// no longer active, so pick an arbitrary new one out of the map.
-	log.V(100).Infof("firstreadyPicker: currentConn is not active, picking a new one")
+	log.V(100).Infof("first_ready: currentConn is not active, picking a new one")
 	for sc := range info.ReadySCs {
 		f.currentConn = sc
 		break
