@@ -479,6 +479,10 @@ func TestFullStatus(t *testing.T) {
 	require.NoError(t, err)
 	replicaStatus := &replicationdatapb.FullStatus{}
 	err = protojson.Unmarshal([]byte(replicaStatusString), replicaStatus)
+	// TODO: REMOVE ME!
+	if err != nil {
+		t.Logf("TestFullStatus got invalid FullStatus: %s", replicaStatusString)
+	}
 	require.NoError(t, err)
 	assert.NotEmpty(t, replicaStatus.ServerUuid)
 	assert.NotEmpty(t, replicaStatus.ServerId)
