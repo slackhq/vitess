@@ -122,6 +122,7 @@ require (
 	github.com/planetscale/log v0.0.0-20221118170849-fb599bc35c50
 	github.com/slackhq/vitess-addons v0.15.3
 	github.com/slok/noglog v0.2.0
+	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.23.0
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 	golang.org/x/sync v0.3.0
