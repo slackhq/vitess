@@ -203,10 +203,18 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 }
 
 func Init() {
-	log.V(100).Infof("Registering GRPC dial options")
+	log.Infof("registering GRPC dial options: balancer type %s", *balancerType)
+
+	switch *balancerType {
+	case "round_robin":
+	case "first_ready":
+	case "pick_first":
+		break
+	default:
+		log.Fatalf("invalid balancer type %s", *balancerType)
+	}
 
 	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		log.Infof("registering %s load balancer", *balancerType)
 		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
