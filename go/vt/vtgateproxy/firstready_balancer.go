@@ -31,6 +31,7 @@ limitations under the License.
 // https://github.com/grpc/grpc-go/blob/master/pickfirst.go
 
 import (
+	"errors"
 	"sync"
 
 	"google.golang.org/grpc/balancer"
@@ -60,7 +61,7 @@ func (f *frPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	log.V(100).Infof("first_ready: Build called with info: %v", info)
 
 	if len(info.ReadySCs) == 0 {
-		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
+		return base.NewErrPicker(errors.New("no available connections"))
 	}
 
 	f.mu.Lock()
