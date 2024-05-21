@@ -220,7 +220,7 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
-	_, _ = RegisterJSONGateResolver(
+	_, err := RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,
 		*portField,
@@ -228,4 +228,8 @@ func Init() {
 		*affinityField,
 		*affinityValue,
 	)
+
+	if err != nil {
+		log.Fatalf("error initializing resolver: %v", err)
+	}
 }
