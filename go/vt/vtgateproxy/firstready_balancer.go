@@ -35,18 +35,12 @@ import (
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
-	"google.golang.org/grpc/grpclog"
 	"vitess.io/vitess/go/vt/log"
 )
 
-// Name is the name of first_ready balancer.
-const Name = "first_ready"
-
-var logger = grpclog.Component("firstready")
-
 // newBuilder creates a new first_ready balancer builder.
 func newBuilder() balancer.Builder {
-	return base.NewBalancerBuilder(Name, &frPickerBuilder{}, base.Config{HealthCheck: true})
+	return base.NewBalancerBuilder("first_ready", &frPickerBuilder{}, base.Config{HealthCheck: true})
 }
 
 func init() {
