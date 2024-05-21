@@ -20,6 +20,7 @@ package vtgateproxytest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +37,15 @@ import (
 	"vitess.io/vitess/go/vt/log"
 )
 
-func TestVtgateProxyRoundRobinScale(t *testing.T) {
+func TestVtgateProxyScaleRoundRobin(t *testing.T) {
+	testVtgateProxyScale(t, "round_robin")
+}
+
+func TestVtgateProxyScaleFirstReady(t *testing.T) {
+	testVtgateProxyScale(t, "first_ready")
+}
+
+func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 	defer cluster.PanicHandler(t)
 
 	// insert test value
@@ -51,7 +60,8 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 	}()
 
 	const targetAffinity = "use1-az1"
-	const vtgateCount = 10
+	const targetPool = "pool1"
+	const vtgateCount = 5
 	const vtgateproxyConnections = 4
 
 	vtgates, err := startAdditionalVtgates(vtgateCount)
@@ -64,20 +74,22 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 	var config []map[string]string
 
 	for i, vtgate := range vtgates {
+		pool := targetPool
+		if i == 0 {
+			// First vtgate is in a different pool and should not have any
+			// queries routed to it.
+			pool = "pool2"
+		}
+
 		config = append(config, map[string]string{
 			"host":    fmt.Sprintf("vtgate%v", i),
 			"address": clusterInstance.Hostname,
 			"grpc":    strconv.Itoa(vtgate.GrpcPort),
 			"az_id":   targetAffinity,
-			"type":    "pool1",
+			"type":    pool,
 		})
 	}
-
-	// Start with an empty list of vtgates, then scale up, then scale back to
-	// 0. We should expect to see immediate failure when there are no vtgates,
-	// then success at each scale, until we hit 0 vtgates again, at which point
-	// we should fail fast again.
-	b, err := json.Marshal(config[:0])
+	b, err := json.Marshal(config[:1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,9 +102,10 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 	vtgateproxyMySQLPort := clusterInstance.GetAndReservePort()
 
 	vtgateproxyProcInstance := NewVtgateProxyProcess(
+		clusterInstance.TmpDirectory,
 		vtgateHostsFile,
 		targetAffinity,
-		"round_robin",
+		loadBalancer,
 		vtgateproxyConnections,
 		vtgateproxyHTTPPort,
 		vtgateproxyGrpcPort,
@@ -103,7 +116,7 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 	}
 	defer vtgateproxyProcInstance.Teardown()
 
-	conn, err := vtgateproxyProcInstance.GetMySQLConn()
+	conn, err := vtgateproxyProcInstance.GetMySQLConn(targetPool, targetAffinity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +128,14 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 
 	log.Info("Reading test value while scaling vtgates")
 
-	for i := range config {
+	// Start with an empty list of vtgates, then scale up, then scale back to
+	// 0. We should expect to see immediate failure when there are no vtgates,
+	// then success at each scale, until we hit 0 vtgates again, at which point
+	// we should fail fast again.
+	i := 0
+	scaleUp := true
+	for {
+		t.Logf("writing config file with %v vtgates", i)
 		b, err = json.Marshal(config[:i])
 		if err != nil {
 			t.Fatal(err)
@@ -124,42 +144,44 @@ func TestVtgateProxyRoundRobinScale(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(1 * time.Second)
+		if err := vtgateproxyProcInstance.WaitForConfig(config[:i], 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
 
-		result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer")
-		if i == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		result, err := selectHelper[customerEntry](ctx, conn, "select id, email from customer")
+		// 0 vtgates should fail
+		// First vtgate is in the wrong pool, so it should also fail
+		if i <= 1 {
 			if err == nil {
 				t.Fatal("query should have failed with no vtgates")
 			}
-			continue
-		} else if err != nil {
-			t.Fatal(err)
-		}
 
-		assert.Equal(t, []customerEntry{{1, "email1"}}, result)
-	}
-
-	for i := len(vtgates) - 1; i >= 0; i-- {
-		b, err = json.Marshal(config[:i])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(vtgateHostsFile, b, 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		time.Sleep(1 * time.Second)
-
-		result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer")
-		if i == 0 {
-			if err == nil {
-				t.Fatal("query should have failed with no vtgates")
+			// In first_ready mode, we expect to fail fast and not time out.
+			if loadBalancer == "first_ready" && errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("query timed out but it should have failed fast")
 			}
-			continue
 		} else if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%v vtgates were present, but the query still failed: %v", i, err)
+		} else {
+			assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 		}
 
-		assert.Equal(t, []customerEntry{{1, "email1"}}, result)
+		if scaleUp {
+			i++
+			if i >= len(config) {
+				scaleUp = false
+				i -= 2
+			}
+
+			continue
+		}
+
+		i--
+		if i < 0 {
+			break
+		}
 	}
 }

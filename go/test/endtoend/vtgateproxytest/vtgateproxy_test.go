@@ -32,7 +32,15 @@ import (
 	"vitess.io/vitess/go/vt/log"
 )
 
-func TestVtgateproxyRoundRobinProcess(t *testing.T) {
+func TestVtgateProxyProcessRoundRobin(t *testing.T) {
+	testVtgateProxyProcess(t, "round_robin")
+}
+
+func TestVtgateProxyProcessFirstReady(t *testing.T) {
+	testVtgateProxyProcess(t, "first_ready")
+}
+
+func testVtgateProxyProcess(t *testing.T, loadBalancer string) {
 	defer cluster.PanicHandler(t)
 
 	config := []map[string]string{
@@ -58,9 +66,10 @@ func TestVtgateproxyRoundRobinProcess(t *testing.T) {
 	vtgateproxyMySQLPort := clusterInstance.GetAndReservePort()
 
 	vtgateproxyProcInstance := NewVtgateProxyProcess(
+		clusterInstance.TmpDirectory,
 		vtgateHostsFile,
 		"use1-az1",
-		"round_robin",
+		loadBalancer,
 		1,
 		vtgateproxyHTTPPort,
 		vtgateproxyGrpcPort,
@@ -71,7 +80,7 @@ func TestVtgateproxyRoundRobinProcess(t *testing.T) {
 	}
 	defer vtgateproxyProcInstance.Teardown()
 
-	conn, err := vtgateproxyProcInstance.GetMySQLConn()
+	conn, err := vtgateproxyProcInstance.GetMySQLConn("pool1", "use1-az1")
 	if err != nil {
 		t.Fatal(err)
 	}

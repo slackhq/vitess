@@ -19,8 +19,10 @@ package vtgateproxytest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -146,10 +148,11 @@ type customerEntry struct {
 	Email string
 }
 
-func NewVtgateProxyProcess(vtgateHostsFile, affinity, balancerType string, numConnections, httpPort, grpcPort, mySQLPort int) *VtgateProxyProcess {
+func NewVtgateProxyProcess(logDir, vtgateHostsFile, affinity, balancerType string, numConnections, httpPort, grpcPort, mySQLPort int) *VtgateProxyProcess {
 	return &VtgateProxyProcess{
 		Name:            "vtgateproxy",
 		Binary:          "vtgateproxy",
+		LogDir:          logDir,
 		VtgateHostsFile: vtgateHostsFile,
 		BalancerType:    balancerType,
 		AddressField:    "address",
@@ -161,7 +164,7 @@ func NewVtgateProxyProcess(vtgateHostsFile, affinity, balancerType string, numCo
 		HTTPPort:        httpPort,
 		GrpcPort:        grpcPort,
 		MySQLPort:       mySQLPort,
-		VerifyURL:       "http://" + net.JoinHostPort("localhost", strconv.Itoa(httpPort)) + "/metrics",
+		VerifyURL:       "http://" + net.JoinHostPort("localhost", strconv.Itoa(httpPort)) + "/debug/vars",
 	}
 }
 
@@ -175,6 +178,7 @@ type VtgateProxyProcess struct {
 	PoolTypeField   string
 	AffinityField   string
 	AffinityValue   string
+	LogDir          string
 	NumConnections  int
 	HTTPPort        int
 	GrpcPort        int
@@ -199,9 +203,12 @@ func (vt *VtgateProxyProcess) Setup() error {
 		"--affinity_field", vt.AffinityField,
 		"--affinity_value", vt.AffinityValue,
 		"--num_connections", strconv.Itoa(vt.NumConnections),
-		"--logtostderr",
-		"--grpc_prometheus",
+		"--log_dir", vt.LogDir,
+		"--v", "999",
 		"--mysql_auth_server_impl", "none",
+		"--alsologtostderr",
+		"--grpc_prometheus",
+		"--vtgate_grpc_fail_fast",
 	}
 	args = append(args, vt.ExtraArgs...)
 
@@ -210,8 +217,10 @@ func (vt *VtgateProxyProcess) Setup() error {
 		args...,
 	)
 	vt.proc.Env = append(vt.proc.Env, os.Environ()...)
-	vt.proc.Stdout = os.Stdout
+	//errFile, _ := os.Create(path.Join(vt.LogDir, "vtgateproxy-stderr.txt"))
+	//vt.proc.Stderr = errFile
 	vt.proc.Stderr = os.Stderr
+	vt.proc.Stdout = os.Stdout
 
 	log.Infof("Running vtgateproxy with command: %v", strings.Join(vt.proc.Args, " "))
 
@@ -274,13 +283,90 @@ func (vt *VtgateProxyProcess) Teardown() error {
 	}
 }
 
-func (vt *VtgateProxyProcess) GetMySQLConn() (*sql.DB, error) {
+func (vt *VtgateProxyProcess) GetMySQLConn(poolType, affinity string) (*sql.DB, error) {
 	// Use the go mysql driver since the vitess mysql client does not support
 	// connectionAttributes.
-	dsn := fmt.Sprintf("tcp(%v)/ks?connectionAttributes=type:pool1,az_id:use1-az1", net.JoinHostPort(clusterInstance.Hostname, strconv.Itoa(vt.MySQLPort)))
+	dsn := fmt.Sprintf("tcp(%v)/ks?connectionAttributes=type:%v,az_id:%v", net.JoinHostPort(clusterInstance.Hostname, strconv.Itoa(vt.MySQLPort)), poolType, affinity)
 	log.Infof("Using DSN %v", dsn)
 
 	return sql.Open("mysql", dsn)
+}
+
+// WaitForConfig waits until the proxy targets match the config sent to it.
+func (vt *VtgateProxyProcess) WaitForConfig(config []map[string]string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	timer := time.NewTicker(100 * time.Millisecond)
+	defer timer.Stop()
+
+	expect := map[string]int{}
+	result := map[string]int{}
+	for _, target := range config {
+		expect[target["type"]]++
+		if expect[target["type"]] > vt.NumConnections {
+			expect[target["type"]] = vt.NumConnections
+		}
+	}
+
+OUTER:
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("targets never updated to match config: %v != %v", result, expect)
+		case <-timer.C:
+		}
+
+		result = map[string]int{}
+
+		vars, err := vt.GetVars()
+		if err != nil {
+			return err
+		}
+
+		targets, ok := vars["JsonDiscoveryTargetCount"]
+		if !ok {
+			continue OUTER
+		}
+
+		for k, v := range targets.(map[string]any) {
+			result[k] = int(v.(float64))
+		}
+
+		if len(result) != len(expect) {
+			continue OUTER
+		}
+
+		for k, v := range expect {
+			if result[k] != v {
+				continue OUTER
+			}
+		}
+
+		break OUTER
+	}
+
+	return nil
+}
+
+// GetVars returns map of vars
+func (vt *VtgateProxyProcess) GetVars() (map[string]any, error) {
+	resultMap := make(map[string]any)
+	resp, err := http.Get(vt.VerifyURL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting response from %s", vt.VerifyURL)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		respByte, _ := io.ReadAll(resp.Body)
+		err := json.Unmarshal(respByte, &resultMap)
+		if err != nil {
+			return nil, fmt.Errorf("not able to parse response body")
+		}
+		return resultMap, nil
+	}
+	return nil, fmt.Errorf("unsuccessful response")
 }
 
 func startAdditionalVtgates(count int) ([]*cluster.VtgateProcess, error) {

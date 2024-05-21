@@ -35,9 +35,18 @@ import (
 )
 
 func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
+	testVtgateProxyRebalance(t, "round_robin")
+}
+
+func TestVtgateProxyRebalanceFirstReady(t *testing.T) {
+	testVtgateProxyRebalance(t, "first_ready")
+}
+
+func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 	defer cluster.PanicHandler(t)
 
 	const targetAffinity = "use1-az1"
+	const targetPool = "pool1"
 	const vtgateCount = 10
 	const vtgatesInAffinity = 8
 	const vtgateproxyConnections = 4
@@ -61,7 +70,7 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 			"address": clusterInstance.Hostname,
 			"grpc":    strconv.Itoa(vtgate.GrpcPort),
 			"az_id":   affinity,
-			"type":    "pool1",
+			"type":    targetPool,
 		})
 	}
 
@@ -79,9 +88,10 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 	vtgateproxyMySQLPort := clusterInstance.GetAndReservePort()
 
 	vtgateproxyProcInstance := NewVtgateProxyProcess(
+		clusterInstance.TmpDirectory,
 		vtgateHostsFile,
 		targetAffinity,
-		"round_robin",
+		loadBalancer,
 		vtgateproxyConnections,
 		vtgateproxyHTTPPort,
 		vtgateproxyGrpcPort,
@@ -92,7 +102,7 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 	}
 	defer vtgateproxyProcInstance.Teardown()
 
-	conn, err := vtgateproxyProcInstance.GetMySQLConn()
+	conn, err := vtgateproxyProcInstance.GetMySQLConn(targetPool, targetAffinity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +129,6 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 	log.Info("Reading test value while adding vtgates")
 
 	const totalQueries = 1000
-	const minQueryCountAffinity = 1
-	const maxQueryCountNonAffinity = 0
 	addVtgateEveryN := totalQueries / len(vtgates)
 
 	for i := 0; i < totalQueries; i++ {
@@ -134,7 +142,10 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			time.Sleep(1 * time.Second)
+			if err := vtgateproxyProcInstance.WaitForConfig(config[:vtgateIdx], 5*time.Second); err != nil {
+				t.Fatal(err)
+			}
+
 			vtgateIdx++
 		}
 
@@ -146,20 +157,59 @@ func TestVtgateProxyRebalanceRoundRobin(t *testing.T) {
 		assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 	}
 
-	for i, vtgate := range vtgates {
-		queryCount, err := getVtgateQueryCount(vtgate)
-		if err != nil {
-			t.Fatal(err)
+	// No queries should be sent to vtgates outside target affinity
+	const expectMaxQueryCountNonAffinity = 0
+
+	switch loadBalancer {
+	case "round_robin":
+		// At least 1 query should be sent to every vtgate matching target
+		// affinity
+		const expectMinQueryCountAffinity = 1
+
+		for i, vtgate := range vtgates {
+			queryCount, err := getVtgateQueryCount(vtgate)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			affinity := config[i]["az_id"]
+
+			log.Infof("vtgate %v (%v) query counts: %+v", i, affinity, queryCount)
+
+			if affinity == targetAffinity {
+				assert.GreaterOrEqual(t, queryCount.Sum(), expectMinQueryCountAffinity, "vtgate %v did not recieve the expected number of queries", i)
+			} else {
+				assert.LessOrEqual(t, queryCount.Sum(), expectMaxQueryCountNonAffinity, "vtgate %v recieved more than the expected number of queries", i)
+			}
 		}
+	case "first_ready":
+		// A single vtgate should become the target, and it should recieve all
+		// queries
+		targetVtgate := -1
 
-		affinity := config[i]["az_id"]
+		for i, vtgate := range vtgates {
+			queryCount, err := getVtgateQueryCount(vtgate)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		log.Infof("vtgate %v (%v) query counts: %+v", i, affinity, queryCount)
+			affinity := config[i]["az_id"]
 
-		if affinity == targetAffinity {
-			assert.GreaterOrEqual(t, queryCount.Sum(), minQueryCountAffinity, "vtgate %v did not recieve the expected number of queries", i)
-		} else {
-			assert.LessOrEqual(t, queryCount.Sum(), maxQueryCountNonAffinity, "vtgate %v recieved more than the expected number of queries", i)
+			log.Infof("vtgate %v (%v) query counts: %+v", i, affinity, queryCount)
+
+			sum := queryCount.Sum()
+			if sum == 0 {
+				continue
+			}
+
+			if targetVtgate != -1 {
+				t.Logf("only vtgate %v should have received queries; vtgate %v got %v", targetVtgate, i, sum)
+				t.Fail()
+			} else if affinity == targetAffinity {
+				targetVtgate = i
+			} else {
+				assert.LessOrEqual(t, queryCount.Sum(), expectMaxQueryCountNonAffinity, "vtgate %v recieved more than the expected number of queries", i)
+			}
 		}
 	}
 }
