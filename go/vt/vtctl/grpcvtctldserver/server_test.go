@@ -11323,7 +11323,7 @@ func TestValidateVersionShard(t *testing.T) {
 		name      string
 		req       *vtctldatapb.ValidateVersionShardRequest
 		expected  *vtctldatapb.ValidateVersionShardResponse
-		setup     func()
+		setup     func(*sync.Mutex)
 		shouldErr bool
 	}{
 		{
