@@ -21,6 +21,7 @@ package vtgateproxy
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -55,6 +56,7 @@ var (
 	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
 	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
 	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
+	balancerType    = flag.String("balancer", "round_robin", "load balancing algorithm to use")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
@@ -201,9 +203,19 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 }
 
 func Init() {
-	log.V(100).Infof("Registering GRPC dial options")
+	log.Infof("registering GRPC dial options: balancer type %s", *balancerType)
+
+	switch *balancerType {
+	case "round_robin":
+	case "first_ready":
+	case "pick_first":
+		break
+	default:
+		log.Fatalf("invalid balancer type %s", *balancerType)
+	}
+
 	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		return append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`)), nil
+		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
 	RegisterJSONGateResolver(
