@@ -81,10 +81,9 @@ var (
 // vtctlservicepb.VtctldServer, tests will need to indirect that call through an
 // extra layer rather than passing the function identifier directly, e.g.:
 //
-//		vtctld := testutil.NewVtctldServerWithTabletManagerClient(t, ts, &testutil.TabletManagerClient{
-//			...
-//		}, func(ts *topo.Server) vtctlservicepb.VtctldServer { return NewVtctldServer(ts) })
-//
+//	vtctld := testutil.NewVtctldServerWithTabletManagerClient(t, ts, &testutil.TabletManagerClient{
+//		...
+//	}, func(ts *topo.Server) vtctlservicepb.VtctldServer { return NewVtctldServer(ts) })
 func NewVtctldServerWithTabletManagerClient(t testing.TB, ts *topo.Server, tmc tmclient.TabletManagerClient, newVtctldServerFn func(ts *topo.Server) vtctlservicepb.VtctldServer) vtctlservicepb.VtctldServer {
 	tmclientFactoryLock.Lock()
 	defer tmclientFactoryLock.Unlock()
@@ -170,6 +169,8 @@ type TabletManagerClient struct {
 		Response *hk.HookResult
 		Error    error
 	}
+	// FullStatus result
+	FullStatusResult *replicationdatapb.FullStatus
 	// keyed by tablet alias.
 	GetPermissionsDelays map[string]time.Duration
 	// keyed by tablet alias.
@@ -512,6 +513,19 @@ func (fake *TabletManagerClient) ExecuteHook(ctx context.Context, tablet *topoda
 	}
 
 	return nil, fmt.Errorf("%w: no ExecuteHook result set for tablet %s", assert.AnError, key)
+}
+
+// FullStatus is part of the tmclient.TabletManagerClient interface.
+func (fake *TabletManagerClient) FullStatus(ctx context.Context, tablet *topodatapb.Tablet) (*replicationdatapb.FullStatus, error) {
+	if fake.FullStatusResult != nil {
+		return fake.FullStatusResult, nil
+	}
+
+	if fake.TopoServer == nil {
+		return nil, assert.AnError
+	}
+
+	return nil, fmt.Errorf("no output set for FullStatus")
 }
 
 // GetPermission is part of the tmclient.TabletManagerClient interface.
