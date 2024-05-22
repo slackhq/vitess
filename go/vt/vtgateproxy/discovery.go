@@ -209,7 +209,10 @@ func (b *JSONGateResolverBuilder) start() error {
 
 			// notify all the resolvers that the targets changed
 			for _, r := range b.resolvers {
-				b.update(r)
+				err = b.update(r)
+				if err != nil {
+					log.Errorf("Failed to update resolver: %v", err)
+				}
 			}
 		}
 	}()
@@ -327,7 +330,7 @@ func (b *JSONGateResolverBuilder) GetPools() []string {
 	return pools
 }
 
-func (b *JSONGateResolverBuilder) GetTargets(poolType string) []targetHost {
+func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
 	// Copy the target slice
 	b.mu.RLock()
 	targets := []targetHost{}
@@ -375,10 +378,10 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinit
 }
 
 // Update the current list of hosts for the given resolver
-func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
+func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
-	targets := b.GetTargets(r.poolType)
+	targets := b.getTargets(r.poolType)
 
 	var addrs []resolver.Address
 	for _, target := range targets {
@@ -387,7 +390,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 
 	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
 
-	r.clientConn.UpdateState(resolver.State{Addresses: addrs})
+	return r.clientConn.UpdateState(resolver.State{Addresses: addrs})
 }
 
 // Build a new Resolver to route to the given target
@@ -412,7 +415,10 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 		poolType:   poolType,
 	}
 
-	b.update(r)
+	err := b.update(r)
+	if err != nil {
+		return nil, err
+	}
 	b.resolvers = append(b.resolvers, r)
 
 	return r, nil
@@ -424,7 +430,7 @@ func (b *JSONGateResolverBuilder) debugTargets() any {
 	pools := b.GetPools()
 	targets := map[string][]targetHost{}
 	for pool := range b.targets {
-		targets[pool] = b.GetTargets(pool)
+		targets[pool] = b.getTargets(pool)
 	}
 	return struct {
 		Pools   []string
