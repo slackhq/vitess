@@ -294,6 +294,13 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		targets[target.PoolType] = append(targets[target.PoolType], target)
 	}
 
+	// If a pool disappears, the metric will not record this unless all counts
+	// are reset each time the file is parsed. If this ends up causing problems
+	// with the metric briefly dropping to 0, it could be done by rlocking the
+	// target lock and then comparing the previous targets with the current
+	// targets and only resetting pools which disappear.
+	targetCount.ResetAll()
+
 	for poolType := range targets {
 		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
