@@ -38,11 +38,12 @@ import (
 )
 
 var (
-	cert = flag.String("vtgate_grpc_cert", "", "the cert to use to connect")
-	key  = flag.String("vtgate_grpc_key", "", "the key to use to connect")
-	ca   = flag.String("vtgate_grpc_ca", "", "the server ca to use to validate servers when connecting")
-	crl  = flag.String("vtgate_grpc_crl", "", "the server crl to use to validate server certificates when connecting")
-	name = flag.String("vtgate_grpc_server_name", "", "the server name to use to validate server certificate")
+	cert     = flag.String("vtgate_grpc_cert", "", "the cert to use to connect")
+	key      = flag.String("vtgate_grpc_key", "", "the key to use to connect")
+	ca       = flag.String("vtgate_grpc_ca", "", "the server ca to use to validate servers when connecting")
+	crl      = flag.String("vtgate_grpc_crl", "", "the server crl to use to validate server certificates when connecting")
+	name     = flag.String("vtgate_grpc_server_name", "", "the server name to use to validate server certificate")
+	failFast = flag.Bool("vtgate_grpc_fail_fast", false, "whether to enable grpc fail fast when communicating with vtgate")
 )
 
 func init() {
@@ -68,7 +69,7 @@ func DialWithOpts(ctx context.Context, opts ...grpc.DialOption) vtgateconn.Diale
 
 		opts = append(opts, opt)
 
-		cc, err := grpcclient.Dial(address, grpcclient.FailFast(false), opts...)
+		cc, err := grpcclient.Dial(address, grpcclient.FailFast(*failFast), opts...)
 		if err != nil {
 			return nil, err
 		}
