@@ -19,7 +19,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/codegangsta/inject v0.0.0-20150114235600-33e0aa1cb7c0 // indirect
 	github.com/corpix/uarand v0.1.1 // indirect
-	github.com/dave/jennifer v1.4.1
+	github.com/dave/jennifer v1.7.0
 	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab
