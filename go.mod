@@ -107,8 +107,8 @@ require (
 	gotest.tools v2.2.0+incompatible
 	honnef.co/go/tools v0.0.1-2020.1.4
 	k8s.io/apiextensions-apiserver v0.18.19
-	k8s.io/apimachinery v0.29.3
-	k8s.io/client-go v0.29.3
+	k8s.io/apimachinery v0.29.5
+	k8s.io/client-go v0.29.5
 	k8s.io/code-generator v0.18.19
 	sigs.k8s.io/yaml v1.3.0
 )
@@ -196,7 +196,7 @@ require (
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.29.3 // indirect
+	k8s.io/api v0.29.5 // indirect
 	k8s.io/gengo v0.0.0-20200413195148-3a45101e95ac // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/klog/v2 v2.120.1 // indirect
