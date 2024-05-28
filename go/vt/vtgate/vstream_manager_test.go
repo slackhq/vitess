@@ -1230,7 +1230,7 @@ func TestVstreamCopy(t *testing.T) {
 		return nil
 	})
 	require.Error(t, err)
-	require.Equal(t, err.Error(), "vstream copy is not currently supported")
+	require.Equal(t, "vstream copy is not currently supported", err.Error())
 
 	// allowVstreamCopy = true
 	vsm2 := newTestVStreamManager(hc, st, "aa", true)
@@ -1238,7 +1238,7 @@ func TestVstreamCopy(t *testing.T) {
 		count.Add(1)
 		return nil
 	})
-	require.Equal(t, err.Error(), "final error")
+	require.Equal(t, "target: TestVStreamCopy.-20.primary: final error", err.Error())
 }
 
 func newTestVStreamManager(hc discovery.HealthCheck, serv srvtopo.Server, cell string, allowVstreamCopy bool) *vstreamManager {
