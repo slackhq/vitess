@@ -191,19 +191,6 @@ func (gw *TabletGateway) setupBalancer(ctx context.Context) {
 		log.Exitf("balancer_vtgate_cells is required for balanced mode")
 	}
 	gw.balancer = balancer.NewTabletBalancer(gw.localCell, balancerVtgateCells)
-
-	// subscribe to healthcheck updates so that the balancer can reset its allocation
-	hcChan := gw.hc.Subscribe()
-	go func(ctx context.Context, c chan *discovery.TabletHealth, balancer balancer.TabletBalancer) {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-hcChan:
-				balancer.TopologyChanged()
-			}
-		}
-	}(ctx, hcChan, gw.balancer)
 }
 
 // QueryServiceByAlias satisfies the Gateway interface

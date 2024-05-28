@@ -350,13 +350,11 @@ func TestTopologyChanged(t *testing.T) {
 		}
 	}
 
-	// Run again with the full topology, but without triggering a topology change
-	// event to cause a reallocation
-	tablets2 := allTablets
+	// Run again with the full topology. Now traffic should go to cell b
 	for i := 0; i < N; i++ {
-		b.ShuffleTablets(target, tablets2)
+		b.ShuffleTablets(target, allTablets)
 
-		allocation, totalAllocation := b.getAllocation(target, tablets2)
+		allocation, totalAllocation := b.getAllocation(target, allTablets)
 
 		if totalAllocation != ALLOCATION/2 {
 			t.Errorf("totalAllocation mismatch %s", b.print())
@@ -366,28 +364,8 @@ func TestTopologyChanged(t *testing.T) {
 			t.Errorf("allocation mismatch %s, cell %s", b.print(), allTablets[0].Tablet.Alias.Cell)
 		}
 
-		if tablets2[0].Tablet.Alias.Cell != "a" {
-			t.Errorf("shuffle promoted wrong tablet from cell %s", tablets2[0].Tablet.Alias.Cell)
-		}
-	}
-
-	// Trigger toplogy changed event, now traffic should go to b
-	b.TopologyChanged()
-	for i := 0; i < N; i++ {
-		b.ShuffleTablets(target, tablets2)
-
-		allocation, totalAllocation := b.getAllocation(target, tablets2)
-
-		if totalAllocation != ALLOCATION/2 {
-			t.Errorf("totalAllocation mismatch %s", b.print())
-		}
-
-		if allocation[allTablets[0].Tablet.Alias.Uid] != ALLOCATION/4 {
-			t.Errorf("allocation mismatch %s, cell %s", b.print(), allTablets[0].Tablet.Alias.Cell)
-		}
-
-		if tablets2[0].Tablet.Alias.Cell != "b" {
-			t.Errorf("shuffle promoted wrong tablet from cell %s", tablets2[0].Tablet.Alias.Cell)
+		if allTablets[0].Tablet.Alias.Cell != "b" {
+			t.Errorf("shuffle promoted wrong tablet from cell %s", allTablets[0].Tablet.Alias.Cell)
 		}
 	}
 }

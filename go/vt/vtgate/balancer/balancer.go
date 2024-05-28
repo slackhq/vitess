@@ -89,9 +89,6 @@ converge on the desired balanced query load.
 type TabletBalancer interface {
 	// Randomly shuffle the tablets into an order for routing queries
 	ShuffleTablets(target *querypb.Target, tablets []*discovery.TabletHealth)
-
-	// Callback when the topology changes to invalidate any cached state
-	TopologyChanged()
 }
 
 func NewTabletBalancer(localCell string, vtGateCells []string) TabletBalancer {
@@ -136,6 +133,9 @@ type targetAllocation struct {
 	// Allocation routed to each tablet from the local cell used for ranking
 	Allocation map[uint32]int
 
+	// Tablets that local cell does not route to
+	Unallocated map[uint32]struct{}
+
 	// Total allocation which is basically 1,000,000 / len(vtgatecells)
 	TotalAllocation int
 }
@@ -175,27 +175,18 @@ func (b *tabletBalancer) ShuffleTablets(target *querypb.Target, tablets []*disco
 	}
 }
 
-// TopologyChanged is a callback to indicate the topology changed and any cached
-// allocations should be cleared
-func (b *tabletBalancer) TopologyChanged() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.allocations = map[discovery.KeyspaceShardTabletType]*targetAllocation{}
-}
-
 // To stick with integer arithmetic, use 1,000,000 as the full load
 const ALLOCATION = 1000000
 
 func (b *tabletBalancer) allocateFlows(allTablets []*discovery.TabletHealth) *targetAllocation {
-
-	a := targetAllocation{}
-
 	// Initialization: Set up some data structures and derived values
-	a.Target = make(map[string]int)
-	a.Inflows = make(map[string]int)
-	a.Outflows = make(map[string]map[string]int)
-	a.Allocation = make(map[uint32]int)
+	a := targetAllocation{
+		Target:      map[string]int{},
+		Inflows:     map[string]int{},
+		Outflows:    map[string]map[string]int{},
+		Allocation:  map[uint32]int{},
+		Unallocated: map[uint32]struct{}{},
+	}
 	flowPerVtgateCell := ALLOCATION / len(b.vtGateCells)
 	flowPerTablet := ALLOCATION / len(allTablets)
 	cellExistsWithNoTablets := false
@@ -326,6 +317,8 @@ func (b *tabletBalancer) allocateFlows(allTablets []*discovery.TabletHealth) *ta
 		if flow > 0 {
 			a.Allocation[tablet.Tablet.Alias.Uid] = flow * flowPerTablet / a.Target[cell]
 			a.TotalAllocation += flow * flowPerTablet / a.Target[cell]
+		} else {
+			a.Unallocated[tablet.Tablet.Alias.Uid] = struct{}{}
 		}
 	}
 
@@ -334,15 +327,28 @@ func (b *tabletBalancer) allocateFlows(allTablets []*discovery.TabletHealth) *ta
 
 // getAllocation builds the allocation map if needed and returns a copy of the map
 func (b *tabletBalancer) getAllocation(target *querypb.Target, tablets []*discovery.TabletHealth) (map[uint32]int, int) {
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	allocation, exists := b.allocations[discovery.KeyFromTarget(target)]
-	if !exists {
-		allocation = b.allocateFlows(tablets)
-		b.allocations[discovery.KeyFromTarget(target)] = allocation
+	if exists && (len(allocation.Allocation)+len(allocation.Unallocated)) == len(tablets) {
+		mismatch := false
+		for _, tablet := range tablets {
+			if _, ok := allocation.Allocation[tablet.Tablet.Alias.Uid]; !ok {
+				if _, ok := allocation.Unallocated[tablet.Tablet.Alias.Uid]; !ok {
+					mismatch = true
+					break
+				}
+			}
+		}
+		if !mismatch {
+			// No change in tablets for this target. Return computed allocation
+			return allocation.Allocation, allocation.TotalAllocation
+		}
 	}
+
+	allocation = b.allocateFlows(tablets)
+	b.allocations[discovery.KeyFromTarget(target)] = allocation
 
 	return allocation.Allocation, allocation.TotalAllocation
 }
