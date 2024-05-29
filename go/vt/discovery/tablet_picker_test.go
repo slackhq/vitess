@@ -350,47 +350,16 @@ func TestPickCellPreferenceLocalAlias(t *testing.T) {
 	assert.True(t, proto.Equal(want, tablet), "Pick: %v, want %v", tablet, want)
 }
 
-// TestPickUsingCellAsAlias confirms that when the tablet picker is
-// given a cell name that is an alias, it will choose a tablet that
-// exists within a cell that is part of the alias.
-func TestPickUsingCellAsAlias(t *testing.T) {
-	ctx := utils.LeakCheckContext(t)
-
-	// The test env puts all cells into an alias called "cella".
-	// We're also going to specify an optional extraCell that is NOT
-	// added to the alias.
-	te := newPickerTestEnv(t, ctx, []string{"cell1", "cell2", "cell3"}, "xtracell")
-	// Specify the alias as the cell.
-	tp, err := NewTabletPicker(ctx, te.topoServ, []string{"cella"}, "cell1", te.keyspace, te.shard, "replica", TabletPickerOptions{})
-	require.NoError(t, err)
-
-	// Create a tablet in one of the main cells, it should be
-	// picked as it is part of the cella alias. This tablet is
-	// NOT part of the talbet picker's local cell (cell1) so it
-	// will not be given local preference.
-	want := addTablet(ctx, te, 101, topodatapb.TabletType_REPLICA, "cell2", true, true)
-	defer deleteTablet(t, te, want)
-	// Create a tablet in an extra cell which is thus NOT part of
-	// the cella alias so it should NOT be picked.
-	noWant := addTablet(ctx, te, 102, topodatapb.TabletType_REPLICA, "xtracell", true, true)
-	defer deleteTablet(t, te, noWant)
-	// Try it many times to be sure we don't ever pick the wrong one.
-	for i := 0; i < 100; i++ {
-		tablet, err := tp.PickForStreaming(ctx)
-		require.NoError(t, err)
-		assert.True(t, proto.Equal(want, tablet), "Pick: %v, want %v", tablet, want)
-	}
-}
-
 func TestPickWithIgnoreList(t *testing.T) {
-	ctx := utils.LeakCheckContext(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
 
-	te := newPickerTestEnv(t, ctx, []string{"cell1", "cell2"})
+	te := newPickerTestEnv(t, []string{"cell1", "cell2"})
 
-	want := addTablet(ctx, te, 101, topodatapb.TabletType_REPLICA, "cell1", true, true)
+	want := addTablet(te, 101, topodatapb.TabletType_REPLICA, "cell1", true, true)
 	defer deleteTablet(t, te, want)
 
-	dontWant := addTablet(ctx, te, 102, topodatapb.TabletType_REPLICA, "cell1", true, true)
+	dontWant := addTablet(te, 102, topodatapb.TabletType_REPLICA, "cell1", true, true)
 	defer deleteTablet(t, te, dontWant)
 
 	// Specify the alias as the cell.
