@@ -56,7 +56,7 @@ Global flags:
       --keep_logs duration                              keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                     keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                        keep running at least this long after SIGTERM before stopping (default 50ms)
-      --log_backtrace_at traceLocation                  when logging hits line file:N, emit a stack trace
+      --log_backtrace_at traceLocations                 when logging hits line file:N, emit a stack trace
       --log_dir string                                  If non-empty, write log files in this directory
       --log_err_stacks                                  log stack traces for errors
       --log_link string                                 If non-empty, add symbolic links in this directory to the log files
