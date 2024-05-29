@@ -1,4 +1,4 @@
-Usage of ../../../bin/zkctl:
+Usage of zkctl:
       --alsologtostderr                   log to standard error as well as files
   -h, --help                              display usage and exit
       --keep_logs duration                keep logs for this long (using ctime) (zero to keep forever)

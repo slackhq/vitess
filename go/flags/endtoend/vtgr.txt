@@ -1,4 +1,4 @@
-Usage of ../../../bin/vtgr:
+Usage of vtgr:
       --abort_rebootstrap                          Don't allow vtgr to rebootstrap an existing group.
       --alsologtostderr                            log to standard error as well as files
       --clusters_to_watch strings                  Comma-separated list of keyspaces or keyspace/shards that this instance will monitor and repair. Defaults to all clusters in the topology. Example: "ks1,ks2/-80"
