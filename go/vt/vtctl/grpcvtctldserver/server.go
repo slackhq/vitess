@@ -992,7 +992,7 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 		req.Shard,
 		reparentutil.EmergencyReparentOptions{
 			NewPrimaryAlias:           req.NewPrimary,
-			IgnoreReplicas:            sets.New[string](ignoreReplicaAliases...),
+			IgnoreReplicas:            sets.NewString(ignoreReplicaAliases...),
 			WaitReplicasTimeout:       waitReplicasTimeout,
 			PreventCrossCellPromotion: req.PreventCrossCellPromotion,
 		},
@@ -1587,10 +1587,10 @@ func (s *VtctldServer) GetSrvVSchemas(ctx context.Context, req *vtctldatapb.GetS
 
 	// Omit any cell names in the request that don't map to existing cells
 	if len(req.Cells) > 0 {
-		s1 := sets.New[string](allCells...)
-		s2 := sets.New[string](req.Cells...)
+		s1 := sets.NewString(allCells...)
+		s2 := sets.NewString(req.Cells...)
 
-		cells = sets.List(s1.Intersection(s2))
+		cells = s1.Intersection(s2).List()
 	}
 
 	span.Annotate("cells", strings.Join(cells, ","))
@@ -3544,7 +3544,7 @@ func (s *VtctldServer) Validate(ctx context.Context, req *vtctldatapb.ValidateRe
 			span, ctx := trace.NewSpan(ctx, "VtctldServer.validateAllTablets")
 			defer span.Finish()
 
-			cellSet := sets.New[string]()
+			cellSet := sets.NewString()
 			for _, keyspace := range keyspaces {
 				getShardNamesCtx, getShardNamesCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 				shards, err := s.ts.GetShardNames(getShardNamesCtx, keyspace)
@@ -3575,7 +3575,7 @@ func (s *VtctldServer) Validate(ctx context.Context, req *vtctldatapb.ValidateRe
 				}
 			}
 
-			for _, cell := range sets.List(cellSet) {
+			for _, cell := range cellSet.List() {
 				getTabletsByCellCtx, getTabletsByCellCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 				aliases, err := s.ts.GetTabletAliasesByCell(getTabletsByCellCtx, cell)
 				getTabletsByCellCancel() // don't defer in a loop

@@ -56,7 +56,7 @@ type EmergencyReparenter struct {
 // for callers to mutate and reuse options structs for multiple calls.
 type EmergencyReparentOptions struct {
 	NewPrimaryAlias           *topodatapb.TabletAlias
-	IgnoreReplicas            sets.Set[string]
+	IgnoreReplicas            sets.String
 	WaitReplicasTimeout       time.Duration
 	PreventCrossCellPromotion bool
 

@@ -307,7 +307,7 @@ func getBuildTags(buildTags map[string]string, skipTagsCSV string) (map[string]s
 		}
 	}
 
-	skippedTags := sets.New[string]()
+	skippedTags := sets.NewString()
 	for tag := range buildTags {
 		for _, skipFn := range skippers {
 			if skipFn(tag) {

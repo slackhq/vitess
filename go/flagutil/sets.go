@@ -39,14 +39,14 @@ var _ pflag.Value = (*StringSetFlag)(nil)
 // provides an implementation of pflag.Value, so it is usable in libraries like
 // cobra.
 type StringSetFlag struct {
-	set sets.Set[string]
+	set sets.String
 }
 
 // ToSet returns the underlying string set, or an empty set if the underlying
 // set is nil.
-func (set *StringSetFlag) ToSet() sets.Set[string] {
+func (set *StringSetFlag) ToSet() sets.String {
 	if set.set == nil {
-		set.set = sets.New[string]()
+		set.set = sets.NewString()
 	}
 
 	return set.set
@@ -55,7 +55,7 @@ func (set *StringSetFlag) ToSet() sets.Set[string] {
 // Set is part of the pflag.Value and flag.Value interfaces.
 func (set *StringSetFlag) Set(s string) error {
 	if set.set == nil {
-		set.set = sets.New[string]()
+		set.set = sets.NewString(s)
 		return nil
 	}
 
@@ -69,7 +69,7 @@ func (set *StringSetFlag) String() string {
 		return ""
 	}
 
-	return strings.Join(sets.List(set.set), ", ")
+	return strings.Join(set.set.List(), ", ")
 }
 
 // Type is part of the pflag.Value interface.

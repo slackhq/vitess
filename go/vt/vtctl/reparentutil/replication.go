@@ -215,7 +215,7 @@ func stopReplicationAndBuildStatusMaps(
 	ev *events.Reparent,
 	tabletMap map[string]*topo.TabletInfo,
 	stopReplicationTimeout time.Duration,
-	ignoredTablets sets.Set[string],
+	ignoredTablets sets.String,
 	tabletToWaitFor *topodatapb.TabletAlias,
 	durability Durabler,
 	logger logutil.Logger,

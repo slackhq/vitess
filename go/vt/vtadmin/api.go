@@ -1402,7 +1402,7 @@ func (api *API) GetWorkflows(ctx context.Context, req *vtadminpb.GetWorkflowsReq
 
 			workflows, err := c.GetWorkflows(ctx, req.Keyspaces, cluster.GetWorkflowsOptions{
 				ActiveOnly:      req.ActiveOnly,
-				IgnoreKeyspaces: sets.New[string](req.IgnoreKeyspaces...),
+				IgnoreKeyspaces: sets.NewString(req.IgnoreKeyspaces...),
 			})
 			if err != nil {
 				rec.RecordError(err)

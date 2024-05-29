@@ -573,8 +573,8 @@ func (wr *Wrangler) getStreams(ctx context.Context, workflow, keyspace string) (
 	ctx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer cancel()
 	var sourceKeyspace string
-	sourceShards := sets.New[string]()
-	targetShards := sets.New[string]()
+	sourceShards := sets.NewString()
+	targetShards := sets.NewString()
 	for primary, result := range results {
 		var rsrStatus []*ReplicationStatus
 		nqr := sqltypes.Proto3ToResult(result).Named()
@@ -641,11 +641,11 @@ func (wr *Wrangler) getStreams(ctx context.Context, workflow, keyspace string) (
 	}
 	rsr.SourceLocation = ReplicationLocation{
 		Keyspace: sourceKeyspace,
-		Shards:   sets.List(sourceShards),
+		Shards:   sourceShards.List(),
 	}
 	rsr.TargetLocation = ReplicationLocation{
 		Keyspace: keyspace,
-		Shards:   sets.List(targetShards),
+		Shards:   targetShards.List(),
 	}
 
 	return &rsr, nil
@@ -668,7 +668,7 @@ func (wr *Wrangler) ListAllWorkflows(ctx context.Context, keyspace string, activ
 	if err != nil {
 		return nil, err
 	}
-	workflowsSet := sets.New[string]()
+	workflowsSet := sets.NewString()
 	for _, result := range results {
 		if len(result.Rows) == 0 {
 			continue
@@ -681,7 +681,7 @@ func (wr *Wrangler) ListAllWorkflows(ctx context.Context, keyspace string, activ
 			}
 		}
 	}
-	workflows := sets.List(workflowsSet)
+	workflows := workflowsSet.List()
 	return workflows, nil
 }
 

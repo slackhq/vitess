@@ -89,22 +89,22 @@ func (c *Config) Reify() error {
 	for i, rule := range c.Rules {
 		resourceRules := byResource[rule.Resource]
 
-		actions := sets.New[string](rule.Actions...)
+		actions := sets.NewString(rule.Actions...)
 		if actions.Has("*") && actions.Len() > 1 {
 			// error to have wildcard and something else
-			rec.RecordError(fmt.Errorf("rule %d: actions list cannot include wildcard and other actions, have %v", i, sets.List(actions)))
+			rec.RecordError(fmt.Errorf("rule %d: actions list cannot include wildcard and other actions, have %v", i, actions.List()))
 		}
 
-		subjects := sets.New[string](rule.Subjects...)
+		subjects := sets.NewString(rule.Subjects...)
 		if subjects.Has("*") && subjects.Len() > 1 {
 			// error to have wildcard and something else
-			rec.RecordError(fmt.Errorf("rule %d: subjects list cannot include wildcard and other subjects, have %v", i, sets.List(subjects)))
+			rec.RecordError(fmt.Errorf("rule %d: subjects list cannot include wildcard and other subjects, have %v", i, subjects.List()))
 		}
 
-		clusters := sets.New[string](rule.Clusters...)
+		clusters := sets.NewString(rule.Clusters...)
 		if clusters.Has("*") && clusters.Len() > 1 {
 			// error to have wildcard and something else
-			rec.RecordError(fmt.Errorf("rule %d: clusters list cannot include wildcard and other clusters, have %v", i, sets.List(clusters)))
+			rec.RecordError(fmt.Errorf("rule %d: clusters list cannot include wildcard and other clusters, have %v", i, clusters.List()))
 		}
 
 		resourceRules = append(resourceRules, &Rule{
@@ -188,9 +188,9 @@ func DefaultConfig() *Config {
 	cfg := map[string][]*Rule{
 		"*": {
 			{
-				clusters: sets.New[string](clusters...),
-				actions:  sets.New[string](actions...),
-				subjects: sets.New[string](subjects...),
+				clusters: sets.NewString(clusters...),
+				actions:  sets.NewString(actions...),
+				subjects: sets.NewString(subjects...),
 			},
 		},
 	}
