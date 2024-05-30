@@ -133,9 +133,9 @@ func Init() {
 
 	// Once you run as root, you pretty much destroy the chances of a
 	// non-privileged user starting the program correctly.
-	if uid := os.Getuid(); uid == 0 {
-		//		log.Exitf("servenv.Init: running this as root makes no sense")
-	}
+	// if uid := os.Getuid(); uid == 0 {
+	// 	log.Exitf("servenv.Init: running this as root makes no sense")
+	// }
 
 	// We used to set this limit directly, but you pretty much have to
 	// use a root account to allow increasing a limit reliably. Dropping
@@ -384,6 +384,7 @@ func init() {
 		"vtctlclient",
 		"vtctld",
 		"vtgate",
+		"vtgateproxy",
 		"vttablet",
 	} {
 		OnParseFor(cmd, trace.RegisterFlags)
@@ -398,6 +399,7 @@ func init() {
 		"vtctld",
 		"vtgate",
 		"vtgateclienttest",
+		"vtgateproxy",
 		"vtgr",
 		"vttablet",
 		"vttestserver",
@@ -411,6 +413,7 @@ func init() {
 		"vtcombo",
 		"vtctld",
 		"vtgate",
+		"vtgateproxy",
 		"vtgr",
 		"vttablet",
 		"vtorc",
