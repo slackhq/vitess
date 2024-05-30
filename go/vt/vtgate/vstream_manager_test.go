@@ -1350,7 +1350,7 @@ func TestVStreamManagerHealthCheckResponseHandling(t *testing.T) {
 	_ = createSandbox(ks)
 	hc := discovery.NewFakeHealthCheck(nil)
 	st := getSandboxTopo(ctx, cell, ks, []string{shard})
-	vsm := newTestVStreamManager(hc, st, cell)
+	vsm := newTestVStreamManager(hc, st, cell, true)
 	vgtid := &binlogdatapb.VGtid{
 		ShardGtids: []*binlogdatapb.ShardGtid{{
 			Keyspace: ks,
