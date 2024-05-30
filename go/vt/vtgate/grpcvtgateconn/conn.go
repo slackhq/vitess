@@ -55,6 +55,7 @@ func init() {
 		"vtcombo",
 		"vtctl",
 		"vttestserver",
+		"vtgateproxy",
 	} {
 		servenv.OnParseFor(cmd, registerFlags)
 	}
