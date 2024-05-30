@@ -31,6 +31,7 @@ import (
 
 func init() {
 	servenv.RegisterDefaultFlags()
+	servenv.RegisterGRPCServerFlags()
 }
 
 func main() {

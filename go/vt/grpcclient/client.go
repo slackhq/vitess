@@ -58,6 +58,7 @@ var (
 		"vtctld",
 		"vtgate",
 		"vtgateclienttest",
+		"vtgateproxy",
 		"vtorc",
 		"vttablet",
 		"vttestserver",
