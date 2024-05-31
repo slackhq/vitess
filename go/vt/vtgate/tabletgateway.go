@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -255,6 +256,15 @@ func (gw *TabletGateway) CacheStatus() TabletCacheStatusList {
 	gw.mu.Unlock()
 	sort.Sort(res)
 	return res
+}
+
+func (gw *TabletGateway) DebugBalancerHandler(w http.ResponseWriter, r *http.Request) {
+	if balancerEnabled {
+		gw.balancer.DebugHandler(w, r)
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("not enabled"))
+	}
 }
 
 // withRetry gets available connections and executes the action. If there are retryable errors,
