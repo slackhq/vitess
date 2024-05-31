@@ -22,7 +22,7 @@ require (
 	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab
-	github.com/go-sql-driver/mysql v1.6.0
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/mock v1.5.0
 	github.com/golang/protobuf v1.5.2
@@ -123,6 +123,7 @@ require (
 require github.com/bndr/gotabulate v1.1.2
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/go-chi/chi/v5 v5.0.7 // indirect
 	github.com/rantav/go-grpc-channelz v0.0.4 // indirect
 )
