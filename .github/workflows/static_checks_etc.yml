@@ -9,7 +9,8 @@ permissions: read-all
 jobs:
   build:
     name: Static Code Checks Etc
-    runs-on: ubuntu-22.04
+    runs-on:
+      group: vitess-ubuntu20
 
     steps:
       - name: Skip CI
