@@ -628,6 +628,7 @@ func TestAddQueryStats(t *testing.T) {
 		}, {
 			name:                          "select into query",
 			plan:                          fakeSelectPlan,
+			tableName:                     "A",
 			queryCount:                    1,
 			duration:                      10,
 			rowsAffected:                  15,
