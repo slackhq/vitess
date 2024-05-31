@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"sync"
 
 	"vitess.io/vitess/go/vt/discovery"
@@ -89,6 +90,9 @@ converge on the desired balanced query load.
 type TabletBalancer interface {
 	// Randomly shuffle the tablets into an order for routing queries
 	ShuffleTablets(target *querypb.Target, tablets []*discovery.TabletHealth)
+
+	// Balancer debug page request
+	DebugHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func NewTabletBalancer(localCell string, vtGateCells []string) TabletBalancer {
@@ -144,6 +148,17 @@ func (b *tabletBalancer) print() string {
 	allocations, _ := json.Marshal(&b.allocations)
 	return fmt.Sprintf("LocalCell: %s, VtGateCells: %s, allocations: %s",
 		b.localCell, b.vtGateCells, string(allocations))
+}
+
+func (b *tabletBalancer) DebugHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "Local Cell: %v\r\n", b.localCell)
+	fmt.Fprintf(w, "Vtgate Cells: %v\r\n", b.vtGateCells)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	allocations, _ := json.MarshalIndent(b.allocations, "", "  ")
+	fmt.Fprintf(w, "Allocations: %v\r\n", string(allocations))
 }
 
 // ShuffleTablets is the main entry point to the balancer.
