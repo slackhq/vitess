@@ -71,12 +71,13 @@ func (r *JSONGateResolver) Close() {
 }
 
 type JSONGateResolverBuilder struct {
-	jsonPath      string
-	addressField  string
-	portField     string
-	poolTypeField string
-	affinityField string
-	affinityValue string
+	jsonPath       string
+	addressField   string
+	portField      string
+	poolTypeField  string
+	affinityField  string
+	affinityValue  string
+	numConnections int
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
@@ -106,16 +107,18 @@ func RegisterJSONGateResolver(
 	poolTypeField string,
 	affinityField string,
 	affinityValue string,
+	numConnections int,
 ) (*JSONGateResolverBuilder, error) {
 	jsonDiscovery := &JSONGateResolverBuilder{
-		targets:       map[string][]targetHost{},
-		jsonPath:      jsonPath,
-		addressField:  addressField,
-		portField:     portField,
-		poolTypeField: poolTypeField,
-		affinityField: affinityField,
-		affinityValue: affinityValue,
-		sorter:        newShuffleSorter(),
+		targets:        map[string][]targetHost{},
+		jsonPath:       jsonPath,
+		addressField:   addressField,
+		portField:      portField,
+		poolTypeField:  poolTypeField,
+		affinityField:  affinityField,
+		affinityValue:  affinityValue,
+		numConnections: numConnections,
+		sorter:         newShuffleSorter(),
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -206,7 +209,10 @@ func (b *JSONGateResolverBuilder) start() error {
 
 			// notify all the resolvers that the targets changed
 			for _, r := range b.resolvers {
-				b.update(r)
+				err = b.update(r)
+				if err != nil {
+					log.Errorf("Failed to update resolver: %v", err)
+				}
 			}
 		}
 	}()
@@ -291,10 +297,17 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		targets[target.PoolType] = append(targets[target.PoolType], target)
 	}
 
+	// If a pool disappears, the metric will not record this unless all counts
+	// are reset each time the file is parsed. If this ends up causing problems
+	// with the metric briefly dropping to 0, it could be done by rlocking the
+	// target lock and then comparing the previous targets with the current
+	// targets and only resetting pools which disappear.
+	targetCount.ResetAll()
+
 	for poolType := range targets {
 		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
-			targets[poolType] = targets[poolType][:*numConnections]
+			targets[poolType] = targets[poolType][:b.numConnections]
 		}
 		targetCount.Set(poolType, int64(len(targets[poolType])))
 	}
@@ -365,7 +378,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinit
 }
 
 // Update the current list of hosts for the given resolver
-func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
+func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.getTargets(r.poolType)
@@ -377,7 +390,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) {
 
 	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
 
-	_ = r.clientConn.UpdateState(resolver.State{Addresses: addrs})
+	return r.clientConn.UpdateState(resolver.State{Addresses: addrs})
 }
 
 // Build a new Resolver to route to the given target
@@ -402,7 +415,10 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 		poolType:   poolType,
 	}
 
-	b.update(r)
+	err := b.update(r)
+	if err != nil {
+		return nil, err
+	}
 	b.resolvers = append(b.resolvers, r)
 
 	return r, nil
