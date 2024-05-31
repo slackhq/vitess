@@ -40,7 +40,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
 
-	// we're blank importing this for _reasons_
+	// Imported for flags
 	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 )
 
@@ -198,7 +198,10 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 		if err != nil {
 			return err
 		}
-		_ = callback(qr)
+		err = callback(qr)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -227,6 +230,7 @@ func Init() {
 		*poolTypeField,
 		*affinityField,
 		*affinityValue,
+		*numConnections,
 	)
 
 	if err != nil {
