@@ -306,7 +306,7 @@ func Init(
 			"Rows affected by a write (DML) operation through the VTgate API",
 			[]string{"Operation", "Keyspace", "DbType"}),
 		queryTextCharsProcessed: stats.NewCountersWithMultiLabels(
-			"VtgateSQLTextCounts",
+			"VtgateQueryTextCharactersProcessed",
 			"Vtgate API query SQL text counts",
 			[]string{"Operation", "Keyspace", "DbType"}),
 
