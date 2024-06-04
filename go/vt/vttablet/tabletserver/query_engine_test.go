@@ -573,170 +573,191 @@ func TestPlanCachePollution(t *testing.T) {
 }
 
 func TestAddQueryStats(t *testing.T) {
+	fakeSelectPlan := &TabletPlan{
+		Plan: &planbuilder.Plan{
+			PlanID:    planbuilder.PlanSelect,
+			FullQuery: &sqlparser.ParsedQuery{Query: `select * from something where something=123`}, // 43 length
+		},
+	}
+	fakeInsertPlan := &TabletPlan{
+		Plan: &planbuilder.Plan{
+			PlanID:    planbuilder.PlanInsert,
+			FullQuery: &sqlparser.ParsedQuery{Query: `insert into something (id, msg) values(123, 'hello world!')`}, // 59 length
+		},
+	}
 	testcases := []struct {
-		name                          string
-		planType                      planbuilder.PlanType
-		tableName                     string
-		queryCount                    int64
-		duration                      time.Duration
-		mysqlTime                     time.Duration
-		rowsAffected                  int64
-		rowsReturned                  int64
-		errorCount                    int64
-		errorCode                     string
-		enablePerWorkloadTableMetrics bool
-		workload                      string
-		expectedQueryCounts           string
-		expectedQueryTimes            string
-		expectedQueryRowsAffected     string
-		expectedQueryRowsReturned     string
-		expectedQueryErrorCounts      string
-		expectedQueryRowCounts        string
+		name                            string
+		plan                            *TabletPlan
+		tableName                       string
+		queryCount                      int64
+		duration                        time.Duration
+		mysqlTime                       time.Duration
+		rowsAffected                    int64
+		rowsReturned                    int64
+		errorCount                      int64
+		errorCode                       string
+		enablePerWorkloadTableMetrics   bool
+		workload                        string
+		expectedQueryCounts             string
+		expectedQueryTimes              string
+		expectedQueryRowsAffected       string
+		expectedQueryRowsReturned       string
+		expectedQueryTextCharsProcessed string
+		expectedQueryErrorCounts        string
+		expectedQueryRowCounts          string
 	}{
 		{
-			name:                          "select query",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  0,
-			rowsReturned:                  15,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: false,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select": 1}`,
-			expectedQueryTimes:            `{"A.Select": 10}`,
-			expectedQueryRowsAffected:     `{}`,
-			expectedQueryRowsReturned:     `{"A.Select": 15}`,
-			expectedQueryRowCounts:        `{"A.Select": 0}`,
-			expectedQueryErrorCounts:      `{"A.Select": 0}`,
+			name:                            "select query",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    0,
+			rowsReturned:                    15,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   false,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select": 1}`,
+			expectedQueryTimes:              `{"A.Select": 10}`,
+			expectedQueryRowsAffected:       `{}`,
+			expectedQueryRowsReturned:       `{"A.Select": 15}`,
+			expectedQueryTextCharsProcessed: `{"A.Select": 43}`,
+			expectedQueryRowCounts:          `{"A.Select": 0}`,
+			expectedQueryErrorCounts:        `{"A.Select": 0}`,
 		}, {
-			name:                          "select into query",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  15,
-			rowsReturned:                  0,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: false,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select": 1}`,
-			expectedQueryTimes:            `{"A.Select": 10}`,
-			expectedQueryRowsAffected:     `{"A.Select": 15}`,
-			expectedQueryRowsReturned:     `{"A.Select": 0}`,
-			expectedQueryRowCounts:        `{"A.Select": 15}`,
-			expectedQueryErrorCounts:      `{"A.Select": 0}`,
+			name:                            "select into query",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    15,
+			rowsReturned:                    0,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   false,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select": 1}`,
+			expectedQueryTimes:              `{"A.Select": 10}`,
+			expectedQueryRowsAffected:       `{"A.Select": 15}`,
+			expectedQueryRowsReturned:       `{"A.Select": 0}`,
+			expectedQueryTextCharsProcessed: `{"A.Select": 43}`,
+			expectedQueryRowCounts:          `{"A.Select": 15}`,
+			expectedQueryErrorCounts:        `{"A.Select": 0}`,
 		}, {
-			name:                          "error",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  0,
-			rowsReturned:                  0,
-			errorCount:                    1,
-			errorCode:                     "RESOURCE_EXHAUSTED",
-			enablePerWorkloadTableMetrics: false,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select": 1}`,
-			expectedQueryTimes:            `{"A.Select": 10}`,
-			expectedQueryRowsAffected:     `{}`,
-			expectedQueryRowsReturned:     `{"A.Select": 0}`,
-			expectedQueryRowCounts:        `{"A.Select": 0}`,
-			expectedQueryErrorCounts:      `{"A.Select": 1}`,
+			name:                            "error",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    0,
+			rowsReturned:                    0,
+			errorCount:                      1,
+			errorCode:                       "RESOURCE_EXHAUSTED",
+			enablePerWorkloadTableMetrics:   false,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select": 1}`,
+			expectedQueryTimes:              `{"A.Select": 10}`,
+			expectedQueryRowsAffected:       `{}`,
+			expectedQueryRowsReturned:       `{"A.Select": 0}`,
+			expectedQueryTextCharsProcessed: `{"A.Select": 43}`,
+			expectedQueryRowCounts:          `{"A.Select": 0}`,
+			expectedQueryErrorCounts:        `{"A.Select": 1}`,
 		}, {
-			name:                          "insert query",
-			planType:                      planbuilder.PlanInsert,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  15,
-			rowsReturned:                  0,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: false,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Insert": 1}`,
-			expectedQueryTimes:            `{"A.Insert": 10}`,
-			expectedQueryRowsAffected:     `{"A.Insert": 15}`,
-			expectedQueryRowsReturned:     `{}`,
-			expectedQueryRowCounts:        `{"A.Insert": 15}`,
-			expectedQueryErrorCounts:      `{"A.Insert": 0}`,
+			name:                            "insert query",
+			plan:                            fakeInsertPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    15,
+			rowsReturned:                    0,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   false,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Insert": 1}`,
+			expectedQueryTimes:              `{"A.Insert": 10}`,
+			expectedQueryRowsAffected:       `{"A.Insert": 15}`,
+			expectedQueryRowsReturned:       `{}`,
+			expectedQueryTextCharsProcessed: `{"A.Insert": 59}`,
+			expectedQueryRowCounts:          `{"A.Insert": 15}`,
+			expectedQueryErrorCounts:        `{"A.Insert": 0}`,
 		}, {
-			name:                          "select query with per workload metrics",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  0,
-			rowsReturned:                  15,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: true,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
-			expectedQueryTimes:            `{"A.Select.some-workload": 10}`,
-			expectedQueryRowsAffected:     `{}`,
-			expectedQueryRowsReturned:     `{"A.Select.some-workload": 15}`,
-			expectedQueryRowCounts:        `{"A.Select.some-workload": 0}`,
-			expectedQueryErrorCounts:      `{"A.Select.some-workload": 0}`,
+			name:                            "select query with per workload metrics",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    0,
+			rowsReturned:                    15,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   true,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select.some-workload": 1}`,
+			expectedQueryTimes:              `{"A.Select.some-workload": 10}`,
+			expectedQueryRowsAffected:       `{}`,
+			expectedQueryRowsReturned:       `{"A.Select.some-workload": 15}`,
+			expectedQueryTextCharsProcessed: `{"A.Select.some-workload": 43}`,
+			expectedQueryRowCounts:          `{"A.Select.some-workload": 0}`,
+			expectedQueryErrorCounts:        `{"A.Select.some-workload": 0}`,
 		}, {
-			name:                          "select into query with per workload metrics",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  15,
-			rowsReturned:                  0,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: true,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
-			expectedQueryTimes:            `{"A.Select.some-workload": 10}`,
-			expectedQueryRowsAffected:     `{"A.Select.some-workload": 15}`,
-			expectedQueryRowsReturned:     `{"A.Select.some-workload": 0}`,
-			expectedQueryRowCounts:        `{"A.Select.some-workload": 15}`,
-			expectedQueryErrorCounts:      `{"A.Select.some-workload": 0}`,
+			name:                            "select into query with per workload metrics",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    15,
+			rowsReturned:                    0,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   true,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select.some-workload": 1}`,
+			expectedQueryTimes:              `{"A.Select.some-workload": 10}`,
+			expectedQueryRowsAffected:       `{"A.Select.some-workload": 15}`,
+			expectedQueryRowsReturned:       `{"A.Select.some-workload": 0}`,
+			expectedQueryTextCharsProcessed: `{"A.Select.some-workload": 43}`,
+			expectedQueryRowCounts:          `{"A.Select.some-workload": 15}`,
+			expectedQueryErrorCounts:        `{"A.Select.some-workload": 0}`,
 		}, {
-			name:                          "error with per workload metrics",
-			planType:                      planbuilder.PlanSelect,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  0,
-			rowsReturned:                  0,
-			errorCount:                    1,
-			errorCode:                     "RESOURCE_EXHAUSTED",
-			enablePerWorkloadTableMetrics: true,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Select.some-workload": 1}`,
-			expectedQueryTimes:            `{"A.Select.some-workload": 10}`,
-			expectedQueryRowsAffected:     `{}`,
-			expectedQueryRowsReturned:     `{"A.Select.some-workload": 0}`,
-			expectedQueryRowCounts:        `{"A.Select.some-workload": 0}`,
-			expectedQueryErrorCounts:      `{"A.Select.some-workload": 1}`,
+			name:                            "error with per workload metrics",
+			plan:                            fakeSelectPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    0,
+			rowsReturned:                    0,
+			errorCount:                      1,
+			errorCode:                       "RESOURCE_EXHAUSTED",
+			enablePerWorkloadTableMetrics:   true,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Select.some-workload": 1}`,
+			expectedQueryTimes:              `{"A.Select.some-workload": 10}`,
+			expectedQueryRowsAffected:       `{}`,
+			expectedQueryRowsReturned:       `{"A.Select.some-workload": 0}`,
+			expectedQueryTextCharsProcessed: `{"A.Select.some-workload": 43}`,
+			expectedQueryRowCounts:          `{"A.Select.some-workload": 0}`,
+			expectedQueryErrorCounts:        `{"A.Select.some-workload": 1}`,
 		}, {
-			name:                          "insert query with per workload metrics",
-			planType:                      planbuilder.PlanInsert,
-			tableName:                     "A",
-			queryCount:                    1,
-			duration:                      10,
-			rowsAffected:                  15,
-			rowsReturned:                  0,
-			errorCount:                    0,
-			errorCode:                     "OK",
-			enablePerWorkloadTableMetrics: true,
-			workload:                      "some-workload",
-			expectedQueryCounts:           `{"A.Insert.some-workload": 1}`,
-			expectedQueryTimes:            `{"A.Insert.some-workload": 10}`,
-			expectedQueryRowsAffected:     `{"A.Insert.some-workload": 15}`,
-			expectedQueryRowsReturned:     `{}`,
-			expectedQueryRowCounts:        `{"A.Insert.some-workload": 15}`,
-			expectedQueryErrorCounts:      `{"A.Insert.some-workload": 0}`,
+			name:                            "insert query with per workload metrics",
+			plan:                            fakeInsertPlan,
+			tableName:                       "A",
+			queryCount:                      1,
+			duration:                        10,
+			rowsAffected:                    15,
+			rowsReturned:                    0,
+			errorCount:                      0,
+			errorCode:                       "OK",
+			enablePerWorkloadTableMetrics:   true,
+			workload:                        "some-workload",
+			expectedQueryCounts:             `{"A.Insert.some-workload": 1}`,
+			expectedQueryTimes:              `{"A.Insert.some-workload": 10}`,
+			expectedQueryRowsAffected:       `{"A.Insert.some-workload": 15}`,
+			expectedQueryRowsReturned:       `{}`,
+			expectedQueryTextCharsProcessed: `{"A.Insert.some-workload": 59}`,
+			expectedQueryRowCounts:          `{"A.Insert.some-workload": 15}`,
+			expectedQueryErrorCounts:        `{"A.Insert.some-workload": 0}`,
 		},
 	}
 
@@ -749,12 +770,13 @@ func TestAddQueryStats(t *testing.T) {
 			env := tabletenv.NewEnv(config, "TestAddQueryStats_"+testcase.name)
 			se := schema.NewEngine(env)
 			qe := NewQueryEngine(env, se)
-			qe.AddStats(testcase.planType, testcase.tableName, testcase.workload, testcase.queryCount, testcase.duration, testcase.mysqlTime, testcase.rowsAffected, testcase.rowsReturned, testcase.errorCount)
+			qe.AddStats(testcase.plan, testcase.tableName, testcase.workload, testcase.queryCount, testcase.duration, testcase.mysqlTime, testcase.rowsAffected, testcase.rowsReturned, testcase.errorCount)
 			assert.Equal(t, testcase.expectedQueryCounts, qe.queryCounts.String())
 			assert.Equal(t, testcase.expectedQueryTimes, qe.queryTimes.String())
 			assert.Equal(t, testcase.expectedQueryRowsAffected, qe.queryRowsAffected.String())
 			assert.Equal(t, testcase.expectedQueryRowsReturned, qe.queryRowsReturned.String())
 			assert.Equal(t, testcase.expectedQueryRowCounts, qe.queryRowCounts.String())
+			assert.Equal(t, testcase.expectedQueryTextCharsProcessed, qe.queryTextCharsProcessed.String())
 			assert.Equal(t, testcase.expectedQueryErrorCounts, qe.queryErrorCounts.String())
 		})
 	}
