@@ -726,12 +726,25 @@ func (tm *TabletManager) setReplicationSourceSemiSyncNoAction(ctx context.Contex
 	return tm.setReplicationSourceLocked(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, SemiSyncActionNone)
 }
 
-func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync SemiSyncAction) (err error) {
-	tm._isSetReplicationSourceLockedRunning = true
+// isSetReplicationSourceLockedRunning returns true if setReplicationSourceLocked is running.
+// A mutex is needed because _isSetReplicationSourceLockedRunning is accessed concurrently.
+func (tm *TabletManager) isSetReplicationSourceLockedRunning() bool {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+	return tm._isSetReplicationSourceLockedRunning
+}
 
-	defer func() {
-		tm._isSetReplicationSourceLockedRunning = false
-	}()
+// setIsSetReplicationSourceLockedRunning sets _isSetReplicationSourceLockedRunning under a lock.
+// A mutex is needed because _isSetReplicationSourceLockedRunning is accessed concurrently.
+func (tm *TabletManager) setIsSetReplicationSourceLockedRunning(running bool) {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+	tm._isSetReplicationSourceLockedRunning = running
+}
+
+func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync SemiSyncAction) (err error) {
+	tm.setIsSetReplicationSourceLockedRunning(true)
+	defer tm.setIsSetReplicationSourceLockedRunning(false)
 
 	// End orchestrator maintenance at the end of fixing replication.
 	// This is a best effort operation, so it should happen in a goroutine
@@ -1129,7 +1142,7 @@ func (tm *TabletManager) handleRelayLogError(err error) error {
 // repairReplication tries to connect this server to whoever is
 // the current primary of the shard, and start replicating.
 func (tm *TabletManager) repairReplication(ctx context.Context) error {
-	if tm._isSetReplicationSourceLockedRunning {
+	if tm.isSetReplicationSourceLockedRunning() {
 		// we are actively setting replication source,
 		// repairReplication will block due to higher
 		// authority holding a shard lock (PRS on vtctld)
