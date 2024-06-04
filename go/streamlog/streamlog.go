@@ -20,7 +20,7 @@ package streamlog
 import (
 	"fmt"
 	"io"
-	rand "math/rand/v2"
+	rand "math/rand"
 	"net/http"
 	"net/url"
 	"os"
