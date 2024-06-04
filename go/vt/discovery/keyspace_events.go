@@ -23,14 +23,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"vitess.io/vitess/go/vt/key"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/proto/query"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/srvtopo"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
-
-	querypb "vitess.io/vitess/go/vt/proto/query"
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 // KeyspaceEventWatcher is an auxiliary watcher that watches all availability incidents
@@ -67,7 +65,7 @@ type KeyspaceEvent struct {
 
 type ShardEvent struct {
 	Tablet  *topodatapb.TabletAlias
-	Target  *querypb.Target
+	Target  *query.Target
 	Serving bool
 }
 
@@ -126,27 +124,17 @@ func (kss *keyspaceState) beingResharded(currentShard string) bool {
 	kss.mu.Lock()
 	defer kss.mu.Unlock()
 
-	// If the keyspace is gone, has no known availability events, or is in the middle of a
-	// MoveTables then the keyspace cannot be in the middle of a resharding operation.
+	// if the keyspace is gone, or if it has no known availability events, the keyspace
+	// cannot be in the middle of a resharding operation
 	if kss.deleted || kss.consistent {
 		return false
 	}
 
-	// If there are unequal and overlapping shards in the keyspace and any of them are
-	// currently serving then we assume that we are in the middle of a Reshard.
-	_, ckr, err := topo.ValidateShardName(currentShard)
-	if err != nil || ckr == nil { // Assume not and avoid potential panic
-		return false
-	}
+	// for all the known shards, try to find a primary shard besides the one we're trying to access
+	// and which is currently healthy. if there are other healthy primaries in the keyspace, it means
+	// we're in the middle of a resharding operation
 	for shard, sstate := range kss.shards {
-		if !sstate.serving || shard == currentShard {
-			continue
-		}
-		_, skr, err := topo.ValidateShardName(shard)
-		if err != nil || skr == nil { // Assume not and avoid potential panic
-			return false
-		}
-		if key.KeyRangesIntersect(ckr, skr) {
+		if shard != currentShard && sstate.serving {
 			return true
 		}
 	}
@@ -155,7 +143,7 @@ func (kss *keyspaceState) beingResharded(currentShard string) bool {
 }
 
 type shardState struct {
-	target               *querypb.Target
+	target               *query.Target
 	serving              bool
 	externallyReparented int64
 	currentPrimary       *topodatapb.TabletAlias
@@ -438,7 +426,7 @@ func (kew *KeyspaceEventWatcher) getKeyspaceStatus(keyspace string) *keyspaceSta
 // This is not a fully accurate heuristic, but it's good enough that we'd want to buffer the
 // request for the given target under the assumption that the reason why it cannot be completed
 // right now is transitory.
-func (kew *KeyspaceEventWatcher) TargetIsBeingResharded(target *querypb.Target) bool {
+func (kew *KeyspaceEventWatcher) TargetIsBeingResharded(target *query.Target) bool {
 	if target.TabletType != topodatapb.TabletType_PRIMARY {
 		return false
 	}
@@ -458,7 +446,7 @@ func (kew *KeyspaceEventWatcher) TargetIsBeingResharded(target *querypb.Target) 
 // The shard state keeps track of the current primary and the last externally reparented time, which we can use
 // to determine that there was a serving primary which now became non serving. This is only possible in a DemotePrimary
 // RPC which are only called from ERS and PRS. So buffering will stop when these operations succeed.
-func (kew *KeyspaceEventWatcher) PrimaryIsNotServing(target *querypb.Target) bool {
+func (kew *KeyspaceEventWatcher) PrimaryIsNotServing(target *query.Target) bool {
 	if target.TabletType != topodatapb.TabletType_PRIMARY {
 		return false
 	}

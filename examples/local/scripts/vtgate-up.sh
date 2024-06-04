@@ -39,7 +39,6 @@ vtgate \
   --tablet_types_to_wait PRIMARY,REPLICA \
   --service_map 'grpc-vtgateservice' \
   --pid_file $VTDATAROOT/tmp/vtgate.pid \
-  --enable_buffer \
   --mysql_auth_server_impl none \
   > $VTDATAROOT/tmp/vtgate.out 2>&1 &
 
