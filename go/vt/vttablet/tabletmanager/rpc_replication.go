@@ -734,17 +734,17 @@ func (tm *TabletManager) isSetReplicationSourceLockedRunning() bool {
 	return tm._isSetReplicationSourceLockedRunning
 }
 
-// setIsSetReplicationSourceLockedRunning sets _isSetReplicationSourceLockedRunning under a lock.
+// setReplicationSourceLockedRunning sets _isSetReplicationSourceLockedRunning under a lock.
 // A mutex is needed because _isSetReplicationSourceLockedRunning is accessed concurrently.
-func (tm *TabletManager) setIsSetReplicationSourceLockedRunning(running bool) {
+func (tm *TabletManager) setReplicationSourceLockedRunning(running bool) {
 	tm.mutex.Lock()
 	defer tm.mutex.Unlock()
 	tm._isSetReplicationSourceLockedRunning = running
 }
 
 func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool, semiSync SemiSyncAction) (err error) {
-	tm.setIsSetReplicationSourceLockedRunning(true)
-	defer tm.setIsSetReplicationSourceLockedRunning(false)
+	tm.setReplicationSourceLockedRunning(true)
+	defer tm.setReplicationSourceLockedRunning(false)
 
 	// End orchestrator maintenance at the end of fixing replication.
 	// This is a best effort operation, so it should happen in a goroutine
