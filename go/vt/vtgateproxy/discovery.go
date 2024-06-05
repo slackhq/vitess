@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 
 	"vitess.io/vitess/go/stats"
@@ -56,6 +57,8 @@ import (
 // az_id: Filter to just hosts in this az (optional)
 // type: Only select from hosts of this type (required)
 //
+
+const PoolTypeAttr = "PoolType"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type JSONGateResolver struct {
@@ -385,7 +388,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 
 	var addrs []resolver.Address
 	for _, target := range targets {
-		addrs = append(addrs, resolver.Address{Addr: target.Addr})
+		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attributes.New(PoolTypeAttr, r.poolType)})
 	}
 
 	log.V(100).Infof("updated targets for %s to %v", r.target.URL.String(), targets)
