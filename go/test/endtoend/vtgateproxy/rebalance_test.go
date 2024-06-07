@@ -15,7 +15,7 @@ limitations under the License.
 
 This tests select/insert using the unshared keyspace added in main_test
 */
-package vtgateproxytest
+package vtgateproxy
 
 import (
 	"context"
