@@ -186,7 +186,6 @@ type TabletManagerClient struct {
 	}
 	// keyed by tablet alias.
 	ChangeTabletTypeResult map[string]error
-	ChangeTabletTypeDelays map[string]time.Duration
 	// keyed by tablet alias.
 	DemotePrimaryDelays map[string]time.Duration
 	// keyed by tablet alias.
@@ -446,20 +445,7 @@ func (fake *TabletManagerClient) Backup(ctx context.Context, tablet *topodatapb.
 
 // ChangeType is part of the tmclient.TabletManagerClient interface.
 func (fake *TabletManagerClient) ChangeType(ctx context.Context, tablet *topodatapb.Tablet, newType topodatapb.TabletType, semiSync bool) error {
-	key := topoproto.TabletAliasString(tablet.Alias)
-
-	if fake.ChangeTabletTypeDelays != nil {
-		if delay, ok := fake.ChangeTabletTypeDelays[key]; ok {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-				// proceed to results
-			}
-		}
-	}
-
-	if result, ok := fake.ChangeTabletTypeResult[key]; ok {
+	if result, ok := fake.ChangeTabletTypeResult[topoproto.TabletAliasString(tablet.Alias)]; ok {
 		return result
 	}
 
