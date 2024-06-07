@@ -317,7 +317,9 @@ func setReadOnly(ctx context.Context, tablet *topodatapb.Tablet) error {
 
 // setReplicationSource calls the said RPC with the parameters provided
 func setReplicationSource(ctx context.Context, replica *topodatapb.Tablet, primary *topodatapb.Tablet, semiSync bool) error {
-	return tmc.SetReplicationSource(ctx, replica, primary.Alias, 0, "", true, semiSync)
+	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	defer tmcCancel()
+	return tmc.SetReplicationSource(tmcCtx, replica, primary.Alias, 0, "", true, semiSync)
 }
 
 // shardPrimary finds the primary of the given keyspace-shard by reading the vtorc backend
