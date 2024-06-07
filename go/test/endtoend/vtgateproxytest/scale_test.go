@@ -122,8 +122,8 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 	}
 	defer conn.Close()
 
-	if err := conn.Ping(); err != nil {
-		t.Fatal(err)
+	if err := conn.Ping(); err == nil {
+		t.Fatal("no vtgates in the pool, ping should have failed")
 	}
 
 	log.Info("Reading test value while scaling vtgates")
