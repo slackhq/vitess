@@ -271,13 +271,13 @@ func (ph *proxyHandler) ComPrepare(c *mysql.Conn, query string, bindVars map[str
 	if !session.SessionPb().InTransaction {
 		atomic.AddInt32(&busyConnections, 1)
 	}
-	defer func() {
+	defer func(session *vtgateconn.VTGateSession) {
 		if !session.SessionPb().InTransaction {
 			atomic.AddInt32(&busyConnections, -1)
 		}
-	}()
+	}(session)
 
-	session, fld, err := ph.proxy.Prepare(ctx, session, query, bindVars)
+	_, fld, err := ph.proxy.Prepare(ctx, session, query, bindVars)
 	err = mysql.NewSQLErrorFromError(err)
 	if err != nil {
 		return nil, err
