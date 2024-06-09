@@ -48,7 +48,7 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 	const targetAffinity = "use1-az1"
 	const targetPool = "pool1"
 	const vtgateCount = 10
-	const vtgatesInAffinity = 8
+	const vtgatesInAffinity = 5
 	const vtgateproxyConnections = 4
 
 	vtgates, err := startAdditionalVtgates(vtgateCount)
@@ -109,20 +109,6 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 	defer conn.Close()
 
 	if err := conn.Ping(); err != nil {
-		t.Fatal(err)
-	}
-
-	log.Info("Inserting test value")
-	tx, err := conn.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = tx.Exec("insert into customer(id, email) values(1, 'email1')")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
