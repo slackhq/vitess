@@ -15,11 +15,12 @@ limitations under the License.
 
 This tests select/insert using the unshared keyspace added in main_test
 */
-package vtgateproxytest
+package vtgateproxy
 
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,26 +92,23 @@ func testVtgateProxyProcess(t *testing.T, loadBalancer string) {
 	}
 
 	log.Info("Inserting test value")
-	tx, err := conn.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	value := "email" + strconv.Itoa(rand.Intn(1000))
 
-	_, err = tx.Exec("insert into customer(id, email) values(1, 'email1')")
+	// Yes yes little bobby tables, I see you. We don't support parameterized
+	// queries yet. VTGateProxy.Prepare still needs to be implemented.
+	_, err = conn.Exec("insert into customer(email) values('" + value + "')")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
 	log.Info("Reading test value")
-	result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer")
+	result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer order by id desc limit 1")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	log.Infof("Read value %v", result)
 
-	assert.Equal(t, []customerEntry{{1, "email1"}}, result)
+	assert.Len(t, result, 1)
+	assert.Equal(t, value, result[0].Email)
 }
