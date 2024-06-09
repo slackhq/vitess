@@ -29,25 +29,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 
-	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/test/endtoend/cluster"
-	"vitess.io/vitess/go/test/endtoend/utils"
 	"vitess.io/vitess/go/vt/log"
 )
 
 func TestVtgateProxyVtgateFailureRoundRobin(t *testing.T) {
 	defer cluster.PanicHandler(t)
-
-	// insert test value
-	func() {
-		conn, err := mysql.Connect(context.Background(), &vtParams)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer conn.Close()
-
-		utils.Exec(t, conn, "insert into customer(id, email) values(1, 'email1')")
-	}()
 
 	const targetAffinity = "use1-az1"
 	const vtgateCount = 4
@@ -128,17 +115,6 @@ func TestVtgateProxyVtgateFailureRoundRobin(t *testing.T) {
 
 func TestVtgateProxyVtgateFailureFirstReady(t *testing.T) {
 	defer cluster.PanicHandler(t)
-
-	// insert test value
-	func() {
-		conn, err := mysql.Connect(context.Background(), &vtParams)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer conn.Close()
-
-		utils.Exec(t, conn, "insert into customer(id, email) values(1, 'email1')")
-	}()
 
 	const targetAffinity = "use1-az1"
 	const vtgateCount = 4

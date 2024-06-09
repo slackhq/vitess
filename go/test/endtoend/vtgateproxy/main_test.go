@@ -65,12 +65,12 @@ var (
 		) ENGINE=InnoDB;`
 
 	vSchema = `{
-					"tables": {
-						"product": {},
-						"customer": {},
-						"corder": {}
-					}
-				}`
+		"tables": {
+			"product": {},
+			"customer": {},
+			"corder": {}
+		}
+	}`
 )
 
 func TestMain(m *testing.M) {
@@ -107,6 +107,9 @@ func TestMain(m *testing.M) {
 			Host: clusterInstance.Hostname,
 			Port: clusterInstance.VtgateMySQLPort,
 		}
+
+		insertStartValue(vtParams)
+
 		return m.Run()
 	}()
 	os.Exit(exitCode)
@@ -458,4 +461,17 @@ func (q queryCount) Sum() int {
 	}
 
 	return result
+}
+
+func insertStartValue(params mysql.ConnParams) {
+	conn, err := mysql.Connect(context.Background(), &params)
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	_, err = conn.ExecuteFetch("insert into customer(id, email) values(1, 'email1')", 1000, true)
+	if err != nil {
+		panic(err)
+	}
 }
