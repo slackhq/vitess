@@ -19,7 +19,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -30,12 +29,17 @@ import (
 	"vitess.io/vitess/go/test/utils"
 )
 
+type TestingT interface {
+	require.TestingT
+	Helper()
+}
+
 type MySQLCompare struct {
-	t                 *testing.T
+	t                 TestingT
 	MySQLConn, VtConn *mysql.Conn
 }
 
-func NewMySQLCompare(t *testing.T, vtParams, mysqlParams mysql.ConnParams) (MySQLCompare, error) {
+func NewMySQLCompare(t TestingT, vtParams, mysqlParams mysql.ConnParams) (MySQLCompare, error) {
 	ctx := context.Background()
 	vtConn, err := mysql.Connect(ctx, &vtParams)
 	if err != nil {
