@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"testing"
 
 	"github.com/stretchr/testify/assert"
 
@@ -132,7 +131,7 @@ func prepareMySQLWithSchema(params mysql.ConnParams, sql string) error {
 	return nil
 }
 
-func compareVitessAndMySQLResults(t *testing.T, query string, vtQr, mysqlQr *sqltypes.Result, compareColumns bool) {
+func compareVitessAndMySQLResults(t TestingT, query string, vtQr, mysqlQr *sqltypes.Result, compareColumns bool) {
 	if vtQr == nil && mysqlQr == nil {
 		return
 	}
@@ -188,7 +187,7 @@ func compareVitessAndMySQLResults(t *testing.T, query string, vtQr, mysqlQr *sql
 	t.Error(errStr)
 }
 
-func compareVitessAndMySQLErrors(t *testing.T, vtErr, mysqlErr error) {
+func compareVitessAndMySQLErrors(t TestingT, vtErr, mysqlErr error) {
 	if vtErr != nil && mysqlErr != nil || vtErr == nil && mysqlErr == nil {
 		return
 	}
