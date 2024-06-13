@@ -2656,8 +2656,7 @@ func (node *Count) Format(buf *TrackedBuffer) {
 }
 
 func (node *CountStar) Format(buf *TrackedBuffer) {
-	buf.astPrintf(node, "%s(", node.AggrName())
-	buf.WriteString("*)")
+	buf.astPrintf(node, "%s(*)", node.Name)
 }
 
 func (node *Avg) Format(buf *TrackedBuffer) {

@@ -5294,8 +5294,8 @@ func TestOne(t *testing.T) {
 	testOne := struct {
 		input, output string
 	}{
-		input:  "",
-		output: "",
+		input:  "Select Count(*) from t",
+		output: "select Count(*) from t",
 	}
 	if testOne.input == "" {
 		return

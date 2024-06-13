@@ -2073,7 +2073,7 @@ func EqualsRefOfCountStar(a, b *CountStar) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return true
+	return a.Name == b.Name
 }
 
 // EqualsRefOfCreateDatabase does deep equals between the two objects.

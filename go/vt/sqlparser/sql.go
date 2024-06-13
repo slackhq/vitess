@@ -17102,7 +17102,7 @@ yydefault:
 		var yyLOCAL Expr
 //line sql.y:5757
 		{
-			yyLOCAL = &CountStar{}
+			yyLOCAL = &CountStar{Name: yyDollar[1].str}
 		}
 		yyVAL.union = yyLOCAL
 	case 1116:

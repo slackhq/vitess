@@ -3482,9 +3482,8 @@ func (node *Count) formatFast(buf *TrackedBuffer) {
 }
 
 func (node *CountStar) formatFast(buf *TrackedBuffer) {
-	buf.WriteString(node.AggrName())
-	buf.WriteByte('(')
-	buf.WriteString("*)")
+	buf.WriteString(node.Name)
+	buf.WriteString("(*)")
 }
 
 func (node *Avg) formatFast(buf *TrackedBuffer) {

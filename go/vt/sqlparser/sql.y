@@ -5755,7 +5755,7 @@ UTC_DATE func_paren_opt
   }
 | COUNT openb '*' closeb
   {
-    $$ = &CountStar{}
+    $$ = &CountStar{Name: $1}
   }
 | COUNT openb distinct_opt expression_list closeb
   {
