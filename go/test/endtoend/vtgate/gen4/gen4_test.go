@@ -495,3 +495,15 @@ func TestFilterOnLeftOuterJoin(t *testing.T) {
 
 	mcmp.AssertMatches(query, "[[INT32(22)] [INT32(33)]]")
 }
+
+func BenchmarkCountStar(b *testing.B) {
+	mcmp, closer := start(b)
+	defer closer()
+
+	// insert some data.
+	mcmp.Exec(`insert into t2(id, tcol1, tcol2) values (1, 'A%B', 'A%B'),(2, 'C_D', 'E'),(3, 'AB', 'C1D'),(4, 'E', 'A%B'),(5, 'A%B', 'AB'),(6, 'C1D', 'E'),(7, 'C_D', 'A%B'),(8, 'E', 'C_D')`)
+
+	for i := 0; i < b.N; i++ {
+		mcmp.Exec(`select Count(*) from t2`)
+	}
+}
