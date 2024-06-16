@@ -19,6 +19,7 @@ package discovery
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -62,6 +63,75 @@ func init() {
 	tabletconntest.SetProtocol("go.vt.discovery.healthcheck_test", "fake_gateway")
 	connMap = make(map[string]*fakeConn)
 	refreshInterval = time.Minute
+}
+
+func TestNewVTGateHealthCheckFilters(t *testing.T) {
+	defer func() {
+		KeyspacesToWatch = nil
+		tabletFilters = nil
+		tabletFilterTags = nil
+	}()
+
+	testCases := []struct {
+		name                string
+		keyspacesToWatch    []string
+		tabletFilters       []string
+		tabletFilterTags    map[string]string
+		expectedError       error
+		expectedFilterTypes []any
+	}{
+		{
+			name: "noFilters",
+		},
+		{
+			name:                "tabletFilters",
+			tabletFilters:       []string{"ks1|-80"},
+			expectedFilterTypes: []any{&FilterByShard{}},
+		},
+		{
+			name:                "keyspacesToWatch",
+			keyspacesToWatch:    []string{"ks1"},
+			expectedFilterTypes: []any{&FilterByKeyspace{}},
+		},
+		{
+			name:                "tabletFiltersAndTags",
+			tabletFilters:       []string{"ks1|-80"},
+			tabletFilterTags:    map[string]string{"test": "true"},
+			expectedFilterTypes: []any{&FilterByShard{}, &FilterByTabletTags{}},
+		},
+		{
+			name:                "keyspacesToWatchAndTags",
+			tabletFilterTags:    map[string]string{"test": "true"},
+			keyspacesToWatch:    []string{"ks1"},
+			expectedFilterTypes: []any{&FilterByKeyspace{}, &FilterByTabletTags{}},
+		},
+		{
+			name:             "failKeyspacesToWatchAndFilters",
+			tabletFilters:    []string{"ks1|-80"},
+			keyspacesToWatch: []string{"ks1"},
+			expectedError:    errKeyspacesToWatchAndTabletFilters,
+		},
+		{
+			name:          "failInvalidTabletFilters",
+			tabletFilters: []string{"shouldfail!@#!#"},
+			expectedError: errors.New("Cannot parse tablet_filters parameter: invalid FilterByShard parameter: shouldfail!@#!#"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			KeyspacesToWatch = testCase.keyspacesToWatch
+			tabletFilters = testCase.tabletFilters
+			tabletFilterTags = testCase.tabletFilterTags
+
+			filters, err := NewVTGateHealthCheckFilters()
+			assert.Equal(t, testCase.expectedError, err)
+			assert.Len(t, filters, len(testCase.expectedFilterTypes))
+			for i, filter := range filters {
+				assert.IsType(t, testCase.expectedFilterTypes[i], filter)
+			}
+		})
+	}
 }
 
 func TestHealthCheck(t *testing.T) {
@@ -943,7 +1013,7 @@ func TestGetHealthyTablets(t *testing.T) {
 
 func TestPrimaryInOtherCell(t *testing.T) {
 	ts := memorytopo.NewServer("cell1", "cell2")
-	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2")
+	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2", nil)
 	defer hc.Close()
 
 	// add a tablet as primary in different cell
@@ -1000,7 +1070,7 @@ func TestPrimaryInOtherCell(t *testing.T) {
 
 func TestReplicaInOtherCell(t *testing.T) {
 	ts := memorytopo.NewServer("cell1", "cell2")
-	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2")
+	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2", nil)
 	defer hc.Close()
 
 	// add a tablet as replica
@@ -1102,7 +1172,7 @@ func TestReplicaInOtherCell(t *testing.T) {
 
 func TestCellAliases(t *testing.T) {
 	ts := memorytopo.NewServer("cell1", "cell2")
-	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2")
+	hc := NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell1", "cell1, cell2", nil)
 	defer hc.Close()
 
 	cellsAlias := &topodatapb.CellsAlias{
@@ -1248,7 +1318,7 @@ func tabletDialer(tablet *topodatapb.Tablet, _ grpcclient.FailFast) (queryservic
 }
 
 func createTestHc(ts *topo.Server) *HealthCheckImpl {
-	return NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell", "")
+	return NewHealthCheck(context.Background(), 1*time.Millisecond, time.Hour, ts, "cell", "", nil)
 }
 
 type fakeConn struct {
