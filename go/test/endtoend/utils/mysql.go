@@ -136,11 +136,11 @@ func compareVitessAndMySQLResults(t TestingT, query string, vtQr, mysqlQr *sqlty
 		return
 	}
 	if vtQr == nil {
-		t.Error("Vitess result is 'nil' while MySQL's is not.")
+		t.Errorf("Vitess result is 'nil' while MySQL's is not.")
 		return
 	}
 	if mysqlQr == nil {
-		t.Error("MySQL result is 'nil' while Vitess' is not.")
+		t.Errorf("MySQL result is 'nil' while Vitess' is not.")
 		return
 	}
 	if compareColumns {
@@ -162,7 +162,7 @@ func compareVitessAndMySQLResults(t TestingT, query string, vtQr, mysqlQr *sqlty
 	}
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
-		t.Error(err)
+		t.Errorf(err.Error())
 		return
 	}
 	orderBy := false
