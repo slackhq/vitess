@@ -122,7 +122,7 @@ func TestSelectDBA(t *testing.T) {
 		query, map[string]*querypb.BindVariable{},
 	)
 	require.NoError(t, err)
-	wantQueries = []*querypb.BoundQuery{{Sql: "select count(*) from INFORMATION_SCHEMA.`TABLES` as ist where ist.table_schema = :__vtschemaname and ist.table_name = :ist_table_name",
+	wantQueries = []*querypb.BoundQuery{{Sql: "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` as ist where ist.table_schema = :__vtschemaname and ist.table_name = :ist_table_name",
 		BindVariables: map[string]*querypb.BindVariable{
 			"__vtschemaname": sqltypes.StringBindVariable("performance_schema"),
 			"ist_table_name": sqltypes.StringBindVariable("foo"),
@@ -475,7 +475,7 @@ func TestGen4SelectDBA(t *testing.T) {
 		query, map[string]*querypb.BindVariable{},
 	)
 	require.NoError(t, err)
-	wantQueries = []*querypb.BoundQuery{{Sql: "select count(*) from INFORMATION_SCHEMA.`TABLES` as ist where ist.table_schema = :__vtschemaname and ist.table_name = :ist_table_name",
+	wantQueries = []*querypb.BoundQuery{{Sql: "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` as ist where ist.table_schema = :__vtschemaname and ist.table_name = :ist_table_name",
 		BindVariables: map[string]*querypb.BindVariable{
 			"vtg1":           sqltypes.StringBindVariable("performance_schema"),
 			"vtg2":           sqltypes.StringBindVariable("foo"),
