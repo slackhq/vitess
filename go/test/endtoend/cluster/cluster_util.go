@@ -113,7 +113,7 @@ func VerifyRowsInTablet(t *testing.T, vttablet *Vttablet, ksName string, expecte
 }
 
 // PanicHandler handles the panic in the testcase.
-func PanicHandler(t *testing.T) {
+func PanicHandler(t testing.TB) {
 	err := recover()
 	if t == nil {
 		return
