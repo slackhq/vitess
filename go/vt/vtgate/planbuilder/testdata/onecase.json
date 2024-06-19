@@ -2,7 +2,8 @@
   {
     "comment": "Add your test case here for debugging and run go test -run=One.",
     "query": "select Count(*) from user join user_extra where user.intcol + user_extra.incol < 5 limit 5",
-    "plan": {
+    "v3-plan": "table user not found",
+    "gen4-plan": {
       "QueryType": "SELECT",
       "Original": "select Count(*) from user join user_extra where user.intcol + user_extra.incol < 5 limit 5",
       "Instructions": {

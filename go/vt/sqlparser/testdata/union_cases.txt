@@ -338,7 +338,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1) UNION ALL SELECT a FROM t1;
 END
 OUTPUT
-(select a from t1 order by count(*) asc limit 1) union all select a from t1
+(select a from t1 order by COUNT(*) asc limit 1) union all select a from t1
 END
 INPUT
 SELECT ST_AsText(ST_Union(ST_GEOMFROMTEXT(        'GEOMETRYCOLLECTION(POLYGON((0 0, 3 0, 3 3, 0 3, 0 0)),                            LINESTRING(3 1, 4 1))'),                           ST_GEOMFROMTEXT('GEOMETRYCOLLECTION()'))) as result;
@@ -452,7 +452,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*)) UNION ALL SELECT a FROM t1;
 END
 OUTPUT
-(select a from t1 order by count(*) asc) union all select a from t1
+(select a from t1 order by COUNT(*) asc) union all select a from t1
 END
 INPUT
 (SELECT * FROM t1 LIMIT 5 OFFSET 4) UNION ALL (SELECT * FROM t2 LIMIT 4 OFFSET 2) LIMIT 7 OFFSET 1;
@@ -524,7 +524,7 @@ INPUT
 SELECT a FROM t1 UNION (SELECT a FROM t1 ORDER BY COUNT(*));
 END
 OUTPUT
-select a from t1 union (select a from t1 order by count(*) asc)
+select a from t1 union (select a from t1 order by COUNT(*) asc)
 END
 INPUT
 select min(`col002`) from t1 union select `col002` from t1;
@@ -746,7 +746,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1) UNION SELECT a FROM t1;
 END
 OUTPUT
-(select a from t1 order by count(*) asc limit 1) union select a from t1
+(select a from t1 order by COUNT(*) asc limit 1) union select a from t1
 END
 INPUT
 select * from t1 union select * from t2 order by 1 limit 1;
@@ -794,7 +794,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*)) UNION SELECT a FROM t1;
 END
 OUTPUT
-(select a from t1 order by count(*) asc) union select a from t1
+(select a from t1 order by COUNT(*) asc) union select a from t1
 END
 INPUT
 select 1 union select 1;
@@ -836,7 +836,7 @@ INPUT
 SELECT a FROM t1 UNION (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1 OFFSET 1);
 END
 OUTPUT
-select a from t1 union (select a from t1 order by count(*) asc limit 1, 1)
+select a from t1 union (select a from t1 order by COUNT(*) asc limit 1, 1)
 END
 INPUT
 (SELECT * FROM t1 LIMIT 5) UNION SELECT * FROM t2 LIMIT 8;
@@ -908,7 +908,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1) UNION (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1 OFFSET 1);
 END
 OUTPUT
-(select a from t1 order by count(*) asc limit 1) union (select a from t1 order by count(*) asc limit 1, 1)
+(select a from t1 order by COUNT(*) asc limit 1) union (select a from t1 order by COUNT(*) asc limit 1, 1)
 END
 INPUT
 SELECT 2 as "my_col" UNION SELECT 1;
@@ -974,7 +974,7 @@ INPUT
 SELECT a FROM t1 UNION ALL (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1 OFFSET 1);
 END
 OUTPUT
-select a from t1 union all (select a from t1 order by count(*) asc limit 1, 1)
+select a from t1 union all (select a from t1 order by COUNT(*) asc limit 1, 1)
 END
 INPUT
 (SELECT p1 FROM v2 LEFT JOIN v1 ON b = a WHERE p2 = 1 GROUP BY p1 ORDER BY p1) UNION (SELECT NULL LIMIT 0);
@@ -1106,7 +1106,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1) UNION ALL (SELECT a FROM t1 ORDER BY COUNT(*) LIMIT 1 OFFSET 1);
 END
 OUTPUT
-(select a from t1 order by count(*) asc limit 1) union all (select a from t1 order by count(*) asc limit 1, 1)
+(select a from t1 order by COUNT(*) asc limit 1) union all (select a from t1 order by COUNT(*) asc limit 1, 1)
 END
 INPUT
 select 'a' union select concat('a', -(4 + 1));
@@ -1208,7 +1208,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*)) UNION ALL (SELECT a FROM t1 ORDER BY COUNT(*));
 END
 OUTPUT
-(select a from t1 order by count(*) asc) union all (select a from t1 order by count(*) asc)
+(select a from t1 order by COUNT(*) asc) union all (select a from t1 order by COUNT(*) asc)
 END
 INPUT
 select 1 as a union all select 1 union all select 2 union select 1 union all select 2;
@@ -1280,7 +1280,7 @@ INPUT
 SELECT a FROM t1 UNION ALL (SELECT a FROM t1 ORDER BY COUNT(*));
 END
 OUTPUT
-select a from t1 union all (select a from t1 order by count(*) asc)
+select a from t1 union all (select a from t1 order by COUNT(*) asc)
 END
 INPUT
 SELECT ST_ASTEXT(ST_UNION(ST_GEOMFROMTEXT('MULTIPOLYGON(((-7 -9,-3 7,0 -10,-6 5,10 10,-3 -4,7 9,2 -9)),((1 -10,-3 10,-2 5)))'),                           ST_GEOMFROMTEXT('POLYGON((6 10,-7 10,-1 -6,0 5,5 4,1 -9,1 3,-10 -7,-10 8))'))) as result;
@@ -1418,7 +1418,7 @@ INPUT
 (SELECT a FROM t1 ORDER BY COUNT(*)) UNION (SELECT a FROM t1 ORDER BY COUNT(*));
 END
 OUTPUT
-(select a from t1 order by count(*) asc) union (select a from t1 order by count(*) asc)
+(select a from t1 order by COUNT(*) asc) union (select a from t1 order by COUNT(*) asc)
 END
 INPUT
 SELECT GROUP_CONCAT(t.c) as c FROM t1 t UNION SELECT '' as c;

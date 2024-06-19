@@ -2438,7 +2438,7 @@ INPUT
 select Case When Count(*) < MAX_REQ Then 1 Else 0 End from t1 where t1.USR_ID = 1 group by MAX_REQ;
 END
 OUTPUT
-select case when count(*) < MAX_REQ then 1 else 0 end from t1 where t1.USR_ID = 1 group by MAX_REQ
+select case when Count(*) < MAX_REQ then 1 else 0 end from t1 where t1.USR_ID = 1 group by MAX_REQ
 END
 INPUT
 select t1.*,t2.* from t1 inner join t2 using (a);
@@ -7220,7 +7220,7 @@ INPUT
 select userid,count(*) from t1 group by userid having 3 IN (1,COUNT(*)) order by userid desc;
 END
 OUTPUT
-select userid, count(*) from t1 group by userid having 3 in (1, count(*)) order by userid desc
+select userid, count(*) from t1 group by userid having 3 in (1, COUNT(*)) order by userid desc
 END
 INPUT
 select count(distinct t) from t1;
