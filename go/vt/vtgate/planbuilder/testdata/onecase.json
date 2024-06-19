@@ -36,8 +36,8 @@
                           "Name": "user",
                           "Sharded": true
                         },
-                        "FieldQuery": "select count(*), `user`.intcol from `user` where 1 != 1 group by `user`.intcol",
-                        "Query": "select count(*), `user`.intcol from `user` group by `user`.intcol",
+                        "FieldQuery": "select `user`.intcol, Count(*) from `user` where 1 != 1 group by `user`.intcol",
+                        "Query": "select `user`.intcol, Count(*) from `user` group by `user`.intcol",
                         "Table": "`user`"
                       },
                       {
@@ -47,8 +47,8 @@
                           "Name": "user",
                           "Sharded": true
                         },
-                        "FieldQuery": "select count(*) from user_extra where 1 != 1 group by .0",
-                        "Query": "select count(*) from user_extra where :user_intcol + user_extra.incol < 5 group by .0",
+                        "FieldQuery": "select 1, Count(*) from user_extra where 1 != 1 group by .0",
+                        "Query": "select 1, Count(*) from user_extra where :user_intcol + user_extra.incol < 5 group by .0",
                         "Table": "user_extra"
                       }
                     ]

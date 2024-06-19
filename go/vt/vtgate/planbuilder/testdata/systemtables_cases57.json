@@ -914,8 +914,8 @@
           "Name": "main",
           "Sharded": false
         },
-        "FieldQuery": "select count(*) from INFORMATION_SCHEMA.`TABLES` where 1 != 1",
-        "Query": "select count(*) from INFORMATION_SCHEMA.`TABLES` where table_schema = :__vtschemaname and table_name = :table_name",
+        "FieldQuery": "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` where 1 != 1",
+        "Query": "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` where table_schema = :__vtschemaname and table_name = :table_name",
         "SysTableTableName": "[table_name:VARCHAR(\"foo\")]",
         "SysTableTableSchema": "[VARCHAR(\"performance_schema\")]",
         "Table": "INFORMATION_SCHEMA.`TABLES`"
@@ -931,8 +931,8 @@
           "Name": "main",
           "Sharded": false
         },
-        "FieldQuery": "select count(*) from INFORMATION_SCHEMA.`TABLES` where 1 != 1",
-        "Query": "select count(*) from INFORMATION_SCHEMA.`TABLES` where table_schema = :__vtschemaname and table_name = :table_name",
+        "FieldQuery": "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` where 1 != 1",
+        "Query": "select COUNT(*) from INFORMATION_SCHEMA.`TABLES` where table_schema = :__vtschemaname and table_name = :table_name",
         "SysTableTableName": "[table_name:VARCHAR(\"foo\")]",
         "SysTableTableSchema": "[VARCHAR(\"performance_schema\")]",
         "Table": "INFORMATION_SCHEMA.`TABLES`"
