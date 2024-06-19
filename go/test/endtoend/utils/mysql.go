@@ -184,7 +184,7 @@ func compareVitessAndMySQLResults(t TestingT, query string, vtQr, mysqlQr *sqlty
 	for _, row := range mysqlQr.Rows {
 		errStr += fmt.Sprintf("%s\n", row)
 	}
-	t.Error(errStr)
+	t.Errorf(errStr)
 }
 
 func compareVitessAndMySQLErrors(t TestingT, vtErr, mysqlErr error) {
