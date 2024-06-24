@@ -762,7 +762,7 @@ func terminatedRestore(t *testing.T) {
 func checkTabletType(t *testing.T, alias string, tabletType topodata.TabletType) {
 	// for loop for 15 seconds to check if tablet type is correct
 	for i := 0; i < 15; i++ {
-		output, err := localCluster.VtctldClientProcess.ExecuteCommandWithOutput("GetTablet", alias)
+		output, err := localCluster.VtctlclientProcess.ExecuteCommandWithOutput("GetTablet", alias)
 		require.Nil(t, err)
 		var tabletPB topodata.Tablet
 		err = json2.Unmarshal([]byte(output), &tabletPB)
