@@ -115,6 +115,17 @@ func (tm *TabletManager) Backup(ctx context.Context, logger logutil.Logger, req 
 			if err := tm.changeTypeLocked(bgCtx, originalType, DBActionNone, SemiSyncActionNone); err != nil {
 				l.Errorf("Failed to change tablet type from %v to %v, error: %v", topodatapb.TabletType_BACKUP, originalType, err)
 				return
+			} else {
+				// Tell Orchestrator we're no longer stopped on purpose.
+				// Do this in the background, as it's best-effort.
+				go func() {
+					if tm.orc == nil {
+						return
+					}
+					if err := tm.orc.EndMaintenance(tm.Tablet()); err != nil {
+						logger.Warningf("Orchestrator EndMaintenance failed: %v", err)
+					}
+				}()
 			}
 
 			// Find the correct primary tablet and set the replication source,
@@ -173,35 +184,6 @@ func (tm *TabletManager) Backup(ctx context.Context, logger logutil.Logger, req 
 	}
 
 	returnErr := mysqlctl.Backup(ctx, backupParams)
-
-	if engine.ShouldDrainForBackup() {
-		bgCtx := context.Background()
-		// Starting from here we won't be able to recover if we get stopped by a cancelled
-		// context. It is also possible that the context already timed out during the
-		// above call to Backup. Thus we use the background context to get through to the finish.
-
-		// Change our type back to the original value.
-		// Original type could be primary so pass in a real value for PrimaryTermStartTime
-		if err := tm.changeTypeLocked(bgCtx, originalType, DBActionNone, SemiSyncActionNone); err != nil {
-			// failure in changing the topology type is probably worse,
-			// so returning that (we logged the snapshot error anyway)
-			if returnErr != nil {
-				l.Errorf("mysql backup command returned error: %v", returnErr)
-			}
-			returnErr = err
-		} else {
-			// Tell Orchestrator we're no longer stopped on purpose.
-			// Do this in the background, as it's best-effort.
-			go func() {
-				if tm.orc == nil {
-					return
-				}
-				if err := tm.orc.EndMaintenance(tm.Tablet()); err != nil {
-					logger.Warningf("Orchestrator EndMaintenance failed: %v", err)
-				}
-			}()
-		}
-	}
 
 	return returnErr
 }
