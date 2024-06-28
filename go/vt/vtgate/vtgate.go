@@ -300,6 +300,7 @@ func Init(
 	})
 	rpcVTGate.registerDebugHealthHandler()
 	rpcVTGate.registerDebugEnvHandler()
+	rpcVTGate.registerDebugBalancerHandler()
 	err := initQueryLogger(rpcVTGate)
 	if err != nil {
 		log.Fatalf("error initializing query logger: %v", err)
@@ -366,6 +367,12 @@ func (vtg *VTGate) registerDebugHealthHandler() {
 			return
 		}
 		w.Write([]byte("ok"))
+	})
+}
+
+func (vtg *VTGate) registerDebugBalancerHandler() {
+	http.HandleFunc("/debug/balancer", func(w http.ResponseWriter, r *http.Request) {
+		vtg.Gateway().DebugBalancerHandler(w, r)
 	})
 }
 
