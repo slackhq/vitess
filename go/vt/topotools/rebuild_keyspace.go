@@ -78,9 +78,11 @@ func RebuildKeyspaceLocked(ctx context.Context, log logutil.Logger, ts *topo.Ser
 	//   value: topo.SrvKeyspace object being built
 	srvKeyspaceMap := make(map[string]*topodatapb.SrvKeyspace)
 	for _, cell := range cells {
-		srvKeyspace, err := ts.GetSrvKeyspace(ctx, cell, keyspace)
+		_ /*srvKeyspace*/, err := ts.GetSrvKeyspace(ctx, cell, keyspace)
 		switch {
 		case err == nil:
+			fmt.Println("Skipping");
+			/*
 			for _, partition := range srvKeyspace.GetPartitions() {
 				for _, shardTabletControl := range partition.GetShardTabletControls() {
 					if shardTabletControl.QueryServiceDisabled {
@@ -88,6 +90,7 @@ func RebuildKeyspaceLocked(ctx context.Context, log logutil.Logger, ts *topo.Ser
 					}
 				}
 			}
+			*/
 		case topo.IsErrType(err, topo.NoNode):
 			// NOOP
 		default:
