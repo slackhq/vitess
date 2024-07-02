@@ -12,7 +12,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.5.1
 	github.com/aquarapid/vaultlib v0.5.1
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
-	github.com/aws/aws-sdk-go v1.34.2
+	github.com/aws/aws-sdk-go v1.54.13
 	github.com/buger/jsonparser v1.1.1
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/codegangsta/inject v0.0.0-20150114235600-33e0aa1cb7c0 // indirect
