@@ -49,7 +49,11 @@ jobs:
       uses: actions/setup-go@v5
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.proto_changes == 'true'
       with:
-        go-version: 1.22.3
+<<<<<<< HEAD
+        go-version: 1.22.5
+=======
+        go-version: 1.22.5
+>>>>>>> c60a5ea6b3 ([release-19.0] Upgrade the Golang version to `go1.22.5` (#16322))
 
     - name: Setup Node
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.proto_changes == 'true'
