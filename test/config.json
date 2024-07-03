@@ -1235,6 +1235,15 @@
 			"Shard": "topo_connection_cache",
 			"RetryMax": 1,
 			"Tags": []
+		},
+		"vtgateproxy": {
+			"File": "unused.go",
+			"Args": ["vitess.io/vitess/go/test/endtoend/vtgateproxy"],
+			"Command": [],
+			"Manual": false,
+			"Shard": "vtgate_general_heavy",
+			"RetryMax": 1,
+			"Tags": []
 		}
 	}
 }
