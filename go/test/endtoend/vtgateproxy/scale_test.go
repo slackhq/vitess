@@ -60,6 +60,7 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 	vtgateHostsFile := filepath.Join(clusterInstance.TmpDirectory, "hosts")
 	var config []map[string]string
 
+	// Spin up vtgates
 	for i, vtgate := range vtgates {
 		pool := targetPool
 		if i == 0 {
@@ -76,14 +77,12 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 			"type":    pool,
 		})
 	}
-	b, err := json.Marshal(config[:1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(vtgateHostsFile, b, 0644); err != nil {
+
+	if err := writeConfig(t, vtgateHostsFile, config[:1], nil); err != nil {
 		t.Fatal(err)
 	}
 
+	// Spin up proxy
 	vtgateproxyHTTPPort := clusterInstance.GetAndReservePort()
 	vtgateproxyGrpcPort := clusterInstance.GetAndReservePort()
 	vtgateproxyMySQLPort := clusterInstance.GetAndReservePort()
@@ -113,25 +112,8 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 		t.Fatal("no vtgates in the pool, ping should have failed")
 	}
 
-	log.Info("Reading test value while scaling vtgates")
-
-	// Start with an empty list of vtgates, then scale up, then scale back to
-	// 0. We should expect to see immediate failure when there are no vtgates,
-	// then success at each scale, until we hit 0 vtgates again, at which point
-	// we should fail fast again.
-	i := 0
-	scaleUp := true
-	for {
-		t.Logf("writing config file with %v vtgates", i)
-		b, err = json.Marshal(config[:i])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(vtgateHostsFile, b, 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := vtgateproxyProcInstance.WaitForConfig(config[:i], 5*time.Second); err != nil {
+	testQuery := func(i int) {
+		if err := writeConfig(t, vtgateHostsFile, config[:i], vtgateproxyProcInstance); err != nil {
 			t.Fatal(err)
 		}
 
@@ -139,9 +121,10 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 		defer cancel()
 
 		result, err := selectHelper[customerEntry](ctx, conn, "select id, email from customer")
-		// 0 vtgates should fail
-		// First vtgate is in the wrong pool, so it should also fail
-		if i <= 1 {
+
+		switch i {
+		case 0:
+			// If there are 0 vtgates, expect a failure
 			if err == nil {
 				t.Fatal("query should have failed with no vtgates")
 			}
@@ -150,25 +133,54 @@ func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 			if loadBalancer == "first_ready" && errors.Is(err, context.DeadlineExceeded) {
 				t.Fatal("query timed out but it should have failed fast")
 			}
-		} else if err != nil {
-			t.Fatalf("%v vtgates were present, but the query still failed: %v", i, err)
-		} else {
-			assert.Equal(t, []customerEntry{{1, "email1"}}, result)
-		}
-
-		if scaleUp {
-			i++
-			if i >= len(config) {
-				scaleUp = false
-				i -= 2
+		case 1:
+			// If there is 1 vtgate, expect a failure since it's in the wrong pool
+			if err == nil {
+				t.Fatal("query should have failed with no vtgates in the pool")
 			}
 
-			continue
-		}
+			// In first_ready mode, we expect to fail fast and not time out.
+			if loadBalancer == "first_ready" && errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("query timed out but it should have failed fast")
+			}
+		default:
+			if err != nil {
+				t.Fatalf("%v vtgates were present, but the query still failed: %v", i, err)
+			}
 
-		i--
-		if i < 0 {
-			break
+			assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 		}
 	}
+
+	log.Info("Reading test value while scaling vtgates")
+
+	// Start with an empty list of vtgates, then scale up, then scale back to
+	// 0. We should expect to see immediate failure when there are no vtgates,
+	// then success at each scale, until we hit 0 vtgates again, at which point
+	// we should fail fast again.
+	for i := 0; i <= len(config); i++ {
+		testQuery(i)
+	}
+
+	for i := len(config) - 1; i >= 0; i-- {
+		testQuery(i)
+	}
+}
+
+func writeConfig(t *testing.T, target string, config []map[string]string, proc *VtgateProxyProcess) error {
+	t.Logf("writing config with %v vtgates", len(config))
+
+	b, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(target, b, 0644); err != nil {
+		return err
+	}
+
+	if proc != nil {
+		return proc.WaitForConfig(config, 5*time.Second)
+	}
+
+	return nil
 }
