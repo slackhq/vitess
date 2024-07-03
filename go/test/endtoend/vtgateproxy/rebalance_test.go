@@ -19,13 +19,10 @@ package vtgateproxy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
@@ -47,8 +44,7 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 
 	const targetAffinity = "use1-az1"
 	const targetPool = "pool1"
-	const vtgateCount = 10
-	const vtgatesInAffinity = 5
+	const vtgateCount = 5
 	const vtgateproxyConnections = 4
 
 	vtgates, err := startAdditionalVtgates(vtgateCount)
@@ -61,28 +57,20 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 	var config []map[string]string
 
 	for i, vtgate := range vtgates {
-		affinity := targetAffinity
-		if i >= vtgatesInAffinity {
-			affinity = "use1-az2"
-		}
 		config = append(config, map[string]string{
 			"host":    fmt.Sprintf("vtgate%v", i),
 			"address": clusterInstance.Hostname,
 			"grpc":    strconv.Itoa(vtgate.GrpcPort),
-			"az_id":   affinity,
+			"az_id":   targetAffinity,
 			"type":    targetPool,
 		})
 	}
 
-	vtgateIdx := vtgateproxyConnections
-	b, err := json.Marshal(config[:vtgateIdx])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(vtgateHostsFile, b, 0644); err != nil {
+	if err := writeConfig(t, vtgateHostsFile, config, nil); err != nil {
 		t.Fatal(err)
 	}
 
+	// Spin up proxy
 	vtgateproxyHTTPPort := clusterInstance.GetAndReservePort()
 	vtgateproxyGrpcPort := clusterInstance.GetAndReservePort()
 	vtgateproxyMySQLPort := clusterInstance.GetAndReservePort()
@@ -114,27 +102,32 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 
 	log.Info("Reading test value while adding vtgates")
 
-	const totalQueries = 1000
-	addVtgateEveryN := totalQueries / len(vtgates)
+	// Scale up
+	for i := 1; i <= vtgateCount; i++ {
+		if err := writeConfig(t, vtgateHostsFile, config[:i], vtgateproxyProcInstance); err != nil {
+			t.Fatal(err)
+		}
 
-	for i := 0; i < totalQueries; i++ {
-		if i%(addVtgateEveryN) == 0 && vtgateIdx <= len(vtgates) {
-			log.Infof("Adding vtgate %v", vtgateIdx-1)
-			b, err = json.Marshal(config[:vtgateIdx])
+		// Run queries at each configuration
+		for j := 0; j < 100; j++ {
+			result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(vtgateHostsFile, b, 0644); err != nil {
-				t.Fatal(err)
-			}
 
-			if err := vtgateproxyProcInstance.WaitForConfig(config[:vtgateIdx], 5*time.Second); err != nil {
-				t.Fatal(err)
-			}
-
-			vtgateIdx++
+			assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 		}
+	}
 
+	log.Info("Removing first vtgates")
+
+	// Pop the first 2 vtgates off to force first_ready to pick a new target
+	if err := writeConfig(t, vtgateHostsFile, config[2:], vtgateproxyProcInstance); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run queries in the last configuration
+	for j := 0; j < 100; j++ {
 		result, err := selectHelper[customerEntry](context.Background(), conn, "select id, email from customer")
 		if err != nil {
 			t.Fatal(err)
@@ -143,59 +136,33 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 		assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 	}
 
-	// No queries should be sent to vtgates outside target affinity
-	const expectMaxQueryCountNonAffinity = 0
+	var expectVtgatesWithQueries int
 
 	switch loadBalancer {
 	case "round_robin":
-		// At least 1 query should be sent to every vtgate matching target
-		// affinity
-		const expectMinQueryCountAffinity = 1
-
-		for i, vtgate := range vtgates {
-			queryCount, err := getVtgateQueryCount(vtgate)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			affinity := config[i]["az_id"]
-
-			log.Infof("vtgate %v (%v) query counts: %+v", i, affinity, queryCount)
-
-			if affinity == targetAffinity {
-				assert.GreaterOrEqual(t, queryCount.Sum(), expectMinQueryCountAffinity, "vtgate %v did not recieve the expected number of queries", i)
-			} else {
-				assert.LessOrEqual(t, queryCount.Sum(), expectMaxQueryCountNonAffinity, "vtgate %v recieved more than the expected number of queries", i)
-			}
-		}
+		// Every vtgate should get some queries. We went from 1 vtgates to
+		// NumConnections+1 vtgates, and then removed the first vtgate.
+		expectVtgatesWithQueries = len(vtgates)
 	case "first_ready":
-		// A single vtgate should become the target, and it should recieve all
-		// queries
-		targetVtgate := -1
+		// Only 2 vtgates should have queries. The first vtgate should get all
+		// queries until it is removed, and then a new vtgate should be picked
+		// to get all subsequent queries.
+		expectVtgatesWithQueries = 2
+	}
 
-		for i, vtgate := range vtgates {
-			queryCount, err := getVtgateQueryCount(vtgate)
-			if err != nil {
-				t.Fatal(err)
-			}
+	var vtgatesWithQueries int
+	for i, vtgate := range vtgates {
+		queryCount, err := getVtgateQueryCount(vtgate)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			affinity := config[i]["az_id"]
+		log.Infof("vtgate %v query counts: %+v", i, queryCount)
 
-			log.Infof("vtgate %v (%v) query counts: %+v", i, affinity, queryCount)
-
-			sum := queryCount.Sum()
-			if sum == 0 {
-				continue
-			}
-
-			if targetVtgate != -1 {
-				t.Logf("only vtgate %v should have received queries; vtgate %v got %v", targetVtgate, i, sum)
-				t.Fail()
-			} else if affinity == targetAffinity {
-				targetVtgate = i
-			} else {
-				assert.LessOrEqual(t, queryCount.Sum(), expectMaxQueryCountNonAffinity, "vtgate %v recieved more than the expected number of queries", i)
-			}
+		if queryCount.Sum() > 0 {
+			vtgatesWithQueries++
 		}
 	}
+
+	assert.Equal(t, expectVtgatesWithQueries, vtgatesWithQueries)
 }
