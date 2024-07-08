@@ -75,6 +75,22 @@ func init() {
 	})
 }
 
+func useBalancer(keyspace string) bool {
+	if balancerEnabled {
+		if len(balancerKeyspaces) == 0 {
+			return true
+		}
+
+		for _, k := range balancerKeyspaces {
+			if keyspace == k {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // TabletGateway implements the Gateway interface.
 // This implementation uses the new healthcheck module.
 type TabletGateway struct {
@@ -356,23 +372,8 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 			break
 		}
 
-		// Determine whether or not to use the balancer or the standard affinity-based shuffle
-		useBalancer := false
-		if balancerEnabled {
-			if len(balancerKeyspaces) != 0 {
-				for _, keyspace := range balancerKeyspaces {
-					if keyspace == target.Keyspace {
-						useBalancer = true
-						break
-					}
-				}
-			} else {
-				useBalancer = true
-			}
-		}
-
 		var th *discovery.TabletHealth
-		if useBalancer {
+		if useBalancer(target.Keyspace) {
 			// filter out the tablets that we've tried before (if any), then pick the best one
 			if len(invalidTablets) > 0 {
 				validTablets := make([]*discovery.TabletHealth, len(tablets))
