@@ -75,16 +75,11 @@ func init() {
 	})
 }
 
-func useBalancer(keyspace string) bool {
-	if balancerEnabled {
-		if len(balancerKeyspaces) == 0 {
+// this utility can be replaced with slices.Contains in a future iteration
+func isBalancerKeyspaceEnabled(keyspace string) bool {
+	for _, k := range balancerKeyspaces {
+		if keyspace == k {
 			return true
-		}
-
-		for _, k := range balancerKeyspaces {
-			if keyspace == k {
-				return true
-			}
 		}
 	}
 
@@ -373,7 +368,12 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 		}
 
 		var th *discovery.TabletHealth
-		if useBalancer(target.Keyspace) {
+
+		useBalancer := balancerEnabled
+		if balancerEnabled && len(balancerKeyspaces) > 0 {
+			useBalancer = isBalancerKeyspaceEnabled(target.Keyspace)
+		}
+		if useBalancer {
 			// filter out the tablets that we've tried before (if any), then pick the best one
 			if len(invalidTablets) > 0 {
 				validTablets := make([]*discovery.TabletHealth, len(tablets))
