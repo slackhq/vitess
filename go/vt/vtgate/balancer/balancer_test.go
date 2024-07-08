@@ -268,6 +268,22 @@ func TestBalancedPick(t *testing.T) {
 
 			[]string{"a", "b", "c", "d"},
 		},
+		{
+			"one target same cell",
+			[]*discovery.TabletHealth{
+				createTestTablet("a"),
+			},
+
+			[]string{"a"},
+		},
+		{
+			"one target other cell",
+			[]*discovery.TabletHealth{
+				createTestTablet("a"),
+			},
+
+			[]string{"b", "c", "d"},
+		},
 	}
 
 	target := &querypb.Target{Keyspace: "k", Shard: "s", TabletType: topodatapb.TabletType_REPLICA}
