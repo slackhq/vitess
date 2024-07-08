@@ -19,7 +19,7 @@ RUN for i in $(seq 1 10); do apt-key adv --no-tty --keyserver keyserver.ubuntu.c
       libdbd-mysql-perl \
       rsync \
       libev4 \
-      percona-xtrabackup-24 \
+      percona-xtrabackup-80 \
  && rm -rf /var/lib/apt/lists/*
 
 # Bootstrap Vitess
