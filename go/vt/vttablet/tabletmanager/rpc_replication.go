@@ -707,13 +707,6 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 		return err
 	}
 
-	ctx, unlock, lockErr := tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
-	if lockErr != nil {
-		return lockErr
-	}
-
-	defer unlock(&err)
-
 	currentPrimary, err := tm.TopoServer.GetTablet(ctx, parentAlias)
 	if err != nil {
 		return vterrors.Wrapf(err, "cannot read primary tablet %v", parentAlias)
@@ -735,6 +728,13 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 	if err != nil {
 		return err
 	}
+
+	ctx, unlock, lockErr := tm.TopoServer.LockShard(ctx, parent.Tablet.GetKeyspace(), parent.Tablet.GetShard(), fmt.Sprintf("repairReplication to %v as parent)", topoproto.TabletAliasString(parentAlias)))
+	if lockErr != nil {
+		return lockErr
+	}
+
+	defer unlock(&err)
 
 	return tm.setReplicationSourceLocked(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, semiSyncAction)
 }
