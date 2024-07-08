@@ -223,7 +223,7 @@ func TestAllocateFlows(t *testing.T) {
 	}
 }
 
-func TestBalancedShuffle(t *testing.T) {
+func TestBalancedPick(t *testing.T) {
 	cases := []struct {
 		test        string
 		tablets     []*discovery.TabletHealth
@@ -293,13 +293,13 @@ func TestBalancedShuffle(t *testing.T) {
 			b := NewTabletBalancer(localCell, vtGateCells).(*tabletBalancer)
 
 			for i := 0; i < N/len(vtGateCells); i++ {
-				b.ShuffleTablets(target, tablets)
+				th := b.Pick(target, tablets)
 				if i == 0 {
 					t.Logf("Target Flows %v, Balancer: %s\n", expectedPerCell, b.print())
 					t.Logf(b.print())
 				}
 
-				routed[tablets[0].Tablet.Alias.Uid]++
+				routed[th.Tablet.Alias.Uid]++
 			}
 		}
 
@@ -334,25 +334,25 @@ func TestTopologyChanged(t *testing.T) {
 	tablets = tablets[0:2]
 
 	for i := 0; i < N; i++ {
-		b.ShuffleTablets(target, tablets)
+		th := b.Pick(target, tablets)
 		allocation, totalAllocation := b.getAllocation(target, tablets)
 
 		if totalAllocation != ALLOCATION/2 {
 			t.Errorf("totalAllocation mismatch %s", b.print())
 		}
 
-		if allocation[allTablets[0].Tablet.Alias.Uid] != ALLOCATION/4 {
+		if allocation[th.Tablet.Alias.Uid] != ALLOCATION/4 {
 			t.Errorf("allocation mismatch %s, cell %s", b.print(), allTablets[0].Tablet.Alias.Cell)
 		}
 
-		if tablets[0].Tablet.Alias.Cell != "a" {
+		if th.Tablet.Alias.Cell != "a" {
 			t.Errorf("shuffle promoted wrong tablet from cell %s", tablets[0].Tablet.Alias.Cell)
 		}
 	}
 
 	// Run again with the full topology. Now traffic should go to cell b
 	for i := 0; i < N; i++ {
-		b.ShuffleTablets(target, allTablets)
+		th := b.Pick(target, allTablets)
 
 		allocation, totalAllocation := b.getAllocation(target, allTablets)
 
@@ -360,11 +360,11 @@ func TestTopologyChanged(t *testing.T) {
 			t.Errorf("totalAllocation mismatch %s", b.print())
 		}
 
-		if allocation[allTablets[0].Tablet.Alias.Uid] != ALLOCATION/4 {
+		if allocation[th.Tablet.Alias.Uid] != ALLOCATION/4 {
 			t.Errorf("allocation mismatch %s, cell %s", b.print(), allTablets[0].Tablet.Alias.Cell)
 		}
 
-		if allTablets[0].Tablet.Alias.Cell != "b" {
+		if th.Tablet.Alias.Cell != "b" {
 			t.Errorf("shuffle promoted wrong tablet from cell %s", allTablets[0].Tablet.Alias.Cell)
 		}
 	}

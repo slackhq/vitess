@@ -371,20 +371,33 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 			}
 		}
 
-		if useBalancer {
-			gw.balancer.ShuffleTablets(target, tablets)
-		} else {
-			gw.shuffleTablets(gw.localCell, tablets)
-		}
-
 		var th *discovery.TabletHealth
-		// skip tablets we tried before
-		for _, t := range tablets {
-			if _, ok := invalidTablets[topoproto.TabletAliasString(t.Tablet.Alias)]; !ok {
-				th = t
-				break
+		if useBalancer {
+			// filter out the tablets that we've tried before (if any), then pick the best one
+			if len(invalidTablets) > 0 {
+				validTablets := make([]*discovery.TabletHealth, len(tablets))
+				for _, t := range tablets {
+					if _, ok := invalidTablets[topoproto.TabletAliasString(t.Tablet.Alias)]; !ok {
+						validTablets = append(validTablets, th)
+					}
+				}
+				tablets = validTablets
+			}
+
+			th = gw.balancer.Pick(target, tablets)
+
+		} else {
+			// shuffle sort the set of tablets with AZ-affinity, then pick the first one in the
+			// result set that we haven't tried before
+			gw.shuffleTablets(gw.localCell, tablets)
+			for _, t := range tablets {
+				if _, ok := invalidTablets[topoproto.TabletAliasString(t.Tablet.Alias)]; !ok {
+					th = t
+					break
+				}
 			}
 		}
+
 		if th == nil {
 			// do not override error from last attempt.
 			if err == nil {

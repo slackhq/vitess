@@ -88,8 +88,9 @@ converge on the desired balanced query load.
 */
 
 type TabletBalancer interface {
-	// Randomly shuffle the tablets into an order for routing queries
-	ShuffleTablets(target *querypb.Target, tablets []*discovery.TabletHealth)
+	// Pick is the main entry point to the balancer. Returns the best tablet out of the list
+	// for a given query to maintain the desired balanced allocation over multiple executions.
+	Pick(target *querypb.Target, tablets []*discovery.TabletHealth) *discovery.TabletHealth
 
 	// Balancer debug page request
 	DebugHandler(w http.ResponseWriter, r *http.Request)
@@ -161,33 +162,30 @@ func (b *tabletBalancer) DebugHandler(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "Allocations: %v\r\n", string(allocations))
 }
 
-// ShuffleTablets is the main entry point to the balancer.
+// Pick is the main entry point to the balancer.
 //
-// It shuffles the tablets into a preference list for routing a given query.
-// However, since all tablets should be healthy, the query will almost always go
-// to the first tablet in the list, so the balancer ranking algoritm randomly
-// shuffles the list to break ties, then chooses a weighted random selection
-// based on the balance alorithm to promote to the first in the set.
-func (b *tabletBalancer) ShuffleTablets(target *querypb.Target, tablets []*discovery.TabletHealth) {
+// Given the total allocation for the set of tablets, choose the best target
+// by a weighted random sample so that over time the system will achieve the
+// desired balanced allocation.
+func (b *tabletBalancer) Pick(target *querypb.Target, tablets []*discovery.TabletHealth) *discovery.TabletHealth {
 
 	numTablets := len(tablets)
+	if numTablets == 0 {
+		return nil
+	}
 
 	allocationMap, totalAllocation := b.getAllocation(target, tablets)
 
-	rand.Shuffle(numTablets, func(i, j int) { tablets[i], tablets[j] = tablets[j], tablets[i] })
-
-	// Do another O(n) seek through the list to effect the weighted sample by picking
-	// a random point in the allocation space and seeking forward in the list of (randomized)
-	// tablets to that point, promoting the tablet to the head of the list.
 	r := rand.Intn(totalAllocation)
 	for i := 0; i < numTablets; i++ {
 		flow := allocationMap[tablets[i].Tablet.Alias.Uid]
 		if r < flow {
-			tablets[0], tablets[i] = tablets[i], tablets[0]
-			break
+			return tablets[i]
 		}
 		r -= flow
 	}
+
+	return tablets[0]
 }
 
 // To stick with integer arithmetic, use 1,000,000 as the full load
