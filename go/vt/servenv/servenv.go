@@ -82,7 +82,7 @@ var (
 	maxStackSize         = 64 * 1024 * 1024
 	initStartTime        time.Time // time when tablet init started: for debug purposes to time how long a tablet init takes
 	tableRefreshInterval int
-	useVTSLogger         bool
+	useStructuredLogger  bool
 )
 
 // RegisterFlags installs the flags used by Init, Run, and RunDefault.
@@ -102,7 +102,7 @@ func RegisterFlags() {
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.") // Logging
 
 		// Logging
-		fs.BoolVar(&useVTSLogger, "structured-logging", useVTSLogger, "whether to use structured logging (Zap) or the original (glog) logger")
+		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "enable structured logging")
 	})
 }
 
@@ -289,9 +289,9 @@ func ParseFlags(cmd string) {
 		os.Exit(0)
 	}
 
-	if useVTSLogger {
+	if useStructuredLogger {
 		// Replace glog logger with zap logger
-		_, err := logutil.SetVTStructureLogger(nil)
+		_, err := logutil.SetStructuredLogger(nil)
 		if err != nil {
 			log.Exitf("error while setting the Zap logger: %s", err)
 		}

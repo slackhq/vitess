@@ -388,10 +388,10 @@ func fileAndLine(depth int) (string, int64) {
 	return file, int64(line)
 }
 
-type VTSLogger zap.SugaredLogger
+type StructuredLogger zap.SugaredLogger
 
-// SetVTStructureLogger in-place noglog replacement with Zap's logger.
-func SetVTStructureLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err error) {
+// SetStructuredLogger in-place noglog replacement with Zap's logger.
+func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err error) {
 	var l *zap.Logger
 
 	// Use the passed configuration instead of the default configuration

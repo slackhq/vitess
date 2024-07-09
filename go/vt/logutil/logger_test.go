@@ -19,12 +19,14 @@ package logutil
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	vtlog "vitess.io/vitess/go/vt/log"
 
 	"vitess.io/vitess/go/protoutil"
@@ -205,7 +207,7 @@ func NewMemorySinkConfig() zap.Config {
 	}
 }
 
-func TestVTSLogger_Replacing_glog(t *testing.T) {
+func TestStructuredLogger_Replacing_glog(t *testing.T) {
 	type logMsg struct {
 		Level string `json:"level"`
 		Msg   string `json:"msg"`
