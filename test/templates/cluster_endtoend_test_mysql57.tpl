@@ -116,11 +116,11 @@ jobs:
         sudo dpkg -i "percona-release_latest.$(lsb_release -sc)_all.deb"
         sudo apt-get update
         if [[ -n $XTRABACKUP_VERSION ]]; then
-          debfile="percona-xtrabackup-80_$XTRABACKUP_VERSION.$(lsb_release -sc)_amd64.deb"
-          wget "https://repo.percona.com/pxb-80/apt/pool/main/p/percona-xtrabackup-80/$debfile"
+          debfile="percona-xtrabackup-24_$XTRABACKUP_VERSION.$(lsb_release -sc)_amd64.deb"
+          wget "https://repo.percona.com/pxb-24/apt/pool/main/p/percona-xtrabackup-24/$debfile"
           sudo apt install -y "./$debfile"
         else
-          sudo apt-get install -y percona-xtrabackup-80
+          sudo apt-get install -y percona-xtrabackup-24
         fi
 
         {{end}}

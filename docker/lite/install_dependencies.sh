@@ -78,7 +78,7 @@ mysql57)
         /tmp/mysql-client_${mysql57_version}-1debian10_amd64.deb
         /tmp/mysql-community-server_${mysql57_version}-1debian10_amd64.deb
         /tmp/mysql-server_${mysql57_version}-1debian10_amd64.deb
-        percona-xtrabackup-80
+        percona-xtrabackup-24
     )
     ;;
 mysql80)
@@ -114,7 +114,7 @@ percona57)
     PACKAGES=(
         libperconaserverclient20
         percona-server-server-5.7
-        percona-xtrabackup-80
+        percona-xtrabackup-24
     )
     ;;
 percona80)
