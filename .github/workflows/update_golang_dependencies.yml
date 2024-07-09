@@ -19,11 +19,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-<<<<<<< HEAD
           go-version: 1.22.5
-=======
-          go-version: 1.22.5
->>>>>>> c60a5ea6b3 ([release-19.0] Upgrade the Golang version to `go1.22.5` (#16322))
 
       - name: Check out code
         uses: actions/checkout@v4
