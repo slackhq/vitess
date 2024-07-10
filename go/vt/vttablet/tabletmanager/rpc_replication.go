@@ -707,11 +707,6 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 		return err
 	}
 
-	currentPrimary, err := tm.TopoServer.GetTablet(ctx, parentAlias)
-	if err != nil {
-		return vterrors.Wrapf(err, "cannot read primary tablet %v", parentAlias)
-	}
-
 	durabilityName, err := tm.TopoServer.GetKeyspaceDurability(ctx, tm.Tablet().Keyspace)
 	if err != nil {
 		return vterrors.Wrapf(err, "cannot read keyspace durability policy %v", tm.Tablet().Keyspace)
@@ -724,7 +719,7 @@ func (tm *TabletManager) setReplicationSourceRepairReplication(ctx context.Conte
 
 	// If using semi-sync, we need to enable it before connecting to primary.
 	// We should set the correct type, since it is used in replica semi-sync.
-	semiSyncAction, err := tm.convertBoolToSemiSyncAction(reparentutil.IsReplicaSemiSync(durability, currentPrimary.Tablet, tm.Tablet()))
+	semiSyncAction, err := tm.convertBoolToSemiSyncAction(reparentutil.IsReplicaSemiSync(durability, parent.Tablet, tm.Tablet()))
 	if err != nil {
 		return err
 	}
