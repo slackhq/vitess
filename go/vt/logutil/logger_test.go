@@ -184,7 +184,7 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 	}
 
 	testLoggerConf := NewMemorySinkConfig()
-	_, err = SetVTStructureLogger(&testLoggerConf)
+	_, err = SetStructuredLogger(&testLoggerConf)
 	if err != nil {
 		return nil, err
 	}
