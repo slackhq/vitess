@@ -293,7 +293,7 @@ func ParseFlags(cmd string) {
 		// Replace glog logger with zap logger
 		_, err := logutil.SetStructuredLogger(nil)
 		if err != nil {
-			log.Exitf("error while setting the Zap logger: %s", err)
+			log.Exitf("error while setting the structured logger: %s", err)
 		}
 	}
 
