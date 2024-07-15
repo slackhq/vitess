@@ -95,8 +95,8 @@ require (
 	golang.org/x/net v0.7.0
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-	golang.org/x/sys v0.5.0 // indirect
-	golang.org/x/term v0.5.0
+	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/term v0.22.0
 	golang.org/x/text v0.7.0
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac
 	golang.org/x/tools v0.1.12
