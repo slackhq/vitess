@@ -100,7 +100,8 @@ var (
 	// How much to sleep between each check.
 	waitAvailableTabletInterval = 100 * time.Millisecond
 
-	errKeyspacesToWatchAndTabletFilters = errors.New("Only one of -keyspaces_to_watch and -tablet_filters may be specified at a time")
+	// errKeyspacesToWatchAndTabletFilters is an error for cases where incompatible filters are defined.
+	errKeyspacesToWatchAndTabletFilters = errors.New("only one of --keyspaces_to_watch and --tablet_filters may be specified at a time")
 )
 
 // See the documentation for NewHealthCheck below for an explanation of these parameters.
@@ -308,7 +309,7 @@ func NewVTGateHealthCheckFilters() (filters TabletFilters, err error) {
 
 		fbs, err := NewFilterByShard(tabletFilters)
 		if err != nil {
-			return nil, fmt.Errorf("Cannot parse tablet_filters parameter: %v", err)
+			return nil, fmt.Errorf("failed to parse tablet_filters value %q: %v", strings.Join(tabletFilters, ","), err)
 		}
 		filters = append(filters, fbs)
 	} else if len(KeyspacesToWatch) > 0 {
@@ -347,7 +348,7 @@ func NewVTGateHealthCheckFilters() (filters TabletFilters, err error) {
 //
 // filters.
 //
-//	Is a one or more filters to apply to healthchecks.
+//	Is one or more filters to apply when determining what tablets we want to stream healthchecks from.
 func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Duration, topoServer *topo.Server, localCell, cellsToWatch string, filters TabletFilter) *HealthCheckImpl {
 	log.Infof("loading tablets for cells: %v", cellsToWatch)
 

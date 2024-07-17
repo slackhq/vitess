@@ -19,7 +19,6 @@ package discovery
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -77,7 +76,7 @@ func TestNewVTGateHealthCheckFilters(t *testing.T) {
 		keyspacesToWatch    []string
 		tabletFilters       []string
 		tabletFilterTags    map[string]string
-		expectedError       error
+		expectedError       string
 		expectedFilterTypes []any
 	}{
 		{
@@ -109,12 +108,12 @@ func TestNewVTGateHealthCheckFilters(t *testing.T) {
 			name:             "failKeyspacesToWatchAndFilters",
 			tabletFilters:    []string{"ks1|-80"},
 			keyspacesToWatch: []string{"ks1"},
-			expectedError:    errKeyspacesToWatchAndTabletFilters,
+			expectedError:    errKeyspacesToWatchAndTabletFilters.Error(),
 		},
 		{
 			name:          "failInvalidTabletFilters",
-			tabletFilters: []string{"shouldfail!@#!#"},
-			expectedError: errors.New("Cannot parse tablet_filters parameter: invalid FilterByShard parameter: shouldfail!@#!#"),
+			tabletFilters: []string{"shouldfail!@#!"},
+			expectedError: "failed to parse tablet_filters value \"shouldfail!@#!\": invalid FilterByShard parameter: shouldfail!@#!",
 		},
 	}
 
@@ -125,7 +124,9 @@ func TestNewVTGateHealthCheckFilters(t *testing.T) {
 			tabletFilterTags = testCase.tabletFilterTags
 
 			filters, err := NewVTGateHealthCheckFilters()
-			assert.Equal(t, testCase.expectedError, err)
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+			}
 			assert.Len(t, filters, len(testCase.expectedFilterTypes))
 			for i, filter := range filters {
 				assert.IsType(t, testCase.expectedFilterTypes[i], filter)
