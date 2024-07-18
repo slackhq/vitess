@@ -277,6 +277,115 @@ func TestShardPrimary(t *testing.T) {
 	}
 }
 
+func TestGetKeyspaceShardsToWatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ts = memorytopo.NewServer(ctx, "test_cell")
+
+	shards1 := []string{"-40", "40-50", "50-60", "60-70", "70-80", "80-"}
+	keyspace1 := "test_keyspace"
+
+	shards2 := []string{"-1000", "1000-1100", "1100-1200", "1200-1300", "1300-"}
+	keyspace2 := "test_keyspace2"
+
+	if err := ts.CreateKeyspace(ctx, keyspace1, &topodatapb.Keyspace{}); err != nil {
+		t.Fatalf("cannot create keyspace: %v", err)
+	}
+
+	if err := ts.CreateKeyspace(ctx, keyspace2, &topodatapb.Keyspace{}); err != nil {
+		t.Fatalf("cannot create keyspace: %v", err)
+	}
+
+	for _, shard := range shards1 {
+		if err := ts.CreateShard(ctx, keyspace1, shard); err != nil {
+			t.Fatalf("cannot create shard: %v", err)
+		}
+	}
+
+	for _, shard := range shards2 {
+		if err := ts.CreateShard(ctx, keyspace2, shard); err != nil {
+			t.Fatalf("cannot create shard: %v", err)
+		}
+	}
+
+	testcases := []*struct {
+		name     string
+		clusters []string
+		expected []*topo.KeyspaceShard
+	}{
+		{
+			name:     "single shard and range",
+			clusters: []string{fmt.Sprintf("%s/40-50", keyspace1), fmt.Sprintf("%s/60-80", keyspace1)},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspace1, Shard: "40-50"},
+				{Keyspace: keyspace1, Shard: "60-70"},
+				{Keyspace: keyspace1, Shard: "70-80"},
+			},
+		}, {
+			name:     "single shard",
+			clusters: []string{fmt.Sprintf("%s/40-50", keyspace1)},
+			expected: []*topo.KeyspaceShard{{Keyspace: keyspace1, Shard: "40-50"}},
+		}, {
+			name:     "full keyspace",
+			clusters: []string{keyspace1},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspace1, Shard: "-40"},
+				{Keyspace: keyspace1, Shard: "40-50"},
+				{Keyspace: keyspace1, Shard: "50-60"},
+				{Keyspace: keyspace1, Shard: "60-70"},
+				{Keyspace: keyspace1, Shard: "70-80"},
+				{Keyspace: keyspace1, Shard: "80-"},
+			},
+		}, {
+			name:     "full keyspace with keyrange",
+			clusters: []string{keyspace1, fmt.Sprintf("%s/60-80", keyspace1)},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspace1, Shard: "-40"},
+				{Keyspace: keyspace1, Shard: "40-50"},
+				{Keyspace: keyspace1, Shard: "50-60"},
+				{Keyspace: keyspace1, Shard: "60-70"},
+				{Keyspace: keyspace1, Shard: "70-80"},
+				{Keyspace: keyspace1, Shard: "80-"},
+			},
+		}, {
+			name:     "multi keyspace",
+			clusters: []string{keyspace1, fmt.Sprintf("%s/1100-1300", keyspace2)},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspace2, Shard: "1100-1200"},
+				{Keyspace: keyspace2, Shard: "1200-1300"},
+				{Keyspace: keyspace1, Shard: "-40"},
+				{Keyspace: keyspace1, Shard: "40-50"},
+				{Keyspace: keyspace1, Shard: "50-60"},
+				{Keyspace: keyspace1, Shard: "60-70"},
+				{Keyspace: keyspace1, Shard: "70-80"},
+				{Keyspace: keyspace1, Shard: "80-"},
+			},
+		}, {
+			name:     "partial success with non-existent shard",
+			clusters: []string{"test_keyspace3/10-20", fmt.Sprintf("%s/1100-1300", keyspace2)},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspace2, Shard: "1100-1200"},
+				{Keyspace: keyspace2, Shard: "1200-1300"},
+			},
+		}, {
+			name:     "empty result",
+			clusters: []string{"test_keyspace3/10-20"},
+			expected: nil,
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			clustersToWatch = testcase.clusters
+			res, err := getKeyspaceShardsToWatch()
+
+			assert.NoError(t, err)
+			assert.Equal(t, testcase.expected, res)
+		})
+	}
+}
+
 // verifyRefreshTabletsInKeyspaceShard calls refreshTabletsInKeyspaceShard with the forceRefresh parameter provided and verifies that
 // the number of instances refreshed matches the parameter and all the tablets match the ones provided
 func verifyRefreshTabletsInKeyspaceShard(t *testing.T, forceRefresh bool, instanceRefreshRequired int, tablets []*topodatapb.Tablet, tabletsToIgnore []string) {

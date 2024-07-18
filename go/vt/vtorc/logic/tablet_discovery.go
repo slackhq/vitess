@@ -184,7 +184,7 @@ func refreshTabletsUsing(loader func(tabletAlias string), forceRefresh bool) {
 			return
 		}
 
-		if len(keyspaceShards) == 0 {
+		if len(keyspaceShards) == 0 || keyspaceShards == nil {
 			log.Errorf("Found no keyspaceShards for input: %+v", clustersToWatch)
 			return
 		}
