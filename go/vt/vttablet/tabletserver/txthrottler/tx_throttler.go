@@ -42,7 +42,7 @@ import (
 // These vars store the functions used to create the topo server, healthcheck,
 // and go/vt/throttler. These are provided here so that they can be overridden
 // in tests to generate mocks.
-type healthCheckFactoryFunc func(topoServer *topo.Server, cell, keyspace, shard string, cellsToWatch []string) (discovery.HealthCheck, error)
+type healthCheckFactoryFunc func(ctx context.Context, topoServer *topo.Server, cell, keyspace, shard string, cellsToWatch []string) (discovery.HealthCheck, error)
 type throttlerFactoryFunc func(name, unit string, threadCount int, maxRate int64, maxReplicationLagConfig throttler.MaxReplicationLagModuleConfig) (throttler.Throttler, error)
 
 var (
@@ -51,13 +51,13 @@ var (
 )
 
 func resetTxThrottlerFactories() {
-	healthCheckFactory = func(topoServer *topo.Server, cell, keyspace, shard string, cellsToWatch []string) (discovery.HealthCheck, error) {
+	healthCheckFactory = func(ctx context.Context, topoServer *topo.Server, cell, keyspace, shard string, cellsToWatch []string) (discovery.HealthCheck, error) {
 		// discovery.NewFilterByShard expects a single-shard filter to be in "keyspace|shard" format.
 		filter, err := discovery.NewFilterByShard([]string{keyspace + "|" + shard})
 		if err != nil {
 			return nil, err
 		}
-		return discovery.NewHealthCheck(context.Background(), discovery.DefaultHealthCheckRetryDelay, discovery.DefaultHealthCheckTimeout, topoServer, cell, strings.Join(cellsToWatch, ","), filter), nil
+		return discovery.NewHealthCheck(ctx, discovery.DefaultHealthCheckRetryDelay, discovery.DefaultHealthCheckTimeout, topoServer, cell, strings.Join(cellsToWatch, ","), filter), nil
 	}
 	throttlerFactory = func(name, unit string, threadCount int, maxRate int64, maxReplicationLagConfig throttler.MaxReplicationLagModuleConfig) (throttler.Throttler, error) {
 		return throttler.NewThrottlerFromConfig(name, unit, threadCount, maxRate, maxReplicationLagConfig, time.Now)
@@ -149,9 +149,11 @@ type txThrottlerStateImpl struct {
 
 	// throttleMu serializes calls to throttler.Throttler.Throttle(threadId).
 	// That method is required to be called in serial for each threadId.
-	throttleMu      sync.Mutex
-	throttler       throttler.Throttler
-	stopHealthCheck context.CancelFunc
+	throttleMu sync.Mutex
+	throttler  throttler.Throttler
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	healthCheck      discovery.HealthCheck
 	healthCheckChan  chan *discovery.TabletHealth
@@ -277,7 +279,10 @@ func newTxThrottlerState(txThrottler *txThrottler, config *tabletenv.TabletConfi
 		tabletTypes[tabletType] = true
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	state := &txThrottlerStateImpl{
+		ctx:              ctx,
+		cancel:           cancel,
 		config:           config,
 		healthCheckCells: config.TxThrottlerHealthCheckCells,
 		tabletTypes:      tabletTypes,
@@ -288,19 +293,17 @@ func newTxThrottlerState(txThrottler *txThrottler, config *tabletenv.TabletConfi
 
 	// get cells from topo if none defined in tabletenv config
 	if len(state.healthCheckCells) == 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-		defer cancel()
-		state.healthCheckCells = fetchKnownCells(ctx, txThrottler.topoServer, target)
+		cellsCtx, cellsCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+		defer cellsCancel()
+		state.healthCheckCells = fetchKnownCells(cellsCtx, txThrottler.topoServer, target)
 		state.cellsFromTopo = true
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	state.stopHealthCheck = cancel
 	if err := state.initHealthCheckStream(txThrottler.topoServer, target); err != nil {
 		return nil, err
 	}
 	state.healthCheck.RegisterStats()
-	go state.healthChecksProcessor(ctx, txThrottler.topoServer, target)
+	go state.healthChecksProcessor(txThrottler.topoServer, target)
 	state.waitForTermination.Add(1)
 	go state.updateMaxLag()
 
@@ -308,7 +311,7 @@ func newTxThrottlerState(txThrottler *txThrottler, config *tabletenv.TabletConfi
 }
 
 func (ts *txThrottlerStateImpl) initHealthCheckStream(topoServer *topo.Server, target *querypb.Target) (err error) {
-	ts.healthCheck, err = healthCheckFactory(topoServer, target.Cell, target.Keyspace, target.Shard, ts.healthCheckCells)
+	ts.healthCheck, err = healthCheckFactory(ts.ctx, topoServer, target.Cell, target.Keyspace, target.Shard, ts.healthCheckCells)
 	if err != nil {
 		return err
 	}
@@ -320,12 +323,12 @@ func (ts *txThrottlerStateImpl) closeHealthCheckStream() {
 	if ts.healthCheck == nil {
 		return
 	}
-	ts.stopHealthCheck()
+	ts.cancel()
 	ts.healthCheck.Close()
 }
 
-func (ts *txThrottlerStateImpl) updateHealthCheckCells(ctx context.Context, topoServer *topo.Server, target *querypb.Target) (err error) {
-	fetchCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+func (ts *txThrottlerStateImpl) updateHealthCheckCells(topoServer *topo.Server, target *querypb.Target) (err error) {
+	fetchCtx, cancel := context.WithTimeout(ts.ctx, topo.RemoteOperationTimeout)
 	defer cancel()
 
 	knownCells := fetchKnownCells(fetchCtx, topoServer, target)
@@ -338,7 +341,7 @@ func (ts *txThrottlerStateImpl) updateHealthCheckCells(ctx context.Context, topo
 	return nil
 }
 
-func (ts *txThrottlerStateImpl) healthChecksProcessor(ctx context.Context, topoServer *topo.Server, target *querypb.Target) {
+func (ts *txThrottlerStateImpl) healthChecksProcessor(topoServer *topo.Server, target *querypb.Target) {
 	var cellsUpdateTicks <-chan time.Time
 	if ts.cellsFromTopo {
 		ticker := time.NewTicker(ts.config.TxThrottlerTopoRefreshInterval)
@@ -347,10 +350,10 @@ func (ts *txThrottlerStateImpl) healthChecksProcessor(ctx context.Context, topoS
 	}
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ts.ctx.Done():
 			return
 		case <-cellsUpdateTicks:
-			if err := ts.updateHealthCheckCells(ctx, topoServer, target); err != nil {
+			if err := ts.updateHealthCheckCells(topoServer, target); err != nil {
 				log.Errorf("txThrottler: failed to update cell list: %+v", err)
 			}
 		case th := <-ts.healthCheckChan:

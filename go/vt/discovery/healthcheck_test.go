@@ -124,9 +124,13 @@ func TestNewVTGateHealthCheckFilters(t *testing.T) {
 			tabletFilterTags = testCase.tabletFilterTags
 
 			filters, err := NewVTGateHealthCheckFilters()
+<<<<<<< Updated upstream
 			if testCase.expectedError != "" {
 				assert.EqualError(t, err, testCase.expectedError)
 			}
+=======
+			assert.EqualError(t, testCase.expectedError, err)
+>>>>>>> Stashed changes
 			assert.Len(t, filters, len(testCase.expectedFilterTypes))
 			for i, filter := range filters {
 				assert.IsType(t, testCase.expectedFilterTypes[i], filter)
