@@ -327,7 +327,7 @@ func (ts *txThrottlerStateImpl) closeHealthCheckStream() {
 	ts.healthCheck.Close()
 }
 
-func (ts *txThrottlerStateImpl) updateHealthCheckCells(topoServer *topo.Server, target *querypb.Target) (err error) {
+func (ts *txThrottlerStateImpl) updateHealthCheckCells(topoServer *topo.Server, target *querypb.Target) error {
 	fetchCtx, cancel := context.WithTimeout(ts.ctx, topo.RemoteOperationTimeout)
 	defer cancel()
 
