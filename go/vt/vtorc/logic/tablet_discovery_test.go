@@ -397,7 +397,7 @@ func TestGetKeyspaceShardsToWatch(t *testing.T) {
 			res, err := getKeyspaceShardsToWatch()
 
 			assert.NoError(t, err)
-			assert.Equal(t, testcase.expected, res)
+			assert.EqualValues(t, testcase.expected, res)
 		})
 	}
 }
