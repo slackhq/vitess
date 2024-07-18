@@ -283,30 +283,34 @@ func TestGetKeyspaceShardsToWatch(t *testing.T) {
 
 	ts = memorytopo.NewServer(ctx, "test_cell")
 
+	keyspaces := []string{"test_keyspace", "test_keyspace2", "test_keyspace3", "test_keyspace4"}
+	for _, k := range keyspaces {
+		if err := ts.CreateKeyspace(ctx, k, &topodatapb.Keyspace{}); err != nil {
+			t.Fatalf("cannot create keyspace: %v", err)
+		}
+	}
+
 	shards1 := []string{"-40", "40-50", "50-60", "60-70", "70-80", "80-"}
-	keyspace1 := "test_keyspace"
-
 	shards2 := []string{"-1000", "1000-1100", "1100-1200", "1200-1300", "1300-"}
-	keyspace2 := "test_keyspace2"
-
-	if err := ts.CreateKeyspace(ctx, keyspace1, &topodatapb.Keyspace{}); err != nil {
-		t.Fatalf("cannot create keyspace: %v", err)
-	}
-
-	if err := ts.CreateKeyspace(ctx, keyspace2, &topodatapb.Keyspace{}); err != nil {
-		t.Fatalf("cannot create keyspace: %v", err)
-	}
 
 	for _, shard := range shards1 {
-		if err := ts.CreateShard(ctx, keyspace1, shard); err != nil {
+		if err := ts.CreateShard(ctx, keyspaces[0], shard); err != nil {
 			t.Fatalf("cannot create shard: %v", err)
 		}
 	}
 
 	for _, shard := range shards2 {
-		if err := ts.CreateShard(ctx, keyspace2, shard); err != nil {
+		if err := ts.CreateShard(ctx, keyspaces[1], shard); err != nil {
 			t.Fatalf("cannot create shard: %v", err)
 		}
+	}
+
+	if err := ts.CreateShard(ctx, keyspaces[2], "-"); err != nil {
+		t.Fatalf("cannot create shard: %v", err)
+	}
+
+	if err := ts.CreateShard(ctx, keyspaces[3], "0"); err != nil {
+		t.Fatalf("cannot create shard: %v", err)
 	}
 
 	testcases := []*struct {
@@ -316,62 +320,74 @@ func TestGetKeyspaceShardsToWatch(t *testing.T) {
 	}{
 		{
 			name:     "single shard and range",
-			clusters: []string{fmt.Sprintf("%s/40-50", keyspace1), fmt.Sprintf("%s/60-80", keyspace1)},
+			clusters: []string{fmt.Sprintf("%s/40-50", keyspaces[0]), fmt.Sprintf("%s/60-80", keyspaces[0])},
 			expected: []*topo.KeyspaceShard{
-				{Keyspace: keyspace1, Shard: "40-50"},
-				{Keyspace: keyspace1, Shard: "60-70"},
-				{Keyspace: keyspace1, Shard: "70-80"},
+				{Keyspace: keyspaces[0], Shard: "40-50"},
+				{Keyspace: keyspaces[0], Shard: "60-70"},
+				{Keyspace: keyspaces[0], Shard: "70-80"},
 			},
 		}, {
 			name:     "single shard",
-			clusters: []string{fmt.Sprintf("%s/40-50", keyspace1)},
-			expected: []*topo.KeyspaceShard{{Keyspace: keyspace1, Shard: "40-50"}},
+			clusters: []string{fmt.Sprintf("%s/40-50", keyspaces[0])},
+			expected: []*topo.KeyspaceShard{{Keyspace: keyspaces[0], Shard: "40-50"}},
 		}, {
 			name:     "full keyspace",
-			clusters: []string{keyspace1},
+			clusters: []string{keyspaces[0]},
 			expected: []*topo.KeyspaceShard{
-				{Keyspace: keyspace1, Shard: "-40"},
-				{Keyspace: keyspace1, Shard: "40-50"},
-				{Keyspace: keyspace1, Shard: "50-60"},
-				{Keyspace: keyspace1, Shard: "60-70"},
-				{Keyspace: keyspace1, Shard: "70-80"},
-				{Keyspace: keyspace1, Shard: "80-"},
+				{Keyspace: keyspaces[0], Shard: "-40"},
+				{Keyspace: keyspaces[0], Shard: "40-50"},
+				{Keyspace: keyspaces[0], Shard: "50-60"},
+				{Keyspace: keyspaces[0], Shard: "60-70"},
+				{Keyspace: keyspaces[0], Shard: "70-80"},
+				{Keyspace: keyspaces[0], Shard: "80-"},
 			},
 		}, {
 			name:     "full keyspace with keyrange",
-			clusters: []string{keyspace1, fmt.Sprintf("%s/60-80", keyspace1)},
+			clusters: []string{keyspaces[0], fmt.Sprintf("%s/60-80", keyspaces[0])},
 			expected: []*topo.KeyspaceShard{
-				{Keyspace: keyspace1, Shard: "-40"},
-				{Keyspace: keyspace1, Shard: "40-50"},
-				{Keyspace: keyspace1, Shard: "50-60"},
-				{Keyspace: keyspace1, Shard: "60-70"},
-				{Keyspace: keyspace1, Shard: "70-80"},
-				{Keyspace: keyspace1, Shard: "80-"},
+				{Keyspace: keyspaces[0], Shard: "-40"},
+				{Keyspace: keyspaces[0], Shard: "40-50"},
+				{Keyspace: keyspaces[0], Shard: "50-60"},
+				{Keyspace: keyspaces[0], Shard: "60-70"},
+				{Keyspace: keyspaces[0], Shard: "70-80"},
+				{Keyspace: keyspaces[0], Shard: "80-"},
 			},
 		}, {
 			name:     "multi keyspace",
-			clusters: []string{keyspace1, fmt.Sprintf("%s/1100-1300", keyspace2)},
+			clusters: []string{keyspaces[0], fmt.Sprintf("%s/1100-1300", keyspaces[1])},
 			expected: []*topo.KeyspaceShard{
-				{Keyspace: keyspace2, Shard: "1100-1200"},
-				{Keyspace: keyspace2, Shard: "1200-1300"},
-				{Keyspace: keyspace1, Shard: "-40"},
-				{Keyspace: keyspace1, Shard: "40-50"},
-				{Keyspace: keyspace1, Shard: "50-60"},
-				{Keyspace: keyspace1, Shard: "60-70"},
-				{Keyspace: keyspace1, Shard: "70-80"},
-				{Keyspace: keyspace1, Shard: "80-"},
+				{Keyspace: keyspaces[1], Shard: "1100-1200"},
+				{Keyspace: keyspaces[1], Shard: "1200-1300"},
+				{Keyspace: keyspaces[0], Shard: "-40"},
+				{Keyspace: keyspaces[0], Shard: "40-50"},
+				{Keyspace: keyspaces[0], Shard: "50-60"},
+				{Keyspace: keyspaces[0], Shard: "60-70"},
+				{Keyspace: keyspaces[0], Shard: "70-80"},
+				{Keyspace: keyspaces[0], Shard: "80-"},
 			},
 		}, {
 			name:     "partial success with non-existent shard",
-			clusters: []string{"test_keyspace3/10-20", fmt.Sprintf("%s/1100-1300", keyspace2)},
+			clusters: []string{"non-existent/10-20", fmt.Sprintf("%s/1100-1300", keyspaces[1])},
 			expected: []*topo.KeyspaceShard{
-				{Keyspace: keyspace2, Shard: "1100-1200"},
-				{Keyspace: keyspace2, Shard: "1200-1300"},
+				{Keyspace: keyspaces[1], Shard: "1100-1200"},
+				{Keyspace: keyspaces[1], Shard: "1200-1300"},
 			},
 		}, {
 			name:     "empty result",
-			clusters: []string{"test_keyspace3/10-20"},
+			clusters: []string{"non-existent/10-20"},
 			expected: nil,
+		}, {
+			name:     "single keyspace -",
+			clusters: []string{keyspaces[2]},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspaces[2], Shard: "-"},
+			},
+		}, {
+			name:     "single keyspace 0",
+			clusters: []string{keyspaces[3]},
+			expected: []*topo.KeyspaceShard{
+				{Keyspace: keyspaces[3], Shard: "0"},
+			},
 		},
 	}
 
