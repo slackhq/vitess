@@ -66,6 +66,7 @@ type JSONGateResolver struct {
 	clientConn   resolver.ClientConn
 	poolType     string
 	currentAddrs []resolver.Address
+	mu           sync.Mutex
 }
 
 func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
@@ -397,6 +398,11 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.getTargets(r.poolType)
+
+	// There should only ever be a single goroutine calling update on a given Resolver,
+	// but add a lock just in case to ensure that the r.currentAddrs are in fact synchronized
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	var addrs []resolver.Address
 	for _, target := range targets {
