@@ -59,6 +59,7 @@ var (
 	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
 	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
 	balancerType    = flag.String("balancer", "round_robin", "load balancing algorithm to use")
+	warmupTime      = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
