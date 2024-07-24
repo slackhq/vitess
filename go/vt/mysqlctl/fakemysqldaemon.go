@@ -95,6 +95,9 @@ type FakeMysqlDaemon struct {
 	// PrimaryStatusError is used by PrimaryStatus.
 	PrimaryStatusError error
 
+	// GlobalStatusVars is used by GetGlobalStatusVars.
+	GlobalStatusVars map[string]string
+
 	// CurrentSourceHost is returned by ReplicationStatus.
 	CurrentSourceHost string
 
@@ -422,9 +425,7 @@ func (fmd *FakeMysqlDaemon) SetSuperReadOnly(on bool) (ResetSuperReadOnlyFunc, e
 
 // GetGlobalStatusVars is part of the MysqlDaemon interface.
 func (fmd *FakeMysqlDaemon) GetGlobalStatusVars(ctx context.Context, variables []string) (map[string]string, error) {
-	return make(map[string]string), fmd.ExecuteSuperQueryList(ctx, []string{
-		"FAKE " + getGlobalStatusQuery,
-	})
+	return fmd.GlobalStatusVars, nil
 }
 
 // StartReplication is part of the MysqlDaemon interface.
