@@ -211,14 +211,16 @@ func (b *JSONGateResolverBuilder) start() error {
 			parseCount.Add("changed", 1)
 
 			b.mu.RLock()
+			resolvers := b.resolvers
+			b.mu.RUnlock()
+
 			// notify all the resolvers that the targets changed
-			for _, r := range b.resolvers {
+			for _, r := range resolvers {
 				err = b.update(r)
 				if err != nil {
 					log.Errorf("Failed to update resolver: %v", err)
 				}
 			}
-			b.mu.RUnlock()
 		}
 	}()
 
