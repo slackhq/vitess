@@ -19,7 +19,7 @@ package txthrottler
 import (
 	"context"
 	"math/rand"
-	"slices"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,7 +318,7 @@ func (ts *txThrottlerStateImpl) updateHealthCheckCells(ctx context.Context, topo
 	defer cancel()
 
 	knownCells := fetchKnownCells(fetchCtx, topoServer, target)
-	if !slices.Equal(knownCells, ts.healthCheckCells) {
+	if !reflect.DeepEqual(knownCells, ts.healthCheckCells) {
 		log.Info("txThrottler: restarting healthcheck stream due to topology cells update")
 		ts.healthCheckCells = knownCells
 		ts.closeHealthCheckStream()
