@@ -28,8 +28,6 @@ import (
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/vt/binlog/binlogplayer"
 	"vitess.io/vitess/go/vt/proto/binlogdata"
-
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 var wantOut = `
@@ -109,14 +107,8 @@ func TestStatusHtml(t *testing.T) {
 			done:     make(chan struct{}),
 		},
 	}
-	testStats.controllers[1].sourceTablet.Store(&topodatapb.TabletAlias{
-		Cell: "zone1",
-		Uid:  01,
-	})
-	testStats.controllers[2].sourceTablet.Store(&topodatapb.TabletAlias{
-		Cell: "zone1",
-		Uid:  02,
-	})
+	testStats.controllers[1].sourceTablet.Set("src1")
+	testStats.controllers[2].sourceTablet.Set("src2")
 	close(testStats.controllers[2].done)
 
 	tpl := template.Must(template.New("test").Parse(vreplicationTemplate))
@@ -143,10 +135,7 @@ func TestVReplicationStats(t *testing.T) {
 			done:     make(chan struct{}),
 		},
 	}
-	testStats.controllers[1].sourceTablet.Store(&topodatapb.TabletAlias{
-		Cell: "zone1",
-		Uid:  01,
-	})
+	testStats.controllers[1].sourceTablet.Set("src1")
 
 	sleepTime := 1 * time.Millisecond
 	record := func(phase string) {

@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/encoding/prototext"
 
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/vterrors"
 
@@ -66,7 +66,7 @@ type controller struct {
 	done   chan struct{}
 
 	// The following fields are updated after start. So, they need synchronization.
-	sourceTablet atomic.Value
+	sourceTablet sync2.AtomicString
 
 	lastWorkflowError *lastError
 }
@@ -86,7 +86,7 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		done:            make(chan struct{}),
 		source:          &binlogdatapb.BinlogSource{},
 	}
-	ct.sourceTablet.Store(&topodatapb.TabletAlias{})
+	ct.sourceTablet.Set("")
 	log.Infof("creating controller with cell: %v, tabletTypes: %v, and params: %v", cell, tabletTypesStr, params)
 
 	// id
@@ -181,7 +181,7 @@ func (ct *controller) run(ctx context.Context) {
 
 func (ct *controller) runBlp(ctx context.Context) (err error) {
 	defer func() {
-		ct.sourceTablet.Store(&topodatapb.TabletAlias{})
+		ct.sourceTablet.Set("")
 		if x := recover(); x != nil {
 			log.Errorf("stream %v: caught panic: %v\n%s", ct.id, x, tb.Stack(4))
 			err = fmt.Errorf("panic: %v", x)
@@ -299,9 +299,7 @@ func (ct *controller) pickSourceTablet(ctx context.Context, dbClient binlogplaye
 	}
 	log.Infof("Trying to find an eligible source tablet for vreplication stream id %d for workflow: %s",
 		ct.id, ct.workflow)
-	tpCtx, tpCancel := context.WithTimeout(ctx, discovery.GetTabletPickerRetryDelay()*tabletPickerRetries)
-	defer tpCancel()
-	tablet, err := ct.tabletPicker.PickForStreaming(tpCtx)
+	tablet, err := ct.tabletPicker.PickForStreaming(ctx)
 	if err != nil {
 		select {
 		case <-ctx.Done():
@@ -314,7 +312,7 @@ func (ct *controller) pickSourceTablet(ctx context.Context, dbClient binlogplaye
 	ct.setMessage(dbClient, fmt.Sprintf("Picked source tablet: %s", tablet.Alias.String()))
 	log.Infof("Found eligible source tablet %s for vreplication stream id %d for workflow %s",
 		tablet.Alias.String(), ct.id, ct.workflow)
-	ct.sourceTablet.Store(tablet.Alias)
+	ct.sourceTablet.Set(tablet.Alias.String())
 	return tablet, err
 }
 
