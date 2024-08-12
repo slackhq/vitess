@@ -19,14 +19,12 @@ package vreplication
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
-	"time"
-
-	"vitess.io/vitess/go/vt/binlog/binlogplayer"
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/servenv"
+
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 var (
@@ -142,7 +140,10 @@ func (st *vrStats) register() {
 		defer st.mu.Unlock()
 		result := make(map[string]string, len(st.controllers))
 		for _, ct := range st.controllers {
-			result[fmt.Sprintf("%v", ct.id)] = ct.sourceTablet.Get()
+			ta := ct.sourceTablet.Load()
+			if ta != nil {
+				result[fmt.Sprintf("%v", ct.id)] = ta.(*topodatapb.TabletAlias).String()
+			}
 		}
 		return result
 	}))
@@ -151,12 +152,10 @@ func (st *vrStats) register() {
 		defer st.mu.Unlock()
 		result := make(map[string]string, len(st.controllers))
 		for _, ct := range st.controllers {
-			var messages []string
-			for _, rec := range ct.blpStats.History.Records() {
-				hist := rec.(*binlogplayer.StatsHistoryRecord)
-				messages = append(messages, fmt.Sprintf("%s:%s", hist.Time.Format(time.RFC3339Nano), hist.Message))
+			ta := ct.sourceTablet.Load()
+			if ta != nil {
+				result[fmt.Sprintf("%v", ct.id)] = ta.(*topodatapb.TabletAlias).String()
 			}
-			result[fmt.Sprintf("%v", ct.id)] = strings.Join(messages, "; ")
 		}
 		return result
 	}))
@@ -395,7 +394,7 @@ func (st *vrStats) status() *EngineStatus {
 			Counts:                ct.blpStats.Timings.Counts(),
 			Rates:                 ct.blpStats.Rates.Get(),
 			State:                 ct.blpStats.State.Get(),
-			SourceTablet:          ct.sourceTablet.Get(),
+			SourceTablet:          ct.sourceTablet.Load().(*topodatapb.TabletAlias),
 			Messages:              ct.blpStats.MessageHistory(),
 			QueryCounts:           ct.blpStats.QueryCount.Counts(),
 			PhaseTimings:          ct.blpStats.PhaseTimings.Counts(),
@@ -427,7 +426,7 @@ type ControllerStatus struct {
 	Counts                map[string]int64
 	Rates                 map[string][]float64
 	State                 string
-	SourceTablet          string
+	SourceTablet          *topodatapb.TabletAlias
 	Messages              []string
 	QueryCounts           map[string]int64
 	PhaseTimings          map[string]int64

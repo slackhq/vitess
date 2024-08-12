@@ -18,9 +18,13 @@ package wrangler
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"golang.org/x/exp/rand"
+
+	"vitess.io/vitess/go/vt/grpcclient"
 	"vitess.io/vitess/go/vt/log"
 
 	"vitess.io/vitess/go/mysql/fakesqldb"
@@ -39,6 +43,9 @@ import (
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topotools"
+	"vitess.io/vitess/go/vt/vttablet/queryservice"
+	"vitess.io/vitess/go/vt/vttablet/tabletconn"
+	"vitess.io/vitess/go/vt/vttablet/tabletconntest"
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/vreplication"
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
@@ -74,6 +81,7 @@ type testMigraterEnv struct {
 	sourceKeyRanges []*topodatapb.KeyRange
 	targetKeyRanges []*topodatapb.KeyRange
 	tmeDB           *fakesqldb.DB
+	mu              sync.Mutex
 }
 
 // testShardMigraterEnv has some convenience functions for adding expected queries.
@@ -134,6 +142,19 @@ func newTestTableMigraterCustom(ctx context.Context, t *testing.T, sourceShards,
 		}
 		tme.targetKeyRanges = append(tme.targetKeyRanges, targetKeyRange)
 	}
+
+	dialerName := fmt.Sprintf("TrafficSwitcherTest-%s-%d", t.Name(), rand.Intn(1000000000))
+	tabletconn.RegisterDialer(dialerName, func(tablet *topodatapb.Tablet, failFast grpcclient.FailFast) (queryservice.QueryService, error) {
+		tme.mu.Lock()
+		defer tme.mu.Unlock()
+		for _, ft := range append(tme.sourcePrimaries, tme.targetPrimaries...) {
+			if ft.Tablet.Alias.Uid == tablet.Alias.Uid {
+				return ft, nil
+			}
+		}
+		return nil, nil
+	})
+	tabletconntest.SetProtocol("go.vt.wrangler.traffic_switcher_env_test", dialerName)
 
 	vs := &vschemapb.Keyspace{
 		Sharded: true,
@@ -295,6 +316,19 @@ func newTestShardMigrater(ctx context.Context, t *testing.T, sourceShards, targe
 		}
 		tme.targetKeyRanges = append(tme.targetKeyRanges, targetKeyRange)
 	}
+
+	dialerName := fmt.Sprintf("TrafficSwitcherTest-%s-%d", t.Name(), rand.Intn(1000000000))
+	tabletconn.RegisterDialer(dialerName, func(tablet *topodatapb.Tablet, failFast grpcclient.FailFast) (queryservice.QueryService, error) {
+		tme.mu.Lock()
+		defer tme.mu.Unlock()
+		for _, ft := range append(tme.sourcePrimaries, tme.targetPrimaries...) {
+			if ft.Tablet.Alias.Uid == tablet.Alias.Uid {
+				return ft, nil
+			}
+		}
+		return nil, nil
+	})
+	tabletconntest.SetProtocol("go.vt.wrangler.traffic_switcher_env_test", dialerName)
 
 	vs := &vschemapb.Keyspace{
 		Sharded: true,
