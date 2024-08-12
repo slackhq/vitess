@@ -86,7 +86,6 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		done:            make(chan struct{}),
 		source:          &binlogdatapb.BinlogSource{},
 	}
-	ct.sourceTablet.Set("")
 	log.Infof("creating controller with cell: %v, tabletTypes: %v, and params: %v", cell, tabletTypesStr, params)
 
 	// id
