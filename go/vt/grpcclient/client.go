@@ -77,8 +77,8 @@ func DialContext(ctx context.Context, target string, failFast FailFast, opts ...
 	grpccommon.EnableTracingOpt()
 	newopts := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(*grpccommon.MaxMessageSize),
-			grpc.MaxCallSendMsgSize(*grpccommon.MaxMessageSize),
+			grpc.MaxCallRecvMsgSize(grpccommon.MaxMessageRecvSize()),
+			grpc.MaxCallSendMsgSize(grpccommon.MaxMessageSendSize()),
 			grpc.WaitForReady(bool(!failFast)),
 		),
 	}
