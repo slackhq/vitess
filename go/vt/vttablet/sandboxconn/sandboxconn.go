@@ -415,8 +415,14 @@ func (sbc *SandboxConn) SetStreamHealthResponse(res *querypb.StreamHealthRespons
 	sbc.streamHealthResponse = res
 }
 
-// StreamHealth always mocks a "healthy" result.
+// StreamHealth always mocks a "healthy" result by default. If you want to override this behavior you
+// can call SetStreamHealthResponse.
 func (sbc *SandboxConn) StreamHealth(ctx context.Context, callback func(*querypb.StreamHealthResponse) error) error {
+	sbc.mapMu.Lock()
+	defer sbc.mapMu.Unlock()
+	if sbc.streamHealthResponse != nil {
+		return callback(sbc.streamHealthResponse)
+	}
 	return nil
 }
 
