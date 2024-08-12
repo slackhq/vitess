@@ -19,6 +19,8 @@ package wrangler
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -378,9 +380,10 @@ func newTestTablePartialMigrater(ctx context.Context, t *testing.T, shards, shar
 	now := time.Now().Unix()
 
 	for i, shard := range shards {
-		for _, shardToMove := range shardsToMove {
+		for j, shardToMove := range shardsToMove {
 			var streamInfoRows []string
 			var streamExtInfoRows []string
+			var vreplIDs []string
 			if shardToMove == shard {
 				bls := &binlogdatapb.BinlogSource{
 					Keyspace: "ks1",
@@ -397,8 +400,10 @@ func newTestTablePartialMigrater(ctx context.Context, t *testing.T, shards, shar
 				}
 				streamInfoRows = append(streamInfoRows, fmt.Sprintf("%d|%v|||", i+1, bls))
 				streamExtInfoRows = append(streamExtInfoRows, fmt.Sprintf("%d|||||Running|vt_ks1|%d|%d|0|0||||0", i+1, now, now))
+				vreplIDs = append(vreplIDs, strconv.FormatInt(int64(j+1), 10))
 			}
-			tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, i+1, i+1), noResult)
+			vreplIDsJoined := strings.Join(vreplIDs, ", ")
+			tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, vreplIDsJoined, vreplIDsJoined), noResult)
 			tme.dbTargetClients[i].addInvariant(streamInfoKs2, sqltypes.MakeTestResult(sqltypes.MakeTestFields(
 				"id|source|message|cell|tablet_types",
 				"int64|varchar|varchar|varchar|varchar"),
