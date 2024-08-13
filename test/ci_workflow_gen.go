@@ -163,22 +163,12 @@ type selfHostedTest struct {
 // clusterMySQLVersions return list of mysql versions (one or more) that this cluster needs to test against
 func clusterMySQLVersions(clusterName string) mysqlVersions {
 	switch {
-	case strings.HasPrefix(clusterName, "onlineddl_"):
-		return allMySQLVersions
-	case clusterName == "schemadiff_vrepl":
-		return allMySQLVersions
-	case clusterName == "tabletmanager_tablegc":
-		return allMySQLVersions
-	case clusterName == "mysql57":
-		return []mysqlVersion{mysql57}
 	case clusterName == "mysql80":
 		return []mysqlVersion{mysql80}
 	case clusterName == "vtorc_8.0":
 		return []mysqlVersion{mysql80}
 	case clusterName == "vreplication_across_db_versions":
 		return []mysqlVersion{mysql80}
-	case clusterName == "xb_backup":
-		return allMySQLVersions
 	case clusterName == "vtctlbackup_sharded_clustertest_heavy":
 		return []mysqlVersion{mysql80}
 	case clusterName == "vtbackup_transform":
