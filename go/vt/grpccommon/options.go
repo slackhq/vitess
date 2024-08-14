@@ -31,6 +31,11 @@ var (
 	// accept. Larger messages will be rejected.
 	// Note: We're using 16 MiB as default value because that's the default in MySQL
 	MaxMessageSize = flag.Int("grpc_max_message_size", defaultMaxMessageSize, "Maximum allowed RPC message size. Larger messages will be rejected by gRPC with the error 'exceeding the max size'.")
+	// These options override MaxMessageSize if > 0, allowing us to control the max
+	// size sending independently from receiving.
+	MaxMsgRecvSize = flag.Int("grpc_max_message_recv_size", 0, "Maximum allowed RPC message size when receiving. If 0, defaults to grpc_max_message_size.")
+	MaxMsgSendSize = flag.Int("grpc_max_message_send_size", 0, "Maximum allowed RPC message size when sending. If 0, defaults to grpc_max_message_size.")
+
 	// EnableTracing sets a flag to enable grpc client/server tracing.
 	EnableTracing = flag.Bool("grpc_enable_tracing", false, "Enable GRPC tracing")
 
@@ -47,6 +52,20 @@ func EnableTracingOpt() {
 	enableTracing.Do(func() {
 		grpc.EnableTracing = *EnableTracing
 	})
+}
+
+func MaxMessageRecvSize() int {
+	if *MaxMsgRecvSize > 0 {
+		return *MaxMsgRecvSize
+	}
+	return *MaxMessageSize
+}
+
+func MaxMessageSendSize() int {
+	if *MaxMsgSendSize > 0 {
+		return *MaxMsgSendSize
+	}
+	return *MaxMessageSize
 }
 
 func init() {
