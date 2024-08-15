@@ -288,4 +288,4 @@ func (set *DurationOrSecondsFloatFlag) String() string {
 	return strconv.FormatFloat(float64(*set), 'f', -1, 64)
 }
 
-func (set *DurationOrSecondsFloatFlag) Type() string { return "DurationOrSecondsFloatFlag" }
+func (set *DurationOrSecondsFloatFlag) Type() string { return "DurationOrSecondsFloat" }
