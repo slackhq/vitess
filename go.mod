@@ -76,7 +76,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.8.1
 	github.com/spyzhov/ajson v0.4.2
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.9.0
 	github.com/tchap/go-patricia v2.2.6+incompatible
 	github.com/tebeka/selenium v0.9.9
 	github.com/tidwall/gjson v1.12.1
