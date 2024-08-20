@@ -11372,8 +11372,6 @@ func TestValidateVersionShard(t *testing.T) {
 	for _, tt := range tests {
 		curT := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			curT.setup(&testSetupMu)
 			resp, err := vtctld.ValidateVersionShard(ctx, curT.req)
 			if curT.shouldErr {
