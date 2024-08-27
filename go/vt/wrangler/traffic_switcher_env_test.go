@@ -398,7 +398,7 @@ func newTestTablePartialMigrater(ctx context.Context, t *testing.T, shards, shar
 				streamInfoRows = append(streamInfoRows, fmt.Sprintf("%d|%v|||", i+1, bls))
 				streamExtInfoRows = append(streamExtInfoRows, fmt.Sprintf("%d|||||Running|vt_ks1|%d|%d|0|0||||0", i+1, now, now))
 			}
-			tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, i+1, i+1), noResult)
+			tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, i+1), noResult)
 			tme.dbTargetClients[i].addInvariant(streamInfoKs2, sqltypes.MakeTestResult(sqltypes.MakeTestFields(
 				"id|source|message|cell|tablet_types",
 				"int64|varchar|varchar|varchar|varchar"),
@@ -432,7 +432,7 @@ func newTestTablePartialMigrater(ctx context.Context, t *testing.T, shards, shar
 					},
 				}
 				streamInfoRows = append(streamInfoRows, fmt.Sprintf("%d|%v|||", i+1, bls))
-				tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, i+1, i+1), noResult)
+				tme.dbTargetClients[i].addInvariant(fmt.Sprintf(copyStateQuery, i+1), noResult)
 			}
 			tme.dbSourceClients[i].addInvariant(reverseStreamInfoKs1, sqltypes.MakeTestResult(sqltypes.MakeTestFields(
 				"id|source|message|cell|tablet_types",
