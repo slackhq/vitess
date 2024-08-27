@@ -119,6 +119,8 @@ type vstream struct {
 	ts                *topo.Server
 
 	tabletPickerOptions discovery.TabletPickerOptions
+
+	flags *vtgatepb.VStreamFlags
 }
 
 type journalEvent struct {
@@ -180,6 +182,7 @@ func (vsm *vstreamManager) VStream(ctx context.Context, tabletType topodatapb.Ta
 			CellPreference: flags.GetCellPreference(),
 			TabletOrder:    flags.GetTabletOrder(),
 		},
+		flags: flags,
 	}
 	return vs.stream(ctx)
 }
@@ -266,7 +269,7 @@ func (vsm *vstreamManager) resolveParams(ctx context.Context, tabletType topodat
 		}
 	}
 
-	//TODO add tablepk validations
+	// TODO add tablepk validations
 
 	return newvgtid, filter, flags, nil
 }
@@ -556,15 +559,24 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 			})
 		}()
 
-		log.Infof("Starting to vstream from %s", tablet.Alias.String())
+		var options *binlogdatapb.VStreamOptions
+		const SidecarDBHeartbeatTableName = "heartbeat"
+		if vs.flags.GetStreamKeyspaceHeartbeats() {
+			options = &binlogdatapb.VStreamOptions{
+				InternalTables: []string{SidecarDBHeartbeatTableName},
+			}
+		}
+
 		// Safe to access sgtid.Gtid here (because it can't change until streaming begins).
 		req := &binlogdatapb.VStreamRequest{
 			Target:       target,
 			Position:     sgtid.Gtid,
 			Filter:       vs.filter,
 			TableLastPKs: sgtid.TablePKs,
+			Options:      options,
 		}
 		var vstreamCreatedOnce sync.Once
+		log.Infof("Starting to vstream from %s, with req %+v", topoproto.TabletAliasString(tablet.Alias), req)
 		err = tabletConn.VStream(ctx, req, func(events []*binlogdatapb.VEvent) error {
 			// We received a valid event. Reset error count.
 			errCount = 0
