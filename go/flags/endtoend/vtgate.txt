@@ -22,7 +22,7 @@ Usage of vtgate:
       --discovery_high_replication_lag_minimum_serving duration          Threshold above which replication lag is considered too high when applying the min_number_serving_vttablets flag. (default 2h0m0s)
       --discovery_low_replication_lag duration                           Threshold below which replication lag is considered low enough to be healthy. (default 30s)
       --emit_stats                                                       If set, emit stats to push-based monitoring and stats backends
-      --enable-balancer                                                  Enable the tablet balancer to evenly spread query load for a given tablet type 
+      --enable-balancer                                                  Enable the tablet balancer to evenly spread query load for a given tablet type
       --enable-partial-keyspace-migration                                (Experimental) Follow shard routing rules: enable only while migrating a keyspace shard by shard. See documentation on Partial MoveTables for more. (default false)
       --enable_buffer                                                    Enable buffering (stalling) of primary traffic during failovers.
       --enable_buffer_dry_run                                            Detect and log failover events, but do not actually buffer requests.
