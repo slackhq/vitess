@@ -589,8 +589,9 @@ func shardCustomer(t *testing.T, testReverse bool, cells []*Cell, sourceCellOrAl
 		productTab := vc.Cells[defaultCell.Name].Keyspaces["product"].Shards["0"].Tablets["zone1-100"].Vttablet
 
 		// Wait to finish the copy phase for all tables
-		catchup(t, customerTab1, workflow, "MoveTables")
-		catchup(t, customerTab2, workflow, "MoveTables")
+		workflowType := "MoveTables"
+		catchup(t, customerTab1, workflow, workflowType)
+		catchup(t, customerTab2, workflow, workflowType)
 
 		// Confirm that the 0 scale decimal field, dec80, is replicated correctly
 		dec80Replicated := false
@@ -623,7 +624,7 @@ func shardCustomer(t *testing.T, testReverse bool, cells []*Cell, sourceCellOrAl
 		}
 
 		vdiff1(t, ksWorkflow, "")
-		switchReadsDryRun(t, allCellNames, ksWorkflow, dryRunResultsReadCustomerShard)
+		switchReadsDryRun(t, workflowType, allCellNames, ksWorkflow, dryRunResultsReadCustomerShard)
 		switchReads(t, allCellNames, ksWorkflow)
 		require.True(t, validateThatQueryExecutesOnTablet(t, vtgateConn, productTab, "customer", query, query))
 
@@ -851,7 +852,8 @@ func reshard(t *testing.T, ksName string, tableName string, workflow string, sou
 				t.Fatal(err)
 			}
 		}
-		if err := vc.VtctlClient.ExecuteCommand("Reshard", "--", "--v1", "--cells="+sourceCellOrAlias, "--tablet_types=replica,primary", ksWorkflow, "--", sourceShards, targetShards); err != nil {
+		workflowType := "Reshard"
+		if err := vc.VtctlClient.ExecuteCommand(workflowType, "--", "--v1", "--cells="+sourceCellOrAlias, "--tablet_types=replica,primary", ksWorkflow, "--", sourceShards, targetShards); err != nil {
 			t.Fatalf("Reshard command failed with %+v\n", err)
 		}
 		tablets := vc.getVttabletsInKeyspace(t, defaultCell, ksName, "primary")
@@ -869,7 +871,7 @@ func reshard(t *testing.T, ksName string, tableName string, workflow string, sou
 		if dryRunResultSwitchReads != nil {
 			switchReadsDryRun(t, workflowType, allCellNames, ksWorkflow, dryRunResultSwitchReads)
 		}
-		switchReads(t, workflowType, allCellNames, ksWorkflow, false)
+		switchReads(t, allCellNames, ksWorkflow)
 		if dryRunResultSwitchWrites != nil {
 			switchWritesDryRun(t, ksWorkflow, dryRunResultSwitchWrites)
 		}
