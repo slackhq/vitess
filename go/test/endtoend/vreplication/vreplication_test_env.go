@@ -86,6 +86,46 @@ var dryRunResultsSwitchWritesM2m3 = []string{
 	"Unlock keyspace merchant-type",
 }
 
+var dryRunResultsDropSourcesDropCustomerShard = []string{
+	"Lock keyspace product",
+	"Lock keyspace customer",
+	"Dropping these tables from the database and removing them from the vschema for keyspace product:",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table Lead",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table Lead-1",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table customer",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table db_order_test",
+	"Denied tables [Lead,Lead-1,customer,db_order_test] will be removed from:",
+	"	Keyspace product Shard 0 Tablet 100",
+	"Delete reverse vreplication streams on source:",
+	"	Keyspace product Shard 0 Workflow p2c_reverse DbName vt_product Tablet 100",
+	"Delete vreplication streams on target:",
+	"	Keyspace customer Shard -80 Workflow p2c DbName vt_customer Tablet 200",
+	"	Keyspace customer Shard 80- Workflow p2c DbName vt_customer Tablet 300",
+	"Routing rules for participating tables will be deleted",
+	"Unlock keyspace customer",
+	"Unlock keyspace product",
+}
+
+var dryRunResultsDropSourcesRenameCustomerShard = []string{
+	"Lock keyspace product",
+	"Lock keyspace customer",
+	"Renaming these tables from the database and removing them from the vschema for keyspace product:",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table Lead",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table Lead-1",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table customer",
+	"	Keyspace product Shard 0 DbName vt_product Tablet 100 Table db_order_test",
+	"Denied tables [Lead,Lead-1,customer,db_order_test] will be removed from:",
+	"	Keyspace product Shard 0 Tablet 100",
+	"Delete reverse vreplication streams on source:",
+	"	Keyspace product Shard 0 Workflow p2c_reverse DbName vt_product Tablet 100",
+	"Delete vreplication streams on target:",
+	"	Keyspace customer Shard -80 Workflow p2c DbName vt_customer Tablet 200",
+	"	Keyspace customer Shard 80- Workflow p2c DbName vt_customer Tablet 300",
+	"Routing rules for participating tables will be deleted",
+	"Unlock keyspace customer",
+	"Unlock keyspace product",
+}
+
 var dryRunResultsSwitchReadM2m3 = []string{
 	"Lock keyspace merchant-type",
 	"Switch reads from keyspace merchant-type to keyspace merchant-type for shards -80,80- to shards -40,40-c0,c0-",
