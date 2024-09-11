@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"io"
 	"math/rand"
-
 	"os"
 	"path"
 	"testing"
@@ -54,6 +53,7 @@ func TestFindReplicationPosition(t *testing.T) {
 		t.Errorf("findReplicationPosition() = %v; want %v", got, want)
 	}
 }
+
 func TestFindReplicationPositionFromXtrabackupInfo(t *testing.T) {
 	input := `tool_version = 8.0.35-30
 	binlog_pos = filename 'vt-0476396352-bin.000005', position '310088991', GTID of the last change '145e508e-ae54-11e9-8ce6-46824dd1815e:1-3,
