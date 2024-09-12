@@ -69,9 +69,9 @@ func init() {
 		fs.DurationVar(&initialTabletTimeout, "gateway_initial_tablet_timeout", 30*time.Second, "At startup, the tabletGateway will wait up to this duration to get at least one tablet per keyspace/shard/tablet type")
 		fs.IntVar(&retryCount, "retry-count", 2, "retry count")
 		fs.BoolVar(&routeReplicaToRdonly, "gateway_route_replica_to_rdonly", false, "route REPLICA queries to RDONLY tablets as well as REPLICA tablets")
-		fs.BoolVar(&balancerEnabled, "balancer_enabled", false, "Whether to enable the tablet balancer to evenly spread query load")
-		fs.StringSliceVar(&balancerVtgateCells, "balancer_vtgate_cells", []string{}, "When in balanced mode, a comma-separated list of cells that contain vtgates (required)")
-		fs.StringSliceVar(&balancerKeyspaces, "balancer_keyspaces", []string{}, "When in balanced mode, a comma-separated list of keyspaces for which to use the balancer (optional)")
+		fs.BoolVar(&balancerEnabled, "enable-balancer", false, "Enable the tablet balancer to evenly spread query load for a given tablet type")
+		fs.StringSliceVar(&balancerVtgateCells, "balancer-vtgate-cells", []string{}, "When in balanced mode, a comma-separated list of cells that contain vtgates (required)")
+		fs.StringSliceVar(&balancerKeyspaces, "balancer-keyspaces", []string{}, "When in balanced mode, a comma-separated list of keyspaces for which to use the balancer (optional)")
 	})
 }
 
@@ -100,7 +100,11 @@ type TabletGateway struct {
 }
 
 func createHealthCheck(ctx context.Context, retryDelay, timeout time.Duration, ts *topo.Server, cell, cellsToWatch string) discovery.HealthCheck {
-	return discovery.NewHealthCheck(ctx, retryDelay, timeout, ts, cell, cellsToWatch)
+	filters, err := discovery.NewVTGateHealthCheckFilters()
+	if err != nil {
+		log.Exit(err)
+	}
+	return discovery.NewHealthCheck(ctx, retryDelay, timeout, ts, cell, cellsToWatch, filters)
 }
 
 // NewTabletGateway creates and returns a new TabletGateway
