@@ -84,7 +84,8 @@ var (
 	// recoveriesFailureCounter counts the number of failed recoveries that VTOrc has performed
 	recoveriesFailureCounter = stats.NewCountersWithSingleLabel("FailedRecoveries", "Count of the different failed recoveries performed", "RecoveryType", actionableRecoveriesNames...)
 
-	vtopsExec = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), os.Getenv("VTOPS_HTTP_PROXY"))
+	vtopsExec         = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), os.Getenv("VTOPS_HTTP_PROXY"), "vtorc", os.Getenv("HOSTNAME"))
+	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
 )
 
 // recoveryFunction is the code of the recovery function to be used
@@ -609,7 +610,7 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 			}
 		}
 
-		vtopsExec.SendSlackMessage(fmt.Sprintf("[VTOrc] No recovery available for %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), true)
+		vtopsExec.SendSlackMessage(fmt.Sprintf("[VTOrc] No recovery available for %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), vtopsSlackChannel, true)
 
 		return nil
 	}
@@ -716,7 +717,7 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	}
 
 	if !isActionableRecovery {
-		vtopsExec.SendSlackMessage(fmt.Sprintf("No actionable recovery on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), true)
+		vtopsExec.SendSlackMessage(fmt.Sprintf("No actionable recovery on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), vtopsSlackChannel, true)
 	}
 
 	recoveryAttempted, topologyRecovery, err := getCheckAndRecoverFunction(checkAndRecoverFunctionCode)(ctx, analysisEntry)
@@ -726,10 +727,10 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	recoveryName := getRecoverFunctionName(checkAndRecoverFunctionCode)
 	recoveriesCounter.Add(recoveryName, 1)
 	if err != nil {
-		vtopsExec.SendSlackMessage(fmt.Sprintf("Recovery failed on %s for problem %s. Error: %s", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error()), true)
+		vtopsExec.SendSlackMessage(fmt.Sprintf("Recovery failed on %s for problem %s. Error: %s", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error()), vtopsSlackChannel, true)
 		recoveriesFailureCounter.Add(recoveryName, 1)
 	} else {
-		vtopsExec.SendSlackMessage(fmt.Sprintf("Recovery succeeded on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), true)
+		vtopsExec.SendSlackMessage(fmt.Sprintf("Recovery succeeded on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), vtopsSlackChannel, true)
 		recoveriesSuccessfulCounter.Add(recoveryName, 1)
 	}
 	if topologyRecovery == nil {
