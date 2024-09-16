@@ -21,6 +21,8 @@ import (
 	"math/rand"
 	"testing"
 	"time"
+	"vitess.io/vitess/go/vt/logutil"
+	"vitess.io/vitess/go/vt/topo"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,7 +110,7 @@ func TestCellTabletsWatcherNoRefreshKnown(t *testing.T) {
 func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	ts := memorytopo.NewServer("aa")
 	fhc := NewFakeHealthCheck(nil)
-	//logger := logutil.NewMemoryLogger()
+	logger := logutil.NewMemoryLogger()
 	topologyWatcherOperations.ZeroAll()
 	counts := topologyWatcherOperations.Counts()
 	tw := NewTopologyWatcher(context.Background(), ts, fhc, nil, "aa", 10*time.Minute, refreshKnownTablets, 5)
@@ -135,155 +137,155 @@ func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "AddTablet": 1})
 	checkChecksum(t, tw, 3238442862)
 
-	//// Check the tablet is returned by GetAllTablets().
-	//allTablets := fhc.GetAllTablets()
-	//key := TabletToMapKey(tablet)
-	//assert.Len(t, allTablets, 1)
-	//assert.Contains(t, allTablets, key)
-	//assert.True(t, proto.Equal(tablet, allTablets[key]))
+	// Check the tablet is returned by GetAllTablets().
+	allTablets := fhc.GetAllTablets()
+	key := TabletToMapKey(tablet)
+	assert.Len(t, allTablets, 1)
+	assert.Contains(t, allTablets, key)
+	assert.True(t, proto.Equal(tablet, allTablets[key]))
+
+	// Add a second tablet to the topology.
+	tablet2 := &topodatapb.Tablet{
+		Alias: &topodatapb.TabletAlias{
+			Cell: "aa",
+			Uid:  2,
+		},
+		Hostname: "host2",
+		PortMap: map[string]int32{
+			"vt": 789,
+		},
+		Keyspace: "keyspace",
+		Shard:    "shard",
+	}
+	require.NoError(t, ts.CreateTablet(context.Background(), tablet2), "CreateTablet failed for %v", tablet2.Alias)
+	tw.loadTablets()
+
+	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "AddTablet": 1})
+	checkChecksum(t, tw, 2762153755)
+
+	// Check the new tablet is returned by GetAllTablets().
+	allTablets = fhc.GetAllTablets()
+	key = TabletToMapKey(tablet2)
+	assert.Len(t, allTablets, 2)
+	assert.Contains(t, allTablets, key)
+	assert.True(t, proto.Equal(tablet2, allTablets[key]))
+
+	// same tablet, different port, should update (previous
+	// one should go away, new one be added)
 	//
-	//// Add a second tablet to the topology.
-	//tablet2 := &topodatapb.Tablet{
-	//	Alias: &topodatapb.TabletAlias{
-	//		Cell: "aa",
-	//		Uid:  2,
-	//	},
-	//	Hostname: "host2",
-	//	PortMap: map[string]int32{
-	//		"vt": 789,
-	//	},
-	//	Keyspace: "keyspace",
-	//	Shard:    "shard",
-	//}
-	//require.NoError(t, ts.CreateTablet(context.Background(), tablet2), "CreateTablet failed for %v", tablet2.Alias)
-	//tw.loadTablets()
-	//
-	//counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "AddTablet": 1})
-	//checkChecksum(t, tw, 2762153755)
-	//
-	//// Check the new tablet is returned by GetAllTablets().
-	//allTablets = fhc.GetAllTablets()
-	//key = TabletToMapKey(tablet2)
-	//assert.Len(t, allTablets, 2)
-	//assert.Contains(t, allTablets, key)
-	//assert.True(t, proto.Equal(tablet2, allTablets[key]))
-	//
-	//// same tablet, different port, should update (previous
-	//// one should go away, new one be added)
-	////
-	//// if refreshKnownTablets is disabled, this case is *not*
-	//// detected and the tablet remains in the healthcheck using the
-	//// old key
-	//origTablet := proto.Clone(tablet).(*topodatapb.Tablet)
-	//origKey := TabletToMapKey(tablet)
-	//tablet.PortMap["vt"] = 456
-	//_, err := ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
-	//	t.PortMap["vt"] = 456
-	//	return nil
-	//})
-	//require.Nil(t, err, "UpdateTabletFields failed")
-	//
-	//tw.loadTablets()
-	//allTablets = fhc.GetAllTablets()
-	//key = TabletToMapKey(tablet)
-	//
-	//if refreshKnownTablets {
-	//	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 2, "ReplaceTablet": 1})
-	//
-	//	if _, ok := allTablets[key]; !ok || len(allTablets) != 2 || !proto.Equal(allTablets[key], tablet) {
-	//		t.Errorf("fhc.GetAllTablets() = %+v; want %+v", allTablets, tablet)
-	//	}
-	//	if _, ok := allTablets[origKey]; ok {
-	//		t.Errorf("fhc.GetAllTablets() = %+v; don't want %v", allTablets, origKey)
-	//	}
-	//	checkChecksum(t, tw, 2762153755)
-	//} else {
-	//	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 0})
-	//	assert.Len(t, allTablets, 2)
-	//	assert.Contains(t, allTablets, origKey)
-	//	assert.True(t, proto.Equal(origTablet, allTablets[origKey]))
-	//	assert.NotContains(t, allTablets, key)
-	//	checkChecksum(t, tw, 2762153755)
-	//}
-	//
-	//// Both tablets restart on different hosts.
-	//// tablet2 happens to land on the host:port that tablet 1 used to be on.
-	//// This can only be tested when we refresh known tablets.
-	//if refreshKnownTablets {
-	//	origTablet := proto.Clone(tablet).(*topodatapb.Tablet)
-	//	origTablet2 := proto.Clone(tablet2).(*topodatapb.Tablet)
-	//
-	//	_, err := ts.UpdateTabletFields(context.Background(), tablet2.Alias, func(t *topodatapb.Tablet) error {
-	//		t.Hostname = tablet.Hostname
-	//		t.PortMap = tablet.PortMap
-	//		tablet2 = t
-	//		return nil
-	//	})
-	//	require.Nil(t, err, "UpdateTabletFields failed")
-	//	_, err = ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
-	//		t.Hostname = "host3"
-	//		tablet = t
-	//		return nil
-	//	})
-	//	require.Nil(t, err, "UpdateTabletFields failed")
-	//	tw.loadTablets()
-	//	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 2})
-	//	allTablets = fhc.GetAllTablets()
-	//	key2 := TabletToMapKey(tablet2)
-	//	assert.Contains(t, allTablets, key2, "tablet was lost because it's reusing an address recently used by another tablet: %v", key2)
-	//
-	//	// Change tablets back to avoid altering later tests.
-	//	_, err = ts.UpdateTabletFields(context.Background(), tablet2.Alias, func(t *topodatapb.Tablet) error {
-	//		t.Hostname = origTablet2.Hostname
-	//		t.PortMap = origTablet2.PortMap
-	//		tablet2 = t
-	//		return nil
-	//	})
-	//	require.Nil(t, err, "UpdateTabletFields failed")
-	//
-	//	_, err = ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
-	//		t.Hostname = origTablet.Hostname
-	//		tablet = t
-	//		return nil
-	//	})
-	//	require.Nil(t, err, "UpdateTabletFields failed")
-	//
-	//	tw.loadTablets()
-	//	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 2})
-	//}
-	//
-	//// Remove the tablet and check that it is detected as being gone.
-	//require.NoError(t, ts.DeleteTablet(context.Background(), tablet.Alias))
-	//
-	//_, err = topo.FixShardReplication(context.Background(), ts, logger, "aa", "keyspace", "shard")
-	//require.Nil(t, err, "FixShardReplication failed")
-	//tw.loadTablets()
-	//counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "RemoveTablet": 1})
-	//checkChecksum(t, tw, 789108290)
-	//
-	//allTablets = fhc.GetAllTablets()
-	//assert.Len(t, allTablets, 1)
-	//key = TabletToMapKey(tablet)
-	//assert.NotContains(t, allTablets, key)
-	//
-	//key = TabletToMapKey(tablet2)
-	//assert.Contains(t, allTablets, key)
-	//assert.True(t, proto.Equal(tablet2, allTablets[key]))
-	//
-	//// Remove the other and check that it is detected as being gone.
-	//require.NoError(t, ts.DeleteTablet(context.Background(), tablet2.Alias))
-	//_, err = topo.FixShardReplication(context.Background(), ts, logger, "aa", "keyspace", "shard")
-	//require.Nil(t, err, "FixShardReplication failed")
-	//tw.loadTablets()
-	//checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "RemoveTablet": 1})
-	//checkChecksum(t, tw, 0)
-	//
-	//allTablets = fhc.GetAllTablets()
-	//assert.Len(t, allTablets, 0)
-	//key = TabletToMapKey(tablet)
-	//assert.NotContains(t, allTablets, key)
-	//key = TabletToMapKey(tablet2)
-	//assert.NotContains(t, allTablets, key)
+	// if refreshKnownTablets is disabled, this case is *not*
+	// detected and the tablet remains in the healthcheck using the
+	// old key
+	origTablet := proto.Clone(tablet).(*topodatapb.Tablet)
+	origKey := TabletToMapKey(tablet)
+	tablet.PortMap["vt"] = 456
+	_, err := ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
+		t.PortMap["vt"] = 456
+		return nil
+	})
+	require.Nil(t, err, "UpdateTabletFields failed")
+
+	tw.loadTablets()
+	allTablets = fhc.GetAllTablets()
+	key = TabletToMapKey(tablet)
+
+	if refreshKnownTablets {
+		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 2, "ReplaceTablet": 1})
+
+		if _, ok := allTablets[key]; !ok || len(allTablets) != 2 || !proto.Equal(allTablets[key], tablet) {
+			t.Errorf("fhc.GetAllTablets() = %+v; want %+v", allTablets, tablet)
+		}
+		if _, ok := allTablets[origKey]; ok {
+			t.Errorf("fhc.GetAllTablets() = %+v; don't want %v", allTablets, origKey)
+		}
+		checkChecksum(t, tw, 2762153755)
+	} else {
+		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 0})
+		assert.Len(t, allTablets, 2)
+		assert.Contains(t, allTablets, origKey)
+		assert.True(t, proto.Equal(origTablet, allTablets[origKey]))
+		assert.NotContains(t, allTablets, key)
+		checkChecksum(t, tw, 2762153755)
+	}
+
+	// Both tablets restart on different hosts.
+	// tablet2 happens to land on the host:port that tablet 1 used to be on.
+	// This can only be tested when we refresh known tablets.
+	if refreshKnownTablets {
+		origTablet := proto.Clone(tablet).(*topodatapb.Tablet)
+		origTablet2 := proto.Clone(tablet2).(*topodatapb.Tablet)
+
+		_, err := ts.UpdateTabletFields(context.Background(), tablet2.Alias, func(t *topodatapb.Tablet) error {
+			t.Hostname = tablet.Hostname
+			t.PortMap = tablet.PortMap
+			tablet2 = t
+			return nil
+		})
+		require.Nil(t, err, "UpdateTabletFields failed")
+		_, err = ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
+			t.Hostname = "host3"
+			tablet = t
+			return nil
+		})
+		require.Nil(t, err, "UpdateTabletFields failed")
+		tw.loadTablets()
+		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 2})
+		allTablets = fhc.GetAllTablets()
+		key2 := TabletToMapKey(tablet2)
+		assert.Contains(t, allTablets, key2, "tablet was lost because it's reusing an address recently used by another tablet: %v", key2)
+
+		// Change tablets back to avoid altering later tests.
+		_, err = ts.UpdateTabletFields(context.Background(), tablet2.Alias, func(t *topodatapb.Tablet) error {
+			t.Hostname = origTablet2.Hostname
+			t.PortMap = origTablet2.PortMap
+			tablet2 = t
+			return nil
+		})
+		require.Nil(t, err, "UpdateTabletFields failed")
+
+		_, err = ts.UpdateTabletFields(context.Background(), tablet.Alias, func(t *topodatapb.Tablet) error {
+			t.Hostname = origTablet.Hostname
+			tablet = t
+			return nil
+		})
+		require.Nil(t, err, "UpdateTabletFields failed")
+
+		tw.loadTablets()
+		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 2})
+	}
+
+	// Remove the tablet and check that it is detected as being gone.
+	require.NoError(t, ts.DeleteTablet(context.Background(), tablet.Alias))
+
+	_, err = topo.FixShardReplication(context.Background(), ts, logger, "aa", "keyspace", "shard")
+	require.Nil(t, err, "FixShardReplication failed")
+	tw.loadTablets()
+	counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "RemoveTablet": 1})
+	checkChecksum(t, tw, 789108290)
+
+	allTablets = fhc.GetAllTablets()
+	assert.Len(t, allTablets, 1)
+	key = TabletToMapKey(tablet)
+	assert.NotContains(t, allTablets, key)
+
+	key = TabletToMapKey(tablet2)
+	assert.Contains(t, allTablets, key)
+	assert.True(t, proto.Equal(tablet2, allTablets[key]))
+
+	// Remove the other and check that it is detected as being gone.
+	require.NoError(t, ts.DeleteTablet(context.Background(), tablet2.Alias))
+	_, err = topo.FixShardReplication(context.Background(), ts, logger, "aa", "keyspace", "shard")
+	require.Nil(t, err, "FixShardReplication failed")
+	tw.loadTablets()
+	checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "RemoveTablet": 1})
+	checkChecksum(t, tw, 0)
+
+	allTablets = fhc.GetAllTablets()
+	assert.Len(t, allTablets, 0)
+	key = TabletToMapKey(tablet)
+	assert.NotContains(t, allTablets, key)
+	key = TabletToMapKey(tablet2)
+	assert.NotContains(t, allTablets, key)
 
 	tw.Stop()
 }
