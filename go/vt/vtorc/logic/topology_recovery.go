@@ -610,8 +610,6 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 			}
 		}
 
-		vtopsExec.SendSlackMessage(fmt.Sprintf("[VTOrc] No recovery available for %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis), vtopsSlackChannel, true)
-
 		return nil
 	}
 
