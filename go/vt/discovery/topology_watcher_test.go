@@ -193,6 +193,7 @@ func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	key = TabletToMapKey(tablet)
 
 	if refreshKnownTablets {
+		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 1})
 		assert.Len(t, allTablets, 2)
 		assert.Contains(t, allTablets, key)
 		assert.True(t, proto.Equal(tablet, allTablets[key]))
