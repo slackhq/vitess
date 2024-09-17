@@ -22,14 +22,13 @@ import (
 	"testing"
 	"time"
 
-	"vitess.io/vitess/go/vt/logutil"
-	"vitess.io/vitess/go/vt/topo"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"vitess.io/vitess/go/vt/logutil"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 )
 
