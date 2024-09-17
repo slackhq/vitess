@@ -716,7 +716,7 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 
 	recoveryAttempted, topologyRecovery, err := getCheckAndRecoverFunction(checkAndRecoverFunctionCode)(ctx, analysisEntry)
 	if !recoveryAttempted {
-		log.Infof("No recovery attempted on %s for problem %s. Error: %s", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error())
+		log.Infof("No recovery attempted on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis)
 		return err
 	}
 	recoveryName := getRecoverFunctionName(checkAndRecoverFunctionCode)
