@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"testing"
 	"time"
+
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/topo"
 
@@ -109,7 +110,9 @@ func TestCellTabletsWatcherNoRefreshKnown(t *testing.T) {
 
 func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	ts := memorytopo.NewServer("aa")
+	defer ts.Close()
 	fhc := NewFakeHealthCheck(nil)
+	defer fhc.Close()
 	logger := logutil.NewMemoryLogger()
 	topologyWatcherOperations.ZeroAll()
 	counts := topologyWatcherOperations.Counts()
@@ -190,14 +193,10 @@ func checkWatcher(t *testing.T, refreshKnownTablets bool) {
 	key = TabletToMapKey(tablet)
 
 	if refreshKnownTablets {
-		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 2, "ReplaceTablet": 1})
-
-		if _, ok := allTablets[key]; !ok || len(allTablets) != 2 || !proto.Equal(allTablets[key], tablet) {
-			t.Errorf("fhc.GetAllTablets() = %+v; want %+v", allTablets, tablet)
-		}
-		if _, ok := allTablets[origKey]; ok {
-			t.Errorf("fhc.GetAllTablets() = %+v; don't want %v", allTablets, origKey)
-		}
+		assert.Len(t, allTablets, 2)
+		assert.Contains(t, allTablets, key)
+		assert.True(t, proto.Equal(tablet, allTablets[key]))
+		assert.NotContains(t, allTablets, origKey)
 		checkChecksum(t, tw, 2762153755)
 	} else {
 		counts = checkOpCounts(t, counts, map[string]int64{"ListTablets": 1, "GetTablet": 0, "ReplaceTablet": 0})

@@ -19,11 +19,12 @@ package topo
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sync/semaphore"
 	"path"
 	"sort"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 
 	"vitess.io/vitess/go/vt/key"
 
