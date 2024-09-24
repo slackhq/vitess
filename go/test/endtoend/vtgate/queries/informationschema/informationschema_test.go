@@ -221,7 +221,9 @@ func TestInfrSchemaAndUnionAll(t *testing.T) {
 }
 
 func TestTypeORMQuery(t *testing.T) {
+	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
 	// This test checks that we can run queries similar to the ones that the TypeORM framework uses
+
 	require.NoError(t,
 		utils.WaitForAuthoritative(t, "ks", "t1", clusterInstance.VtgateProcess.ReadVSchema))
 
@@ -268,6 +270,7 @@ WHERE TABLE_SCHEMA = 'ks' AND TABLE_NAME = 't2';
 }
 
 func TestJoinWithSingleShardQueryOnRHS(t *testing.T) {
+	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
 	// This test checks that we can run queries like this, where the RHS is a single shard query
 	mcmp, closer := start(t)
 	defer closer()
