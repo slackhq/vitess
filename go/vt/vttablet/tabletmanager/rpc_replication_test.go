@@ -34,7 +34,7 @@ func TestPromoteReplicaReplicationManagerSuccess(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
 	statsTabletTypeCount.ResetAll()
-	tm := newTestTM(t, ts, 100, keyspace, shard)
+	tm := newTestTM(t, ts, 100, keyspace, shard, nil)
 	defer tm.Stop()
 
 	// Stop the replication manager and set the interval to 100 milliseconds
@@ -63,7 +63,7 @@ func TestPromoteReplicaReplicationManagerFailure(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
 	statsTabletTypeCount.ResetAll()
-	tm := newTestTM(t, ts, 100, keyspace, shard)
+	tm := newTestTM(t, ts, 100, keyspace, shard, nil)
 	defer tm.Stop()
 
 	require.True(t, tm.replManager.ticks.Running())
@@ -85,7 +85,7 @@ func TestDisableReplicationManager(t *testing.T) {
 		disableReplicationManager = prevDisableReplicationManager
 	}()
 
-	tm := newTestTM(t, ts, 100, keyspace, shard)
+	tm := newTestTM(t, ts, 100, keyspace, shard, nil)
 	defer tm.Stop()
 
 	require.False(t, tm.replManager.ticks.Running())

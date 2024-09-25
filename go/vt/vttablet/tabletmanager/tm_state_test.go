@@ -43,7 +43,7 @@ import (
 
 func TestStateOpenClose(t *testing.T) {
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 
 	// Re-Open should be a no-op
 	tm.tmState.mu.Lock()
@@ -65,7 +65,7 @@ func TestStateOpenClose(t *testing.T) {
 func TestStateRefreshFromTopo(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	err := tm.RefreshState(ctx)
@@ -75,7 +75,7 @@ func TestStateRefreshFromTopo(t *testing.T) {
 func TestStateResharding(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	tm.tmState.mu.Lock()
@@ -102,7 +102,7 @@ func TestStateResharding(t *testing.T) {
 func TestStateDenyList(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	fmd := tm.MysqlDaemon.(*fakemysqldaemon.FakeMysqlDaemon)
@@ -133,7 +133,7 @@ func TestStateDenyList(t *testing.T) {
 func TestStateTabletControls(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	ks := &topodatapb.SrvKeyspace{
@@ -161,7 +161,7 @@ func TestStateTabletControls(t *testing.T) {
 func TestStateIsShardServingisInSrvKeyspace(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	tm.tmState.mu.Lock()
@@ -332,7 +332,7 @@ func TestStateIsShardServingisInSrvKeyspace(t *testing.T) {
 func TestStateNonServing(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 1, "ks", "0")
+	tm := newTestTM(t, ts, 1, "ks", "0", nil)
 	defer tm.Stop()
 
 	tm.tmState.mu.Lock()
@@ -349,7 +349,7 @@ func TestStateChangeTabletType(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
 	statsTabletTypeCount.ResetAll()
-	tm := newTestTM(t, ts, 2, "ks", "0")
+	tm := newTestTM(t, ts, 2, "ks", "0", nil)
 	defer tm.Stop()
 
 	assert.Equal(t, 1, len(statsTabletTypeCount.Counts()))
@@ -391,7 +391,7 @@ func TestStateChangeTabletTypeWithFailure(t *testing.T) {
 	ts := memorytopo.NewServer("cell1")
 	statsTabletTypeCount.ResetAll()
 	// create TM with replica and put a hook to return error during SetServingType
-	tm := newTestTM(t, ts, 2, "ks", "0")
+	tm := newTestTM(t, ts, 2, "ks", "0", nil)
 	qsc := tm.QueryServiceControl.(*tabletservermock.Controller)
 	qsc.SetServingTypeError = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "mocking resource exhaustion error ")
 	defer tm.Stop()
@@ -474,7 +474,7 @@ func TestChangeTypeErrorWhileWritingToTopo(t *testing.T) {
 			fakeConn := factory.AddCell("cell1")
 			ts := faketopo.NewFakeTopoServer(factory)
 			statsTabletTypeCount.ResetAll()
-			tm := newTestTM(t, ts, 2, "ks", "0")
+			tm := newTestTM(t, ts, 2, "ks", "0", nil)
 			defer tm.Stop()
 
 			// ChangeTabletType calls topotools.ChangeType which in-turn issues
@@ -521,7 +521,7 @@ func TestPublishStateNew(t *testing.T) {
 
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 42, "ks", "0")
+	tm := newTestTM(t, ts, 42, "ks", "0", nil)
 	ttablet, err := tm.TopoServer.GetTablet(ctx, tm.tabletAlias)
 	require.NoError(t, err)
 	utils.MustMatch(t, tm.Tablet(), ttablet.Tablet)
@@ -567,7 +567,7 @@ func TestPublishStateNew(t *testing.T) {
 func TestPublishDeleted(t *testing.T) {
 	ctx := context.Background()
 	ts := memorytopo.NewServer("cell1")
-	tm := newTestTM(t, ts, 2, "ks", "0")
+	tm := newTestTM(t, ts, 2, "ks", "0", nil)
 	defer tm.Stop()
 
 	alias := &topodatapb.TabletAlias{
