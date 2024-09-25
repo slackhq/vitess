@@ -18,6 +18,7 @@ package inst
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
@@ -36,14 +37,18 @@ import (
 
 	"github.com/patrickmn/go-cache"
 	"github.com/rcrowley/go-metrics"
+	"github.com/slackhq/vitess-addons/go/external"
 )
 
 var analysisChangeWriteCounter = metrics.NewCounter()
 
 var recentInstantAnalysis *cache.Cache
 
+var VTOpsExec *external.ExecVTOps
+
 func init() {
 	_ = metrics.Register("analysis.change.write", analysisChangeWriteCounter)
+	VTOpsExec = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), os.Getenv("VTOPS_HTTP_PROXY"), "vtorc", os.Getenv("HOSTNAME"))
 
 	go initializeAnalysisDaoPostConfiguration()
 }
@@ -434,6 +439,9 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			return nil
 		}
 		isInvalid := m.GetBool("is_invalid")
+
+		a.IsDowntimed = VTOpsExec.IsDowntimedHost(a.AnalyzedInstanceHostname, true)
+
 		if a.IsClusterPrimary && isInvalid {
 			a.Analysis = InvalidPrimary
 			a.Description = "VTOrc hasn't been able to reach the primary even once since restart/shutdown"
