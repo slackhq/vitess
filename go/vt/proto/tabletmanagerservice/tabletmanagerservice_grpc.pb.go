@@ -35,6 +35,8 @@ type TabletManagerClient interface {
 	GetPermissions(ctx context.Context, in *tabletmanagerdata.GetPermissionsRequest, opts ...grpc.CallOption) (*tabletmanagerdata.GetPermissionsResponse, error)
 	SetReadOnly(ctx context.Context, in *tabletmanagerdata.SetReadOnlyRequest, opts ...grpc.CallOption) (*tabletmanagerdata.SetReadOnlyResponse, error)
 	SetReadWrite(ctx context.Context, in *tabletmanagerdata.SetReadWriteRequest, opts ...grpc.CallOption) (*tabletmanagerdata.SetReadWriteResponse, error)
+	// ChangeTags asks the remote tablet to change its tags
+	ChangeTags(ctx context.Context, in *tabletmanagerdata.ChangeTagsRequest, opts ...grpc.CallOption) (*tabletmanagerdata.ChangeTagsResponse, error)
 	// ChangeType asks the remote tablet to change its type
 	ChangeType(ctx context.Context, in *tabletmanagerdata.ChangeTypeRequest, opts ...grpc.CallOption) (*tabletmanagerdata.ChangeTypeResponse, error)
 	RefreshState(ctx context.Context, in *tabletmanagerdata.RefreshStateRequest, opts ...grpc.CallOption) (*tabletmanagerdata.RefreshStateResponse, error)
@@ -173,6 +175,15 @@ func (c *tabletManagerClient) SetReadOnly(ctx context.Context, in *tabletmanager
 func (c *tabletManagerClient) SetReadWrite(ctx context.Context, in *tabletmanagerdata.SetReadWriteRequest, opts ...grpc.CallOption) (*tabletmanagerdata.SetReadWriteResponse, error) {
 	out := new(tabletmanagerdata.SetReadWriteResponse)
 	err := c.cc.Invoke(ctx, "/tabletmanagerservice.TabletManager/SetReadWrite", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *tabletManagerClient) ChangeTags(ctx context.Context, in *tabletmanagerdata.ChangeTagsRequest, opts ...grpc.CallOption) (*tabletmanagerdata.ChangeTagsResponse, error) {
+	out := new(tabletmanagerdata.ChangeTagsResponse)
+	err := c.cc.Invoke(ctx, "/tabletmanagerservice.TabletManager/ChangeTags", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -601,6 +612,8 @@ type TabletManagerServer interface {
 	GetPermissions(context.Context, *tabletmanagerdata.GetPermissionsRequest) (*tabletmanagerdata.GetPermissionsResponse, error)
 	SetReadOnly(context.Context, *tabletmanagerdata.SetReadOnlyRequest) (*tabletmanagerdata.SetReadOnlyResponse, error)
 	SetReadWrite(context.Context, *tabletmanagerdata.SetReadWriteRequest) (*tabletmanagerdata.SetReadWriteResponse, error)
+	// ChangeTags asks the remote tablet to change its tags
+	ChangeTags(context.Context, *tabletmanagerdata.ChangeTagsRequest) (*tabletmanagerdata.ChangeTagsResponse, error)
 	// ChangeType asks the remote tablet to change its type
 	ChangeType(context.Context, *tabletmanagerdata.ChangeTypeRequest) (*tabletmanagerdata.ChangeTypeResponse, error)
 	RefreshState(context.Context, *tabletmanagerdata.RefreshStateRequest) (*tabletmanagerdata.RefreshStateResponse, error)
@@ -699,6 +712,9 @@ func (UnimplementedTabletManagerServer) SetReadOnly(context.Context, *tabletmana
 }
 func (UnimplementedTabletManagerServer) SetReadWrite(context.Context, *tabletmanagerdata.SetReadWriteRequest) (*tabletmanagerdata.SetReadWriteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetReadWrite not implemented")
+}
+func (UnimplementedTabletManagerServer) ChangeTags(context.Context, *tabletmanagerdata.ChangeTagsRequest) (*tabletmanagerdata.ChangeTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeTags not implemented")
 }
 func (UnimplementedTabletManagerServer) ChangeType(context.Context, *tabletmanagerdata.ChangeTypeRequest) (*tabletmanagerdata.ChangeTypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChangeType not implemented")
@@ -955,6 +971,24 @@ func _TabletManager_SetReadWrite_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TabletManagerServer).SetReadWrite(ctx, req.(*tabletmanagerdata.SetReadWriteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TabletManager_ChangeTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(tabletmanagerdata.ChangeTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TabletManagerServer).ChangeTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tabletmanagerservice.TabletManager/ChangeTags",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TabletManagerServer).ChangeTags(ctx, req.(*tabletmanagerdata.ChangeTagsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1719,6 +1753,10 @@ var TabletManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetReadWrite",
 			Handler:    _TabletManager_SetReadWrite_Handler,
+		},
+		{
+			MethodName: "ChangeTags",
+			Handler:    _TabletManager_ChangeTags_Handler,
 		},
 		{
 			MethodName: "ChangeType",

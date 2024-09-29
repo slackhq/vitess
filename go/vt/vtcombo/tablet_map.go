@@ -764,6 +764,14 @@ func (itmc *internalTabletManagerClient) SetReadWrite(ctx context.Context, table
 	return fmt.Errorf("not implemented in vtcombo")
 }
 
+func (itmc *internalTabletManagerClient) ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (map[string]string, error) {
+	t, ok := tabletMap[tablet.Alias.Uid]
+	if !ok {
+		return nil, fmt.Errorf("tmclient: cannot find tablet %v", tablet.Alias.Uid)
+	}
+	return t.tm.ChangeTags(ctx, tabletTags, replace)
+}
+
 func (itmc *internalTabletManagerClient) ChangeType(ctx context.Context, tablet *topodatapb.Tablet, dbType topodatapb.TabletType, semiSync bool) error {
 	t, ok := tabletMap[tablet.Alias.Uid]
 	if !ok {

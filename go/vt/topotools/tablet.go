@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"google.golang.org/protobuf/proto"
 
@@ -58,6 +59,37 @@ func ConfigureTabletHook(hk *hook.Hook, tabletAlias *topodatapb.TabletAlias) {
 		hk.ExtraEnv = make(map[string]string, 1)
 	}
 	hk.ExtraEnv["TABLET_ALIAS"] = topoproto.TabletAliasString(tabletAlias)
+}
+
+// ChangeTags changes the tags of the tablet. Make this external, since these
+// transitions need to be forced from time to time.
+//
+// If successful, the updated tablet record is returned.
+func ChangeTags(ctx context.Context, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, tabletTags map[string]string, replace bool) (map[string]string, error) {
+	var result map[string]string
+	_, err := ts.UpdateTabletFields(ctx, tabletAlias, func(tablet *topodatapb.Tablet) error {
+		if replace && maps.Equal(tablet.Tags, tabletTags) {
+			result = tablet.Tags
+			return topo.NewError(topo.NoUpdateNeeded, topoproto.TabletAliasString(tabletAlias))
+		}
+		if replace || tablet.Tags == nil {
+			tablet.Tags = tabletTags
+		} else {
+			for key, val := range tabletTags {
+				if val == "" {
+					delete(tablet.Tags, key)
+					continue
+				}
+				tablet.Tags[key] = val
+			}
+		}
+		result = tablet.Tags
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ChangeType changes the type of the tablet. Make this external, since these

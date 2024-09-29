@@ -289,6 +289,17 @@ message BackupShardRequest {
   uint64 concurrency = 4;
 }
 
+message ChangeTabletTagsRequest {
+  topodata.TabletAlias tablet_alias = 1;
+  map<string, string> tags = 2;
+  bool replace = 3;
+}
+
+message ChangeTabletTagsResponse {
+  map<string, string> before_tags = 1;
+  map<string, string> after_tags = 2;
+}
+
 message ChangeTabletTypeRequest {
   topodata.TabletAlias tablet_alias = 1;
   topodata.TabletType db_type = 2;

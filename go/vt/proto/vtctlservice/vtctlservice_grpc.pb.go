@@ -159,6 +159,8 @@ type VtctldClient interface {
 	Backup(ctx context.Context, in *vtctldata.BackupRequest, opts ...grpc.CallOption) (Vtctld_BackupClient, error)
 	// BackupShard chooses a tablet in the shard and uses it to create a backup.
 	BackupShard(ctx context.Context, in *vtctldata.BackupShardRequest, opts ...grpc.CallOption) (Vtctld_BackupShardClient, error)
+	// ChangeTabletTags changes the tags of the specified tablet, if possible.
+	ChangeTabletTags(ctx context.Context, in *vtctldata.ChangeTabletTagsRequest, opts ...grpc.CallOption) (*vtctldata.ChangeTabletTagsResponse, error)
 	// ChangeTabletType changes the db type for the specified tablet, if possible.
 	// This is used primarily to arrange replicas, and it will not convert a
 	// primary. For that, use InitShardPrimary.
@@ -522,6 +524,15 @@ func (x *vtctldBackupShardClient) Recv() (*vtctldata.BackupResponse, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *vtctldClient) ChangeTabletTags(ctx context.Context, in *vtctldata.ChangeTabletTagsRequest, opts ...grpc.CallOption) (*vtctldata.ChangeTabletTagsResponse, error) {
+	out := new(vtctldata.ChangeTabletTagsResponse)
+	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/ChangeTabletTags", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *vtctldClient) ChangeTabletType(ctx context.Context, in *vtctldata.ChangeTabletTypeRequest, opts ...grpc.CallOption) (*vtctldata.ChangeTabletTypeResponse, error) {
@@ -1249,6 +1260,8 @@ type VtctldServer interface {
 	Backup(*vtctldata.BackupRequest, Vtctld_BackupServer) error
 	// BackupShard chooses a tablet in the shard and uses it to create a backup.
 	BackupShard(*vtctldata.BackupShardRequest, Vtctld_BackupShardServer) error
+	// ChangeTabletTags changes the tags of the specified tablet, if possible.
+	ChangeTabletTags(context.Context, *vtctldata.ChangeTabletTagsRequest) (*vtctldata.ChangeTabletTagsResponse, error)
 	// ChangeTabletType changes the db type for the specified tablet, if possible.
 	// This is used primarily to arrange replicas, and it will not convert a
 	// primary. For that, use InitShardPrimary.
@@ -1516,6 +1529,9 @@ func (UnimplementedVtctldServer) Backup(*vtctldata.BackupRequest, Vtctld_BackupS
 }
 func (UnimplementedVtctldServer) BackupShard(*vtctldata.BackupShardRequest, Vtctld_BackupShardServer) error {
 	return status.Errorf(codes.Unimplemented, "method BackupShard not implemented")
+}
+func (UnimplementedVtctldServer) ChangeTabletTags(context.Context, *vtctldata.ChangeTabletTagsRequest) (*vtctldata.ChangeTabletTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeTabletTags not implemented")
 }
 func (UnimplementedVtctldServer) ChangeTabletType(context.Context, *vtctldata.ChangeTabletTypeRequest) (*vtctldata.ChangeTabletTypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChangeTabletType not implemented")
@@ -1903,6 +1919,24 @@ type vtctldBackupShardServer struct {
 
 func (x *vtctldBackupShardServer) Send(m *vtctldata.BackupResponse) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _Vtctld_ChangeTabletTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(vtctldata.ChangeTabletTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VtctldServer).ChangeTabletTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/vtctlservice.Vtctld/ChangeTabletTags",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VtctldServer).ChangeTabletTags(ctx, req.(*vtctldata.ChangeTabletTagsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Vtctld_ChangeTabletType_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -3288,6 +3322,10 @@ var Vtctld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyVSchema",
 			Handler:    _Vtctld_ApplyVSchema_Handler,
+		},
+		{
+			MethodName: "ChangeTabletTags",
+			Handler:    _Vtctld_ChangeTabletTags_Handler,
 		},
 		{
 			MethodName: "ChangeTabletType",

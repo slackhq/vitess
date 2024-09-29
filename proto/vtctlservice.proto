@@ -54,6 +54,8 @@ service Vtctld {
   rpc Backup(vtctldata.BackupRequest) returns (stream vtctldata.BackupResponse) {};
   // BackupShard chooses a tablet in the shard and uses it to create a backup.
   rpc BackupShard(vtctldata.BackupShardRequest) returns (stream vtctldata.BackupResponse) {};
+  // ChangeTabletTags changes the tags of the specified tablet, if possible.
+  rpc ChangeTabletTags(vtctldata.ChangeTabletTagsRequest) returns (vtctldata.ChangeTabletTagsResponse) {};
   // ChangeTabletType changes the db type for the specified tablet, if possible.
   // This is used primarily to arrange replicas, and it will not convert a
   // primary. For that, use InitShardPrimary.

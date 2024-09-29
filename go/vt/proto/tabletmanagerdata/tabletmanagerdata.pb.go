@@ -5230,6 +5230,108 @@ func (x *VDiffOptions) GetReportOptions() *VDiffReportOptions {
 	return nil
 }
 
+type ChangeTagsRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Tags    map[string]string `protobuf:"bytes,1,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Replace bool              `protobuf:"varint,2,opt,name=replace,proto3" json:"replace,omitempty"`
+}
+
+func (x *ChangeTagsRequest) Reset() {
+	*x = ChangeTagsRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_tabletmanagerdata_proto_msgTypes[104]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ChangeTagsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangeTagsRequest) ProtoMessage() {}
+
+func (x *ChangeTagsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tabletmanagerdata_proto_msgTypes[104]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangeTagsRequest.ProtoReflect.Descriptor instead.
+func (*ChangeTagsRequest) Descriptor() ([]byte, []int) {
+	return file_tabletmanagerdata_proto_rawDescGZIP(), []int{104}
+}
+
+func (x *ChangeTagsRequest) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *ChangeTagsRequest) GetReplace() bool {
+	if x != nil {
+		return x.Replace
+	}
+	return false
+}
+
+type ChangeTagsResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Tags map[string]string `protobuf:"bytes,1,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (x *ChangeTagsResponse) Reset() {
+	*x = ChangeTagsResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_tabletmanagerdata_proto_msgTypes[105]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ChangeTagsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangeTagsResponse) ProtoMessage() {}
+
+func (x *ChangeTagsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tabletmanagerdata_proto_msgTypes[105]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangeTagsResponse.ProtoReflect.Descriptor instead.
+func (*ChangeTagsResponse) Descriptor() ([]byte, []int) {
+	return file_tabletmanagerdata_proto_rawDescGZIP(), []int{105}
+}
+
+func (x *ChangeTagsResponse) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
 var File_tabletmanagerdata_proto protoreflect.FileDescriptor
 
 var file_tabletmanagerdata_proto_rawDesc = []byte{
@@ -5767,10 +5869,31 @@ var file_tabletmanagerdata_proto_rawDesc = []byte{
 	0x32, 0x25, 0x2e, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x72,
 	0x64, 0x61, 0x74, 0x61, 0x2e, 0x56, 0x44, 0x69, 0x66, 0x66, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74,
 	0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x0d, 0x72, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x4f,
-	0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x42, 0x30, 0x5a, 0x2e, 0x76, 0x69, 0x74, 0x65, 0x73, 0x73,
-	0x2e, 0x69, 0x6f, 0x2f, 0x76, 0x69, 0x74, 0x65, 0x73, 0x73, 0x2f, 0x67, 0x6f, 0x2f, 0x76, 0x74,
-	0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x6d, 0x61, 0x6e,
-	0x61, 0x67, 0x65, 0x72, 0x64, 0x61, 0x74, 0x61, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0xaa, 0x01, 0x0a, 0x11, 0x43, 0x68, 0x61, 0x6e, 0x67,
+	0x65, 0x54, 0x61, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x42, 0x0a, 0x04,
+	0x74, 0x61, 0x67, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x2e, 0x2e, 0x74, 0x61, 0x62,
+	0x6c, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x72, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x43,
+	0x68, 0x61, 0x6e, 0x67, 0x65, 0x54, 0x61, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x2e, 0x54, 0x61, 0x67, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x04, 0x74, 0x61, 0x67, 0x73,
+	0x12, 0x18, 0x0a, 0x07, 0x72, 0x65, 0x70, 0x6c, 0x61, 0x63, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x08, 0x52, 0x07, 0x72, 0x65, 0x70, 0x6c, 0x61, 0x63, 0x65, 0x1a, 0x37, 0x0a, 0x09, 0x54, 0x61,
+	0x67, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c,
+	0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a,
+	0x02, 0x38, 0x01, 0x22, 0x92, 0x01, 0x0a, 0x12, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x54, 0x61,
+	0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x04, 0x74, 0x61,
+	0x67, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x2f, 0x2e, 0x74, 0x61, 0x62, 0x6c, 0x65,
+	0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x72, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x43, 0x68, 0x61,
+	0x6e, 0x67, 0x65, 0x54, 0x61, 0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2e,
+	0x54, 0x61, 0x67, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x04, 0x74, 0x61, 0x67, 0x73, 0x1a,
+	0x37, 0x0a, 0x09, 0x54, 0x61, 0x67, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03,
+	0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14,
+	0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76,
+	0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x42, 0x30, 0x5a, 0x2e, 0x76, 0x69, 0x74, 0x65,
+	0x73, 0x73, 0x2e, 0x69, 0x6f, 0x2f, 0x76, 0x69, 0x74, 0x65, 0x73, 0x73, 0x2f, 0x67, 0x6f, 0x2f,
+	0x76, 0x74, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x6d,
+	0x61, 0x6e, 0x61, 0x67, 0x65, 0x72, 0x64, 0x61, 0x74, 0x61, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x33,
 }
 
 var (
@@ -5785,7 +5908,7 @@ func file_tabletmanagerdata_proto_rawDescGZIP() []byte {
 	return file_tabletmanagerdata_proto_rawDescData
 }
 
-var file_tabletmanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 107)
+var file_tabletmanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 111)
 var file_tabletmanagerdata_proto_goTypes = []interface{}{
 	(*TableDefinition)(nil),                       // 0: tabletmanagerdata.TableDefinition
 	(*SchemaDefinition)(nil),                      // 1: tabletmanagerdata.SchemaDefinition
@@ -5891,70 +6014,76 @@ var file_tabletmanagerdata_proto_goTypes = []interface{}{
 	(*VDiffReportOptions)(nil),                    // 101: tabletmanagerdata.VDiffReportOptions
 	(*VDiffCoreOptions)(nil),                      // 102: tabletmanagerdata.VDiffCoreOptions
 	(*VDiffOptions)(nil),                          // 103: tabletmanagerdata.VDiffOptions
-	nil,                                           // 104: tabletmanagerdata.UserPermission.PrivilegesEntry
-	nil,                                           // 105: tabletmanagerdata.DbPermission.PrivilegesEntry
-	nil,                                           // 106: tabletmanagerdata.ExecuteHookRequest.ExtraEnvEntry
-	(*query.Field)(nil),                           // 107: query.Field
-	(topodata.TabletType)(0),                      // 108: topodata.TabletType
-	(*vtrpc.CallerID)(nil),                        // 109: vtrpc.CallerID
-	(*query.QueryResult)(nil),                     // 110: query.QueryResult
-	(*replicationdata.Status)(nil),                // 111: replicationdata.Status
-	(*replicationdata.PrimaryStatus)(nil),         // 112: replicationdata.PrimaryStatus
-	(*topodata.TabletAlias)(nil),                  // 113: topodata.TabletAlias
-	(*replicationdata.FullStatus)(nil),            // 114: replicationdata.FullStatus
-	(replicationdata.StopReplicationMode)(0),      // 115: replicationdata.StopReplicationMode
-	(*replicationdata.StopReplicationStatus)(nil), // 116: replicationdata.StopReplicationStatus
-	(*logutil.Event)(nil),                         // 117: logutil.Event
-	(*vttime.Time)(nil),                           // 118: vttime.Time
+	(*ChangeTagsRequest)(nil),                     // 104: tabletmanagerdata.ChangeTagsRequest
+	(*ChangeTagsResponse)(nil),                    // 105: tabletmanagerdata.ChangeTagsResponse
+	nil,                                           // 106: tabletmanagerdata.UserPermission.PrivilegesEntry
+	nil,                                           // 107: tabletmanagerdata.DbPermission.PrivilegesEntry
+	nil,                                           // 108: tabletmanagerdata.ExecuteHookRequest.ExtraEnvEntry
+	nil,                                           // 109: tabletmanagerdata.ChangeTagsRequest.TagsEntry
+	nil,                                           // 110: tabletmanagerdata.ChangeTagsResponse.TagsEntry
+	(*query.Field)(nil),                           // 111: query.Field
+	(topodata.TabletType)(0),                      // 112: topodata.TabletType
+	(*vtrpc.CallerID)(nil),                        // 113: vtrpc.CallerID
+	(*query.QueryResult)(nil),                     // 114: query.QueryResult
+	(*replicationdata.Status)(nil),                // 115: replicationdata.Status
+	(*replicationdata.PrimaryStatus)(nil),         // 116: replicationdata.PrimaryStatus
+	(*topodata.TabletAlias)(nil),                  // 117: topodata.TabletAlias
+	(*replicationdata.FullStatus)(nil),            // 118: replicationdata.FullStatus
+	(replicationdata.StopReplicationMode)(0),      // 119: replicationdata.StopReplicationMode
+	(*replicationdata.StopReplicationStatus)(nil), // 120: replicationdata.StopReplicationStatus
+	(*logutil.Event)(nil),                         // 121: logutil.Event
+	(*vttime.Time)(nil),                           // 122: vttime.Time
 }
 var file_tabletmanagerdata_proto_depIdxs = []int32{
-	107, // 0: tabletmanagerdata.TableDefinition.fields:type_name -> query.Field
+	111, // 0: tabletmanagerdata.TableDefinition.fields:type_name -> query.Field
 	0,   // 1: tabletmanagerdata.SchemaDefinition.table_definitions:type_name -> tabletmanagerdata.TableDefinition
 	1,   // 2: tabletmanagerdata.SchemaChangeResult.before_schema:type_name -> tabletmanagerdata.SchemaDefinition
 	1,   // 3: tabletmanagerdata.SchemaChangeResult.after_schema:type_name -> tabletmanagerdata.SchemaDefinition
-	104, // 4: tabletmanagerdata.UserPermission.privileges:type_name -> tabletmanagerdata.UserPermission.PrivilegesEntry
-	105, // 5: tabletmanagerdata.DbPermission.privileges:type_name -> tabletmanagerdata.DbPermission.PrivilegesEntry
+	106, // 4: tabletmanagerdata.UserPermission.privileges:type_name -> tabletmanagerdata.UserPermission.PrivilegesEntry
+	107, // 5: tabletmanagerdata.DbPermission.privileges:type_name -> tabletmanagerdata.DbPermission.PrivilegesEntry
 	3,   // 6: tabletmanagerdata.Permissions.user_permissions:type_name -> tabletmanagerdata.UserPermission
 	4,   // 7: tabletmanagerdata.Permissions.db_permissions:type_name -> tabletmanagerdata.DbPermission
-	106, // 8: tabletmanagerdata.ExecuteHookRequest.extra_env:type_name -> tabletmanagerdata.ExecuteHookRequest.ExtraEnvEntry
+	108, // 8: tabletmanagerdata.ExecuteHookRequest.extra_env:type_name -> tabletmanagerdata.ExecuteHookRequest.ExtraEnvEntry
 	1,   // 9: tabletmanagerdata.GetSchemaResponse.schema_definition:type_name -> tabletmanagerdata.SchemaDefinition
 	5,   // 10: tabletmanagerdata.GetPermissionsResponse.permissions:type_name -> tabletmanagerdata.Permissions
-	108, // 11: tabletmanagerdata.ChangeTypeRequest.tablet_type:type_name -> topodata.TabletType
+	112, // 11: tabletmanagerdata.ChangeTypeRequest.tablet_type:type_name -> topodata.TabletType
 	2,   // 12: tabletmanagerdata.PreflightSchemaResponse.change_results:type_name -> tabletmanagerdata.SchemaChangeResult
 	1,   // 13: tabletmanagerdata.ApplySchemaRequest.before_schema:type_name -> tabletmanagerdata.SchemaDefinition
 	1,   // 14: tabletmanagerdata.ApplySchemaRequest.after_schema:type_name -> tabletmanagerdata.SchemaDefinition
 	1,   // 15: tabletmanagerdata.ApplySchemaResponse.before_schema:type_name -> tabletmanagerdata.SchemaDefinition
 	1,   // 16: tabletmanagerdata.ApplySchemaResponse.after_schema:type_name -> tabletmanagerdata.SchemaDefinition
-	109, // 17: tabletmanagerdata.ExecuteQueryRequest.caller_id:type_name -> vtrpc.CallerID
-	110, // 18: tabletmanagerdata.ExecuteQueryResponse.result:type_name -> query.QueryResult
-	110, // 19: tabletmanagerdata.ExecuteFetchAsDbaResponse.result:type_name -> query.QueryResult
-	110, // 20: tabletmanagerdata.ExecuteFetchAsAllPrivsResponse.result:type_name -> query.QueryResult
-	110, // 21: tabletmanagerdata.ExecuteFetchAsAppResponse.result:type_name -> query.QueryResult
-	111, // 22: tabletmanagerdata.ReplicationStatusResponse.status:type_name -> replicationdata.Status
-	112, // 23: tabletmanagerdata.PrimaryStatusResponse.status:type_name -> replicationdata.PrimaryStatus
-	110, // 24: tabletmanagerdata.VReplicationExecResponse.result:type_name -> query.QueryResult
-	113, // 25: tabletmanagerdata.PopulateReparentJournalRequest.primary_alias:type_name -> topodata.TabletAlias
-	113, // 26: tabletmanagerdata.InitReplicaRequest.parent:type_name -> topodata.TabletAlias
-	112, // 27: tabletmanagerdata.DemotePrimaryResponse.primary_status:type_name -> replicationdata.PrimaryStatus
-	114, // 28: tabletmanagerdata.FullStatusResponse.status:type_name -> replicationdata.FullStatus
-	113, // 29: tabletmanagerdata.SetReplicationSourceRequest.parent:type_name -> topodata.TabletAlias
-	113, // 30: tabletmanagerdata.ReplicaWasRestartedRequest.parent:type_name -> topodata.TabletAlias
-	115, // 31: tabletmanagerdata.StopReplicationAndGetStatusRequest.stop_replication_mode:type_name -> replicationdata.StopReplicationMode
-	116, // 32: tabletmanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> replicationdata.StopReplicationStatus
-	117, // 33: tabletmanagerdata.BackupResponse.event:type_name -> logutil.Event
-	118, // 34: tabletmanagerdata.RestoreFromBackupRequest.backup_time:type_name -> vttime.Time
-	117, // 35: tabletmanagerdata.RestoreFromBackupResponse.event:type_name -> logutil.Event
-	110, // 36: tabletmanagerdata.VExecResponse.result:type_name -> query.QueryResult
+	113, // 17: tabletmanagerdata.ExecuteQueryRequest.caller_id:type_name -> vtrpc.CallerID
+	114, // 18: tabletmanagerdata.ExecuteQueryResponse.result:type_name -> query.QueryResult
+	114, // 19: tabletmanagerdata.ExecuteFetchAsDbaResponse.result:type_name -> query.QueryResult
+	114, // 20: tabletmanagerdata.ExecuteFetchAsAllPrivsResponse.result:type_name -> query.QueryResult
+	114, // 21: tabletmanagerdata.ExecuteFetchAsAppResponse.result:type_name -> query.QueryResult
+	115, // 22: tabletmanagerdata.ReplicationStatusResponse.status:type_name -> replicationdata.Status
+	116, // 23: tabletmanagerdata.PrimaryStatusResponse.status:type_name -> replicationdata.PrimaryStatus
+	114, // 24: tabletmanagerdata.VReplicationExecResponse.result:type_name -> query.QueryResult
+	117, // 25: tabletmanagerdata.PopulateReparentJournalRequest.primary_alias:type_name -> topodata.TabletAlias
+	117, // 26: tabletmanagerdata.InitReplicaRequest.parent:type_name -> topodata.TabletAlias
+	116, // 27: tabletmanagerdata.DemotePrimaryResponse.primary_status:type_name -> replicationdata.PrimaryStatus
+	118, // 28: tabletmanagerdata.FullStatusResponse.status:type_name -> replicationdata.FullStatus
+	117, // 29: tabletmanagerdata.SetReplicationSourceRequest.parent:type_name -> topodata.TabletAlias
+	117, // 30: tabletmanagerdata.ReplicaWasRestartedRequest.parent:type_name -> topodata.TabletAlias
+	119, // 31: tabletmanagerdata.StopReplicationAndGetStatusRequest.stop_replication_mode:type_name -> replicationdata.StopReplicationMode
+	120, // 32: tabletmanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> replicationdata.StopReplicationStatus
+	121, // 33: tabletmanagerdata.BackupResponse.event:type_name -> logutil.Event
+	122, // 34: tabletmanagerdata.RestoreFromBackupRequest.backup_time:type_name -> vttime.Time
+	121, // 35: tabletmanagerdata.RestoreFromBackupResponse.event:type_name -> logutil.Event
+	114, // 36: tabletmanagerdata.VExecResponse.result:type_name -> query.QueryResult
 	103, // 37: tabletmanagerdata.VDiffRequest.options:type_name -> tabletmanagerdata.VDiffOptions
-	110, // 38: tabletmanagerdata.VDiffResponse.output:type_name -> query.QueryResult
+	114, // 38: tabletmanagerdata.VDiffResponse.output:type_name -> query.QueryResult
 	100, // 39: tabletmanagerdata.VDiffOptions.picker_options:type_name -> tabletmanagerdata.VDiffPickerOptions
 	102, // 40: tabletmanagerdata.VDiffOptions.core_options:type_name -> tabletmanagerdata.VDiffCoreOptions
 	101, // 41: tabletmanagerdata.VDiffOptions.report_options:type_name -> tabletmanagerdata.VDiffReportOptions
-	42,  // [42:42] is the sub-list for method output_type
-	42,  // [42:42] is the sub-list for method input_type
-	42,  // [42:42] is the sub-list for extension type_name
-	42,  // [42:42] is the sub-list for extension extendee
-	0,   // [0:42] is the sub-list for field type_name
+	109, // 42: tabletmanagerdata.ChangeTagsRequest.tags:type_name -> tabletmanagerdata.ChangeTagsRequest.TagsEntry
+	110, // 43: tabletmanagerdata.ChangeTagsResponse.tags:type_name -> tabletmanagerdata.ChangeTagsResponse.TagsEntry
+	44,  // [44:44] is the sub-list for method output_type
+	44,  // [44:44] is the sub-list for method input_type
+	44,  // [44:44] is the sub-list for extension type_name
+	44,  // [44:44] is the sub-list for extension extendee
+	0,   // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_tabletmanagerdata_proto_init() }
@@ -7211,6 +7340,30 @@ func file_tabletmanagerdata_proto_init() {
 				return nil
 			}
 		}
+		file_tabletmanagerdata_proto_msgTypes[104].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ChangeTagsRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_tabletmanagerdata_proto_msgTypes[105].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ChangeTagsResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -7218,7 +7371,7 @@ func file_tabletmanagerdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_tabletmanagerdata_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   107,
+			NumMessages:   111,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

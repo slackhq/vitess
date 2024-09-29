@@ -542,3 +542,12 @@ message VDiffOptions {
   VDiffCoreOptions core_options = 2;
   VDiffReportOptions report_options = 3;
 }
+
+message ChangeTagsRequest {
+  map<string, string> tags = 1;
+  bool replace = 2;
+}
+
+message ChangeTagsResponse {
+  map<string, string> tags = 1;
+}
