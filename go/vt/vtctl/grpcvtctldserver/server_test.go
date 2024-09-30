@@ -42,7 +42,6 @@ import (
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtctl/grpcvtctldserver/testutil"
 	"vitess.io/vitess/go/vt/vtctl/localvtctldclient"
-	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 	"vitess.io/vitess/go/vt/vttablet/tmclienttest"
 
@@ -1152,11 +1151,11 @@ func TestChangeTabletTags(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			ts := memorytopo.NewServer(ctx, tt.cells...)
+			ts := memorytopo.NewServer(tt.cells...)
 			vtctld := testutil.NewVtctldServerWithTabletManagerClient(t, ts, &testutil.TabletManagerClient{
 				TopoServer: ts,
 			}, func(ts *topo.Server) vtctlservicepb.VtctldServer {
-				return NewVtctldServer(vtenv.NewTestEnv(), ts)
+				return NewVtctldServer(ts)
 			})
 
 			testutil.AddTablets(ctx, t, ts, &testutil.AddTabletOptions{
@@ -1182,11 +1181,11 @@ func TestChangeTabletTags(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ts := memorytopo.NewServer(ctx, "zone1")
+		ts := memorytopo.NewServer("zone1")
 		vtctld := testutil.NewVtctldServerWithTabletManagerClient(t, ts, &testutil.TabletManagerClient{
 			TopoServer: nil,
 		}, func(ts *topo.Server) vtctlservicepb.VtctldServer {
-			return NewVtctldServer(vtenv.NewTestEnv(), ts)
+			return NewVtctldServer(ts)
 		})
 
 		testutil.AddTablet(ctx, t, ts, &topodatapb.Tablet{

@@ -36,7 +36,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 
 	"google.golang.org/protobuf/proto"
 
@@ -61,6 +60,20 @@ func ConfigureTabletHook(hk *hook.Hook, tabletAlias *topodatapb.TabletAlias) {
 	hk.ExtraEnv["TABLET_ALIAS"] = topoproto.TabletAliasString(tabletAlias)
 }
 
+// isMapsEqual simulates maps.Equal() from go1.23+.
+func isMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, valA := range a {
+		valB, ok := b[key]
+		if !ok || valB != valA {
+			return false
+		}
+	}
+	return true
+}
+
 // ChangeTags changes the tags of the tablet. Make this external, since these
 // transitions need to be forced from time to time.
 //
@@ -68,7 +81,7 @@ func ConfigureTabletHook(hk *hook.Hook, tabletAlias *topodatapb.TabletAlias) {
 func ChangeTags(ctx context.Context, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, tabletTags map[string]string, replace bool) (map[string]string, error) {
 	var result map[string]string
 	_, err := ts.UpdateTabletFields(ctx, tabletAlias, func(tablet *topodatapb.Tablet) error {
-		if replace && maps.Equal(tablet.Tags, tabletTags) {
+		if replace && isMapsEqual(tablet.Tags, tabletTags) {
 			result = tablet.Tags
 			return topo.NewError(topo.NoUpdateNeeded, topoproto.TabletAliasString(tabletAlias))
 		}
