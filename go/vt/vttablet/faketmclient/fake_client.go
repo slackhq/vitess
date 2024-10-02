@@ -35,6 +35,7 @@ import (
 	logutilpb "vitess.io/vitess/go/vt/proto/logutil"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
+	"vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
@@ -121,8 +122,8 @@ func (client *FakeTabletManagerClient) SetReadWrite(ctx context.Context, tablet 
 }
 
 // ChangeTags is part of the tmclient.TabletManagerClient interface.
-func (client *FakeTabletManagerClient) ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (map[string]string, error) {
-	return map[string]string{}, nil
+func (client *FakeTabletManagerClient) ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (*tabletmanagerdata.ChangeTagsResponse, error) {
+	return &tabletmanagerdata.ChangeTagsResponse{}, nil
 }
 
 // ChangeType is part of the tmclient.TabletManagerClient interface.

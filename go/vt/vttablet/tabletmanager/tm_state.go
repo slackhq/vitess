@@ -245,7 +245,7 @@ func (ts *tmState) ChangeTabletTags(ctx context.Context, tabletTags map[string]s
 	ts.tablet.Tags = tabletTags
 	ts.publishStateLocked(ctx)
 	ts.publishForDisplay()
-	setTabletTagsStats(tabletTags)
+	setTabletTagsStats(ts.tablet)
 }
 
 func (ts *tmState) SetMysqlPort(mport int32) {

@@ -86,7 +86,7 @@ type TabletManagerClient interface {
 	SetReadWrite(ctx context.Context, tablet *topodatapb.Tablet) error
 
 	// ChangeTags asks the remote tablet to change its tags
-	ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (map[string]string, error)
+	ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (*tabletmanagerdatapb.ChangeTagsResponse, error)
 
 	// ChangeType asks the remote tablet to change its type
 	ChangeType(ctx context.Context, tablet *topodatapb.Tablet, dbType topodatapb.TabletType, semiSync bool) error

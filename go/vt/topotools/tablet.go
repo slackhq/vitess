@@ -78,25 +78,33 @@ func isMapsEqual(a, b map[string]string) bool {
 // transitions need to be forced from time to time.
 //
 // If successful, the updated tablet record is returned.
-func ChangeTags(ctx context.Context, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, tabletTags map[string]string, replace bool) (map[string]string, error) {
-	var result map[string]string
+func ChangeTags(ctx context.Context, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, tabletTags map[string]string, replace bool) (*topodatapb.Tablet, error) {
+	var result *topodatapb.Tablet
 	_, err := ts.UpdateTabletFields(ctx, tabletAlias, func(tablet *topodatapb.Tablet) error {
 		if replace && isMapsEqual(tablet.Tags, tabletTags) {
-			result = tablet.Tags
+			result = tablet
 			return topo.NewError(topo.NoUpdateNeeded, topoproto.TabletAliasString(tabletAlias))
 		}
 		if replace || tablet.Tags == nil {
 			tablet.Tags = tabletTags
 		} else {
+			var doUpdate bool
 			for key, val := range tabletTags {
 				if val == "" {
 					delete(tablet.Tags, key)
+					doUpdate = true
 					continue
 				}
-				tablet.Tags[key] = val
+				if tablet.Tags[key] != val {
+					tablet.Tags[key] = val
+					doUpdate = true
+				}
+			}
+			if !doUpdate {
+				return topo.NewError(topo.NoUpdateNeeded, topoproto.TabletAliasString(tabletAlias))
 			}
 		}
-		result = tablet.Tags
+		result = tablet
 		return nil
 	})
 	if err != nil {

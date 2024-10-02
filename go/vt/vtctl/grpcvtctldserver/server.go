@@ -518,16 +518,16 @@ func (s *VtctldServer) ChangeTabletTags(ctx context.Context, req *vtctldatapb.Ch
 
 	span.Annotate("before_tablet_tags", tablet.Tags)
 
-	afterTags, err := s.tmc.ChangeTags(ctx, tablet.Tablet, req.Tags, req.Replace)
+	changeTagsResp, err := s.tmc.ChangeTags(ctx, tablet.Tablet, req.Tags, req.Replace)
 	if err != nil {
 		return nil, err
 	}
 
-	span.Annotate("after_tablet_tags", afterTags)
+	span.Annotate("after_tablet_tags", changeTagsResp.Tags)
 
 	return &vtctldatapb.ChangeTabletTagsResponse{
 		BeforeTags: tablet.Tags,
-		AfterTags:  afterTags,
+		AfterTags:  changeTagsResp.Tags,
 	}, nil
 }
 

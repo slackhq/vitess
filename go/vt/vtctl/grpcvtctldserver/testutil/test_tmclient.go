@@ -185,11 +185,11 @@ type TabletManagerClient struct {
 		ErrorAfter    time.Duration
 	}
 	// keyed by tablet alias.
-	ChangeTabletTagsResult map[string]struct {
-		Tags  map[string]string
-		Error error
+	ChangeTagsResult map[string]struct {
+		Response *tabletmanagerdatapb.ChangeTagsResponse
+		Error    error
 	}
-	ChangeTabletTagsDelays map[string]time.Duration
+	ChangeTagsDelays       map[string]time.Duration
 	ChangeTabletTypeResult map[string]error
 	// keyed by tablet alias.
 	DemotePrimaryDelays map[string]time.Duration
@@ -449,11 +449,11 @@ func (fake *TabletManagerClient) Backup(ctx context.Context, tablet *topodatapb.
 }
 
 // ChangeTags is part of the tmclient.TabletManagerClient interface.
-func (fake *TabletManagerClient) ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (map[string]string, error) {
+func (fake *TabletManagerClient) ChangeTags(ctx context.Context, tablet *topodatapb.Tablet, tabletTags map[string]string, replace bool) (*tabletmanagerdatapb.ChangeTagsResponse, error) {
 	key := topoproto.TabletAliasString(tablet.Alias)
 
-	if fake.ChangeTabletTagsDelays != nil {
-		if delay, ok := fake.ChangeTabletTagsDelays[key]; ok {
+	if fake.ChangeTagsDelays != nil {
+		if delay, ok := fake.ChangeTagsDelays[key]; ok {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -463,15 +463,22 @@ func (fake *TabletManagerClient) ChangeTags(ctx context.Context, tablet *topodat
 		}
 	}
 
-	if result, ok := fake.ChangeTabletTagsResult[key]; ok {
-		return result.Tags, result.Error
+	if result, ok := fake.ChangeTagsResult[key]; ok {
+		return result.Response, result.Error
 	}
 
 	if fake.TopoServer == nil {
 		return nil, assert.AnError
 	}
 
-	return topotools.ChangeTags(ctx, fake.TopoServer, tablet.Alias, tabletTags, replace)
+	tablet, err := topotools.ChangeTags(ctx, fake.TopoServer, tablet.Alias, tabletTags, replace)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tabletmanagerdatapb.ChangeTagsResponse{
+		Tags: tablet.Tags,
+	}, nil
 }
 
 // ChangeType is part of the tmclient.TabletManagerClient interface.

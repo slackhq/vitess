@@ -121,9 +121,9 @@ func (s *server) SetReadWrite(ctx context.Context, request *tabletmanagerdatapb.
 func (s *server) ChangeTags(ctx context.Context, request *tabletmanagerdatapb.ChangeTagsRequest) (response *tabletmanagerdatapb.ChangeTagsResponse, err error) {
 	defer s.tm.HandleRPCPanic(ctx, "ChangeTags", request, response, false /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
-	tags, err := s.tm.ChangeTags(ctx, request.Tags, request.Replace)
+	afterTags, err := s.tm.ChangeTags(ctx, request.Tags, request.Replace)
 	return &tabletmanagerdatapb.ChangeTagsResponse{
-		Tags: tags,
+		Tags: afterTags,
 	}, err
 }
 
