@@ -307,7 +307,7 @@ func Init(
 			[]string{"Operation", "Keyspace", "DbType"}),
 		queryTextCharsProcessed: stats.NewCountersWithMultiLabels(
 			"VtgateQueryTextCharactersProcessed",
-			"Vtgate API query SQL text counts",
+			"Query text characters processed through the VTGate API",
 			[]string{"Operation", "Keyspace", "DbType"}),
 
 		logExecute:       logutil.NewThrottledLogger("Execute", 5*time.Second),
