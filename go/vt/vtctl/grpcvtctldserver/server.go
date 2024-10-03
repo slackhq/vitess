@@ -42,6 +42,7 @@ import (
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/concurrency"
+	"vitess.io/vitess/go/vt/events/eventer"
 	hk "vitess.io/vitess/go/vt/hook"
 	"vitess.io/vitess/go/vt/key"
 	"vitess.io/vitess/go/vt/log"
@@ -90,26 +91,29 @@ type VtctldServer struct {
 	ts  *topo.Server
 	tmc tmclient.TabletManagerClient
 	ws  *workflow.Server
+	ev  eventer.Eventer
 }
 
 // NewVtctldServer returns a new VtctldServer for the given topo server.
-func NewVtctldServer(env *vtenv.Environment, ts *topo.Server) *VtctldServer {
+func NewVtctldServer(env *vtenv.Environment, ts *topo.Server, ev eventer.Eventer) *VtctldServer {
 	tmc := tmclient.NewTabletManagerClient()
 
 	return &VtctldServer{
 		ts:  ts,
 		tmc: tmc,
 		ws:  workflow.NewServer(env, ts, tmc),
+		ev:  ev,
 	}
 }
 
 // NewTestVtctldServer returns a new VtctldServer for the given topo server
 // AND tmclient for use in tests. This should NOT be used in production.
-func NewTestVtctldServer(ts *topo.Server, tmc tmclient.TabletManagerClient) *VtctldServer {
+func NewTestVtctldServer(ts *topo.Server, tmc tmclient.TabletManagerClient, ev eventer.Eventer) *VtctldServer {
 	return &VtctldServer{
 		ts:  ts,
 		tmc: tmc,
 		ws:  workflow.NewServer(vtenv.NewTestEnv(), ts, tmc),
+		ev:  ev,
 	}
 }
 
@@ -1122,7 +1126,7 @@ func (s *VtctldServer) DeleteTablets(ctx context.Context, req *vtctldatapb.Delet
 	span.Annotate("allow_primary", req.AllowPrimary)
 
 	for _, alias := range req.TabletAliases {
-		if err2 := deleteTablet(ctx, s.ts, alias, req.AllowPrimary); err2 != nil {
+		if err2 := deleteTablet(ctx, s.ts, s.ev, alias, req.AllowPrimary); err2 != nil {
 			err = err2
 			return nil, err
 		}
@@ -5029,8 +5033,8 @@ func (s *VtctldServer) WorkflowUpdate(ctx context.Context, req *vtctldatapb.Work
 }
 
 // StartServer registers a VtctldServer for RPCs on the given gRPC server.
-func StartServer(s *grpc.Server, env *vtenv.Environment, ts *topo.Server) {
-	vtctlservicepb.RegisterVtctldServer(s, NewVtctldServer(env, ts))
+func StartServer(s *grpc.Server, env *vtenv.Environment, ts *topo.Server, ev eventer.Eventer) {
+	vtctlservicepb.RegisterVtctldServer(s, NewVtctldServer(env, ts, ev))
 }
 
 // getTopologyCell is a helper method that returns a topology cell given its path.

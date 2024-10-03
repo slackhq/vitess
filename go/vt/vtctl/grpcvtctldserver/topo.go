@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/trace"
+	"vitess.io/vitess/go/vt/events"
+	"vitess.io/vitess/go/vt/events/eventer"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
@@ -205,7 +207,7 @@ func deleteShardCell(ctx context.Context, ts *topo.Server, keyspace string, shar
 	return nil
 }
 
-func deleteTablet(ctx context.Context, ts *topo.Server, alias *topodatapb.TabletAlias, allowPrimary bool) (err error) {
+func deleteTablet(ctx context.Context, ts *topo.Server, ev eventer.Eventer, alias *topodatapb.TabletAlias, allowPrimary bool) (err error) {
 	span, ctx := trace.NewSpan(ctx, "VtctldServer.deleteTablet")
 	defer span.Finish()
 
@@ -257,7 +259,16 @@ func deleteTablet(ctx context.Context, ts *topo.Server, alias *topodatapb.Tablet
 	}
 
 	// Remove the tablet record and its replication graph entry.
-	if err := topotools.DeleteTablet(ctx, ts, tablet.Tablet); err != nil {
+	err = topotools.DeleteTablet(ctx, ts, tablet.Tablet)
+	if ev != nil {
+		ev.DeleteTablet(&events.DeleteTabletEvent{
+			Source: events.NewSourceVtctld("TODO"),
+			Time:   time.Now(),
+			Tablet: tablet.Tablet,
+			Error:  err,
+		})
+	}
+	if err != nil {
 		return err
 	}
 
