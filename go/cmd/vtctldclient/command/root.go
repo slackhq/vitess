@@ -212,7 +212,7 @@ func getClientForCommand(cmd *cobra.Command) (vtctldclient.VtctldClient, error) 
 				return nil
 			})
 		})
-		vtctld := grpcvtctldserver.NewVtctldServer(env, ts)
+		vtctld := grpcvtctldserver.NewVtctldServer(env, ts, nil)
 		localvtctldclient.SetServer(vtctld)
 		VtctldClientProtocol = "local"
 		server = ""

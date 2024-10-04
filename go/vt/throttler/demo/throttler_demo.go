@@ -118,7 +118,7 @@ type replica struct {
 
 func newReplica(env *vtenv.Environment, lagUpdateInterval, degrationInterval, degrationDuration time.Duration, ts *topo.Server) *replica {
 	t := &testing.T{}
-	wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, tmclient.NewTabletManagerClient())
+	wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, tmclient.NewTabletManagerClient(), nil)
 	fakeTablet := testlib.NewFakeTablet(t, wr, "cell1", 0,
 		topodatapb.TabletType_REPLICA, nil, testlib.TabletKeyspaceShard(t, "ks", "-80"))
 	fakeTablet.StartActionLoop(t, wr)

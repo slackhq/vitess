@@ -188,7 +188,7 @@ func InitTabletMap(
 	})
 
 	// iterate through the keyspaces
-	wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, nil)
+	wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, nil, nil)
 	var uid uint32 = 1
 	for _, kpb := range tpb.Keyspaces {
 		var err error

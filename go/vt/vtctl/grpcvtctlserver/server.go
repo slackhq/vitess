@@ -75,7 +75,7 @@ func (s *VtctlServer) ExecuteVtctlCommand(args *vtctldatapb.ExecuteVtctlCommandR
 	// create the wrangler
 	tmc := tmclient.NewTabletManagerClient()
 	defer tmc.Close()
-	wr := wrangler.New(s.env, logger, s.ts, tmc)
+	wr := wrangler.New(s.env, logger, s.ts, tmc, nil)
 
 	// execute the command
 	return vtctl.RunCommand(stream.Context(), wr, args.Args)

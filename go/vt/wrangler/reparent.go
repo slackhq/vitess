@@ -59,7 +59,7 @@ func (wr *Wrangler) InitShardPrimary(ctx context.Context, keyspace, shard string
 	ev := &events.Reparent{}
 
 	// do the work
-	err = grpcvtctldserver.NewVtctldServer(wr.env, wr.ts).InitShardPrimaryLocked(ctx, ev, &vtctldatapb.InitShardPrimaryRequest{
+	err = grpcvtctldserver.NewVtctldServer(wr.env, wr.ts, wr.ev).InitShardPrimaryLocked(ctx, ev, &vtctldatapb.InitShardPrimaryRequest{
 		Keyspace:                keyspace,
 		Shard:                   shard,
 		PrimaryElectTabletAlias: primaryElectTabletAlias,

@@ -255,7 +255,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 			}
 		}
 
-		wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, nil)
+		wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, nil, nil)
 		newUID, err := vtcombo.CreateKs(ctx, env, ts, &tpb, mysqld, &dbconfigs.GlobalDBConfigs, schemaDir, ks, true, uid, wr)
 		if err != nil {
 			return err
@@ -309,7 +309,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	vtg := vtgate.Init(context.Background(), env, nil, resilientServer, tpb.Cells[0], tabletTypesToWait, plannerVersion)
 
 	// vtctld configuration and init
-	err = vtctld.InitVtctld(env, ts)
+	err = vtctld.InitVtctld(env, ts, nil)
 	if err != nil {
 		return err
 	}

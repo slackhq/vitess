@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/acl"
+	"vitess.io/vitess/go/vt/events/eventer"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtctld"
@@ -70,8 +71,15 @@ func run(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Init the eventer
+	ev, err := eventer.Get()
+	if err != nil {
+		return err
+	}
+
 	// Init the vtctld core
-	if err := vtctld.InitVtctld(env, ts); err != nil {
+	if err := vtctld.InitVtctld(env, ts, ev); err != nil {
 		return err
 	}
 

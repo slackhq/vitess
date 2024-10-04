@@ -30,6 +30,7 @@ import (
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/netutil"
+	"vitess.io/vitess/go/vt/events/eventer"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl"
@@ -178,7 +179,7 @@ func unmarshalRequest(r *http.Request, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-func initAPI(ctx context.Context, ts *topo.Server, actions *ActionRepository) {
+func initAPI(ctx context.Context, ts *topo.Server, ev eventer.Eventer, actions *ActionRepository) {
 	tabletHealthCache := newTabletHealthCache(ts)
 	tmClient := tmclient.NewTabletManagerClient()
 
@@ -487,7 +488,7 @@ func initAPI(ctx context.Context, ts *topo.Server, actions *ActionRepository) {
 
 		logstream := logutil.NewMemoryLogger()
 
-		wr := wrangler.New(actions.env, logstream, ts, tmClient)
+		wr := wrangler.New(actions.env, logstream, ts, tmClient, ev)
 		err := vtctl.RunCommand(r.Context(), wr, args)
 		if err != nil {
 			resp.Error = err.Error()
@@ -523,7 +524,7 @@ func initAPI(ctx context.Context, ts *topo.Server, actions *ActionRepository) {
 		logger := logutil.NewCallbackLogger(func(ev *logutilpb.Event) {
 			w.Write([]byte(logutil.EventString(ev)))
 		})
-		wr := wrangler.New(actions.env, logger, ts, tmClient)
+		wr := wrangler.New(actions.env, logger, ts, tmClient, ev)
 
 		apiCallUUID, err := schema.CreateUUID()
 		if err != nil {

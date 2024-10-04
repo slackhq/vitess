@@ -71,7 +71,7 @@ func initSchema() {
 				return
 			}
 			ctx := context.Background()
-			wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, tmclient.NewTabletManagerClient())
+			wr := wrangler.New(env, logutil.NewConsoleLogger(), ts, tmclient.NewTabletManagerClient(), nil)
 			_, err = schemamanager.Run(
 				ctx,
 				controller,

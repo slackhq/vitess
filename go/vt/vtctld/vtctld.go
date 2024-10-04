@@ -23,12 +23,11 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"vitess.io/vitess/go/vt/vtenv"
-
-	"vitess.io/vitess/go/vt/servenv"
-
 	"vitess.io/vitess/go/acl"
+	"vitess.io/vitess/go/vt/events/eventer"
+	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/wrangler"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -50,8 +49,8 @@ func registerVtctldFlags(fs *pflag.FlagSet) {
 }
 
 // InitVtctld initializes all the vtctld functionality.
-func InitVtctld(env *vtenv.Environment, ts *topo.Server) error {
-	actionRepo := NewActionRepository(env, ts)
+func InitVtctld(env *vtenv.Environment, ts *topo.Server, ev eventer.Eventer) error {
+	actionRepo := NewActionRepository(env, ts, ev)
 
 	// keyspace actions
 	actionRepo.RegisterKeyspaceAction("ValidateKeyspace",
@@ -128,7 +127,7 @@ func InitVtctld(env *vtenv.Environment, ts *topo.Server) error {
 		})
 
 	// Serve the REST API
-	initAPI(context.Background(), ts, actionRepo)
+	initAPI(context.Background(), ts, ev, actionRepo)
 
 	// Serve the topology endpoint in the REST API at /topodata
 	initExplorer(ts)

@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/vt/events/eventer"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/topo"
@@ -54,6 +55,7 @@ type Wrangler struct {
 	ts       *topo.Server
 	tmc      tmclient.TabletManagerClient
 	vtctld   vtctlservicepb.VtctldServer
+	ev       eventer.Eventer
 	sourceTs *topo.Server
 	// VExecFunc is a test-only fixture that allows us to short circuit vexec commands.
 	// DO NOT USE in production code.
@@ -64,26 +66,28 @@ type Wrangler struct {
 }
 
 // New creates a new Wrangler object.
-func New(env *vtenv.Environment, logger logutil.Logger, ts *topo.Server, tmc tmclient.TabletManagerClient) *Wrangler {
+func New(env *vtenv.Environment, logger logutil.Logger, ts *topo.Server, tmc tmclient.TabletManagerClient, ev eventer.Eventer) *Wrangler {
 	return &Wrangler{
 		env:      env,
 		logger:   logger,
 		ts:       ts,
 		tmc:      tmc,
-		vtctld:   grpcvtctldserver.NewVtctldServer(env, ts),
+		vtctld:   grpcvtctldserver.NewVtctldServer(env, ts, ev),
+		ev:       ev,
 		sourceTs: ts,
 	}
 }
 
 // NewTestWrangler creates a new Wrangler object for use in tests. This should NOT be used
 // in production.
-func NewTestWrangler(logger logutil.Logger, ts *topo.Server, tmc tmclient.TabletManagerClient) *Wrangler {
+func NewTestWrangler(logger logutil.Logger, ts *topo.Server, tmc tmclient.TabletManagerClient, ev eventer.Eventer) *Wrangler {
 	return &Wrangler{
 		env:      vtenv.NewTestEnv(),
 		logger:   logger,
 		ts:       ts,
 		tmc:      tmc,
-		vtctld:   grpcvtctldserver.NewTestVtctldServer(ts, tmc),
+		vtctld:   grpcvtctldserver.NewTestVtctldServer(ts, tmc, ev),
+		ev:       ev,
 		sourceTs: ts,
 	}
 }
