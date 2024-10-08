@@ -320,6 +320,9 @@ func NewVTGateHealthCheckFilters() (filters TabletFilters, err error) {
 	} else if len(KeyspacesToWatch) > 0 {
 		filters = append(filters, NewFilterByKeyspace(KeyspacesToWatch))
 	}
+	if len(tabletFilterTags) > 0 {
+		filters = append(filters, NewFilterByTabletTags(tabletFilterTags))
+	}
 	return filters, nil
 }
 
