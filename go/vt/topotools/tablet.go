@@ -180,7 +180,7 @@ func DoCellsHaveRdonlyTablets(ctx context.Context, ts *topo.Server, cells []stri
 	}
 
 	for _, cell := range cells {
-		tablets, err := ts.GetTabletsByCell(ctx, cell)
+		tablets, err := ts.GetTabletsByCell(ctx, cell, nil)
 		if err != nil {
 			return false, err
 		}
