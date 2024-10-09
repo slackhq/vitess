@@ -1940,7 +1940,7 @@ func TestEmergencyReparenter_reparentShardLocked(t *testing.T) {
 			},
 			keyspace:         "testkeyspace",
 			shard:            "-",
-			cells:            []string{"zone1"},
+			ts:               memorytopo.NewServer("zone1"),
 			shouldErr:        true,
 			errShouldContain: "primary zone1-0000000100 is not equal to expected alias zone1-0000000101",
 		},

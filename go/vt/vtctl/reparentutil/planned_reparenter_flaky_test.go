@@ -3278,6 +3278,7 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 		},
 		{
 			name: "expected primary mismatch",
+			ts:   memorytopo.NewServer("zone1"),
 			tmc:  &testutil.TabletManagerClient{},
 			shards: []*vtctldatapb.Shard{
 				{
@@ -3347,7 +3348,7 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 			}, tt.tablets...)
 
 			if len(tt.shards) > 0 {
-				testutil.AddShards(ctx, t, ts, tt.shards...)
+				testutil.AddShards(ctx, t, tt.ts, tt.shards...)
 			}
 
 			if !tt.unlockTopo {
