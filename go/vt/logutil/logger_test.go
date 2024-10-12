@@ -193,24 +193,19 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 }
 
 func NewMemorySinkConfig() zap.Config {
-	return zap.Config{
-		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
-		Development: false,
-		Sampling: &zap.SamplingConfig{
-			Initial:    100,
-			Thereafter: 100,
-		},
-		Encoding:         "json",
-		EncoderConfig:    zap.NewProductionEncoderConfig(),
-		OutputPaths:      []string{"memory://"},
-		ErrorOutputPaths: []string{"memory://"},
-	}
+	conf := newZapLoggerConfig()
+	conf.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	conf.OutputPaths = []string{"memory://"}
+	conf.ErrorOutputPaths = []string{"memory://"}
+	return conf
 }
 
 func TestStructuredLogger_Replacing_glog(t *testing.T) {
 	type logMsg struct {
-		Level string `json:"level"`
-		Msg   string `json:"msg"`
+		Level      string `json:"level"`
+		Msg        string `json:"msg"`
+		Stacktrace string `json:"stacktrace"`
+		Timestamp  string `json:"ts"`
 	}
 
 	type testCase struct {
@@ -232,6 +227,7 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var loggingFunc func(format string, args ...interface{})
 			var expectedLevel string
+			var expectStacktrace bool
 
 			switch tc.logLevel {
 			case zapcore.InfoLevel:
@@ -240,6 +236,7 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 			case zapcore.ErrorLevel:
 				loggingFunc = vtlog.Errorf
 				expectedLevel = "error"
+				expectStacktrace = true
 			case zapcore.WarnLevel:
 				loggingFunc = vtlog.Warningf
 				expectedLevel = "warn"
@@ -256,7 +253,13 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 
 			assert.Equal(t, expectedLevel, actualLog.Level)
 			assert.Equal(t, dummyLogMessage, actualLog.Msg)
+			if expectStacktrace {
+				assert.NotEmpty(t, actualLog.Stacktrace)
+			}
 
+			// confirm RFC3339 timestamp
+			_, err = time.Parse(time.RFC3339, actualLog.Timestamp)
+			assert.NoError(t, err)
 		})
 	}
 }

@@ -26,6 +26,7 @@ import (
 
 	noglog "github.com/slok/noglog"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/vt/log"
@@ -388,7 +389,12 @@ func fileAndLine(depth int) (string, int64) {
 	return file, int64(line)
 }
 
-type StructuredLogger zap.SugaredLogger
+// newZapLoggerConfig creates a new config for a zap logger.
+func newZapLoggerConfig() zap.Config {
+	conf := zap.NewProductionConfig()
+	conf.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.RFC3339)
+	return conf
+}
 
 // SetStructuredLogger in-place noglog replacement with Zap's logger.
 func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err error) {
@@ -396,8 +402,8 @@ func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err er
 
 	// Use the passed configuration instead of the default configuration
 	if conf == nil {
-		defaultProdConf := zap.NewProductionConfig()
-		conf = &defaultProdConf
+		defaultConf := newZapLoggerConfig()
+		conf = &defaultConf
 	}
 
 	// Build configuration and generate a sugared logger
