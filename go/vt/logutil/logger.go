@@ -424,8 +424,9 @@ func (z *ZapLogLevelFlag) Type() string {
 }
 
 // SetStructuredLogger in-place noglog replacement with Zap's logger.
-func SetStructuredLogger(conf *zap.Config) (logger *zap.SugaredLogger, err error) {
-	// Use the passed configuration instead of the default configuration.
+func SetStructuredLogger(conf *zap.Config) error {
+	// Use the passed configuration instead of
+	// the default configuration.
 	if conf == nil {
 		defaultConf := newZapLoggerConfig()
 		conf = &defaultConf
@@ -434,13 +435,13 @@ func SetStructuredLogger(conf *zap.Config) (logger *zap.SugaredLogger, err error
 	// Build configuration and generate a sugared logger.
 	// Skip 3 callers so we log the real caller vs the
 	// noglog wrapper.
-	var l *zap.Logger
-	l, err = conf.Build(zap.AddCallerSkip(3))
+	l, err := conf.Build(zap.AddCallerSkip(3))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	logger = l.Sugar()
+	logger := l.Sugar()
+
 	noglog.SetLogger(&noglog.LoggerFunc{
 		DebugfFunc: func(f string, a ...interface{}) { logger.Debugf(f, a...) },
 		InfofFunc:  func(f string, a ...interface{}) { logger.Infof(f, a...) },
@@ -465,5 +466,5 @@ func SetStructuredLogger(conf *zap.Config) (logger *zap.SugaredLogger, err error
 	log.Fatalf = noglog.Fatalf
 	log.FatalDepth = noglog.FatalDepth
 
-	return logger, err
+	return nil
 }

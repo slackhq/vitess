@@ -43,8 +43,7 @@ func Init() {
 
 	if useStructuredLogger {
 		// Replace glog logger with zap logger
-		_, err := logutil.SetStructuredLogger(nil)
-		if err != nil {
+		if err := logutil.SetStructuredLogger(nil); err != nil {
 			log.Exitf("error while setting the structured logger: %s", err)
 		}
 	}

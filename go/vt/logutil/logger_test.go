@@ -184,12 +184,8 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 	}
 
 	testLoggerConf := NewTestMemorySinkConfig()
-	_, err = SetStructuredLogger(&testLoggerConf)
-	if err != nil {
-		return nil, err
-	}
-
-	return
+	err = SetStructuredLogger(&testLoggerConf)
+	return sink, err
 }
 
 func NewTestMemorySinkConfig() zap.Config {

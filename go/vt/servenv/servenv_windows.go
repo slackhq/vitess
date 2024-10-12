@@ -18,4 +18,11 @@ limitations under the License.
 
 package servenv
 
-func Init() {}
+func Init() {
+	if useStructuredLogger {
+		// Replace glog logger with zap logger
+		if err := logutil.SetStructuredLogger(nil); err != nil {
+			log.Exitf("error while setting the structured logger: %s", err)
+		}
+	}
+}
