@@ -103,6 +103,7 @@ func RegisterFlags() {
 
 		// Logging
 		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "enable structured logging")
+		fs.Var((*logutil.ZapLogLevelFlag)(&logutil.StructuredLoggingLevel), "structured-log-level", "The minimum log level, options: debug, info, warn, error.")
 	})
 }
 

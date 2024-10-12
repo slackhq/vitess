@@ -389,11 +389,40 @@ func fileAndLine(depth int) (string, int64) {
 	return file, int64(line)
 }
 
-// newZapLoggerConfig creates a new config for a zap logger.
+// StructuredLoggingLevel defines the log level of structured logging.
+var StructuredLoggingLevel = zapcore.InfoLevel
+
+// newZapLoggerConfig creates a new config for a zap logger that uses RFC3339 timestamps.
 func newZapLoggerConfig() zap.Config {
 	conf := zap.NewProductionConfig()
 	conf.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.RFC3339)
+	conf.Level = zap.NewAtomicLevelAt(StructuredLoggingLevel)
 	return conf
+}
+
+// ZapLogLevelFlag implements the pflag.Value interface, for parsing a zap log level string.
+type ZapLogLevelFlag zapcore.Level
+
+// String represents a zapcore.Level as a lowercase string.
+func (z *ZapLogLevelFlag) String() string {
+	level := zapcore.Level(*z)
+	return level.String()
+}
+
+// Set is part of the pflag.Value interface.
+func (z *ZapLogLevelFlag) Set(v string) (err error) {
+	var level zapcore.Level
+	level, err = zapcore.ParseLevel(v)
+	if err != nil {
+		return err
+	}
+	*z = ZapLogLevelFlag(level)
+	return nil
+}
+
+// Type is part of the pflag.Value interface.
+func (z *ZapLogLevelFlag) Type() string {
+	return "logLevel"
 }
 
 // SetStructuredLogger in-place noglog replacement with Zap's logger.
@@ -406,8 +435,10 @@ func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err er
 		conf = &defaultConf
 	}
 
-	// Build configuration and generate a sugared logger
-	l, err = conf.Build()
+	// Build configuration and generate a sugared logger.
+	// Skip 3 callers so we log the real caller vs the
+	// noglog wrapper.
+	l, err = conf.Build(zap.AddCallerSkip(3))
 	vtSLogger = l.Sugar()
 
 	noglog.SetLogger(&noglog.LoggerFunc{

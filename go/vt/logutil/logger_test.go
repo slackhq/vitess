@@ -183,7 +183,7 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 		return nil, err
 	}
 
-	testLoggerConf := NewMemorySinkConfig()
+	testLoggerConf := NewTestMemorySinkConfig()
 	_, err = SetStructuredLogger(&testLoggerConf)
 	if err != nil {
 		return nil, err
@@ -192,9 +192,8 @@ func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
 	return
 }
 
-func NewMemorySinkConfig() zap.Config {
+func NewTestMemorySinkConfig() zap.Config {
 	conf := newZapLoggerConfig()
-	conf.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	conf.OutputPaths = []string{"memory://"}
 	conf.ErrorOutputPaths = []string{"memory://"}
 	return conf
@@ -204,6 +203,7 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 	type logMsg struct {
 		Level      string `json:"level"`
 		Msg        string `json:"msg"`
+		Caller     string `json:"caller"`
 		Stacktrace string `json:"stacktrace"`
 		Timestamp  string `json:"ts"`
 	}
@@ -215,6 +215,7 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 
 	dummyLogMessage := "testing log"
 	testCases := []testCase{
+		{"log debug", zap.DebugLevel},
 		{"log info", zap.InfoLevel},
 		{"log warn", zap.WarnLevel},
 		{"log error", zap.ErrorLevel},
@@ -230,16 +231,16 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 			var expectStacktrace bool
 
 			switch tc.logLevel {
-			case zapcore.InfoLevel:
+			case zapcore.InfoLevel, zapcore.DebugLevel:
 				loggingFunc = vtlog.Infof
 				expectedLevel = "info"
+			case zapcore.WarnLevel:
+				loggingFunc = vtlog.Warningf
+				expectedLevel = "warn"
 			case zapcore.ErrorLevel:
 				loggingFunc = vtlog.Errorf
 				expectedLevel = "error"
 				expectStacktrace = true
-			case zapcore.WarnLevel:
-				loggingFunc = vtlog.Warningf
-				expectedLevel = "warn"
 			}
 
 			loggingFunc(dummyLogMessage)
@@ -258,8 +259,12 @@ func TestStructuredLogger_Replacing_glog(t *testing.T) {
 			}
 
 			// confirm RFC3339 timestamp
+			assert.NotEmpty(t, actualLog.Timestamp)
 			_, err = time.Parse(time.RFC3339, actualLog.Timestamp)
 			assert.NoError(t, err)
+
+			// confirm caller
+			assert.Contains(t, actualLog.Caller, "logutil/logger_test.go")
 		})
 	}
 }

@@ -62,6 +62,7 @@ Flags:
       --service_map strings                                              comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice
       --stderrthreshold severityFlag                                     logs at or above this threshold go to stderr (default 1)
       --structured-logging                                               enable structured logging
+      --structured-log-level logLevel                                    The minimum log level, options: debug, info, warn, error. (default info)
       --table-refresh-interval int                                       interval in milliseconds to refresh tables in status page with refreshRequired class
       --v Level                                                          log level for V logs
   -v, --version                                                          print binary version
