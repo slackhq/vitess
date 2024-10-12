@@ -102,7 +102,6 @@ func RegisterFlags() {
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.") // Logging
 
 		// Logging
-		fmt.Println("got here")
 		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "enable structured logging")
 	})
 }
