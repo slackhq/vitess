@@ -17,8 +17,11 @@ limitations under the License.
 package logutil
 
 import (
+	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -397,6 +400,17 @@ func newZapLoggerConfig() zap.Config {
 	conf := zap.NewProductionConfig()
 	conf.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.RFC3339)
 	conf.Level = zap.NewAtomicLevelAt(StructuredLoggingLevel)
+
+	// use --log_dir if provided
+	ld := flag.Lookup("log_dir")
+	if ld.Value != nil && ld.Value.String() != "" {
+		program := filepath.Base(os.Args[0])
+		conf.OutputPaths = append(
+			conf.OutputPaths,
+			filepath.Join(ld.Value.String(), program+".log"),
+		)
+	}
+
 	return conf
 }
 
