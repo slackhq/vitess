@@ -410,14 +410,12 @@ func (z *ZapLogLevelFlag) String() string {
 }
 
 // Set is part of the pflag.Value interface.
-func (z *ZapLogLevelFlag) Set(v string) (err error) {
-	var level zapcore.Level
-	level, err = zapcore.ParseLevel(v)
-	if err != nil {
-		return err
+func (z *ZapLogLevelFlag) Set(v string) error {
+	level, err := zapcore.ParseLevel(v)
+	if err == nil {
+		*z = ZapLogLevelFlag(level)
 	}
-	*z = ZapLogLevelFlag(level)
-	return nil
+	return err
 }
 
 // Type is part of the pflag.Value interface.
@@ -426,10 +424,8 @@ func (z *ZapLogLevelFlag) Type() string {
 }
 
 // SetStructuredLogger in-place noglog replacement with Zap's logger.
-func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err error) {
-	var l *zap.Logger
-
-	// Use the passed configuration instead of the default configuration
+func SetStructuredLogger(conf *zap.Config) (logger *zap.SugaredLogger, err error) {
+	// Use the passed configuration instead of the default configuration.
 	if conf == nil {
 		defaultConf := newZapLoggerConfig()
 		conf = &defaultConf
@@ -438,14 +434,18 @@ func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err er
 	// Build configuration and generate a sugared logger.
 	// Skip 3 callers so we log the real caller vs the
 	// noglog wrapper.
+	var l *zap.Logger
 	l, err = conf.Build(zap.AddCallerSkip(3))
-	vtSLogger = l.Sugar()
+	if err != nil {
+		return nil, err
+	}
 
+	logger = l.Sugar()
 	noglog.SetLogger(&noglog.LoggerFunc{
-		DebugfFunc: func(f string, a ...interface{}) { vtSLogger.Debugf(f, a...) },
-		InfofFunc:  func(f string, a ...interface{}) { vtSLogger.Infof(f, a...) },
-		WarnfFunc:  func(f string, a ...interface{}) { vtSLogger.Warnf(f, a...) },
-		ErrorfFunc: func(f string, a ...interface{}) { vtSLogger.Errorf(f, a...) },
+		DebugfFunc: func(f string, a ...interface{}) { logger.Debugf(f, a...) },
+		InfofFunc:  func(f string, a ...interface{}) { logger.Infof(f, a...) },
+		WarnfFunc:  func(f string, a ...interface{}) { logger.Warnf(f, a...) },
+		ErrorfFunc: func(f string, a ...interface{}) { logger.Errorf(f, a...) },
 	})
 
 	log.Flush = noglog.Flush
@@ -465,5 +465,5 @@ func SetStructuredLogger(conf *zap.Config) (vtSLogger *zap.SugaredLogger, err er
 	log.Fatalf = noglog.Fatalf
 	log.FatalDepth = noglog.FatalDepth
 
-	return
+	return logger, err
 }
