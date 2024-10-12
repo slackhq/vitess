@@ -18,6 +18,11 @@ limitations under the License.
 
 package servenv
 
+import (
+	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/logutil"
+)
+
 func Init() {
 	if useStructuredLogger {
 		// Replace glog logger with zap logger
