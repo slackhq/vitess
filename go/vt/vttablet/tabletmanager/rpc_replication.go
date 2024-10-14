@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
+
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/protoutil"
