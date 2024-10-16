@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fakemysqldaemon
+package mysqlctl
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -30,7 +31,6 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/dbconnpool"
-	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 
 	querypb "vitess.io/vitess/go/vt/proto/query"
@@ -171,6 +171,9 @@ type FakeMysqlDaemon struct {
 	// TimeoutHook is a func that can be called at the beginning of any method to fake a timeout.
 	// all a test needs to do is make it { return context.DeadlineExceeded }
 	TimeoutHook func() error
+
+	// Version is the version that will be returned by GetVersionString.
+	Version string
 }
 
 // NewFakeMysqlDaemon returns a FakeMysqlDaemon where mysqld appears
@@ -181,6 +184,7 @@ func NewFakeMysqlDaemon(db *fakesqldb.DB) *FakeMysqlDaemon {
 		db:              db,
 		Running:         true,
 		IOThreadRunning: true,
+		Version:         "8.0.32",
 	}
 	if db != nil {
 		result.appPool = dbconnpool.NewConnectionPool("AppConnPool", 5, time.Minute, 0)
@@ -190,7 +194,7 @@ func NewFakeMysqlDaemon(db *fakesqldb.DB) *FakeMysqlDaemon {
 }
 
 // Start is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) Start(ctx context.Context, cnf *mysqlctl.Mycnf, mysqldArgs ...string) error {
+func (fmd *FakeMysqlDaemon) Start(ctx context.Context, cnf *Mycnf, mysqldArgs ...string) error {
 	if fmd.Running {
 		return fmt.Errorf("fake mysql daemon already running")
 	}
@@ -208,7 +212,7 @@ func (fmd *FakeMysqlDaemon) Start(ctx context.Context, cnf *mysqlctl.Mycnf, mysq
 }
 
 // Shutdown is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) Shutdown(ctx context.Context, cnf *mysqlctl.Mycnf, waitForMysqld bool) error {
+func (fmd *FakeMysqlDaemon) Shutdown(ctx context.Context, cnf *Mycnf, waitForMysqld bool) error {
 	if !fmd.Running {
 		return fmt.Errorf("fake mysql daemon not running")
 	}
@@ -231,17 +235,17 @@ func (fmd *FakeMysqlDaemon) RunMysqlUpgrade() error {
 }
 
 // ReinitConfig is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) ReinitConfig(ctx context.Context, cnf *mysqlctl.Mycnf) error {
+func (fmd *FakeMysqlDaemon) ReinitConfig(ctx context.Context, cnf *Mycnf) error {
 	return nil
 }
 
 // RefreshConfig is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) RefreshConfig(ctx context.Context, cnf *mysqlctl.Mycnf) error {
+func (fmd *FakeMysqlDaemon) RefreshConfig(ctx context.Context, cnf *Mycnf) error {
 	return nil
 }
 
 // Wait is part of the MysqlDaemon interface.
-func (fmd *FakeMysqlDaemon) Wait(ctx context.Context, cnf *mysqlctl.Mycnf) error {
+func (fmd *FakeMysqlDaemon) Wait(ctx context.Context, cnf *Mycnf) error {
 	return nil
 }
 
@@ -345,17 +349,22 @@ func (fmd *FakeMysqlDaemon) IsReadOnly() (bool, error) {
 	return fmd.ReadOnly, nil
 }
 
+// IsSuperReadOnly is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) IsSuperReadOnly(ctx context.Context) (bool, error) {
+	return fmd.SuperReadOnly, nil
+}
+
 // SetReadOnly is part of the MysqlDaemon interface
 func (fmd *FakeMysqlDaemon) SetReadOnly(on bool) error {
 	fmd.ReadOnly = on
 	return nil
 }
 
-// SetSuperReadOnly is part of the MysqlDaemon interface
-func (fmd *FakeMysqlDaemon) SetSuperReadOnly(on bool) error {
+// SetSuperReadOnly is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) SetSuperReadOnly(ctx context.Context, on bool) (ResetSuperReadOnlyFunc, error) {
 	fmd.SuperReadOnly = on
 	fmd.ReadOnly = on
-	return nil
+	return nil, nil
 }
 
 // StartReplication is part of the MysqlDaemon interface.
@@ -465,6 +474,11 @@ func (fmd *FakeMysqlDaemon) Promote(hookExtraEnv map[string]string) (mysql.Posit
 		return mysql.Position{}, fmd.PromoteError
 	}
 	return fmd.PromoteResult, nil
+}
+
+// ExecuteSuperQuery is part of the MysqlDaemon interface
+func (fmd *FakeMysqlDaemon) ExecuteSuperQuery(ctx context.Context, query string) error {
+	return fmd.ExecuteSuperQueryList(ctx, []string{query})
 }
 
 // ExecuteSuperQueryList is part of the MysqlDaemon interface
@@ -666,4 +680,14 @@ func (fmd *FakeMysqlDaemon) GetVersionString() string {
 // GetVersionComment is part of the MysqlDeamon interface.
 func (fmd *FakeMysqlDaemon) GetVersionComment(ctx context.Context) string {
 	return ""
+}
+
+// AcquireGlobalReadLock is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) AcquireGlobalReadLock(ctx context.Context) error {
+	return errors.New("not implemented")
+}
+
+// ReleaseGlobalReadLock is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) ReleaseGlobalReadLock(ctx context.Context) error {
+	return errors.New("not implemented")
 }
