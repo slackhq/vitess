@@ -298,6 +298,8 @@ type HealthCheckImpl struct {
 	subscribers map[chan *TabletHealth]struct{}
 	// healthCheckDialSem is used to limit how many healthcheck connections can be opened to tablets at once.
 	healthCheckDialSem *semaphore.Weighted
+	// statsRegistered flags whether stats have already been registered by the healthcheck.
+	statsRegistered bool
 }
 
 // NewVTGateHealthCheckFilters returns healthcheck filters for vtgate.
@@ -861,28 +863,30 @@ func (hc *HealthCheckImpl) topologyWatcherChecksum() int64 {
 
 // RegisterStats registers the connection counts stats
 func (hc *HealthCheckImpl) RegisterStats() {
-	stats.NewGaugeDurationFunc(
-		"TopologyWatcherMaxRefreshLag",
-		"maximum time since the topology watcher refreshed a cell",
-		hc.topologyWatcherMaxRefreshLag,
-	)
+	if !hc.statsRegistered {
+		stats.NewGaugeDurationFunc(
+			"TopologyWatcherMaxRefreshLag",
+			"maximum time since the topology watcher refreshed a cell",
+			hc.topologyWatcherMaxRefreshLag,
+		)
 
-	stats.NewGaugeFunc(
-		"TopologyWatcherChecksum",
-		"crc32 checksum of the topology watcher state",
-		hc.topologyWatcherChecksum,
-	)
+		stats.NewGaugeFunc(
+			"TopologyWatcherChecksum",
+			"crc32 checksum of the topology watcher state",
+			hc.topologyWatcherChecksum,
+		)
 
-	stats.NewGaugesFuncWithMultiLabels(
-		"HealthcheckConnections",
-		"the number of healthcheck connections registered",
-		[]string{"Keyspace", "ShardName", "TabletType"},
-		hc.servingConnStats)
+		stats.NewGaugesFuncWithMultiLabels(
+			"HealthcheckConnections",
+			"the number of healthcheck connections registered",
+			[]string{"Keyspace", "ShardName", "TabletType"},
+			hc.servingConnStats)
 
-	stats.NewGaugeFunc(
-		"HealthcheckChecksum",
-		"crc32 checksum of the current healthcheck state",
-		hc.stateChecksum)
+		stats.NewGaugeFunc(
+			"HealthcheckChecksum",
+			"crc32 checksum of the current healthcheck state",
+			hc.stateChecksum)
+	}
 }
 
 // ServeHTTP is part of the http.Handler interface. It renders the current state of the discovery gateway tablet cache into json.
