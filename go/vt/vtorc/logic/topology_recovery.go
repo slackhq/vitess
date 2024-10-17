@@ -85,8 +85,8 @@ var (
 	recoveriesFailureCounter = stats.NewCountersWithSingleLabel("FailedRecoveries", "Count of the different failed recoveries performed", "RecoveryType", actionableRecoveriesNames...)
 
 	// vtops
-	vtopsService = fmt.Sprintf("%s-%s-%s", os.Getenv("BEDROCK_CONTAINER_NAME"), os.Getenv("POOL"), os.Getenv("VITESS_ENVIRONMENT"))
-	vtopsExec = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), os.Getenv("VTOPS_HTTP_PROXY"), vtopsService, os.Getenv("HOSTNAME"))
+	vtopsService      = fmt.Sprintf("%s-%s-%s", os.Getenv("BEDROCK_CONTAINER_NAME"), os.Getenv("POOL"), os.Getenv("VITESS_ENVIRONMENT"))
+	vtopsExec         = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), os.Getenv("VTOPS_HTTP_PROXY"), vtopsService, os.Getenv("HOSTNAME"))
 	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
 )
 
