@@ -886,6 +886,8 @@ func (hc *HealthCheckImpl) RegisterStats() {
 			"HealthcheckChecksum",
 			"crc32 checksum of the current healthcheck state",
 			hc.stateChecksum)
+
+		hc.statsRegistered = true
 	}
 }
 
