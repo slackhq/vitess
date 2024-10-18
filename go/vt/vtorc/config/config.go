@@ -56,6 +56,7 @@ var (
 	auditToBackend                 = false
 	auditToSyslog                  = false
 	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
+	allowRecovery                  = true
 	recoveryPeriodBlockDuration    = 30 * time.Second
 	preventCrossCellFailover       = false
 	waitReplicasTimeout            = 30 * time.Second
@@ -76,6 +77,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&auditToBackend, "audit-to-backend", auditToBackend, "Whether to store the audit log in the VTOrc database")
 	fs.BoolVar(&auditToSyslog, "audit-to-syslog", auditToSyslog, "Whether to store the audit log in the syslog")
 	fs.DurationVar(&auditPurgeDuration, "audit-purge-duration", auditPurgeDuration, "Duration for which audit logs are held before being purged. Should be in multiples of days")
+	fs.BoolVar(&allowRecovery, "allow-recovery", allowRecovery, "Allow recovery actions")
 	fs.DurationVar(&recoveryPeriodBlockDuration, "recovery-period-block-duration", recoveryPeriodBlockDuration, "Duration for which a new recovery is blocked on an instance after running a recovery")
 	fs.BoolVar(&preventCrossCellFailover, "prevent-cross-cell-failover", preventCrossCellFailover, "Prevent VTOrc from promoting a primary in a different cell than the current primary in case of a failover")
 	fs.DurationVar(&waitReplicasTimeout, "wait-replicas-timeout", waitReplicasTimeout, "Duration for which to wait for replica's to respond when issuing RPCs")
@@ -104,6 +106,7 @@ type Configuration struct {
 	WaitReplicasTimeoutSeconds            int    // Timeout on amount of time to wait for the replicas in case of ERS. Should be a small value because we should fail-fast. Should not be larger than LockTimeout since that is the total time we use for an ERS.
 	TolerableReplicationLagSeconds        int    // Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS.
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
+	AllowRecovery                         bool   // Allow recoveries.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
 }
 
@@ -134,6 +137,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.WaitReplicasTimeoutSeconds = int(waitReplicasTimeout / time.Second)
 	Config.TolerableReplicationLagSeconds = int(tolerableReplicationLag / time.Second)
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
+	Config.AllowRecovery = allowRecovery
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
 }
 

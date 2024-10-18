@@ -385,6 +385,9 @@ func ContinuousDiscovery() {
 				}
 			}()
 		case <-recoveryTick:
+			if !config.Config.AllowRecovery {
+				continue
+			}
 			go func() {
 				if IsLeaderOrActive() {
 					go ClearActiveFailureDetections()
