@@ -343,12 +343,16 @@ func ContinuousDiscovery() {
 
 	healthTick := time.Tick(config.HealthPollSeconds * time.Second)
 	caretakingTick := time.Tick(time.Minute)
-	recoveryTick := time.Tick(time.Duration(config.Config.RecoveryPollSeconds) * time.Second)
 	tabletTopoTick := OpenTabletDiscovery()
 	var recoveryEntrance int64
 	var snapshotTopologiesTick <-chan time.Time
 	if config.Config.SnapshotTopologiesIntervalHours > 0 {
 		snapshotTopologiesTick = time.Tick(time.Duration(config.Config.SnapshotTopologiesIntervalHours) * time.Hour)
+	}
+
+	recoveryTicker := time.NewTicker(time.Duration(config.Config.RecoveryPollSeconds) * time.Second)
+	if config.Config.AllowRecovery {
+		recoveryTicker.Stop()
 	}
 
 	runCheckAndRecoverOperationsTimeRipe := func() bool {
@@ -384,10 +388,7 @@ func ContinuousDiscovery() {
 					go ExpireTopologyRecoveryStepsHistory()
 				}
 			}()
-		case <-recoveryTick:
-			if !config.Config.AllowRecovery {
-				continue
-			}
+		case <-recoveryTicker.C:
 			go func() {
 				if IsLeaderOrActive() {
 					go ClearActiveFailureDetections()
