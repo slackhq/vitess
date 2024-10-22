@@ -351,7 +351,7 @@ func ContinuousDiscovery() {
 	}
 
 	recoveryTicker := time.NewTicker(time.Duration(config.Config.RecoveryPollSeconds) * time.Second)
-	if config.Config.AllowRecovery {
+	if !config.Config.AllowRecovery {
 		recoveryTicker.Stop()
 	}
 
