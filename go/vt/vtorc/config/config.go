@@ -176,6 +176,7 @@ func newConfiguration() *Configuration {
 		AuditLogFile:                          "",
 		AuditToSyslog:                         false,
 		AuditToBackendDB:                      false,
+		AllowRecovery:                         true,
 		AuditPurgeDays:                        7,
 		RecoveryPeriodBlockSeconds:            30,
 		PreventCrossDataCenterPrimaryFailover: false,
