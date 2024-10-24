@@ -26,7 +26,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -513,7 +512,7 @@ func cleanupMySQL(ctx context.Context, params RestoreParams, shouldDeleteUsers b
 	// drop all databases
 	for _, row := range result.Rows {
 		dbName := row[0].ToString()
-		if slices.Contains(internalDBs, dbName) {
+		if sliceContains(internalDBs, dbName) {
 			continue // not dropping internal DBs
 		}
 
@@ -548,7 +547,7 @@ func cleanupMySQL(ctx context.Context, params RestoreParams, shouldDeleteUsers b
 			if user == currentUser {
 				continue // we don't drop the current user
 			}
-			if slices.Contains(reservedUsers, user) {
+			if sliceContains(reservedUsers, user) {
 				continue // we skip reserved MySQL users
 			}
 
@@ -561,4 +560,14 @@ func cleanupMySQL(ctx context.Context, params RestoreParams, shouldDeleteUsers b
 	}
 
 	return err
+}
+
+func sliceContains[S ~[]E, E comparable](s S, v E) bool {
+	for _, item := range s {
+		if item == v {
+			return true
+		}
+	}
+
+	return false
 }

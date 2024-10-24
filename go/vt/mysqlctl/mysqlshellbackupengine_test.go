@@ -396,3 +396,38 @@ func TestMySQLShellBackupEngine_ExecuteBackup_ReleaseLock(t *testing.T) {
 	})
 
 }
+
+func Test_sliceContains(t *testing.T) {
+	tests := []struct {
+		slice []any
+		value any
+		want  bool
+	}{
+		{
+			[]any{"apple", "banana", "cherry"},
+			"apple",
+			true,
+		},
+		{
+			[]any{"apple", "banana", "cherry"},
+			"banana",
+			true,
+		},
+		{
+			[]any{"apple", "banana", "cherry"},
+			"cherry",
+			true,
+		},
+		{
+			[]any{"apple", "banana", "cherry"},
+			"dragonfruit",
+			false,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			assert.Equal(t, tt.want, sliceContains(tt.slice, tt.value))
+		})
+	}
+}
