@@ -27,20 +27,20 @@ import (
 	"sync"
 	"time"
 
-	"vitess.io/vitess/go/constants/sidecar"
-	"vitess.io/vitess/go/protoutil"
-	"vitess.io/vitess/go/vt/proto/vtrpc"
-	"vitess.io/vitess/go/vt/vterrors"
+	"golang.org/x/sync/semaphore"
 
+	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/event"
+	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/concurrency"
 	"vitess.io/vitess/go/vt/key"
 	"vitess.io/vitess/go/vt/log"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo/events"
 	"vitess.io/vitess/go/vt/topo/topoproto"
-
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/vterrors"
 )
 
 const (
@@ -670,16 +670,30 @@ func (ts *Server) GetTabletsByShardCell(ctx context.Context, keyspace, shard str
 		}
 	}
 
+	// divide the concurrency limit by the number of cells. if there are more
+	// cells than the limit, default to concurrency of 1. A semaphore ensures
+	// the limit is not exceeded in this scenario.
+	sem := semaphore.NewWeighted(int64(DefaultConcurrency))
+	getConcurrency := DefaultConcurrency / len(cells)
+	if getConcurrency == 0 {
+		getConcurrency = 1
+	}
+
 	wg := sync.WaitGroup{}
 	mutex := sync.Mutex{}
 	rec := concurrency.AllErrorRecorder{}
 	tablets := make([]*TabletInfo, 0)
-	concurrency := DefaultConcurrency / len(cells)
 	for _, cell := range cells {
 		wg.Add(1)
 		go func() {
+			if err := sem.Acquire(ctx, 1); err != nil {
+				rec.RecordError(vterrors.Wrap(err, fmt.Sprintf("GetTabletsByCell for %v failed.", cell)))
+				return
+			}
+			defer sem.Release(1)
+
 			t, err := ts.GetTabletsByCell(ctx, cell, &GetTabletsByCellOptions{
-				Concurrency: concurrency,
+				Concurrency: getConcurrency,
 				Keyspace:    keyspace,
 				Shard:       shard,
 			})
