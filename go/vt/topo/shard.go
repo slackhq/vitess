@@ -644,6 +644,64 @@ func (ts *Server) FindAllTabletAliasesInShardByCell(ctx context.Context, keyspac
 	return result, err
 }
 
+// GetTabletsByShard returns the tablets in the given shard using all cells.
+// It can return ErrPartialResult if it couldn't read all the cells, or all
+// the individual tablets, in which case the result is valid, but partial.
+func (ts *Server) GetTabletsByShard(ctx context.Context, keyspace, shard string) ([]*TabletInfo, error) {
+	return ts.GetTabletsByShardCell(ctx, keyspace, shard, nil)
+}
+
+// GetTabletsByShardCell returns the tablets in the given shard. It can return
+// ErrPartialResult if it couldn't read all the cells, or all the individual
+// tablets, in which case the result is valid, but partial.
+func (ts *Server) GetTabletsByShardCell(ctx context.Context, keyspace, shard string, cells []string) ([]*TabletInfo, error) {
+	span, ctx := trace.NewSpan(ctx, "topo.GetTabletsByShardCell")
+	span.Annotate("keyspace", keyspace)
+	span.Annotate("shard", shard)
+	span.Annotate("num_cells", len(cells))
+	defer span.Finish()
+	ctx = trace.NewContext(ctx, span)
+	var err error
+
+	if len(cells) == 0 {
+		cells, err = ts.GetCellInfoNames(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	wg := sync.WaitGroup{}
+	mutex := sync.Mutex{}
+	rec := concurrency.AllErrorRecorder{}
+	tablets := make([]*TabletInfo, 0)
+	concurrency := DefaultConcurrency / len(cells)
+	for _, cell := range cells {
+		wg.Add(1)
+		go func() {
+			t, err := ts.GetTabletsByCell(ctx, cell, &GetTabletsByCellOptions{
+				Concurrency: concurrency,
+				Keyspace:    keyspace,
+				Shard:       shard,
+			})
+			if err != nil {
+				rec.RecordError(vterrors.Wrap(err, fmt.Sprintf("GetTabletsByCell for %v failed.", cell)))
+				return
+			}
+			mutex.Lock()
+			tablets = append(tablets, t...)
+			mutex.Unlock()
+		}()
+	}
+	wg.Wait()
+	err = nil
+	if rec.HasErrors() {
+		log.Warningf("GetTabletsByShardCell(%v,%v): got partial result: %v", keyspace, shard, rec.Error())
+		err = NewError(PartialResult, shard)
+	}
+
+	return tablets, err
+}
+
 // GetTabletMapForShard returns the tablets for a shard. It can return
 // ErrPartialResult if it couldn't read all the cells, or all
 // the individual tablets, in which case the map is valid, but partial.
