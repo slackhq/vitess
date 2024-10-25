@@ -340,18 +340,20 @@ func Restore(ctx context.Context, params RestoreParams) (*BackupManifest, error)
 		return nil, err
 	}
 
-	// mysqld needs to be running in order for mysql_upgrade to work.
-	// If we've just restored from a backup from previous MySQL version then mysqld
-	// may fail to start due to a different structure of mysql.* tables. The flag
-	// --skip-grant-tables ensures that these tables are not read until mysql_upgrade
-	// is executed. And since with --skip-grant-tables anyone can connect to MySQL
-	// without password, we are passing --skip-networking to greatly reduce the set
-	// of those who can connect.
-	params.Logger.Infof("Restore: starting mysqld for mysql_upgrade")
-	// Note Start will use dba user for waiting, this is fine, it will be allowed.
-	err = params.Mysqld.Start(context.Background(), params.Cnf, "--skip-grant-tables", "--skip-networking")
-	if err != nil {
-		return nil, err
+	if re.ShouldStartMySQLAfterRestore() {
+		// mysqld needs to be running in order for mysql_upgrade to work.
+		// If we've just restored from a backup from previous MySQL version then mysqld
+		// may fail to start due to a different structure of mysql.* tables. The flag
+		// --skip-grant-tables ensures that these tables are not read until mysql_upgrade
+		// is executed. And since with --skip-grant-tables anyone can connect to MySQL
+		// without password, we are passing --skip-networking to greatly reduce the set
+		// of those who can connect.
+		params.Logger.Infof("Restore: starting mysqld for mysql_upgrade")
+		// Note Start will use dba user for waiting, this is fine, it will be allowed.
+		err = params.Mysqld.Start(context.Background(), params.Cnf, "--skip-grant-tables", "--skip-networking")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	params.Logger.Infof("Restore: running mysql_upgrade")
