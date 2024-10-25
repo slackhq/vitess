@@ -23,7 +23,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -264,7 +263,7 @@ func FindBackupToRestore(ctx context.Context, params RestoreParams, bhs []backup
 		}
 
 		// if allowed backup engine is not empty, we only try to restore from backups taken with the specified backup engines
-		if len(params.AllowedBackupEngines) > 0 && !slices.Contains(params.AllowedBackupEngines, bm.BackupMethod) {
+		if len(params.AllowedBackupEngines) > 0 && !sliceContains(params.AllowedBackupEngines, bm.BackupMethod) {
 			params.Logger.Warningf("Ignoring backup %v because it is using %q backup engine", bh.Name(), bm.BackupMethod)
 			continue
 		}
