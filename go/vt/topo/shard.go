@@ -673,10 +673,13 @@ func (ts *Server) GetTabletsByShardCell(ctx context.Context, keyspace, shard str
 	// divide the concurrency limit by the number of cells. if there are more
 	// cells than the limit, default to concurrency of 1. A semaphore ensures
 	// the limit is not exceeded in this scenario.
-	sem := semaphore.NewWeighted(int64(DefaultConcurrency))
-	getConcurrency := DefaultConcurrency / len(cells)
-	if getConcurrency == 0 {
+	var getConcurrency int
+	var sem *semaphore.Weighted
+	if len(cells) > DefaultConcurrency {
+		sem = semaphore.NewWeighted(int64(DefaultConcurrency))
 		getConcurrency = 1
+	} else {
+		getConcurrency = DefaultConcurrency / len(cells)
 	}
 
 	wg := sync.WaitGroup{}
@@ -686,11 +689,13 @@ func (ts *Server) GetTabletsByShardCell(ctx context.Context, keyspace, shard str
 	for _, cell := range cells {
 		wg.Add(1)
 		go func() {
-			if err := sem.Acquire(ctx, 1); err != nil {
-				rec.RecordError(vterrors.Wrap(err, fmt.Sprintf("GetTabletsByCell for %v failed.", cell)))
-				return
+			if sem != nil {
+				if err := sem.Acquire(ctx, 1); err != nil {
+					rec.RecordError(vterrors.Wrap(err, fmt.Sprintf("GetTabletsByCell for %v failed.", cell)))
+					return
+				}
+				defer sem.Release(1)
 			}
-			defer sem.Release(1)
 
 			t, err := ts.GetTabletsByCell(ctx, cell, &GetTabletsByCellOptions{
 				Concurrency: getConcurrency,
