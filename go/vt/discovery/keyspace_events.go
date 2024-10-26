@@ -281,10 +281,10 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 			Serving: sstate.serving,
 		})
 
-		log.Infof("keyspace event resolved: %s/%s is now consistent (serving: %v)",
+		/*log.Infof("keyspace event resolved: %s/%s is now consistent (serving: %v)",
 			sstate.target.Keyspace, sstate.target.Keyspace,
 			sstate.serving,
-		)
+		)*/
 
 		if !sstate.serving {
 			delete(kss.shards, shard)
