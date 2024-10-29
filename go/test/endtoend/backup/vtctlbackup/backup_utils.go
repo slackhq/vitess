@@ -1353,10 +1353,6 @@ func TestBackupEngineSelector(t *testing.T) {
 
 	defer TearDownCluster()
 
-	// localCluster.DisableVTOrcRecoveries(t)
-	// defer func() {
-	// 	localCluster.EnableVTOrcRecoveries(t)
-	// }()
 	verifyInitialReplication(t)
 
 	t.Run("backup with backup-engine=builtin", func(t *testing.T) {
@@ -1398,10 +1394,6 @@ func TestRestoreAllowedBackupEngines(t *testing.T) {
 
 	defer TearDownCluster()
 
-	// localCluster.DisableVTOrcRecoveries(t)
-	// defer func() {
-	// 	localCluster.EnableVTOrcRecoveries(t)
-	// }()
 	verifyInitialReplication(t)
 
 	t.Run("generate backups", func(t *testing.T) {
