@@ -1247,6 +1247,15 @@
 			"RetryMax": 1,
 			"Tags": []
 		},
+                "vreplication_mariadb_to_mysql": {
+                        "File": "unused.go",
+                        "Args": ["vitess.io/vitess/go/test/endtoend/vreplication", "-run", "TestMoveTablesMariaDBToMySQL", "-timeout", "20m"],
+                        "Command": [],
+                        "Manual": false,
+                        "Shard": "vreplication_across_db_versions",
+                        "RetryMax": 1,
+                        "Tags": []
+                },
                 "vreplication_vtctldclient_cli": {
                         "File": "unused.go",
                         "Args": ["vitess.io/vitess/go/test/endtoend/vreplication", "-run", "TestVtctldclientCLI", "-timeout", "20m"],
