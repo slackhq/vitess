@@ -41,14 +41,14 @@ func AttemptFailureDetectionRegistration(analysisEntry *inst.ReplicationAnalysis
 		analysisEntry.CountReplicas,
 		analysisEntry.IsActionableRecovery,
 	)
-	startActivePeriodHint := "now()"
+	startActivePeriodHint := "datetime('now')"
 	if analysisEntry.StartActivePeriod != "" {
 		startActivePeriodHint = "?"
 		args = append(args, analysisEntry.StartActivePeriod)
 	}
 
 	query := fmt.Sprintf(`
-			insert ignore
+			insert or ignore
 				into topology_failure_detection (
 					alias,
 					in_active_period,
@@ -111,7 +111,7 @@ func ClearActiveFailureDetections() error {
 func writeTopologyRecovery(topologyRecovery *TopologyRecovery) (*TopologyRecovery, error) {
 	analysisEntry := topologyRecovery.AnalysisEntry
 	sqlResult, err := db.ExecVTOrc(`
-			insert ignore
+			insert or ignore
 				into topology_recovery (
 					recovery_id,
 					uid,
@@ -131,7 +131,7 @@ func writeTopologyRecovery(topologyRecovery *TopologyRecovery) (*TopologyRecover
 					?,
 					?,
 					1,
-					NOW(),
+					datetime('now'),
 					0,
 					?,
 					?,
@@ -399,7 +399,7 @@ func writeResolveRecovery(topologyRecovery *TopologyRecovery) error {
 				is_successful = ?,
 				successor_alias = ?,
 				all_errors = ?,
-				end_recovery = NOW()
+				end_recovery = datetime('now')
 			where
 				uid = ?
 			`, topologyRecovery.IsSuccessful,
@@ -531,10 +531,10 @@ func ReadRecentRecoveries(unacknowledgedOnly bool, page int) ([]*TopologyRecover
 // writeTopologyRecoveryStep writes down a single step in a recovery process
 func writeTopologyRecoveryStep(topologyRecoveryStep *TopologyRecoveryStep) error {
 	sqlResult, err := db.ExecVTOrc(`
-			insert ignore
+			insert or ignore
 				into topology_recovery_steps (
 					recovery_step_id, recovery_uid, audit_at, message
-				) values (?, ?, now(), ?)
+				) values (?, ?, datetime('now'), ?)
 			`, sqlutils.NilIfZero(topologyRecoveryStep.ID), topologyRecoveryStep.RecoveryUID, topologyRecoveryStep.Message,
 	)
 	if err != nil {
