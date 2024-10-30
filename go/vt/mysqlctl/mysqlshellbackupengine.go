@@ -152,7 +152,7 @@ func (be *MySQLShellBackupEngine) ExecuteBackup(ctx context.Context, params Back
 	}
 	lockAcquired := time.Now() // we will report how long we hold the lock for
 
-	posBeforeBackup, err := params.Mysqld.PrimaryPosition(ctx)
+	posBeforeBackup, err := params.Mysqld.PrimaryPosition()
 	if err != nil {
 		return BackupUnusable, vterrors.Wrap(err, "failed to fetch position")
 	}
@@ -255,20 +255,20 @@ func (be *MySQLShellBackupEngine) ExecuteRestore(ctx context.Context, params Res
 	}
 
 	// make sure semi-sync is disabled, otherwise we will wait forever for acknowledgements
-	err = params.Mysqld.SetSemiSyncEnabled(ctx, false, false)
+	err = params.Mysqld.SetSemiSyncEnabled(false, false)
 	if err != nil {
 		return nil, vterrors.Wrap(err, "disable semi-sync failed")
 	}
 
 	params.Logger.Infof("restoring on an existing tablet, so dropping database %q", params.DbName)
 
-	readonly, err := params.Mysqld.IsSuperReadOnly(ctx)
+	readonly, err := params.Mysqld.IsSuperReadOnly()
 	if err != nil {
 		return nil, vterrors.Wrap(err, fmt.Sprintf("checking if mysqld has super_read_only=enable: %v", err))
 	}
 
 	if readonly {
-		resetFunc, err := params.Mysqld.SetSuperReadOnly(ctx, false)
+		resetFunc, err := params.Mysqld.SetSuperReadOnly(false)
 		if err != nil {
 			return nil, vterrors.Wrap(err, fmt.Sprintf("unable to disable super-read-only: %v", err))
 		}
@@ -466,7 +466,7 @@ func (be *MySQLShellBackupEngine) restorePreCheck(ctx context.Context, params Re
 }
 
 func (be *MySQLShellBackupEngine) handleSuperReadOnly(ctx context.Context, params RestoreParams) (func(), error) {
-	readonly, err := params.Mysqld.IsSuperReadOnly(ctx)
+	readonly, err := params.Mysqld.IsSuperReadOnly()
 	if err != nil {
 		return nil, vterrors.Wrap(err, fmt.Sprintf("checking if mysqld has super_read_only=enable: %v", err))
 	}
@@ -474,7 +474,7 @@ func (be *MySQLShellBackupEngine) handleSuperReadOnly(ctx context.Context, param
 	params.Logger.Infof("Is Super Read Only: %v", readonly)
 
 	if readonly {
-		resetFunc, err := params.Mysqld.SetSuperReadOnly(ctx, false)
+		resetFunc, err := params.Mysqld.SetSuperReadOnly(false)
 		if err != nil {
 			return nil, vterrors.Wrap(err, fmt.Sprintf("unable to disable super-read-only: %v", err))
 		}
