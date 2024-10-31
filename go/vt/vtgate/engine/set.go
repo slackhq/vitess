@@ -540,6 +540,7 @@ func (svss *SysVarSetAware) Execute(ctx context.Context, vcursor VCursor, env *e
 			return vterrors.NewErrorf(vtrpcpb.Code_INVALID_ARGUMENT, vterrors.WrongValueForVar, "variable 'session_track_gtids' can't be set to the value of '%s'", str)
 		}
 	default:
+		log.Warning("NOT_FOUOND: unknown system variable '%s'", svss.Name)
 		return vterrors.NewErrorf(vtrpcpb.Code_NOT_FOUND, vterrors.UnknownSystemVariable, "unknown system variable '%s'", svss.Name)
 	}
 
