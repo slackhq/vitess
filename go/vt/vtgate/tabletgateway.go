@@ -510,7 +510,8 @@ func (gw *TabletGateway) updateDefaultConnCollation(tablet *topodatapb.Tablet) {
 		return
 	}
 	if gw.defaultConnCollation.Load() != tablet.DefaultConnCollation {
-		log.Warning("this Vitess cluster has tablets with different default connection collations")
+		log.Warning("this Vitess cluster has tablets with different default connection collations: gw: %v, tablet:%v, host:%v",
+			gw.defaultConnCollation.Load(), tablet.DefaultConnCollation, tablet.Hostname)
 	}
 }
 
