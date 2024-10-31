@@ -494,7 +494,7 @@ func buildKeyspaceReferences(vschema *VSchema, ksvschema *KeyspaceSchema) error 
 			if vterrors.Code(err) != vtrpcpb.Code_NOT_FOUND || vterrors.ErrState(err) != vterrors.BadDb {
 				return err
 			}
-			log.Warning("NOT_FOUND: source %q references a non-existent keyspace %q",
+			log.Warningf("NOT_FOUND: source %q references a non-existent keyspace %q",
 				source,
 				sourceKsname)
 			return vterrors.Errorf(
@@ -505,7 +505,7 @@ func buildKeyspaceReferences(vschema *VSchema, ksvschema *KeyspaceSchema) error 
 			)
 		}
 		if sourceT == nil {
-			log.Warning("NOT_FOUND: source %q references a table %q that is not present in the VSchema of keyspace %q",
+			log.Warningf("NOT_FOUND: source %q references a table %q that is not present in the VSchema of keyspace %q",
 				source,
 				sourceTname,
 				sourceKsname)
@@ -614,7 +614,7 @@ func buildTables(ks *vschemapb.Keyspace, vschema *VSchema, ksvschema *KeyspaceSc
 			}
 			t.Type = table.Type
 		default:
-			log.Warning("NOT_FOUND: unidentified table type %s",
+			log.Warningf("NOT_FOUND: unidentified table type %s",
 				table.Type)
 			return vterrors.Errorf(
 				vtrpcpb.Code_NOT_FOUND,
@@ -838,7 +838,7 @@ func resolveAutoIncrement(source *vschemapb.SrvVSchema, vschema *VSchema, parser
 				// Better to remove the table than to leave it partially initialized.
 				delete(ksvschema.Tables, tname)
 				delete(vschema.globalTables, tname)
-				log.Warning("NOT_FOUND: cannot resolve sequence %s: %s",
+				log.Warningf("NOT_FOUND: cannot resolve sequence %s: %s",
 					table.AutoIncrement.Sequence,
 					err.Error())
 				ksvschema.Error = vterrors.Errorf(

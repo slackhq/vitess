@@ -184,7 +184,7 @@ func (dt *DerivedTable) getExprFor(s string) (sqlparser.Expr, error) {
 			return dt.cols[i], nil
 		}
 	}
-	log.Warning("NOT_FOUND: Unknown column '%s' in 'field list'", s)
+	log.Warningf("NOT_FOUND: Unknown column '%s' in 'field list'", s)
 	return nil, vterrors.NewErrorf(vtrpcpb.Code_NOT_FOUND, vterrors.BadFieldError, "Unknown column '%s' in 'field list'", s)
 }
 
