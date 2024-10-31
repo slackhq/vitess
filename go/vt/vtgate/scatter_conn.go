@@ -831,7 +831,7 @@ func lockInfo(target *querypb.Target, session *SafeSession, lockFuncType sqlpars
 	info := &shardActionInfo{actionNeeded: nothing}
 	if session.LockSession != nil {
 		if !proto.Equal(target, session.LockSession.Target) {
-			log.Warning("NOT_FOUND: target does match the existing lock session target: (%v, %v)", target, session.LockSession.Target)
+			log.Warningf("NOT_FOUND: target does match the existing lock session target: (%v, %v)", target, session.LockSession.Target)
 			return nil, vterrors.Errorf(vtrpcpb.Code_NOT_FOUND, "target does match the existing lock session target: (%v, %v)", target, session.LockSession.Target)
 		}
 		info.reservedID = session.LockSession.ReservedId
