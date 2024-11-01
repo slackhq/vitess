@@ -40,7 +40,7 @@ func WriteRegisterNode(nodeHealth *NodeHealth) (healthy bool, err error) {
 			insert ignore into node_health_history
 				(hostname, token, first_seen_active, extra_info, command, app_version)
 			values
-				(?, ?, NOW(), ?, ?, ?)
+				(?, ?, datetime('now'), ?, ?, ?)
 			`,
 			nodeHealth.Hostname, nodeHealth.Token, nodeHealth.ExtraInfo, nodeHealth.Command,
 			nodeHealth.AppVersion,

@@ -881,7 +881,7 @@ func mkInsertForInstances(instances []*Instance, instanceWasActuallyFound bool, 
 	var args []any
 	for _, instance := range instances {
 		// number of columns minus 2 as last_checked and last_attempted_check
-		// updated with NOW()
+		// updated with datetime('now')
 		args = append(args, instance.InstanceAlias)
 		args = append(args, instance.Hostname)
 		args = append(args, instance.Port)
@@ -1123,7 +1123,7 @@ func SnapshotTopologies() error {
         		database_instance_topology_history (snapshot_unix_timestamp,
         			alias, hostname, port, source_host, source_port, keyspace, shard, version)
         	select
-        		strftime('%%s', 'now'),
+				strftime('%s', 'now'),
 				vitess_tablet.alias, vitess_tablet.hostname, vitess_tablet.port, 
 				database_instance.source_host, database_instance.source_port, 
 				vitess_tablet.keyspace, vitess_tablet.shard, database_instance.version
@@ -1169,7 +1169,7 @@ func RecordStaleInstanceBinlogCoordinates(tabletAlias string, binlogCoordinates 
 					alias,	binary_log_file, binary_log_pos, first_seen
 				)
 				values (
-					?, ?, ?, NOW()
+					?, ?, ?, datetime('now')
 				)`,
 		args...)
 	if err != nil {
