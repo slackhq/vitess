@@ -506,6 +506,9 @@ func (gw *TabletGateway) TabletsHealthyStatus() discovery.TabletsCacheStatusList
 }
 
 func (gw *TabletGateway) updateDefaultConnCollation(tablet *topodatapb.Tablet) {
+	if tablet.DefaultConnCollation == 45 {
+		log.Warningf("slack: unexpected collation on tablet host: %s", tablet.Hostname)
+	}
 	if gw.defaultConnCollation.CompareAndSwap(0, tablet.DefaultConnCollation) {
 		return
 	}
