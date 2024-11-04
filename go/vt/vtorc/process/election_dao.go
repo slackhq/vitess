@@ -28,10 +28,10 @@ import (
 func AttemptElection() (bool, error) {
 	{
 		sqlResult, err := db.ExecVTOrc(`
-		insert ignore into active_node (
+		insert or ignore into active_node (
 				anchor, hostname, token, first_seen_active, last_seen_active
 			) values (
-				1, ?, ?, now(), now()
+				1, ?, ?, datetime('now'), datetime('now')
 			)
 		`,
 			ThisHostname, util.ProcessToken.Hash,

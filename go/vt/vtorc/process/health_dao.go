@@ -37,10 +37,10 @@ func WriteRegisterNode(nodeHealth *NodeHealth) (healthy bool, err error) {
 
 	nodeHealth.onceHistory.Do(func() {
 		_, _ = db.ExecVTOrc(`
-			insert ignore into node_health_history
+			insert or ignore into node_health_history
 				(hostname, token, first_seen_active, extra_info, command, app_version)
 			values
-				(?, ?, NOW(), ?, ?, ?)
+				(?, ?, datetime('now'), ?, ?, ?)
 			`,
 			nodeHealth.Hostname, nodeHealth.Token, nodeHealth.ExtraInfo, nodeHealth.Command,
 			nodeHealth.AppVersion,
@@ -79,11 +79,11 @@ func WriteRegisterNode(nodeHealth *NodeHealth) (healthy bool, err error) {
 	{
 		dbBackend := config.Config.SQLite3DataFile
 		sqlResult, err := db.ExecVTOrc(`
-			insert ignore into node_health
+			insert or ignore into node_health
 				(hostname, token, first_seen_active, last_seen_active, extra_info, command, app_version, db_backend)
 			values (
 				?, ?,
-				now() - interval ? second, now() - interval ? second,
+				datetime('now', printf('-%d second', ?)), datetime('now', printf('-%d second', ?)),
 				?, ?, ?, ?)
 			`,
 			nodeHealth.Hostname, nodeHealth.Token,
