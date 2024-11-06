@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/test/endtoend/utils"
 )
 
 func TestMultiEqual(t *testing.T) {
@@ -43,6 +45,8 @@ func TestMultiEqual(t *testing.T) {
 
 // TestMultiTableDelete executed multi-table delete queries
 func TestMultiTableDelete(t *testing.T) {
+	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
+
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -78,6 +82,8 @@ func TestMultiTableDelete(t *testing.T) {
 
 // TestDeleteWithLimit executed delete queries with limit
 func TestDeleteWithLimit(t *testing.T) {
+	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
+
 	mcmp, closer := start(t)
 	defer closer()
 
