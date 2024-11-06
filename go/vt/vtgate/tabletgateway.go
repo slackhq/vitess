@@ -514,7 +514,8 @@ func (gw *TabletGateway) updateDefaultConnCollation(tablet *topodatapb.Tablet) {
 		return
 	}
 	if atomic.LoadUint32(&gw.defaultConnCollation) != tablet.DefaultConnCollation {
-		log.Warning("this Vitess cluster has tablets with different default connection collations")
+		log.Warningf("this Vitess cluster has tablets with different default connection collations: gw: %v, tablet:%v, host:%v",
+			atomic.LoadUint32(&gw.defaultConnCollation), tablet.DefaultConnCollation, tablet.Hostname)
 	}
 }
 
