@@ -66,6 +66,7 @@ func (vtctld *VtctldProcess) Setup(cell string, extraArgs ...string) (err error)
 		"--port", fmt.Sprintf("%d", vtctld.Port),
 		"--grpc_port", fmt.Sprintf("%d", vtctld.GrpcPort),
 	)
+
 	if v, err := GetMajorVersion("vtctld"); err != nil {
 		return err
 	} else if v >= 18 {
