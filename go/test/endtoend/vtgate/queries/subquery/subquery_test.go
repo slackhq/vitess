@@ -80,7 +80,6 @@ func TestNotINQueries(t *testing.T) {
 
 // Test only supported in >= v16.0.0
 func TestSubqueriesExists(t *testing.T) {
-	utils.SkipIfBinaryIsBelowVersion(t, 16, "vtgate")
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -162,7 +161,6 @@ func TestSubqueryInReference(t *testing.T) {
 
 // TestSubqueryInAggregation validates that subquery work inside aggregation functions.
 func TestSubqueryInAggregation(t *testing.T) {
-	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -181,6 +179,7 @@ func TestSubqueryInAggregation(t *testing.T) {
 // are handled correctly when there are joins inside the derived table
 func TestSubqueryInDerivedTable(t *testing.T) {
 	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
+
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -195,6 +194,7 @@ func TestSubqueries(t *testing.T) {
 	// The commented out queries are failing because of wrong types being returned.
 	// The tests are commented out until the issue is fixed.
 	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
+
 	mcmp, closer := start(t)
 	defer closer()
 	queries := []string{

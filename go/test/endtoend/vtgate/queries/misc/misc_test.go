@@ -37,7 +37,7 @@ func start(t *testing.T) (utils.MySQLCompare, func()) {
 	require.NoError(t, err)
 
 	deleteAll := func() {
-		tables := []string{"t1", "uks.unsharded"}
+		tables := []string{"t1", "uks.unsharded", "tbl"}
 		for _, table := range tables {
 			_, _ = mcmp.ExecAndIgnore("delete from " + table)
 		}
@@ -60,15 +60,8 @@ func TestBitVals(t *testing.T) {
 
 	mcmp.AssertMatches(`select b'1001', 0x9, B'010011011010'`, `[[VARBINARY("\t") VARBINARY("\t") VARBINARY("\x04\xda")]]`)
 	mcmp.AssertMatches(`select b'1001', 0x9, B'010011011010' from t1`, `[[VARBINARY("\t") VARBINARY("\t") VARBINARY("\x04\xda")]]`)
-	vtgateVersion, err := cluster.GetMajorVersion("vtgate")
-	require.NoError(t, err)
-	if vtgateVersion >= 19 {
-		mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010'`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[INT64(10) UINT64(11) INT64(1245)]]`)
-		mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010' from t1`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[INT64(10) UINT64(11) INT64(1245)]]`)
-	} else {
-		mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010'`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[UINT64(10) UINT64(11) UINT64(1245)]]`)
-		mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010' from t1`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[UINT64(10) UINT64(11) UINT64(1245)]]`)
-	}
+	mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010'`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[INT64(10) UINT64(11) INT64(1245)]]`)
+	mcmp.AssertMatchesNoCompare(`select 1 + b'1001', 2 + 0x9, 3 + B'010011011010' from t1`, `[[INT64(10) UINT64(11) INT64(1245)]]`, `[[INT64(10) UINT64(11) INT64(1245)]]`)
 }
 
 // TestTimeFunctionWithPrecision tests that inserting data with NOW(1) works as intended.
@@ -303,8 +296,6 @@ func TestAnalyze(t *testing.T) {
 
 // TestTransactionModeVar executes SELECT on `transaction_mode` variable
 func TestTransactionModeVar(t *testing.T) {
-	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
-
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -334,8 +325,18 @@ func TestTransactionModeVar(t *testing.T) {
 	}
 }
 
+// TestAliasesInOuterJoinQueries tests that aliases work in queries that have outer join clauses.
+func TestAliasesInOuterJoinQueries(t *testing.T) {
+	mcmp, closer := start(t)
+	defer closer()
+
+	// Insert data into the 2 tables
+	mcmp.Exec("insert into t1(id1, id2) values (1,2), (42,5), (5, 42)")
+	mcmp.Exec("insert into tbl(id, unq_col, nonunq_col) values (1,2,3), (2,5,3), (3, 42, 2)")
+	mcmp.ExecWithColumnCompare("select * from t1 t left join tbl on t.id1 = 666 and t.id2 = tbl.id")
+}
+
 func TestAlterTableWithView(t *testing.T) {
-	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
 	mcmp, closer := start(t)
 	defer closer()
 
@@ -389,6 +390,7 @@ func TestAlterTableWithView(t *testing.T) {
 
 func TestHandleNullableColumn(t *testing.T) {
 	utils.SkipIfBinaryIsBelowVersion(t, 21, "vtgate")
+
 	require.NoError(t,
 		utils.WaitForAuthoritative(t, keyspaceName, "tbl", clusterInstance.VtgateProcess.ReadVSchema))
 	mcmp, closer := start(t)
