@@ -95,7 +95,7 @@ func ClearActiveFailureDetections() error {
 	_, err := db.ExecVTOrc(`
 			update topology_failure_detection set
 				in_active_period = 0,
-				end_active_period_unixtime = strftime('%%s', 'now')
+				end_active_period_unixtime = strftime('%s', 'now')
 			where
 				in_active_period = 1
 				AND start_active_period < datetime('now', printf('-%d MINUTE', ?))
@@ -225,7 +225,7 @@ func ClearActiveRecoveries() error {
 	_, err := db.ExecVTOrc(`
 			update topology_recovery set
 				in_active_period = 0,
-				end_active_period_unixtime = strftime('%%s', 'now')
+				end_active_period_unixtime = strftime('%s', 'now')
 			where
 				in_active_period = 1
 				AND start_active_period < datetime('now', printf('-%d SECOND', ?))
