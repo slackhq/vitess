@@ -49,7 +49,7 @@ func WriteRegisterNode(nodeHealth *NodeHealth) (healthy bool, err error) {
 	{
 		sqlResult, err := db.ExecVTOrc(`
 			update node_health set
-				last_seen_active = now() - interval ? second,
+				last_seen_active = datetime('now', printf('-%d second', ?))
 				extra_info = case when ? != '' then ? else extra_info end,
 				app_version = ?,
 				incrementing_indicator = incrementing_indicator + 1
@@ -114,7 +114,7 @@ func ExpireAvailableNodes() {
 			delete
 				from node_health
 			where
-				last_seen_active < now() - interval ? second
+				last_seen_active < datetime('now', printf('-%d second', ?))
 			`,
 		config.HealthPollSeconds*5,
 	)
@@ -130,7 +130,7 @@ func ExpireNodesHistory() error {
 			delete
 				from node_health_history
 			where
-				first_seen_active < now() - interval ? hour
+				first_seen_active < datetime('now', printf('-%d hour', ?))
 			`,
 		config.UnseenInstanceForgetHours,
 	)
@@ -151,7 +151,7 @@ func ReadAvailableNodes(onlyHTTPNodes bool) (nodes [](*NodeHealth), err error) {
 		from
 			node_health
 		where
-			last_seen_active > now() - interval ? second
+			last_seen_active > datetime('now', printf('-%d second', ?))
 			and ? in (extra_info, '')
 		order by
 			hostname
