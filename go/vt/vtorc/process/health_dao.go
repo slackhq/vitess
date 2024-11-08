@@ -49,7 +49,7 @@ func WriteRegisterNode(nodeHealth *NodeHealth) (healthy bool, err error) {
 	{
 		sqlResult, err := db.ExecVTOrc(`
 			update node_health set
-				last_seen_active = datetime('now', printf('-%d second', ?))
+				last_seen_active = datetime('now', printf('-%d second', ?)),
 				extra_info = case when ? != '' then ? else extra_info end,
 				app_version = ?,
 				incrementing_indicator = incrementing_indicator + 1
