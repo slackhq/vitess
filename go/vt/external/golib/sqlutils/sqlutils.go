@@ -163,8 +163,9 @@ func GetSQLiteDB(dbFile string) (*sql.DB, bool, error) {
 // RowToArray is a convenience function, typically not called directly, which maps a
 // single read database row into a NullString
 func RowToArray(rows *sql.Rows, columns []string) ([]CellData, error) {
-	buff := make([]any, len(columns))
-	data := make([]CellData, len(columns))
+	numColumns := len(columns)
+	buff := make([]any, numColumns, numColumns)
+	data := make([]CellData, numColumns, numColumns)
 	for i := range buff {
 		buff[i] = data[i].NullString()
 	}
