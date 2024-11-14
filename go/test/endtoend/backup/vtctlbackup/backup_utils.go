@@ -1047,7 +1047,7 @@ func verifySemiSyncStatus(t *testing.T, vttablet *cluster.Vttablet, expectedStat
 }
 
 func terminateBackup(t *testing.T, alias string) {
-	stopBackupMsg := "Completed backing up"
+	stopBackupMsg := "Done taking Backup"
 	if currentSetupType == XtraBackup {
 		stopBackupMsg = "Starting backup with"
 	}
