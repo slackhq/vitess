@@ -102,7 +102,12 @@ func (s *Server) Get(ctx context.Context, filePath string) ([]byte, topo.Version
 func (s *Server) List(ctx context.Context, filePathPrefix string, polling bool) ([]topo.KVInfo, error) {
 	nodePathPrefix := path.Join(s.root, filePathPrefix)
 
-	pairs, _, err := s.kv.List(nodePathPrefix, nil)
+	opts := api.QueryOptions{}
+	if consulAllowStalePolling && polling {
+		opts.AllowStale = true
+	}
+
+	pairs, _, err := s.kv.List(nodePathPrefix, &opts)
 	if err != nil {
 		return []topo.KVInfo{}, err
 	}

@@ -41,6 +41,7 @@ var (
 	consulLockSessionChecks = "serfHealth"
 	consulLockSessionTTL    string
 	consulLockDelay         = 15 * time.Second
+	consulAllowStalePolling bool
 )
 
 func init() {
@@ -52,6 +53,7 @@ func registerServerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&consulLockSessionChecks, "topo_consul_lock_session_checks", consulLockSessionChecks, "List of checks for consul session.")
 	fs.StringVar(&consulLockSessionTTL, "topo_consul_lock_session_ttl", consulLockSessionTTL, "TTL for consul session.")
 	fs.DurationVar(&consulLockDelay, "topo_consul_lock_delay", consulLockDelay, "LockDelay for consul session.")
+	fs.BoolVar(&consulAllowStalePolling, "topo_consul_allow_stale_polling", consulAllowStalePolling, "Set AllowStale as an option when reading in a polling context.")
 }
 
 // ClientAuthCred credential to use for consul clusters
