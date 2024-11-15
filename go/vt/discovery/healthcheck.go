@@ -159,12 +159,13 @@ func ParseTabletURLTemplateFromFlag() {
 }
 
 func init() {
-	for _, cmd := range []string{"vtgate", "vtcombo", "vttablet"} {
+	for _, cmd := range []string{"vtgate", "vtcombo"} {
 		servenv.OnParseFor(cmd, registerDiscoveryFlags)
 		servenv.OnParseFor(cmd, registerWebUIFlags)
 	}
 
 	servenv.OnParseFor("vtctld", registerWebUIFlags)
+	servenv.OnParseFor("vttablet", registerWebUIFlags)
 }
 
 func registerDiscoveryFlags(fs *pflag.FlagSet) {
