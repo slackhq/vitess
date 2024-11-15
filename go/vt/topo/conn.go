@@ -75,8 +75,10 @@ type Conn interface {
 	// List returns KV pairs, along with metadata like the version, for
 	// entries where the key contains the specified prefix.
 	// filePathPrefix is a path relative to the root directory of the cell.
+	// polling indicates if the caller will be repeatedly calling for results and
+	// therefore can accept relaxed consistency
 	// Can return ErrNoNode if there are no matches.
-	List(ctx context.Context, filePathPrefix string) ([]KVInfo, error)
+	List(ctx context.Context, filePathPrefix string, polling bool) ([]KVInfo, error)
 
 	// Delete deletes the provided file.
 	// If version is nil, it is an unconditional delete.

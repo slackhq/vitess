@@ -176,7 +176,7 @@ func (c *Conn) Get(ctx context.Context, filePath string) ([]byte, topo.Version, 
 }
 
 // List is part of the topo.Conn interface.
-func (c *Conn) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, error) {
+func (c *Conn) List(ctx context.Context, filePathPrefix string, polling bool) ([]topo.KVInfo, error) {
 	if err := c.dial(ctx); err != nil {
 		return nil, err
 	}

@@ -112,7 +112,7 @@ func NewTopologyWatcher(ctx context.Context, topoServer *topo.Server, hc HealthC
 }
 
 func (tw *TopologyWatcher) getTablets() ([]*topo.TabletInfo, error) {
-	return tw.topoServer.GetTabletsByCell(tw.ctx, tw.cell, &topo.GetTabletsByCellOptions{Concurrency: tw.concurrency})
+	return tw.topoServer.GetTabletsByCell(tw.ctx, tw.cell, &topo.GetTabletsByCellOptions{Concurrency: tw.concurrency, Polling: true})
 }
 
 // Start starts the topology watcher.

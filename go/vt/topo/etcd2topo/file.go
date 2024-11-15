@@ -89,7 +89,7 @@ func (s *Server) Get(ctx context.Context, filePath string) ([]byte, topo.Version
 }
 
 // List is part of the topo.Conn interface.
-func (s *Server) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, error) {
+func (s *Server) List(ctx context.Context, filePathPrefix string, polling bool) ([]topo.KVInfo, error) {
 	nodePathPrefix := path.Join(s.root, filePathPrefix)
 
 	resp, err := s.cli.Get(ctx, nodePathPrefix, clientv3.WithPrefix())

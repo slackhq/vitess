@@ -213,7 +213,7 @@ func checkList(t *testing.T, ctx context.Context, ts *topo.Server) {
 		t.Fatalf("Create('/myfile') failed: %v", err)
 	}
 
-	_, err = conn.List(ctx, "/")
+	_, err = conn.List(ctx, "/", false /*polling*/)
 	if topo.IsErrType(err, topo.NoImplementation) {
 		// If this is not supported, skip the test
 		t.Skipf("%T does not support List()", conn)
@@ -229,7 +229,7 @@ func checkList(t *testing.T, ctx context.Context, ts *topo.Server) {
 	}
 
 	for _, path := range []string{"/top", "/toplevel", "/toplevel/", "/toplevel/nes", "/toplevel/nested/myfile"} {
-		entries, err := conn.List(ctx, path)
+		entries, err := conn.List(ctx, path, false /*polling*/)
 		if err != nil {
 			t.Fatalf("List failed(path: %q): %v", path, err)
 		}

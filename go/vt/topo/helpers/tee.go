@@ -144,8 +144,8 @@ func (c *TeeConn) Get(ctx context.Context, filePath string) ([]byte, topo.Versio
 }
 
 // List is part of the topo.Conn interface.
-func (c *TeeConn) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, error) {
-	return c.primary.List(ctx, filePathPrefix)
+func (c *TeeConn) List(ctx context.Context, filePathPrefix string, polling bool) ([]topo.KVInfo, error) {
+	return c.primary.List(ctx, filePathPrefix, polling)
 }
 
 // Delete is part of the topo.Conn interface.

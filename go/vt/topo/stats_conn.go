@@ -116,11 +116,11 @@ func (st *StatsConn) Get(ctx context.Context, filePath string) ([]byte, Version,
 }
 
 // List is part of the Conn interface
-func (st *StatsConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo, error) {
+func (st *StatsConn) List(ctx context.Context, filePathPrefix string, polling bool) ([]KVInfo, error) {
 	startTime := time.Now()
 	statsKey := []string{"List", st.cell}
 	defer topoStatsConnTimings.Record(statsKey, startTime)
-	bytes, err := st.conn.List(ctx, filePathPrefix)
+	bytes, err := st.conn.List(ctx, filePathPrefix, polling)
 	if err != nil {
 		topoStatsConnErrors.Add(statsKey, int64(1))
 		return bytes, err

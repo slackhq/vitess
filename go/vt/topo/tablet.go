@@ -289,6 +289,9 @@ func (ts *Server) GetTabletAliasesByCell(ctx context.Context, cell string) ([]*t
 type GetTabletsByCellOptions struct {
 	// Concurrency controls the maximum number of concurrent calls to GetTablet.
 	Concurrency int64
+	// Polling indicates if the caller is getting tablets in a polling loop and is
+	// used in some topo implementations to improve performance by relaxing consistency.
+	Polling bool
 }
 
 // GetTabletsByCell returns all the tablets in the cell.
@@ -300,7 +303,7 @@ func (ts *Server) GetTabletsByCell(ctx context.Context, cellAlias string, opt *G
 	if err != nil {
 		return nil, err
 	}
-	listResults, err := cellConn.List(ctx, TabletsPath)
+	listResults, err := cellConn.List(ctx, TabletsPath, opt.Polling)
 	if err != nil || len(listResults) == 0 {
 		// Currently the ZooKeeper implementation does not support scans
 		// so we fall back to the more costly method of fetching the tablets one by one.
