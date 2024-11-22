@@ -246,7 +246,7 @@ outer:
 			require.Fail(t, "timed out - could not verify the new primary")
 		case <-time.After(10 * time.Millisecond):
 			newPrimary, shouldBuffer := tg.kev.ShouldStartBufferingForTarget(ctx, target)
-			if newPrimary != nil && newPrimary.Uid == 1 && !shouldBuffer {
+			if newPrimary != nil && newPrimary.Uid == replicaTablet.Alias.Uid && !shouldBuffer {
 				break outer
 			}
 		}
