@@ -69,7 +69,7 @@ func ElectNewPrimary(
 	waitReplicasTimeout time.Duration,
 	tolerableReplLag time.Duration,
 	durability Durabler,
-// (TODO:@ajm188) it's a little gross we need to pass this, maybe embed in the context?
+	// (TODO:@ajm188) it's a little gross we need to pass this, maybe embed in the context?
 	logger logutil.Logger,
 ) (*topodatapb.TabletAlias, error) {
 
