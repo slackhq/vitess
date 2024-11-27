@@ -732,6 +732,10 @@ func (hc *HealthCheckImpl) WaitForAllServingTablets(ctx context.Context, targets
 
 // waitForTablets is the internal method that polls for tablets.
 func (hc *HealthCheckImpl) waitForTablets(ctx context.Context, targets []*query.Target, requireServing bool) error {
+	log.Infof("Starting wait for tablets loop...")
+	waitLogSoFar := 0 * time.Second
+	waitLogPeriod := 5 * time.Second
+
 	for {
 		// We nil targets as we find them.
 		allPresent := true
@@ -760,8 +764,6 @@ func (hc *HealthCheckImpl) waitForTablets(ctx context.Context, targets []*query.
 
 		// Unblock after the sleep or when the context has expired.
 		timer := time.NewTimer(waitAvailableTabletInterval)
-		waitLogPeriod := 5 * time.Second
-		waitLogSoFar := 0 * time.Second
 		select {
 		case <-ctx.Done():
 			timer.Stop()
