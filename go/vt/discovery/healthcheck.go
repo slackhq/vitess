@@ -780,7 +780,8 @@ func (hc *HealthCheckImpl) waitForTablets(ctx context.Context, targets []*query.
 				var nonNilTargets = []query.Target{}
 				for _, target := range targets {
 					if target != nil {
-						nonNilTargets = append(nonNilTargets, *target)
+						nonNilTargets = append(nonNilTargets, query.Target{Keyspace: target.Keyspace, Shard: target.Shard,
+							TabletType: target.TabletType, Cell: target.Cell})
 					}
 				}
 				log.Infof("Still waiting for targets %+v", nonNilTargets)
