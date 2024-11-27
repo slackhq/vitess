@@ -760,6 +760,8 @@ func (hc *HealthCheckImpl) waitForTablets(ctx context.Context, targets []*query.
 
 		// Unblock after the sleep or when the context has expired.
 		timer := time.NewTimer(waitAvailableTabletInterval)
+		waitLogPeriod := 5 * time.Second
+		waitLogSoFar := 0 * time.Second
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -770,6 +772,17 @@ func (hc *HealthCheckImpl) waitForTablets(ctx context.Context, targets []*query.
 			}
 			return ctx.Err()
 		case <-timer.C:
+			waitLogSoFar += waitAvailableTabletInterval
+			if waitLogSoFar >= waitLogPeriod {
+				waitLogSoFar = 0
+				var nonNilTargets = []query.Target{}
+				for _, target := range targets {
+					if target != nil {
+						nonNilTargets = append(nonNilTargets, *target)
+					}
+				}
+				log.Infof("Still waiting for targets %+v", nonNilTargets)
+			}
 		}
 	}
 }
