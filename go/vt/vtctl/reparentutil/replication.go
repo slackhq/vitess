@@ -286,7 +286,7 @@ func stopReplicationAndBuildStatusMaps(
 			m.Lock()
 			res.tabletsBackupState[alias] = isTakingBackup
 			m.Unlock()
-			
+
 			var sqlThreadRunning bool
 			// Check if the sql thread was running for the tablet
 			sqlThreadRunning, err = SQLThreadWasRunning(stopReplicationStatus)
