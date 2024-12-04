@@ -21,9 +21,13 @@ import (
 	"fmt"
 	"testing"
 
+	"golang.org/x/sync/semaphore"
+
 	"vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
 )
+
+var testStatsConnReadSem = semaphore.NewWeighted(1)
 
 // The fakeConn is a wrapper for a Conn that emits stats for every operation
 type fakeConn struct {
@@ -153,7 +157,7 @@ func (st *fakeConn) IsReadOnly() bool {
 // TestStatsConnTopoListDir emits stats on ListDir
 func TestStatsConnTopoListDir(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.ListDir(ctx, "", true)
@@ -180,7 +184,7 @@ func TestStatsConnTopoListDir(t *testing.T) {
 // TestStatsConnTopoCreate emits stats on Create
 func TestStatsConnTopoCreate(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Create(ctx, "", []byte{})
@@ -207,7 +211,7 @@ func TestStatsConnTopoCreate(t *testing.T) {
 // TestStatsConnTopoUpdate emits stats on Update
 func TestStatsConnTopoUpdate(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Update(ctx, "", []byte{}, conn.v)
@@ -234,7 +238,7 @@ func TestStatsConnTopoUpdate(t *testing.T) {
 // TestStatsConnTopoGet emits stats on Get
 func TestStatsConnTopoGet(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Get(ctx, "")
@@ -261,7 +265,7 @@ func TestStatsConnTopoGet(t *testing.T) {
 // TestStatsConnTopoDelete emits stats on Delete
 func TestStatsConnTopoDelete(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Delete(ctx, "", conn.v)
@@ -288,7 +292,7 @@ func TestStatsConnTopoDelete(t *testing.T) {
 // TestStatsConnTopoLock emits stats on Lock
 func TestStatsConnTopoLock(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Lock(ctx, "", "")
@@ -315,7 +319,7 @@ func TestStatsConnTopoLock(t *testing.T) {
 // TestStatsConnTopoWatch emits stats on Watch
 func TestStatsConnTopoWatch(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 	ctx := context.Background()
 
 	statsConn.Watch(ctx, "")
@@ -329,7 +333,7 @@ func TestStatsConnTopoWatch(t *testing.T) {
 // TestStatsConnTopoNewLeaderParticipation emits stats on NewLeaderParticipation
 func TestStatsConnTopoNewLeaderParticipation(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 
 	_, _ = statsConn.NewLeaderParticipation("", "")
 	timingCounts := topoStatsConnTimings.Counts()["NewLeaderParticipation.global"]
@@ -355,7 +359,7 @@ func TestStatsConnTopoNewLeaderParticipation(t *testing.T) {
 // TestStatsConnTopoClose emits stats on Close
 func TestStatsConnTopoClose(t *testing.T) {
 	conn := &fakeConn{}
-	statsConn := NewStatsConn("global", conn)
+	statsConn := NewStatsConn("global", conn, testStatsConnReadSem)
 
 	statsConn.Close()
 	timingCounts := topoStatsConnTimings.Counts()["Close.global"]
