@@ -168,6 +168,7 @@ func NewVtgateProxyProcess(logDir, vtgateHostsFile, affinity, balancerType strin
 		GrpcPort:        grpcPort,
 		MySQLPort:       mySQLPort,
 		VerifyURL:       "http://" + net.JoinHostPort("localhost", strconv.Itoa(httpPort)) + "/debug/vars",
+		WarmupTime:      0 * time.Second,
 	}
 }
 
@@ -188,6 +189,7 @@ type VtgateProxyProcess struct {
 	MySQLPort       int
 	ExtraArgs       []string
 	VerifyURL       string
+	WarmupTime      time.Duration
 
 	proc *exec.Cmd
 	exit chan error
@@ -207,6 +209,7 @@ func (vt *VtgateProxyProcess) Setup() error {
 		"--affinity_value", vt.AffinityValue,
 		"--num_connections", strconv.Itoa(vt.NumConnections),
 		"--log_dir", vt.LogDir,
+		"--warmup_time", vt.WarmupTime.String(),
 		"--v", "999",
 		"--mysql_auth_server_impl", "none",
 		"--alsologtostderr",
