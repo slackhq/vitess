@@ -191,7 +191,7 @@ func registerTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&topoImplementation, "topo_implementation", topoImplementation, "the topology implementation to use")
 	fs.StringVar(&topoGlobalServerAddress, "topo_global_server_address", topoGlobalServerAddress, "the address of the global topology server")
 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
-	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell")
+	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
 }
 
 // RegisterFactory registers a Factory for an implementation for a Server.
