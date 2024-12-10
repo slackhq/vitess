@@ -40,9 +40,9 @@ var (
 		"TopologyConnErrors errors per operation",
 		[]string{"Operation", "Cell"})
 
-	topoStatsReadWaitTimings = stats.NewMultiTimings(
-		"TopologyReadWaits",
-		"TopologyReadWait timings",
+	topoStatsConnReadWaitTimings = stats.NewMultiTimings(
+		"TopologyConnReadWaits",
+		"TopologyConnReadWait timings",
 		[]string{"Operation", "Cell"})
 )
 
@@ -74,7 +74,7 @@ func (st *StatsConn) ListDir(ctx context.Context, dirPath string, full bool) ([]
 		return nil, err
 	}
 	defer st.readSem.Release(1)
-	topoStatsReadWaitTimings.Record(statsKey, startTime)
+	topoStatsConnReadWaitTimings.Record(statsKey, startTime)
 	defer topoStatsConnTimings.Record(statsKey, startTime)
 	res, err := st.conn.ListDir(ctx, dirPath, full)
 	if err != nil {
@@ -124,7 +124,7 @@ func (st *StatsConn) Get(ctx context.Context, filePath string) ([]byte, Version,
 		return nil, nil, err
 	}
 	defer st.readSem.Release(1)
-	topoStatsReadWaitTimings.Record(statsKey, startTime)
+	topoStatsConnReadWaitTimings.Record(statsKey, startTime)
 	defer topoStatsConnTimings.Record(statsKey, startTime)
 	bytes, version, err := st.conn.Get(ctx, filePath)
 	if err != nil {
@@ -142,7 +142,7 @@ func (st *StatsConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo,
 		return nil, err
 	}
 	defer st.readSem.Release(1)
-	topoStatsReadWaitTimings.Record(statsKey, startTime)
+	topoStatsConnReadWaitTimings.Record(statsKey, startTime)
 	defer topoStatsConnTimings.Record(statsKey, startTime)
 	bytes, err := st.conn.List(ctx, filePathPrefix)
 	if err != nil {
