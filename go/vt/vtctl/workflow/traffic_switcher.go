@@ -215,6 +215,10 @@ type trafficSwitcher struct {
 	isPartialMigration bool
 	workflow           string
 
+	// Should we continue if we encounter some potentially non-fatal errors such
+	// as partial tablet refreshes?
+	force bool
+
 	// if frozen is true, the rest of the fields are not set.
 	frozen           bool
 	reverseWorkflow  string
@@ -958,6 +962,68 @@ func (ts *trafficSwitcher) stopSourceWrites(ctx context.Context) error {
 	return nil
 }
 
+// switchDeniedTables switches the denied tables rules for the traffic switch.
+// They are removed on the source side and added on the target side.
+func (ts *trafficSwitcher) switchDeniedTables(ctx context.Context) error {
+	if ts.MigrationType() != binlogdatapb.MigrationType_TABLES {
+		return nil
+	}
+
+	egrp, ectx := errgroup.WithContext(ctx)
+	egrp.Go(func() error {
+		return ts.ForAllSources(func(source *MigrationSource) error {
+			if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.SourceKeyspaceName(), source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+				return si.UpdateDeniedTables(ectx, topodatapb.TabletType_PRIMARY, nil, false, ts.Tables())
+			}); err != nil {
+				return err
+			}
+			rtbsCtx, cancel := context.WithTimeout(ectx, shardTabletRefreshTimeout)
+			defer cancel()
+			isPartial, partialDetails, err := topotools.RefreshTabletsByShard(rtbsCtx, ts.TopoServer(), ts.TabletManagerClient(), source.GetShard(), nil, ts.Logger())
+			if isPartial {
+				msg := fmt.Sprintf("failed to successfully refresh all tablets in the %s/%s source shard (%v):\n  %v",
+					source.GetShard().Keyspace(), source.GetShard().ShardName(), err, partialDetails)
+				if ts.force {
+					log.Warning(msg)
+					return nil
+				} else {
+					return errors.New(msg)
+				}
+			}
+			return err
+		})
+	})
+	egrp.Go(func() error {
+		return ts.ForAllTargets(func(target *MigrationTarget) error {
+			if _, err := ts.TopoServer().UpdateShardFields(ectx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+				return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, true, ts.Tables())
+			}); err != nil {
+				return err
+			}
+			rtbsCtx, cancel := context.WithTimeout(ectx, shardTabletRefreshTimeout)
+			defer cancel()
+			isPartial, partialDetails, err := topotools.RefreshTabletsByShard(rtbsCtx, ts.TopoServer(), ts.TabletManagerClient(), target.GetShard(), nil, ts.Logger())
+			if isPartial {
+				msg := fmt.Sprintf("failed to successfully refresh all tablets in the %s/%s target shard (%v):\n  %v",
+					target.GetShard().Keyspace(), target.GetShard().ShardName(), err, partialDetails)
+				if ts.force {
+					log.Warning(msg)
+					return nil
+				} else {
+					return errors.New(msg)
+				}
+			}
+			return err
+		})
+	})
+	if err := egrp.Wait(); err != nil {
+		ts.Logger().Warningf("Error in switchDeniedTables: %s", err)
+		return err
+	}
+
+	return nil
+}
+
 func (ts *trafficSwitcher) changeTableSourceWrites(ctx context.Context, access accessType) error {
 	err := ts.ForAllSources(func(source *MigrationSource) error {
 		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.SourceKeyspaceName(), source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
@@ -984,30 +1050,45 @@ func (ts *trafficSwitcher) changeTableSourceWrites(ctx context.Context, access a
 	return ts.TopoServer().RebuildSrvVSchema(ctx, nil)
 }
 
+// cancelMigration attempts to revert all changes made during the migration so that we can get back to the
+// state when traffic switching (or reversing) was initiated.
 func (ts *trafficSwitcher) cancelMigration(ctx context.Context, sm *StreamMigrator) {
 	var err error
-	if ts.MigrationType() == binlogdatapb.MigrationType_TABLES {
-		err = ts.changeTableSourceWrites(ctx, allowWrites)
-	} else {
-		err = ts.changeShardsAccess(ctx, ts.SourceKeyspaceName(), ts.SourceShards(), allowWrites)
-	}
-	if err != nil {
-		ts.Logger().Errorf("Cancel migration failed: %v", err)
+
+	if ctx.Err() != nil {
+		// Even though we create a new context later on we still record any context error:
+		// for forensics in case of failures.
+		ts.Logger().Infof("In Cancel migration: original context invalid: %s", ctx.Err())
 	}
 
-	sm.CancelStreamMigrations(ctx)
+	// We create a new context while canceling the migration, so that we are independent of the original
+	// context being cancelled prior to or during the cancel operation.
+	cmTimeout := 60 * time.Second
+	cmCtx, cmCancel := context.WithTimeout(context.Background(), cmTimeout)
+	defer cmCancel()
+
+	if ts.MigrationType() == binlogdatapb.MigrationType_TABLES {
+		err = ts.switchDeniedTables(cmCtx)
+	} else {
+		err = ts.changeShardsAccess(cmCtx, ts.SourceKeyspaceName(), ts.SourceShards(), allowWrites)
+	}
+	if err != nil {
+		ts.Logger().Errorf("Cancel migration failed: could not revert denied tables / shard access: %v", err)
+	}
+
+	sm.CancelStreamMigrations(cmCtx)
 
 	err = ts.ForAllTargets(func(target *MigrationTarget) error {
 		query := fmt.Sprintf("update _vt.vreplication set state='Running', message='' where db_name=%s and workflow=%s",
 			encodeString(target.GetPrimary().DbName()), encodeString(ts.WorkflowName()))
-		_, err := ts.TabletManagerClient().VReplicationExec(ctx, target.GetPrimary().Tablet, query)
+		_, err := ts.TabletManagerClient().VReplicationExec(cmCtx, target.GetPrimary().Tablet, query)
 		return err
 	})
 	if err != nil {
 		ts.Logger().Errorf("Cancel migration failed: could not restart vreplication: %v", err)
 	}
 
-	err = ts.deleteReverseVReplication(ctx)
+	err = ts.deleteReverseVReplication(cmCtx)
 	if err != nil {
 		ts.Logger().Errorf("Cancel migration failed: could not delete revers vreplication entries: %v", err)
 	}
