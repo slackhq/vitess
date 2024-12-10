@@ -142,10 +142,6 @@ type Server struct {
 	// will read the list of addresses for that cell from the
 	// global cluster and create clients as needed.
 	cellConns map[string]cellConn
-
-	// cellReadSem is a semaphore limiting the number of concurrent read
-	// operations to all cell-based topos.
-	cellReadSem *semaphore.Weighted
 }
 
 type cellConn struct {
@@ -195,7 +191,7 @@ func registerTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&topoImplementation, "topo_implementation", topoImplementation, "the topology implementation to use")
 	fs.StringVar(&topoGlobalServerAddress, "topo_global_server_address", topoGlobalServerAddress, "the address of the global topology server")
 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
-	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads.")
+	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell")
 }
 
 // RegisterFactory registers a Factory for an implementation for a Server.
@@ -234,7 +230,6 @@ func NewWithFactory(factory Factory, serverAddress, root string) (*Server, error
 		globalReadOnlyCell: connReadOnly,
 		factory:            factory,
 		cellConns:          make(map[string]cellConn),
-		cellReadSem:        semaphore.NewWeighted(DefaultReadConcurrency),
 	}, nil
 }
 
@@ -306,7 +301,8 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	conn, err := ts.factory.Create(cell, ci.ServerAddress, ci.Root)
 	switch {
 	case err == nil:
-		conn = NewStatsConn(cell, conn, ts.cellReadSem)
+		cellReadSem := semaphore.NewWeighted(DefaultReadConcurrency)
+		conn = NewStatsConn(cell, conn, cellReadSem)
 		ts.cellConns[cell] = cellConn{ci, conn}
 		return conn, nil
 	case IsErrType(err, NoNode):
