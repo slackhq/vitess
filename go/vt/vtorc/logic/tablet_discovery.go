@@ -210,7 +210,7 @@ func refreshTabletsUsing(loader func(tabletAlias string), forceRefresh bool) {
 }
 
 func refreshTabletsInCell(ctx context.Context, cell string, loader func(tabletAlias string), forceRefresh bool) {
-	tablets, err := ts.GetTabletsByCell(ctx, cell, &topo.GetTabletsByCellOptions{Concurrency: topo.DefaultConcurrency})
+	tablets, err := ts.GetTabletsByCell(ctx, cell, nil)
 	if err != nil {
 		log.Errorf("Error fetching topo info for cell %v: %v", cell, err)
 		return
