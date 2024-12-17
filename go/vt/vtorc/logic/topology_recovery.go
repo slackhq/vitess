@@ -86,7 +86,7 @@ var (
 
 	// vtops
 	vtopsService      = fmt.Sprintf("%s-%s-%s", os.Getenv("BEDROCK_CONTAINER_NAME"), os.Getenv("POOL"), os.Getenv("VITESS_ENVIRONMENT"))
-	vtopsExec         = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), vtopsService, os.Getenv("HOSTNAME"))
+	vtopsExec         = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), vtopsService)
 	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
 )
 
