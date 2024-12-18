@@ -306,13 +306,7 @@ func postErsCompletion(topologyRecovery *TopologyRecovery, analysisEntry *inst.R
 		_ = AuditTopologyRecovery(topologyRecovery, message)
 		_ = inst.AuditOperation(recoveryName, analysisEntry.AnalyzedInstanceAlias, message)
 		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("%v: successfully promoted %+v", recoveryName, promotedReplica.InstanceAlias))
-
-		// TODO: remove this conditional and 'else' side after vtops-vtorc is used 100%.
-		if strings.HasSuffix(vtopsPath, "vtops-vtorc") {
-			vtopsExec.RaiseProblem(analysisEntry, topologyRecovery.SuccessorAlias, "orc-dead-tablet")
-		} else {
-			vtopsExec.RaiseProblem(analysisEntry, topologyRecovery.SuccessorAlias, "orc-dead-tablet")
-		}
+		vtopsExec.RaiseProblem(analysisEntry, topologyRecovery.SuccessorAlias, "orc-dead-tablet")
 	}
 }
 
