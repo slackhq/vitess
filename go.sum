@@ -448,10 +448,6 @@ github.com/sirupsen/logrus v1.4.2/go.mod h1:tLMulIdttU9McNUspp0xgXVQah82FyeX6Mwd
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
 github.com/sjmudd/stopwatch v0.1.1 h1:x45OvxFB5OtCkjvYtzRF5fWB857Jzjjk84Oyd5C5ebw=
 github.com/sjmudd/stopwatch v0.1.1/go.mod h1:BLw0oIQJ1YLXBO/q9ufK/SgnKBVIkC2qrm6uy78Zw6U=
-github.com/slackhq/vitess-addons v0.19.5 h1:ZrLHvZuMyZWlW9XY6+AEm4BeVC8/R8iNTOtQkKHbSwM=
-github.com/slackhq/vitess-addons v0.19.5/go.mod h1:2icrtf8lZyzdEH1r7PoXy8g66D4LG/bIhA9rQUqR+BQ=
-github.com/slackhq/vitess-addons v0.19.6-0.20241218190308-908d505e2828 h1:vgjhnLePfSyFf2oR94h+wfBKtGpzRc4sodbaHKxK4Ew=
-github.com/slackhq/vitess-addons v0.19.6-0.20241218190308-908d505e2828/go.mod h1:slG5BxqN541wVV5Y5tuHE3z1CwCXj9GVRmLX5wkI/zw=
 github.com/slackhq/vitess-addons v0.19.6-0.20241218193729-2cb0c6fc208a h1:tx9dizzufmXHceYP2IWSE8suoB6twcEe3f/+TMawUUE=
 github.com/slackhq/vitess-addons v0.19.6-0.20241218193729-2cb0c6fc208a/go.mod h1:slG5BxqN541wVV5Y5tuHE3z1CwCXj9GVRmLX5wkI/zw=
 github.com/slok/noglog v0.2.0 h1:1czu4l2EoJ8L92UwdSXXa1Y+c5TIjFAFm2P+mjej95E=
