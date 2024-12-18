@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -85,8 +86,9 @@ var (
 	recoveriesFailureCounter = stats.NewCountersWithSingleLabel("FailedRecoveries", "Count of the different failed recoveries performed", "RecoveryType", actionableRecoveriesNames...)
 
 	// vtops
+	vtopsPath         = os.Getenv("VTOPS_PATH")
 	vtopsService      = fmt.Sprintf("vtorc-%s-%s", os.Getenv("POOL"), os.Getenv("VITESS_ENVIRONMENT"))
-	vtopsExec         = external.NewExecVTOps(os.Getenv("VTOPS_PATH"), vtopsService)
+	vtopsExec         = external.NewExecVTOps(vtopsPath, vtopsService)
 	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
 )
 
@@ -304,7 +306,13 @@ func postErsCompletion(topologyRecovery *TopologyRecovery, analysisEntry *inst.R
 		_ = AuditTopologyRecovery(topologyRecovery, message)
 		_ = inst.AuditOperation(recoveryName, analysisEntry.AnalyzedInstanceAlias, message)
 		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("%v: successfully promoted %+v", recoveryName, promotedReplica.InstanceAlias))
-		vtopsExec.RaiseProblem(analysisEntry.AnalyzedInstanceHostname, "orc-dead-tablet")
+
+		// TODO: remove this conditional and 'else' side after vtops-vtorc is used 100%.
+		if strings.HasSuffix(vtopsPath, "vtops-vtorc") {
+			vtopsExec.RaiseProblem(analysisEntry.AnalyzedInstanceAlias, "orc-dead-tablet")
+		} else {
+			vtopsExec.RaiseProblem(analysisEntry.AnalyzedInstanceHostname, "orc-dead-tablet")
+		}
 	}
 }
 
