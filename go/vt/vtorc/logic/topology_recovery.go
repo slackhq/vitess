@@ -85,9 +85,7 @@ var (
 	recoveriesFailureCounter = stats.NewCountersWithSingleLabel("FailedRecoveries", "Count of the different failed recoveries performed", "RecoveryType", actionableRecoveriesNames...)
 
 	// vtops
-	vtopsPath         = os.Getenv("VTOPS_PATH")
-	vtopsService      = fmt.Sprintf("vtorc-%s-%s", os.Getenv("POOL"), os.Getenv("VITESS_ENVIRONMENT"))
-	vtopsExec         = external.NewExecVTOps(vtopsPath, vtopsService)
+	vtopsExec         = external.NewExecVTOps()
 	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
 )
 
