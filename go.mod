@@ -71,7 +71,7 @@ require (
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.28.0
 	golang.org/x/oauth2 v0.22.0
-	golang.org/x/sys v0.24.0
+	golang.org/x/sys v0.25.0
 	golang.org/x/term v0.23.0
 	golang.org/x/text v0.17.0 // indirect
 	golang.org/x/time v0.6.0
@@ -96,6 +96,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.60.1
 	github.com/aws/smithy-go v1.20.4
 	github.com/bndr/gotabulate v1.1.2
+	github.com/dustin/go-humanize v1.0.1
 	github.com/gammazero/deque v0.2.1
 	github.com/google/safehtml v0.1.0
 	github.com/hashicorp/go-cleanhttp v0.5.2
@@ -151,9 +152,8 @@ require (
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.6.1 // indirect
-	github.com/fatih/color v1.16.0 // indirect
+	github.com/ebitengine/purego v0.8.1 // indirect
+	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
