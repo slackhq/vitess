@@ -198,9 +198,17 @@ func (tw *TopologyWatcher) loadTablets() {
 	}
 
 	for alias, newVal := range newTablets {
+		// debugging
+		log.Infof("Adding tablet: %s", newVal.tablet.Hostname)
+		if tw.tabletFilter == nil {
+			log.Error("slack: the tablet filter is not defined")
+		}
+
 		if tw.tabletFilter != nil && !tw.tabletFilter.IsIncluded(newVal.tablet) {
 			continue
 		}
+
+		log.Infof("slack: %s is not filtered out", newVal.tablet.Hostname)
 
 		// Trust the alias from topo and add it if it doesn't exist.
 		if val, ok := tw.tablets[alias]; ok {
