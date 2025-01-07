@@ -260,8 +260,9 @@ func Init(ctx context.Context, env *vtenv.Environment, exec Exec) error {
 		if err := si.createSidecarDB(); err != nil {
 			return err
 		}
-		si.dbCreated = true
 	}
+
+	si.dbCreated = true
 
 	if err := si.setCurrentDatabase(sidecar.GetIdentifier()); err != nil {
 		return err
