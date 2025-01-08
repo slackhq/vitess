@@ -31,10 +31,13 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/vt/sqlparser"
+	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
 
 	"vitess.io/vitess/go/mysql"
+	"vitess.io/vitess/go/mysql/replication"
+	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/callerid"
@@ -56,6 +59,8 @@ var (
 	mysqlAllowClearTextWithoutTLS = flag.Bool("mysql_allow_clear_text_without_tls", false, "If set, the server will allow the use of a clear text password over non-SSL connections.")
 	mysqlProxyProtocol            = flag.Bool("proxy_protocol", false, "Enable HAProxy PROXY protocol on MySQL listener socket")
 	mysqlConnBufferPooling        = flag.Bool("mysql_conn_buffer_pooling", false, "Enable mysql conn buffer pooling.")
+	mysqlKeepAlivePeriod          = flag.Duration("mysql-server-keepalive-period", 0*time.Second, "TCP period between keep-alives")
+	mysqlServerFlushDelay         = flag.Duration("mysql-server-keepalive-period", 100*time.Millisecond, "TCP period between keep-alives")
 
 	mysqlServerRequireSecureTransport = flag.Bool("mysql_server_require_secure_transport", false, "Reject insecure connections but only if mysql_server_ssl_cert and mysql_server_ssl_key are provided")
 
@@ -80,29 +85,43 @@ var (
 	busyConnections int32
 )
 
-// proxyHandler implements the Listener interface.
+// proxyHandler implements the mysql.Handler interface.
 // It stores the Session in the ClientData of a Connection.
 type proxyHandler struct {
-	mysql.UnimplementedHandler
-	mu sync.Mutex
-
+	env   *vtenv.Environment
+	mu    sync.Mutex
 	proxy *VTGateProxy
 }
 
-func newProxyHandler(proxy *VTGateProxy) *proxyHandler {
-	return &proxyHandler{
-		proxy: proxy,
+func newProxyHandler(proxy *VTGateProxy) (*proxyHandler, error) {
+	env, err := vtenv.New(vtenv.Options{
+		MySQLServerVersion: servenv.MySQLServerVersion(),
+		TruncateUILen:      servenv.TruncateUILen,
+		TruncateErrLen:     servenv.TruncateErrLen,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize env: %v", err)
 	}
+
+	return &proxyHandler{
+		env:   env,
+		proxy: proxy,
+	}, nil
 }
 
+// NewConnection is called when a connection is created.
+// It is not established yet. The handler can decide to
+// set StatusFlags that will be returned by the handshake methods.
+// In particular, ServerStatusAutocommit might be set.
 func (ph *proxyHandler) NewConnection(c *mysql.Conn) {
 }
 
-func (ph *proxyHandler) ComResetConnection(c *mysql.Conn) {
-	ctx := context.Background()
-	ph.closeSession(ctx, c)
+// ConnectionReady is called after the connection handshake, but
+// before we begin to process commands.
+func (ph *proxyHandler) ConnectionReady(c *mysql.Conn) {
 }
 
+// ConnectionClosed is called when a connection is closed.
 func (ph *proxyHandler) ConnectionClosed(c *mysql.Conn) {
 	// Rollback if there is an ongoing transaction. Ignore error.
 	defer func() {
@@ -155,6 +174,10 @@ func startSpan(ctx context.Context, query, label string) (trace.Span, context.Co
 	return startSpanTestable(ctx, query, label, trace.NewSpan, trace.NewFromString)
 }
 
+// ComQuery is called when a connection receives a query.
+// Note the contents of the query slice may change after
+// the first call to callback. So the Handler should not
+// hang on to the byte slice.
 func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sqltypes.Result) error) error {
 	ctx := context.Background()
 	var cancel context.CancelFunc
@@ -198,12 +221,12 @@ func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sql
 
 	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
 		err := ph.proxy.StreamExecute(ctx, session, query, make(map[string]*querypb.BindVariable), callback)
-		return mysql.NewSQLErrorFromError(err)
+		return sqlerror.NewSQLErrorFromError(err)
 	}
 
 	result, err := ph.proxy.Execute(ctx, session, query, make(map[string]*querypb.BindVariable))
 
-	if err := mysql.NewSQLErrorFromError(err); err != nil {
+	if err := sqlerror.NewSQLErrorFromError(err); err != nil {
 		return err
 	}
 	fillInTxStatusFlags(c, session)
@@ -223,7 +246,8 @@ func fillInTxStatusFlags(c *mysql.Conn, session *vtgateconn.VTGateSession) {
 	}
 }
 
-// ComPrepare is the handler for command prepare.
+// ComPrepare is called when a connection receives a prepared
+// statement query.
 func (ph *proxyHandler) ComPrepare(c *mysql.Conn, query string, bindVars map[string]*querypb.BindVariable) ([]*querypb.Field, error) {
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -262,13 +286,15 @@ func (ph *proxyHandler) ComPrepare(c *mysql.Conn, query string, bindVars map[str
 	}(session)
 
 	_, fld, err := ph.proxy.Prepare(ctx, session, query, bindVars)
-	err = mysql.NewSQLErrorFromError(err)
+	err = sqlerror.NewSQLErrorFromError(err)
 	if err != nil {
 		return nil, err
 	}
 	return fld, nil
 }
 
+// ComStmtExecute is called when a connection receives a statement
+// execute query.
 func (ph *proxyHandler) ComStmtExecute(c *mysql.Conn, prepare *mysql.PrepareData, callback func(*sqltypes.Result) error) error {
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -308,18 +334,38 @@ func (ph *proxyHandler) ComStmtExecute(c *mysql.Conn, prepare *mysql.PrepareData
 
 	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
 		err := ph.proxy.StreamExecute(ctx, session, prepare.PrepareStmt, prepare.BindVars, callback)
-		return mysql.NewSQLErrorFromError(err)
+		return sqlerror.NewSQLErrorFromError(err)
 	}
 
 	qr, err := ph.proxy.Execute(ctx, session, prepare.PrepareStmt, prepare.BindVars)
 	if err != nil {
-		return mysql.NewSQLErrorFromError(err)
+		return sqlerror.NewSQLErrorFromError(err)
 	}
 	fillInTxStatusFlags(c, session)
 
 	return callback(qr)
 }
 
+// ComRegisterReplica is called when a connection receives a ComRegisterReplica request
+func (ph *proxyHandler) ComRegisterReplica(c *mysql.Conn, replicaHost string, replicaPort uint16, replicaUser string, replicaPassword string) error {
+	return vterrors.New(vtrpcpb.Code_UNIMPLEMENTED, "ComRegisterReplica")
+}
+
+// ComBinlogDump is called when a connection receives a ComBinlogDump request
+func (ph *proxyHandler) ComBinlogDump(c *mysql.Conn, logFile string, binlogPos uint32) error {
+	return vterrors.New(vtrpcpb.Code_UNIMPLEMENTED, "ComBinlogDump")
+}
+
+// ComBinlogDumpGTID is part of the mysql.Handler interface.
+func (ph *proxyHandler) ComBinlogDumpGTID(c *mysql.Conn, logFile string, logPos uint64, gtidSet replication.GTIDSet) error {
+	return vterrors.New(vtrpcpb.Code_UNIMPLEMENTED, "ComBinlogDumpGTID")
+}
+
+// WarningCount is called at the end of each query to obtain
+// the value to be returned to the client in the EOF packet.
+// Note that this will be called either in the context of the
+// ComQuery callback if the result does not contain any fields,
+// or after the last ComQuery call completes.
 func (ph *proxyHandler) WarningCount(c *mysql.Conn) uint16 {
 	session, _ := c.ClientData.(*vtgateconn.VTGateSession)
 	if session == nil {
@@ -329,9 +375,13 @@ func (ph *proxyHandler) WarningCount(c *mysql.Conn) uint16 {
 	return uint16(len(session.SessionPb().GetWarnings()))
 }
 
-// ComBinlogDumpGTID is part of the mysql.Handler interface.
-func (ph *proxyHandler) ComBinlogDumpGTID(c *mysql.Conn, gtidSet mysql.GTIDSet) error {
-	return vterrors.New(vtrpcpb.Code_UNIMPLEMENTED, "ComBinlogDumpGTID")
+func (ph *proxyHandler) ComResetConnection(c *mysql.Conn) {
+	ctx := context.Background()
+	ph.closeSession(ctx, c)
+}
+
+func (ph *proxyHandler) Env() *vtenv.Environment {
+	return ph.env
 }
 
 func (ph *proxyHandler) getSession(ctx context.Context, c *mysql.Conn) (*vtgateconn.VTGateSession, error) {
@@ -437,10 +487,13 @@ func initMySQLProtocol() {
 
 	// Create a Listener.
 	var err error
-	proxyHandle = newProxyHandler(vtGateProxy)
+	proxyHandle, err = newProxyHandler(vtGateProxy)
+	if err != nil {
+		log.Exitf("newProxyHandler failed: %v", err)
+	}
 	if *mysqlServerPort >= 0 {
 		log.Infof("Mysql Server listening on Port %d", *mysqlServerPort)
-		mysqlListener, err = mysql.NewListener(*mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, fmt.Sprintf("%v", *mysqlServerPort)), authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlProxyProtocol, *mysqlConnBufferPooling)
+		mysqlListener, err = mysql.NewListener(*mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, fmt.Sprintf("%v", *mysqlServerPort)), authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlProxyProtocol, *mysqlConnBufferPooling, *mysqlKeepAlivePeriod, *mysqlServerFlushDelay)
 		if err != nil {
 			log.Exitf("mysql.NewListener failed: %v", err)
 		}
