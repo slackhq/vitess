@@ -73,7 +73,7 @@ var (
 
 	mysqlSslServerCA = flag.String("mysql_server_ssl_server_ca", "", "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 
-	mysqlSlowConnectWarnThreshold = flag.Duration("mysql_slow_connect_warn_threshold", 0, "Warn if it takes more than the given threshold for a mysql connection to establish")
+	mysqlSlowConnectWarnThreshold = flag.Int64("mysql_slow_connect_warn_threshold", 0, "Warn if it takes more than the given threshold for a mysql connection to establish")
 
 	mysqlConnReadTimeout  = flag.Duration("mysql_server_read_timeout", 0, "connection read timeout")
 	mysqlConnWriteTimeout = flag.Duration("mysql_server_write_timeout", 0, "connection write timeout")
@@ -508,11 +508,11 @@ func initMySQLProtocol() {
 
 			_ = initTLSConfig(mysqlListener, *mysqlSslCert, *mysqlSslKey, *mysqlSslCa, *mysqlSslCrl, *mysqlSslServerCA, *mysqlServerRequireSecureTransport, tlsVersion)
 		}
-		mysqlListener.AllowClearTextWithoutTLS.Set(*mysqlAllowClearTextWithoutTLS)
+		mysqlListener.AllowClearTextWithoutTLS.Store(*mysqlAllowClearTextWithoutTLS)
 		// Check for the connection threshold
 		if *mysqlSlowConnectWarnThreshold != 0 {
 			log.Infof("setting mysql slow connection threshold to %v", mysqlSlowConnectWarnThreshold)
-			mysqlListener.SlowConnectWarnThreshold.Set(*mysqlSlowConnectWarnThreshold)
+			mysqlListener.SlowConnectWarnThreshold.Store(*mysqlSlowConnectWarnThreshold)
 		}
 		// Start listening for tcp
 		go mysqlListener.Accept()
@@ -536,7 +536,7 @@ func initMySQLProtocol() {
 // newMysqlUnixSocket creates a new unix socket mysql listener. If a socket file already exists, attempts
 // to clean it up.
 func newMysqlUnixSocket(address string, authServer mysql.AuthServer, handler mysql.Handler) (*mysql.Listener, error) {
-	listener, err := mysql.NewListener("unix", address, authServer, handler, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, false, false)
+	listener, err := mysql.NewListener("unix", address, authServer, handler, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, false, false, *mysqlKeepAlivePeriod, *mysqlServerFlushDelay)
 	switch err := err.(type) {
 	case nil:
 		return listener, nil
@@ -557,7 +557,7 @@ func newMysqlUnixSocket(address string, authServer mysql.AuthServer, handler mys
 			log.Errorf("Couldn't remove existent socket file: %s", address)
 			return nil, err
 		}
-		listener, listenerErr := mysql.NewListener("unix", address, authServer, handler, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, false, false)
+		listener, listenerErr := mysql.NewListener("unix", address, authServer, handler, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, false, false, *mysqlKeepAlivePeriod, *mysqlServerFlushDelay)
 		return listener, listenerErr
 	default:
 		return nil, err
