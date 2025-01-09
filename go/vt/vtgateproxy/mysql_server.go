@@ -60,7 +60,7 @@ var (
 	mysqlProxyProtocol            = flag.Bool("proxy_protocol", false, "Enable HAProxy PROXY protocol on MySQL listener socket")
 	mysqlConnBufferPooling        = flag.Bool("mysql_conn_buffer_pooling", false, "Enable mysql conn buffer pooling.")
 	mysqlKeepAlivePeriod          = flag.Duration("mysql-server-keepalive-period", 0*time.Second, "TCP period between keep-alives")
-	mysqlServerFlushDelay         = flag.Duration("mysql-server-keepalive-period", 100*time.Millisecond, "TCP period between keep-alives")
+	mysqlServerFlushDelay         = flag.Duration("mysql-server-flush-delay", 100*time.Millisecond, "TCP period between keep-alives")
 
 	mysqlServerRequireSecureTransport = flag.Bool("mysql_server_require_secure_transport", false, "Reject insecure connections but only if mysql_server_ssl_cert and mysql_server_ssl_key are provided")
 
