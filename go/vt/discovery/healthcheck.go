@@ -516,6 +516,9 @@ func (hc *HealthCheckImpl) updateHealth(th *TabletHealth, prevTarget *query.Targ
 		// keyspace and shard are not expected to change, but just in case ...
 		// move this tabletHealthCheck to the correct map
 		oldTargetKey := KeyFromTarget(prevTarget)
+
+		log.Infof("deleting tablet %v from health stats", th.Tablet)
+
 		delete(hc.healthData[oldTargetKey], tabletAlias)
 		_, ok := hc.healthData[targetKey]
 		if !ok {
@@ -554,6 +557,7 @@ func (hc *HealthCheckImpl) updateHealth(th *TabletHealth, prevTarget *query.Targ
 			alias := tabletAliasString(topoproto.TabletAliasString(healthy[0].Tablet.Alias))
 			// Clear healthy list for primary if the existing tablet is down
 			if alias == tabletAlias {
+				log.Warningf("Removing tablet %v from the healthy map.", tabletAlias)
 				hc.healthy[targetKey] = []*TabletHealth{}
 			}
 		}
@@ -563,6 +567,7 @@ func (hc *HealthCheckImpl) updateHealth(th *TabletHealth, prevTarget *query.Targ
 		// We re-sort the healthy tablet list whenever we get a health update for tablets we can route to.
 		// Tablets from other cells for non-primary targets should not trigger a re-sort;
 		// they should also be excluded from healthy list.
+		log.Infof("Recomputing tablet healthy stats for %v", th.Tablet)
 		if th.Target.TabletType != topodata.TabletType_PRIMARY && hc.isIncluded(th.Target.TabletType, th.Tablet.Alias) {
 			hc.recomputeHealthy(targetKey)
 		}
