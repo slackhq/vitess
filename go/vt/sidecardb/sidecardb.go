@@ -262,6 +262,7 @@ func Init(ctx context.Context, env *vtenv.Environment, exec Exec) error {
 		}
 	}
 
+	// at this point db already exists or created if not
 	si.dbCreated = true
 
 	if err := si.setCurrentDatabase(sidecar.GetIdentifier()); err != nil {
