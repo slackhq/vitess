@@ -499,6 +499,8 @@ func (hc *HealthCheckImpl) updateHealth(th *TabletHealth, prevTarget *query.Targ
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
+	log.Infof("updating tablet health: trivialUpdate: %v, up: %v, target: %v; tablet: %v; serving: %v", trivialUpdate, up, th.Target, th.Tablet, th.Serving)
+
 	tabletAlias := tabletAliasString(topoproto.TabletAliasString(th.Tablet.Alias))
 	// let's be sure that this tablet hasn't been deleted from the authoritative map
 	// so that we're not racing to update it and in effect re-adding a copy of the
