@@ -24,6 +24,7 @@ import (
 	"context"
 
 	"vitess.io/vitess/go/vt/proto/vtrpc"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
 
 	"vitess.io/vitess/go/fileutil"
@@ -62,6 +63,10 @@ func (ts *Server) ResolveKeyspaceWildcard(ctx context.Context, param string) ([]
 type KeyspaceShard struct {
 	Keyspace string
 	Shard    string
+}
+
+func (ks KeyspaceShard) String() string {
+	return topoproto.KeyspaceShardString(ks.Keyspace, ks.Shard)
 }
 
 // ResolveShardWildcard will resolve shard wildcards. Both keyspace and shard
