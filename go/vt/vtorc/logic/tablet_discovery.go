@@ -99,7 +99,7 @@ func keyRangesContainShard(keyRanges []*topodatapb.KeyRange, shard string) (bool
 // getKeyspaceShardsToWatch converts the input clustersToWatch into a list of individual keyspace/shards.
 func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 	var keyspaceShards []*topo.KeyspaceShard
-	keyspaceKeyRanges := make(map[string][]*topodatapb.KeyRange)
+	keyspaceWatchKeyRanges := make(map[string][]*topodatapb.KeyRange)
 	for _, clusterToWatch := range clustersToWatch {
 		var err error
 		var keyRange *topodatapb.KeyRange
@@ -117,7 +117,7 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 				continue
 			}
 		}
-		keyspaceKeyRanges[keyspace] = append(keyspaceKeyRanges[keyspace], keyRange)
+		keyspaceWatchKeyRanges[keyspace] = append(keyspaceWatchKeyRanges[keyspace], keyRange)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
@@ -125,7 +125,7 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 	eg, ctx := errgroup.WithContext(ctx)
 
 	var keyspaceShardsMu sync.Mutex
-	for keyspace, keyRanges := range keyspaceKeyRanges {
+	for keyspace, watchKeyRanges := range keyspaceWatchKeyRanges {
 		eg.Go(func() error {
 			shards, err := ts.GetShardNames(ctx, keyspace)
 			if err != nil {
@@ -139,7 +139,7 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 			}
 
 			for _, s := range shards {
-				if found, err := keyRangesContainShard(keyRanges, s); err != nil {
+				if found, err := keyRangesContainShard(watchKeyRanges, s); err != nil {
 					log.Errorf("Failed to parse key ranges for shard %q: %+v", s, err)
 				} else if found {
 					keyspaceShardsMu.Lock()
