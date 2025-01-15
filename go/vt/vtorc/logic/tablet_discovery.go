@@ -157,6 +157,12 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 		return nil, err
 	}
 
+	slices.SortStableFunc(keyspaceShards, func(a, b *topo.KeyspaceShard) int {
+		ksStrA := topoproto.KeyspaceShardString(a.Keyspace, a.Shard)
+		ksStrB := topoproto.KeyspaceShardString(b.Keyspace, b.Shard)
+		return strings.Compare(ksStrA, ksStrB)
+	})
+
 	return keyspaceShards, nil
 }
 
