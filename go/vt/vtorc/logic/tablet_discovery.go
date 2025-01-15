@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -32,8 +31,8 @@ import (
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 
-	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
+	"vitess.io/vitess/go/vt/key"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
@@ -82,69 +81,68 @@ func refreshAllTablets() {
 	}, false /* forceRefresh */)
 }
 
+// keyRangesContainShard returns true if a slice of key ranges contains the provided shard.
+func keyRangesContainShard(keyRanges []*topodatapb.KeyRange, shard string) bool {
+	_, shardKeyRange, err := topo.ValidateShardName(shard)
+	if err != nil {
+		log.Errorf("Failed to validate shard name %q: %+v", shard, err)
+		return false
+	}
+	for _, keyRange := range keyRanges {
+		if key.KeyRangeContainsKeyRange(keyRange, shardKeyRange) {
+			return true
+		}
+	}
+	return false
+}
+
 // getKeyspaceShardsToWatch converts the input clustersToWatch into a list of individual keyspace/shards.
 // This handles both individual shards or key ranges using TabletFilter from the discovery package.
 func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
-	// Parse input and build list of keyspaces / shards
 	var keyspaceShards []*topo.KeyspaceShard
-
-	keyspaces := make(map[string]map[string]string)
-	filters := make(map[string][]string)
-
-	keyspaces["ranged"] = map[string]string{}
-	keyspaces["full"] = map[string]string{}
-
-	for _, ks := range clustersToWatch {
-		if strings.Contains(ks, "/") {
-			// This is a keyspace/shard specification
-			input := strings.Split(ks, "/")
-			keyspaces["ranged"][input[0]] = "ranged"
-			// filter creation expects a pipe separator between keyspace and shard
-			filters[input[0]] = append(filters[input[0]], fmt.Sprintf("%s|%s", input[0], input[1]))
-
-		} else {
-			keyspaces["full"][ks] = "full"
+	keyspaceKeyRanges := make(map[string][]*topodatapb.KeyRange)
+	for _, clusterToWatch := range clustersToWatch {
+		var err error
+		var keyRange *topodatapb.KeyRange
+		keyspace := clusterToWatch
+		if strings.Contains(clusterToWatch, "/") {
+			var shard string
+			keyspace, shard, err = topoproto.ParseKeyspaceShard(clusterToWatch)
+			if err != nil {
+				log.Errorf("Failed to parse keyspace/shard %q: %+v", clusterToWatch, err)
+				continue
+			}
+			shard, keyRange, err = topo.ValidateShardName(shard)
+			if err != nil {
+				log.Errorf("Failed to parse shard name %q: %+v", shard, err)
+				continue
+			}
 		}
+		keyspaceKeyRanges[keyspace] = append(keyspaceKeyRanges[keyspace], keyRange)
 	}
 
-	// Copy function will combine the two maps. It will override any keyspaces in ranged that also exist in full with the
-	// full designation because we assume that the full keyspace will take precedence over a keyspace/shard specification within the same input.
-	// e.g. If the clustersToWatch is `ks1,...ks1/10-20`, all tablets in ks1 should be watched.
-	maps.Copy(keyspaces["ranged"], keyspaces["full"])
-
-	if len(keyspaces["ranged"]) > 0 {
-		for ks, filterType := range keyspaces["ranged"] {
+	for keyspace, keyRanges := range keyspaceKeyRanges {
+		shards, err := func() ([]string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
 			defer cancel()
+			return ts.GetShardNames(ctx, keyspace)
+		}()
+		if err != nil {
+			log.Errorf("Error fetching shards for keyspace: %v", keyspace)
+			return nil, err
+		}
 
-			shards, err := ts.GetShardNames(ctx, ks)
-			if err != nil {
-				// Log the errr and continue
-				log.Errorf("Error fetching shards for keyspace: %v", ks)
-				continue
-			}
+		if len(shards) == 0 {
+			log.Errorf("Topo has no shards for keyspace %v", keyspace)
+			continue
+		}
 
-			if len(shards) == 0 {
-				log.Errorf("Topo has no shards for ks: %v", ks)
-				continue
-			}
-
-			if filterType == "ranged" {
-				shardFilter, err := discovery.NewFilterByShard(filters[ks])
-				if err != nil {
-					log.Error(err)
-					return keyspaceShards, err
-				}
-
-				for _, s := range shards {
-					if shardFilter.IsIncluded(&topodatapb.Tablet{Keyspace: ks, Shard: s}) {
-						keyspaceShards = append(keyspaceShards, &topo.KeyspaceShard{Keyspace: ks, Shard: s})
-					}
-				}
-			} else {
-				for _, s := range shards {
-					keyspaceShards = append(keyspaceShards, &topo.KeyspaceShard{Keyspace: ks, Shard: s})
-				}
+		for _, s := range shards {
+			if keyRangesContainShard(keyRanges, s) {
+				keyspaceShards = append(keyspaceShards, &topo.KeyspaceShard{
+					Keyspace: keyspace,
+					Shard:    s,
+				})
 			}
 		}
 	}
