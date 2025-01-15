@@ -82,8 +82,8 @@ func refreshAllTablets() {
 	}, false /* forceRefresh */)
 }
 
-// keyRangesContainShard returns true if a slice of key ranges contains the provided shard.
-func keyRangesContainShard(keyRanges []*topodatapb.KeyRange, shard string) (bool, error) {
+// hasShardInKeyRanges returns true if a slice of key ranges contains the provided shard.
+func hasShardInKeyRanges(shard string, keyRanges []*topodatapb.KeyRange) (bool, error) {
 	_, shardKeyRange, err := topo.ValidateShardName(shard)
 	if err != nil {
 		return false, err
@@ -139,7 +139,7 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 			}
 
 			for _, s := range shards {
-				if found, err := keyRangesContainShard(watchKeyRanges, s); err != nil {
+				if found, err := hasShardInKeyRanges(s, watchKeyRanges); err != nil {
 					log.Errorf("Failed to parse key ranges for shard %q: %+v", s, err)
 				} else if found {
 					keyspaceShardsMu.Lock()
