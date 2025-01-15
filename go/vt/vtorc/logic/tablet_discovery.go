@@ -84,7 +84,7 @@ func refreshAllTablets() {
 
 // keyRangesContainShard returns true if a slice of key ranges contains the provided shard.
 func keyRangesContainShard(keyRanges []*topodatapb.KeyRange, shard string) (bool, error) {
-	shard, shardKeyRange, err := topo.ValidateShardName(shard)
+	_, shardKeyRange, err := topo.ValidateShardName(shard)
 	if err != nil {
 		return false, err
 	}
