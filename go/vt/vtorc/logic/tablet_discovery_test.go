@@ -19,6 +19,8 @@ package logic
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -395,6 +397,13 @@ func TestGetKeyspaceShardsToWatch(t *testing.T) {
 		t.Run(testcase.name, func(t *testing.T) {
 			clustersToWatch = testcase.clusters
 			res, err := getKeyspaceShardsToWatch()
+
+			slices.SortStableFunc(res, func(a, b *topo.KeyspaceShard) int {
+				return strings.Compare(a.String(), b.String())
+			})
+			slices.SortStableFunc(testcase.expected, func(a, b *topo.KeyspaceShard) int {
+				return strings.Compare(a.String(), b.String())
+			})
 
 			assert.NoError(t, err)
 			assert.ElementsMatch(t, testcase.expected, res)

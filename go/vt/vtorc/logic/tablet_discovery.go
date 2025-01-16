@@ -99,10 +99,10 @@ func hasShardInKeyRanges(shard string, keyRanges []*topodatapb.KeyRange) (bool, 
 // getKeyspaceShardsToWatch converts the input clustersToWatch into a list of individual keyspace/shards.
 func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 	var keyspaceShards []*topo.KeyspaceShard
-	keyspaceWatchKeyRanges := make(map[string][]*topodatapb.KeyRange)
+	keyspaceWatchKeyRanges := make(map[string][]*topodatapb.KeyRange, 0)
 	for _, clusterToWatch := range clustersToWatch {
 		var err error
-		var keyRange *topodatapb.KeyRange
+		keyRange := &topodatapb.KeyRange{}
 		keyspace := clusterToWatch
 		if strings.Contains(clusterToWatch, "/") {
 			var shard string
@@ -143,11 +143,11 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 					log.Errorf("Failed to parse key ranges for shard %q: %+v", s, err)
 				} else if found {
 					keyspaceShardsMu.Lock()
-					defer keyspaceShardsMu.Unlock()
 					keyspaceShards = append(keyspaceShards, &topo.KeyspaceShard{
 						Keyspace: keyspace,
 						Shard:    s,
 					})
+					keyspaceShardsMu.Unlock()
 				}
 			}
 			return nil
@@ -156,10 +156,6 @@ func getKeyspaceShardsToWatch() ([]*topo.KeyspaceShard, error) {
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-
-	slices.SortStableFunc(keyspaceShards, func(a, b *topo.KeyspaceShard) int {
-		return strings.Compare(a.String(), b.String())
-	})
 
 	return keyspaceShards, nil
 }
