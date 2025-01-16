@@ -323,7 +323,9 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	for poolType := range targets {
 		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
 		if len(targets[poolType]) > *numConnections {
-			targets[poolType] = targets[poolType][:b.numConnections]
+			// Always grab one non-local target to protect against a complete local failure.
+			nonLocal := targets[poolType][len(targets[poolType])-1]
+			targets[poolType] = append(targets[poolType][:b.numConnections], nonLocal)
 		}
 		targetCount.Set(poolType, int64(len(targets[poolType])))
 	}
