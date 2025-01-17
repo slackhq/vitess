@@ -201,6 +201,7 @@ func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sql
 		return mysql.NewSQLErrorFromError(err)
 	}
 
+	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
 	result, err := ph.proxy.Execute(ctx, session, query, make(map[string]*querypb.BindVariable))
 
 	if err := mysql.NewSQLErrorFromError(err); err != nil {
