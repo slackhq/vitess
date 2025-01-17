@@ -26,30 +26,27 @@ import (
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
-	"google.golang.org/grpc/grpclog"
+	"vitess.io/vitess/go/vt/log"
 )
 
 type ConnIdKey string
 
 const CONN_ID_KEY = ConnIdKey("ConnId")
 
-const Name = "sticky_random"
-
-var logger = grpclog.Component("sticky_random")
-
 // newBuilder creates a new roundrobin balancer builder.
 func newStickyRandomBuilder() balancer.Builder {
-	return base.NewBalancerBuilder(Name, &stickyPickerBuilder{}, base.Config{HealthCheck: true})
+	return base.NewBalancerBuilder("sticky_random", &stickyPickerBuilder{}, base.Config{HealthCheck: true})
 }
 
 func init() {
+	log.V(1).Infof("registering sticky_random balancer")
 	balancer.Register(newStickyRandomBuilder())
 }
 
 type stickyPickerBuilder struct{}
 
 func (*stickyPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
-	logger.Infof("stickyRandomPicker: Build called with info: %v", info)
+	//	log.V(100).Infof("stickyRandomPicker: Build called with info: %v", info)
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
@@ -72,11 +69,18 @@ func (p *stickyPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error)
 
 	subConnsLen := len(p.subConns)
 
-	connId := info.Ctx.Value(CONN_ID_KEY).(int)
-	if connId == 0 {
+	var connId int
+	connIdVal := info.Ctx.Value(CONN_ID_KEY)
+	if connIdVal != nil {
+		connId = connIdVal.(int)
+		log.V(100).Infof("stickyRandomPicker: using connId %d", connId)
+	} else {
+		log.V(100).Infof("stickyRandomPicker: nonexistent connId -- using random")
 		connId = rand.IntN(subConnsLen) // shouldn't happen
 	}
 
+	// XXX/demmer might want to hash the connId rather than just mod
 	sc := p.subConns[connId%subConnsLen]
+
 	return balancer.PickResult{SubConn: sc}, nil
 }

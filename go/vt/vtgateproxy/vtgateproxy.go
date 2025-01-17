@@ -215,6 +215,7 @@ func Init() {
 	case "round_robin":
 	case "first_ready":
 	case "pick_first":
+	case "sticky_random":
 		break
 	default:
 		log.Fatalf("invalid balancer type %s", *balancerType)

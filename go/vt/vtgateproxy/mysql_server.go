@@ -196,12 +196,13 @@ func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sql
 		}
 	}()
 
+	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
+
 	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
 		err := ph.proxy.StreamExecute(ctx, session, query, make(map[string]*querypb.BindVariable), callback)
 		return mysql.NewSQLErrorFromError(err)
 	}
 
-	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
 	result, err := ph.proxy.Execute(ctx, session, query, make(map[string]*querypb.BindVariable))
 
 	if err := mysql.NewSQLErrorFromError(err); err != nil {
@@ -262,6 +263,8 @@ func (ph *proxyHandler) ComPrepare(c *mysql.Conn, query string, bindVars map[str
 		}
 	}(session)
 
+	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
+
 	_, fld, err := ph.proxy.Prepare(ctx, session, query, bindVars)
 	err = mysql.NewSQLErrorFromError(err)
 	if err != nil {
@@ -307,6 +310,8 @@ func (ph *proxyHandler) ComStmtExecute(c *mysql.Conn, prepare *mysql.PrepareData
 		}
 	}()
 
+	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
+
 	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
 		err := ph.proxy.StreamExecute(ctx, session, prepare.PrepareStmt, prepare.BindVars, callback)
 		return mysql.NewSQLErrorFromError(err)
@@ -347,6 +352,8 @@ func (ph *proxyHandler) getSession(ctx context.Context, c *mysql.Conn) (*vtgatec
 			options.ClientFoundRows = true
 		}
 
+		ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
+
 		var err error
 		session, err = ph.proxy.NewSession(ctx, options, c.Attributes)
 		if err != nil {
@@ -371,6 +378,9 @@ func (ph *proxyHandler) closeSession(ctx context.Context, c *mysql.Conn) {
 	if session.SessionPb().InTransaction {
 		defer atomic.AddInt32(&busyConnections, -1)
 	}
+
+	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
+
 	err := ph.proxy.CloseSession(ctx, session)
 	if err != nil {
 		log.Errorf("Error happened in transaction rollback: %v", err)
