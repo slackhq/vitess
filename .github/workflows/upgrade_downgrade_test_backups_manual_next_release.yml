@@ -285,8 +285,8 @@ jobs:
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 5
       run: |
-        source build.env ; cd examples/local/backups
-        ./upgrade_cluster.sh
+        source build.env ; cd examples/local
+        ./backups/upgrade_cluster.sh
 
     # We count the number of rows in every table to check that the restore step was successful.
     - name: Assert the number of rows in every table
