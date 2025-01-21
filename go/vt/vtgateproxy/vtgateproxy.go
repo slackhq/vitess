@@ -226,6 +226,10 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
+	if err := startClientDiscovery(); err != nil {
+		log.Fatalf("error starting client discovery: %v", err)
+	}
+
 	_, err := RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,

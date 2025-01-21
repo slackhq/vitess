@@ -17,12 +17,14 @@ package vtgateproxy
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -326,17 +328,27 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	targetCount.ResetAll()
 
 	var selected = map[string][]targetHost{}
-
+	idx := getClientIndex()
 	for poolType := range allTargets {
-		b.sorter.shuffleSort(allTargets[poolType])
+		poolTargets := allTargets[poolType]
+		if idx == -1 {
+			// If we can't find a client index, fall back to randomizing the list and picking the first N local connections
+			b.sorter.shuffleSort(poolTargets)
+			idx = 0
+		} else {
+			stableSortTargets(poolTargets)
+		}
 
 		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
 		// from the tail (remote zone). if that's not possible, just take the whole set
-		if len(allTargets[poolType]) >= b.numConnections+b.numBackupConns {
+		if len(poolTargets) >= b.numConnections+b.numBackupConns {
 			remoteOffset := len(allTargets[poolType]) - b.numBackupConns
-			selected[poolType] = append(allTargets[poolType][:b.numConnections], allTargets[poolType][remoteOffset:]...)
+			for i := 0; i < b.numConnections; i++ {
+				selected[poolType] = append(selected[poolType], poolTargets[(idx+i)%remoteOffset])
+			}
+			selected[poolType] = append(selected[poolType], poolTargets[remoteOffset:]...)
 		} else {
-			selected[poolType] = allTargets[poolType]
+			selected[poolType] = poolTargets
 		}
 
 		targetCount.Set(poolType, int64(len(selected[poolType])))
@@ -405,6 +417,33 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 			tail--
 		}
 	}
+}
+
+func stableSortTargets(targets []targetHost) {
+	head, tail := 0, len(targets)
+
+	for i, t := range targets {
+		if t.IsLocal {
+			targets[head], targets[i] = targets[i], targets[head]
+			head += 1
+		} else {
+			targets[tail-1], targets[i] = targets[i], targets[tail-1]
+			tail -= 1
+		}
+	}
+
+	slices.SortStableFunc(targets[:head], func(t1 targetHost, t2 targetHost) int {
+		return cmp.Compare(t1.Hostname, t2.Hostname)
+	})
+
+	slices.SortStableFunc(targets[head:], func(t1 targetHost, t2 targetHost) int {
+		return cmp.Compare(t1.Hostname, t2.Hostname)
+	})
+
+}
+
+func DoTest() int {
+	return getClientIndex()
 }
 
 // Update the current list of hosts for the given resolver
