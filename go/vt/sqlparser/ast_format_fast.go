@@ -2055,7 +2055,7 @@ func (node *WeightStringFuncExpr) FormatFast(buf *TrackedBuffer) {
 }
 
 // formatFast formats the node.
-func (node *CurTimeFuncExpr) formatFast(buf *TrackedBuffer) {
+func (node *CurTimeFuncExpr) FormatFast(buf *TrackedBuffer) {
 	if node.Fsp != nil {
 		buf.WriteString(node.Name.String())
 		buf.WriteByte('(')
