@@ -491,12 +491,13 @@ const (
 </style>
 <table>
 {{range $i, $p := .Pools}}  <tr>
-    <th colspan="3">{{$p}}</th>
+    <th colspan="4">{{$p}}</th>
   </tr>
 {{range index $.Targets $p}}  <tr>
 	<td>{{.Hostname}}</td>
 	<td>{{.Addr}}</td>
     <td>{{.Affinity}}</td>
+    <td>{{.IsLocal}}</td>
   </tr>{{end}}
 {{end}}
 </table>
