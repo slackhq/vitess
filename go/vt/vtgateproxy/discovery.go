@@ -59,6 +59,7 @@ import (
 //
 
 const PoolTypeAttr = "PoolType"
+const ZoneLocalAttr = "ZoneLocal"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type JSONGateResolver struct {
@@ -98,6 +99,7 @@ type targetHost struct {
 	Addr     string
 	PoolType string
 	Affinity string
+	IsLocal  bool
 }
 
 var (
@@ -309,7 +311,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
 
-		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
+		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
 		targets[target.PoolType] = append(targets[target.PoolType], target)
 	}
 
@@ -321,7 +323,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	targetCount.ResetAll()
 
 	for poolType := range targets {
-		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
+		b.sorter.shuffleSort(targets[poolType])
 		if len(targets[poolType]) > *numConnections {
 			targets[poolType] = targets[poolType][:b.numConnections]
 		}
@@ -353,7 +355,7 @@ func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
 	targets = append(targets, b.targets[poolType]...)
 	b.mu.RUnlock()
 
-	b.sorter.shuffleSort(targets, b.affinityField, b.affinityValue)
+	b.sorter.shuffleSort(targets)
 
 	return targets
 }
@@ -373,7 +375,7 @@ func newShuffleSorter() *shuffleSorter {
 // shuffleSort shuffles a slice of targetHost to ensure every host has a
 // different order to iterate through, putting the affinity matching (e.g. same
 // az) hosts at the front and the non-matching ones at the end.
-func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinityValue string) {
+func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 	n := len(targets)
 	head := 0
 	// Only need to do n-1 swaps since the last host is always in the right place.
@@ -383,7 +385,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinit
 		j := head + s.rand.Intn(tail-head+1)
 		s.mu.Unlock()
 
-		if affinityField != "" && affinityValue == targets[j].Affinity {
+		if targets[j].IsLocal {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -406,7 +408,8 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 
 	var addrs []resolver.Address
 	for _, target := range targets {
-		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attributes.New(PoolTypeAttr, r.poolType)})
+		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.IsLocal)
+		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attrs})
 	}
 
 	// If we've already selected some targets, give the new addresses some time to warm up before removing
