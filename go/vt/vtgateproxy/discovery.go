@@ -84,6 +84,7 @@ type JSONGateResolverBuilder struct {
 	affinityField  string
 	affinityValue  string
 	numConnections int
+	numBackupConns int
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
@@ -115,6 +116,7 @@ func RegisterJSONGateResolver(
 	affinityField string,
 	affinityValue string,
 	numConnections int,
+	numBackupConns int,
 ) (*JSONGateResolverBuilder, error) {
 	jsonDiscovery := &JSONGateResolverBuilder{
 		targets:        map[string][]targetHost{},
@@ -125,6 +127,7 @@ func RegisterJSONGateResolver(
 		affinityField:  affinityField,
 		affinityValue:  affinityValue,
 		numConnections: numConnections,
+		numBackupConns: numBackupConns,
 		sorter:         newShuffleSorter(),
 	}
 
@@ -265,7 +268,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		return false, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
 	}
 
-	var targets = map[string][]targetHost{}
+	var allTargets = map[string][]targetHost{}
 	for _, host := range hosts {
 		hostname, hasHostname := host["host"]
 		address, hasAddress := host[b.addressField]
@@ -312,7 +315,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		}
 
 		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
-		targets[target.PoolType] = append(targets[target.PoolType], target)
+		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
 	}
 
 	// If a pool disappears, the metric will not record this unless all counts
@@ -322,16 +325,25 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	// targets and only resetting pools which disappear.
 	targetCount.ResetAll()
 
-	for poolType := range targets {
-		b.sorter.shuffleSort(targets[poolType])
-		if len(targets[poolType]) > *numConnections {
-			targets[poolType] = targets[poolType][:b.numConnections]
+	var selected = map[string][]targetHost{}
+
+	for poolType := range allTargets {
+		b.sorter.shuffleSort(allTargets[poolType])
+
+		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
+		// from the tail (remote zone). if that's not possible, just take the whole set
+		if len(allTargets[poolType]) >= b.numConnections+b.numBackupConns {
+			remoteOffset := len(allTargets[poolType]) - b.numBackupConns
+			selected[poolType] = append(allTargets[poolType][:b.numConnections], allTargets[poolType][remoteOffset:]...)
+		} else {
+			selected[poolType] = allTargets[poolType]
 		}
-		targetCount.Set(poolType, int64(len(targets[poolType])))
+
+		targetCount.Set(poolType, int64(len(selected[poolType])))
 	}
 
 	b.mu.Lock()
-	b.targets = targets
+	b.targets = selected
 	b.mu.Unlock()
 
 	return true, nil
