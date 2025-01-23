@@ -45,15 +45,39 @@ func init() {
 
 type stickyPickerBuilder struct{}
 
+// Would be nice if this were easier in golang
+func boolValue(val interface{}) bool {
+	switch val := val.(type) {
+	case bool:
+		return val
+	}
+	return false
+}
+
 func (*stickyPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	//	log.V(100).Infof("stickyRandomPicker: Build called with info: %v", info)
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
+
 	scs := make([]balancer.SubConn, 0, len(info.ReadySCs))
-	for sc := range info.ReadySCs {
-		scs = append(scs, sc)
+
+	// Where possible filter to only ready conns in the local zone, using the remote
+	// zone only if there are no local conns available.
+	for sc, scInfo := range info.ReadySCs {
+		local := boolValue(scInfo.Address.Attributes.Value(ZoneLocalAttr))
+		if local {
+			scs = append(scs, sc)
+		}
 	}
+
+	// Otherwise use all the ready conns regardless of locality
+	if len(scs) == 0 {
+		for sc := range info.ReadySCs {
+			scs = append(scs, sc)
+		}
+	}
+
 	return &stickyPicker{
 		subConns: scs,
 	}
