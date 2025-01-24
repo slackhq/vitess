@@ -28,13 +28,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/vt/log"
+	_ "vitess.io/vitess/go/vt/vtctl/grpcvtctlclient"
+	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
+	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
+
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtgatepb "vitess.io/vitess/go/vt/proto/vtgate"
-	_ "vitess.io/vitess/go/vt/vtctl/grpcvtctlclient"
-	_ "vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
-
-	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
 )
 
 // Validates that we have a working VStream API
@@ -510,6 +510,394 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	require.NoError(t, err)
 	require.Equal(t, insertedCustomerRows, ne.numDash80Events+ne.num80DashEvents+ne.numDash40Events+ne.num40DashEvents)
 	return ne
+}
+
+// Validate that we can resume a VStream when the keyspace has been resharded
+// while not streaming. Ensure that there we successfully transition from the
+// old shards -- which are in the VGTID from the previous stream -- and that
+// we miss no row events during the process.
+func TestMultiVStreamsKeyspaceReshard(t *testing.T) {
+	ctx := context.Background()
+	ks := "testks"
+	wf := "multiVStreamsKeyspaceReshard"
+	baseTabletID := 100
+	tabletType := topodatapb.TabletType_PRIMARY.String()
+	oldShards := "-80,80-"
+	newShards := "-40,40-80,80-c0,c0-"
+	oldShardRowEvents, newShardRowEvents := 0, 0
+	vc = NewVitessCluster(t, nil)
+	defer vc.TearDown()
+	defaultCell := vc.Cells[vc.CellNames[0]]
+	ogdr := defaultReplicas
+	defaultReplicas = 0 // Because of CI resource constraints we can only run this test with primary tablets
+	defer func(dr int) { defaultReplicas = dr }(ogdr)
+
+	// For our sequences etc.
+	_, err := vc.AddKeyspace(t, []*Cell{defaultCell}, "global", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID, nil)
+	require.NoError(t, err)
+
+	// Setup the keyspace with our old/original shards.
+	keyspace, err := vc.AddKeyspace(t, []*Cell{defaultCell}, ks, oldShards, vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+1000, nil)
+	require.NoError(t, err)
+
+	// Add the new shards.
+	err = vc.AddShards(t, []*Cell{defaultCell}, keyspace, newShards, defaultReplicas, defaultRdonly, baseTabletID+2000, targetKsOpts)
+	require.NoError(t, err)
+
+	vtgateConn := getConnection(t, vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateMySQLPort)
+	defer vtgateConn.Close()
+	verifyClusterHealth(t, vc)
+
+	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
+	require.NoError(t, err)
+	defer vstreamConn.Close()
+
+	// Ensure that we're starting with a clean slate.
+	_, err = vtgateConn.ExecuteFetch(fmt.Sprintf("delete from %s.customer", ks), 1000, false)
+	require.NoError(t, err)
+
+	// Coordinate go-routines.
+	streamCtx, streamCancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer streamCancel()
+	done := make(chan struct{})
+
+	// First goroutine that keeps inserting rows into the table being streamed until the
+	// stream context is cancelled.
+	go func() {
+		id := 1
+		for {
+			select {
+			case <-streamCtx.Done():
+				// Give the VStream a little catch-up time before telling it to stop
+				// via the done channel.
+				time.Sleep(10 * time.Second)
+				close(done)
+				return
+			default:
+				insertRow(ks, "customer", id)
+				time.Sleep(250 * time.Millisecond)
+				id++
+			}
+		}
+	}()
+
+	// Create the Reshard workflow and wait for it to finish the copy phase.
+	reshardAction(t, "Create", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+	waitForWorkflowState(t, vc, fmt.Sprintf("%s.%s", ks, wf), binlogdatapb.VReplicationWorkflowState_Running.String())
+
+	vgtid := &binlogdatapb.VGtid{
+		ShardGtids: []*binlogdatapb.ShardGtid{{
+			Keyspace: "/.*", // Match all keyspaces just to be more realistic.
+		}}}
+
+	filter := &binlogdatapb.Filter{
+		Rules: []*binlogdatapb.Rule{{
+			// Only stream the customer table and its sequence backing table.
+			Match: "/customer.*",
+		}},
+	}
+	flags := &vtgatepb.VStreamFlags{}
+
+	// Stream events but stop once we have a VGTID with positions for the old/original shards.
+	var newVGTID *binlogdatapb.VGtid
+	func() {
+		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for _, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.GetRowEvent().GetShard()
+						switch shard {
+						case "-80", "80-":
+							oldShardRowEvents++
+						case "0":
+							// We expect some for the sequence backing table, but don't care.
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					case binlogdatapb.VEventType_VGTID:
+						newVGTID = ev.GetVgtid()
+						if len(newVGTID.GetShardGtids()) == 3 {
+							// We want a VGTID with a position for the global shard and the old shards.
+							canStop := true
+							for _, sg := range newVGTID.GetShardGtids() {
+								if sg.GetGtid() == "" {
+									canStop = false
+								}
+							}
+							if canStop {
+								return
+							}
+						}
+					}
+				}
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-streamCtx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	// Confirm that we have shard GTIDs for the global shard and the old/original shards.
+	require.Len(t, newVGTID.GetShardGtids(), 3)
+
+	// Switch the traffic to the new shards.
+	reshardAction(t, "SwitchTraffic", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+
+	// Now start a new VStream from our previous VGTID which only has the old/original shards.
+	func() {
+		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, newVGTID, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for _, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.RowEvent.Shard
+						switch shard {
+						case "-80", "80-":
+							oldShardRowEvents++
+						case "-40", "40-80", "80-c0", "c0-":
+							newShardRowEvents++
+						case "0":
+							// Again, we expect some for the sequence backing table, but don't care.
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					}
+				}
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+
+	// We should have a mix of events across the old and new shards.
+	require.Greater(t, oldShardRowEvents, 0)
+	require.Greater(t, newShardRowEvents, 0)
+
+	// The number of row events streamed by the VStream API should match the number of rows inserted.
+	customerResult := execVtgateQuery(t, vtgateConn, ks, "select count(*) from customer")
+	customerCount, err := customerResult.Rows[0][0].ToInt64()
+	require.NoError(t, err)
+	require.Equal(t, customerCount, int64(oldShardRowEvents+newShardRowEvents))
+}
+
+// TestMultiVStreamsKeyspaceStopOnReshard confirms that journal events are received
+// when resuming a VStream after a reshard.
+func TestMultiVStreamsKeyspaceStopOnReshard(t *testing.T) {
+	ctx := context.Background()
+	ks := "testks"
+	wf := "multiVStreamsKeyspaceReshard"
+	baseTabletID := 100
+	tabletType := topodatapb.TabletType_PRIMARY.String()
+	oldShards := "-80,80-"
+	newShards := "-40,40-80,80-c0,c0-"
+	oldShardRowEvents, journalEvents := 0, 0
+	vc = NewVitessCluster(t, nil)
+	defer vc.TearDown()
+	defaultCell := vc.Cells[vc.CellNames[0]]
+	ogdr := defaultReplicas
+	defaultReplicas = 0 // Because of CI resource constraints we can only run this test with primary tablets
+	defer func(dr int) { defaultReplicas = dr }(ogdr)
+
+	// For our sequences etc.
+	_, err := vc.AddKeyspace(t, []*Cell{defaultCell}, "global", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID, nil)
+	require.NoError(t, err)
+
+	// Setup the keyspace with our old/original shards.
+	keyspace, err := vc.AddKeyspace(t, []*Cell{defaultCell}, ks, oldShards, vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+1000, nil)
+	require.NoError(t, err)
+
+	// Add the new shards.
+	err = vc.AddShards(t, []*Cell{defaultCell}, keyspace, newShards, defaultReplicas, defaultRdonly, baseTabletID+2000, targetKsOpts)
+	require.NoError(t, err)
+
+	vtgateConn := getConnection(t, vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateMySQLPort)
+	defer vtgateConn.Close()
+	verifyClusterHealth(t, vc)
+
+	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
+	require.NoError(t, err)
+	defer vstreamConn.Close()
+
+	// Ensure that we're starting with a clean slate.
+	_, err = vtgateConn.ExecuteFetch(fmt.Sprintf("delete from %s.customer", ks), 1000, false)
+	require.NoError(t, err)
+
+	// Coordinate go-routines.
+	streamCtx, streamCancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer streamCancel()
+	done := make(chan struct{})
+
+	// First goroutine that keeps inserting rows into the table being streamed until the
+	// stream context is cancelled.
+	go func() {
+		id := 1
+		for {
+			select {
+			case <-streamCtx.Done():
+				// Give the VStream a little catch-up time before telling it to stop
+				// via the done channel.
+				time.Sleep(10 * time.Second)
+				close(done)
+				return
+			default:
+				insertRow(ks, "customer", id)
+				time.Sleep(250 * time.Millisecond)
+				id++
+			}
+		}
+	}()
+
+	// Create the Reshard workflow and wait for it to finish the copy phase.
+	reshardAction(t, "Create", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+	waitForWorkflowState(t, vc, fmt.Sprintf("%s.%s", ks, wf), binlogdatapb.VReplicationWorkflowState_Running.String())
+
+	vgtid := &binlogdatapb.VGtid{
+		ShardGtids: []*binlogdatapb.ShardGtid{{
+			// Only stream the keyspace that we're resharding. Otherwise the client stream
+			// will continue to run with only the tablet stream from the global keyspace.
+			Keyspace: ks,
+		}}}
+
+	filter := &binlogdatapb.Filter{
+		Rules: []*binlogdatapb.Rule{{
+			// Stream all tables.
+			Match: "/.*",
+		}},
+	}
+	flags := &vtgatepb.VStreamFlags{
+		StopOnReshard: true,
+	}
+
+	// Stream events but stop once we have a VGTID with positions for the old/original shards.
+	var newVGTID *binlogdatapb.VGtid
+	func() {
+		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for _, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.GetRowEvent().GetShard()
+						switch shard {
+						case "-80", "80-":
+							oldShardRowEvents++
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					case binlogdatapb.VEventType_VGTID:
+						newVGTID = ev.GetVgtid()
+						// We want a VGTID with a ShardGtid for both of the old shards.
+						if len(newVGTID.GetShardGtids()) == 2 {
+							canStop := true
+							for _, sg := range newVGTID.GetShardGtids() {
+								if sg.GetGtid() == "" {
+									canStop = false
+								}
+							}
+							if canStop {
+								return
+							}
+						}
+					}
+				}
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-streamCtx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	// Confirm that we have shard GTIDs for the old/original shards.
+	require.Len(t, newVGTID.GetShardGtids(), 2)
+	t.Logf("Position at end of first stream: %+v", newVGTID.GetShardGtids())
+
+	// Switch the traffic to the new shards.
+	reshardAction(t, "SwitchTraffic", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+
+	// Now start a new VStream from our previous VGTID which only has the old/original shards.
+	expectedJournalEvents := 2 // One for each old shard: -80,80-
+	var streamStopped bool     // We expect the stream to end with io.EOF from the reshard
+	runResumeStream := func() {
+		journalEvents = 0
+		streamStopped = false
+		t.Logf("Streaming from position: %+v", newVGTID.GetShardGtids())
+		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, newVGTID, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for i, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.RowEvent.Shard
+						switch shard {
+						case "-80", "80-":
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					case binlogdatapb.VEventType_JOURNAL:
+						t.Logf("Journal event: %+v", ev)
+						journalEvents++
+						require.Equal(t, binlogdatapb.VEventType_BEGIN, evs[i-1].Type, "JOURNAL event not preceded by BEGIN event")
+						require.Equal(t, binlogdatapb.VEventType_VGTID, evs[i+1].Type, "JOURNAL event not followed by VGTID event")
+						require.Equal(t, binlogdatapb.VEventType_COMMIT, evs[i+2].Type, "JOURNAL event not followed by COMMIT event")
+					}
+				}
+			case io.EOF:
+				streamStopped = true
+				return
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}
+
+	// Multiple VStream clients should be able to resume from where they left off and
+	// get the reshard journal event.
+	for i := 1; i <= expectedJournalEvents; i++ {
+		runResumeStream()
+		// We should have seen the journal event for each shard in the stream due to
+		// using StopOnReshard.
+		require.Equal(t, expectedJournalEvents, journalEvents,
+			"did not get expected journal events on resume vstream #%d", i)
+		// Confirm that the stream stopped on the reshard.
+		require.True(t, streamStopped, "the vstream did not stop with io.EOF as expected")
+	}
 }
 
 func TestVStreamFailover(t *testing.T) {
