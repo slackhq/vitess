@@ -18,18 +18,20 @@ package vtgateproxy
 
 import (
 	"context"
+	"errors"
 	"flag"
-	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/pires/go-proxyproto"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
@@ -50,6 +52,7 @@ import (
 var (
 	mysqlServerPort               = flag.Int("mysql_server_port", -1, "If set, also listen for MySQL binary protocol connections on this port.")
 	mysqlServerBindAddress        = flag.String("mysql_server_bind_address", "", "Binds on this address when listening to MySQL binary protocol. Useful to restrict listening to 'localhost' only for instance.")
+	mysqlServerHandoffSocket      = flag.String("mysql_server_handoff_sock", "", "Opens a unix domain socket for no-downtime handoff of the mysql listener during deploys of the proxy")
 	mysqlServerSocketPath         = flag.String("mysql_server_socket_path", "", "This option specifies the Unix socket file to use when listening for local connections. By default it will be empty and it won't listen to a unix socket")
 	mysqlTCPVersion               = flag.String("mysql_tcp_version", "tcp", "Select tcp, tcp4, or tcp6 to control the socket type.")
 	mysqlAuthServerImpl           = flag.String("mysql_auth_server_impl", "static", "Which auth server implementation to use. Options: none, ldap, clientcert, static, vault.")
@@ -439,8 +442,42 @@ func initMySQLProtocol() {
 	var err error
 	proxyHandle = newProxyHandler(vtGateProxy)
 	if *mysqlServerPort >= 0 {
+		// Request socket from an already running process, or start a new
+		// listener to serve requests on.
+		listener, err := RequestHandoff(*mysqlServerHandoffSocket)
+		if errors.Is(err, ErrNoHandoff) {
+			listener, err = net.Listen(*mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, strconv.Itoa(*mysqlServerPort)))
+		}
+		if err != nil {
+			log.Exitf("Failed to open listener: %v", err)
+		}
+
+		// Advertise unix domain socket for handoff by future processes.
+		if *mysqlServerHandoffSocket != "" {
+			go func() {
+				// Shut down the server as soon as the handoff is complete.
+				defer func() {
+					// TODO better shutdown hook
+					shutdownMysqlProtocolAndDrain()
+					rollbackAtShutdown()
+					os.Exit(0)
+				}()
+
+				err := ListenForHandoff(*mysqlServerHandoffSocket, listener)
+				if err != nil {
+					log.Errorf("Handoff failed: %v", err)
+					return
+				}
+
+				log.Info("Handed off socket and shutting down")
+			}()
+		}
+
 		log.Infof("Mysql Server listening on Port %d", *mysqlServerPort)
-		mysqlListener, err = mysql.NewListener(*mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, fmt.Sprintf("%v", *mysqlServerPort)), authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlProxyProtocol, *mysqlConnBufferPooling)
+		if *mysqlProxyProtocol {
+			listener = &proxyproto.Listener{Listener: listener}
+		}
+		mysqlListener, err = mysql.NewFromListener(listener, authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlConnBufferPooling)
 		if err != nil {
 			log.Exitf("mysql.NewListener failed: %v", err)
 		}
