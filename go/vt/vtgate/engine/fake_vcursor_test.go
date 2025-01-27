@@ -373,6 +373,10 @@ func (t *noopVCursor) GetDBDDLPluginName() string {
 	panic("unimplemented")
 }
 
+func (t *noopVCursor) DefaultMultiShardAutocommit() bool {
+	panic("unimplemented")
+}
+
 var _ VCursor = (*loggingVCursor)(nil)
 var _ SessionActions = (*loggingVCursor)(nil)
 
@@ -773,6 +777,10 @@ func (f *loggingVCursor) SetPlannerVersion(querypb.ExecuteOptions_PlannerVersion
 
 func (f *loggingVCursor) SetPriority(string) {
 	panic("implement me")
+}
+
+func (f *loggingVCursor) DefaultMultiShardAutocommit() bool {
+	return false
 }
 
 func (f *loggingVCursor) FindRoutedTable(tbl sqlparser.TableName) (*vindexes.Table, error) {

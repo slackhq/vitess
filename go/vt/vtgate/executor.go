@@ -117,6 +117,9 @@ type Executor struct {
 	// allowScatter will fail planning if set to false and a plan contains any scatter queries
 	allowScatter bool
 
+	// defaultMultiShardAutocommit will by default execute multi shard DML statements with autocommit
+	defaultMultiShardAutocommit bool
+
 	// queryLogger is passed in for logging from this vtgate executor.
 	queryLogger *streamlog.StreamLogger[*logstats.LogStats]
 
@@ -149,7 +152,7 @@ func NewExecutor(
 	streamSize int,
 	plans *PlanCache,
 	schemaTracker SchemaInfo,
-	noScatter bool,
+	noScatter, defaultMultiShardAutocommit bool,
 	pv plancontext.PlannerVersion,
 	warmingReadsPercent int,
 ) *Executor {
@@ -168,6 +171,8 @@ func NewExecutor(
 		plans:               plans,
 		warmingReadsPercent: warmingReadsPercent,
 		warmingReadsChannel: make(chan bool, warmingReadsConcurrency),
+
+		defaultMultiShardAutocommit: defaultMultiShardAutocommit,
 	}
 
 	vschemaacl.Init()

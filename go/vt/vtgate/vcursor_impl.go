@@ -121,6 +121,8 @@ type vcursorImpl struct {
 
 	warmingReadsPercent int
 	warmingReadsChannel chan bool
+
+	defaultMultiShardAutocommit bool
 }
 
 // newVcursorImpl creates a vcursorImpl. Before creating this object, you have to separate out any marginComments that came with
@@ -167,9 +169,11 @@ func newVCursorImpl(
 
 	warmingReadsPct := 0
 	var warmingReadsChan chan bool
+	defaultMultiShardAutocommit := false
 	if executor != nil {
 		warmingReadsPct = executor.warmingReadsPercent
 		warmingReadsChan = executor.warmingReadsChannel
+		defaultMultiShardAutocommit = executor.defaultMultiShardAutocommit
 	}
 	return &vcursorImpl{
 		safeSession:         safeSession,
@@ -188,6 +192,8 @@ func newVCursorImpl(
 		pv:                  pv,
 		warmingReadsPercent: warmingReadsPct,
 		warmingReadsChannel: warmingReadsChan,
+
+		defaultMultiShardAutocommit: defaultMultiShardAutocommit,
 	}, nil
 }
 
@@ -1360,4 +1366,9 @@ func (vc *vcursorImpl) UpdateForeignKeyChecksState(fkStateFromQuery *bool) {
 // GetForeignKeyChecksState gets the stored foreign key checks state in the vcursor.
 func (vc *vcursorImpl) GetForeignKeyChecksState() *bool {
 	return vc.fkChecksState
+}
+
+// GetForeignKeyChecksState gets the stored foreign key checks state in the vcursor.
+func (vc *vcursorImpl) DefaultMultiShardAutocommit() bool {
+	return vc.defaultMultiShardAutocommit
 }
