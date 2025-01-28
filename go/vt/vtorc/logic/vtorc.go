@@ -428,12 +428,6 @@ func refreshAllInformation(ctx context.Context) error {
 		return RefreshAllKeyspacesAndShards(ctx)
 	})
 
-	// Refresh shards to watch.
-	eg.Go(func() error {
-		updateShardsToWatch()
-		return nil
-	})
-
 	// Refresh all tablets.
 	eg.Go(func() error {
 		return refreshAllTablets(ctx)
