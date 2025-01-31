@@ -41,12 +41,13 @@ import (
 )
 
 // newBuilder creates a new first_ready balancer builder.
-func newBuilder() balancer.Builder {
+func newFirstReadyBuilder() balancer.Builder {
 	return base.NewBalancerBuilder("first_ready", &frPickerBuilder{currentConns: map[string]balancer.SubConn{}}, base.Config{HealthCheck: true})
 }
 
 func init() {
-	balancer.Register(newBuilder())
+	log.V(1).Infof("registering first_ready balancer")
+	balancer.Register(newFirstReadyBuilder())
 }
 
 // frPickerBuilder implements both the Builder and the Picker interfaces.

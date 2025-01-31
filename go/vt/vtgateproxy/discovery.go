@@ -59,6 +59,7 @@ import (
 //
 
 const PoolTypeAttr = "PoolType"
+const ZoneLocalAttr = "ZoneLocal"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type JSONGateResolver struct {
@@ -83,6 +84,7 @@ type JSONGateResolverBuilder struct {
 	affinityField  string
 	affinityValue  string
 	numConnections int
+	numBackupConns int
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
@@ -98,6 +100,7 @@ type targetHost struct {
 	Addr     string
 	PoolType string
 	Affinity string
+	IsLocal  bool
 }
 
 var (
@@ -113,6 +116,7 @@ func RegisterJSONGateResolver(
 	affinityField string,
 	affinityValue string,
 	numConnections int,
+	numBackupConns int,
 ) (*JSONGateResolverBuilder, error) {
 	jsonDiscovery := &JSONGateResolverBuilder{
 		targets:        map[string][]targetHost{},
@@ -123,6 +127,7 @@ func RegisterJSONGateResolver(
 		affinityField:  affinityField,
 		affinityValue:  affinityValue,
 		numConnections: numConnections,
+		numBackupConns: numBackupConns,
 		sorter:         newShuffleSorter(),
 	}
 
@@ -263,7 +268,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		return false, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
 	}
 
-	var targets = map[string][]targetHost{}
+	var allTargets = map[string][]targetHost{}
 	for _, host := range hosts {
 		hostname, hasHostname := host["host"]
 		address, hasAddress := host[b.addressField]
@@ -309,8 +314,8 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
 
-		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
-		targets[target.PoolType] = append(targets[target.PoolType], target)
+		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
+		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
 	}
 
 	// If a pool disappears, the metric will not record this unless all counts
@@ -320,16 +325,25 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	// targets and only resetting pools which disappear.
 	targetCount.ResetAll()
 
-	for poolType := range targets {
-		b.sorter.shuffleSort(targets[poolType], b.affinityField, b.affinityValue)
-		if len(targets[poolType]) > *numConnections {
-			targets[poolType] = targets[poolType][:b.numConnections]
+	var selected = map[string][]targetHost{}
+
+	for poolType := range allTargets {
+		b.sorter.shuffleSort(allTargets[poolType])
+
+		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
+		// from the tail (remote zone). if that's not possible, just take the whole set
+		if len(allTargets[poolType]) >= b.numConnections+b.numBackupConns {
+			remoteOffset := len(allTargets[poolType]) - b.numBackupConns
+			selected[poolType] = append(allTargets[poolType][:b.numConnections], allTargets[poolType][remoteOffset:]...)
+		} else {
+			selected[poolType] = allTargets[poolType]
 		}
-		targetCount.Set(poolType, int64(len(targets[poolType])))
+
+		targetCount.Set(poolType, int64(len(selected[poolType])))
 	}
 
 	b.mu.Lock()
-	b.targets = targets
+	b.targets = selected
 	b.mu.Unlock()
 
 	return true, nil
@@ -353,7 +367,7 @@ func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
 	targets = append(targets, b.targets[poolType]...)
 	b.mu.RUnlock()
 
-	b.sorter.shuffleSort(targets, b.affinityField, b.affinityValue)
+	b.sorter.shuffleSort(targets)
 
 	return targets
 }
@@ -373,7 +387,7 @@ func newShuffleSorter() *shuffleSorter {
 // shuffleSort shuffles a slice of targetHost to ensure every host has a
 // different order to iterate through, putting the affinity matching (e.g. same
 // az) hosts at the front and the non-matching ones at the end.
-func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinityValue string) {
+func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 	n := len(targets)
 	head := 0
 	// Only need to do n-1 swaps since the last host is always in the right place.
@@ -383,7 +397,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost, affinityField, affinit
 		j := head + s.rand.Intn(tail-head+1)
 		s.mu.Unlock()
 
-		if affinityField != "" && affinityValue == targets[j].Affinity {
+		if targets[j].IsLocal {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -406,7 +420,8 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 
 	var addrs []resolver.Address
 	for _, target := range targets {
-		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attributes.New(PoolTypeAttr, r.poolType)})
+		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.IsLocal)
+		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attrs})
 	}
 
 	// If we've already selected some targets, give the new addresses some time to warm up before removing
@@ -488,12 +503,13 @@ const (
 </style>
 <table>
 {{range $i, $p := .Pools}}  <tr>
-    <th colspan="3">{{$p}}</th>
+    <th colspan="4">{{$p}}</th>
   </tr>
 {{range index $.Targets $p}}  <tr>
 	<td>{{.Hostname}}</td>
 	<td>{{.Addr}}</td>
     <td>{{.Affinity}}</td>
+    <td>{{.IsLocal}}</td>
   </tr>{{end}}
 {{end}}
 </table>
