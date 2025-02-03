@@ -18,7 +18,7 @@ require (
 	github.com/dave/jennifer v1.7.0
 	github.com/evanphx/json-patch v5.9.0+incompatible
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-sql-driver/mysql v1.7.1
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/golang/glog v1.2.0
 	github.com/golang/protobuf v1.5.4
 	github.com/golang/snappy v0.0.4
@@ -114,7 +114,10 @@ require (
 	modernc.org/sqlite v1.29.2
 )
 
-require github.com/go-chi/chi/v5 v5.0.10 // indirect
+require (
+	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/go-chi/chi/v5 v5.0.10 // indirect
+)
 
 require (
 	cloud.google.com/go v0.112.1 // indirect

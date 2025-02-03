@@ -62,7 +62,7 @@ func (f *frPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	log.V(100).Infof("first_ready: Build called with info: %v", info)
 
 	if len(info.ReadySCs) == 0 {
-		return base.NewErrPicker(errors.New("no available connections"))
+		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
 
 	f.mu.Lock()
