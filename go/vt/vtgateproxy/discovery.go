@@ -188,6 +188,7 @@ func (b *JSONGateResolverBuilder) start() error {
 
 	go func() {
 		var parseErr error
+		lastClientIndex := -1
 		for range b.ticker.C {
 			checkFileStat, err := os.Stat(b.jsonPath)
 			if err != nil {
@@ -213,10 +214,13 @@ func (b *JSONGateResolverBuilder) start() error {
 				continue
 			}
 			parseErr = nil
-			if !contentsChanged {
+			curClientIndex := getClientIndex()
+			clientsChanged := (lastClientIndex == curClientIndex)
+			if !contentsChanged && !clientsChanged {
 				parseCount.Add("unchanged", 1)
 				continue
 			}
+			lastClientIndex = curClientIndex
 			parseCount.Add("changed", 1)
 
 			var wg sync.WaitGroup
