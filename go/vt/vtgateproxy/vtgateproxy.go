@@ -170,7 +170,10 @@ func (proxy *VTGateProxy) Execute(ctx context.Context, session *vtgateconn.VTGat
 
 	// Intercept "use" statements since they just have to update the local session
 	if strings.HasPrefix(sql, "use ") {
-		targetString := sqlescape.UnescapeID(sql[4:])
+		targetString, err := sqlescape.UnescapeID(sql[4:])
+		if err != nil {
+			return &sqltypes.Result{}, fmt.Errorf("failed to unescape use statement target string: %w", err)
+		}
 		session.SessionPb().TargetString = targetString
 		return &sqltypes.Result{}, nil
 	}
