@@ -414,7 +414,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 	if r.currentAddrs != nil && warmupTime.Seconds() > 0 {
 		combined := append(r.currentAddrs, addrs...)
 		log.V(100).Infof("updating targets for %s to warmup %v", r.target.URL.String(), targets)
-		r.clientConn.UpdateState(resolver.State{Addresses: combined})
+		_ = r.clientConn.UpdateState(resolver.State{Addresses: combined})
 		time.Sleep(*warmupTime)
 	}
 
