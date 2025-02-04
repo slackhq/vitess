@@ -725,12 +725,16 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	if err != nil {
 		message := fmt.Sprintf("Recovery failed on %s for problem %s. Error: %s", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error())
 		log.Info(message)
-		vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
+		if analysisEntry.IsPrimary {
+			vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
+		}
 		recoveriesFailureCounter.Add(recoveryName, 1)
 	} else {
 		message := fmt.Sprintf("Recovery succeeded on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis)
 		log.Info(message)
-		vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
+		if analysisEntry.IsPrimary {
+			vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
+		}
 		recoveriesSuccessfulCounter.Add(recoveryName, 1)
 	}
 	if topologyRecovery == nil {
