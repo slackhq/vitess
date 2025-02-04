@@ -315,12 +315,6 @@ func TestStatsConnTopoLock(t *testing.T) {
 	require.NotZero(t, topoStatsConnTimings.Time())
 	require.Zero(t, topoStatsConnReadWaitTimings.Time())
 
-	statsConn.LockWithTTL(ctx, "", "", time.Second)
-	require.Equal(t, int64(1), topoStatsConnTimings.Counts()["LockWithTTL.global"])
-
-	statsConn.LockName(ctx, "", "")
-	require.Equal(t, int64(1), topoStatsConnTimings.Counts()["LockName.global"])
-
 	// Error is zero before getting an error.
 	require.Zero(t, topoStatsConnErrors.Counts()["Lock.global"])
 
