@@ -90,6 +90,11 @@ func Empty(id []byte) bool {
 // KeyRange helper methods
 //
 
+// Make a Key Range
+func NewKeyRange(start []byte, end []byte) *topodatapb.KeyRange {
+	return &topodatapb.KeyRange{Start: start, End: end}
+}
+
 // NewCompleteKeyRange returns a complete key range.
 func NewCompleteKeyRange() *topodatapb.KeyRange {
 	return &topodatapb.KeyRange{
