@@ -114,6 +114,14 @@ func TestVtgateProxyVtgateFailureRoundRobin(t *testing.T) {
 }
 
 func TestVtgateProxyVtgateFailureFirstReady(t *testing.T) {
+	testVtgateProxyVtgateFailure(t, "first_ready")
+}
+
+func TestVtgateProxyVtgateFailureStickyRandom(t *testing.T) {
+	testVtgateProxyVtgateFailure(t, "sticky_random")
+}
+
+func testVtgateProxyVtgateFailure(t *testing.T, balancer string) {
 	defer cluster.PanicHandler(t)
 
 	const targetAffinity = "use1-az1"
@@ -155,7 +163,7 @@ func TestVtgateProxyVtgateFailureFirstReady(t *testing.T) {
 		clusterInstance.TmpDirectory,
 		vtgateHostsFile,
 		targetAffinity,
-		"first_ready",
+		balancer,
 		vtgateproxyConnections,
 		vtgateproxyHTTPPort,
 		vtgateproxyGrpcPort,
