@@ -39,6 +39,10 @@ func TestVtgateProxyRebalanceFirstReady(t *testing.T) {
 	testVtgateProxyRebalance(t, "first_ready")
 }
 
+func TestVtgateProxyRebalanceStickyRandom(t *testing.T) {
+	testVtgateProxyRebalance(t, "sticky_random")
+}
+
 func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 	defer cluster.PanicHandler(t)
 
@@ -136,20 +140,6 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 		assert.Equal(t, []customerEntry{{1, "email1"}}, result)
 	}
 
-	var expectVtgatesWithQueries int
-
-	switch loadBalancer {
-	case "round_robin":
-		// Every vtgate should get some queries. We went from 1 vtgates to
-		// NumConnections+1 vtgates, and then removed the first vtgate.
-		expectVtgatesWithQueries = len(vtgates)
-	case "first_ready":
-		// Only 2 vtgates should have queries. The first vtgate should get all
-		// queries until it is removed, and then a new vtgate should be picked
-		// to get all subsequent queries.
-		expectVtgatesWithQueries = 2
-	}
-
 	var vtgatesWithQueries int
 	for i, vtgate := range vtgates {
 		queryCount, err := getVtgateQueryCount(vtgate)
@@ -164,5 +154,18 @@ func testVtgateProxyRebalance(t *testing.T, loadBalancer string) {
 		}
 	}
 
-	assert.Equal(t, expectVtgatesWithQueries, vtgatesWithQueries)
+	switch loadBalancer {
+	case "round_robin":
+		// Every vtgate should get some queries. We went from 1 vtgates to
+		// NumConnections+1 vtgates, and then removed the first vtgate.
+		assert.Equal(t, len(vtgates), vtgatesWithQueries)
+	case "first_ready":
+		// Only 2 vtgates should have queries. The first vtgate should get all
+		// queries until it is removed, and then a new vtgate should be picked
+		// to get all subsequent queries.
+		assert.Equal(t, 2, vtgatesWithQueries)
+	case "sticky_random":
+		// 3 or 4 vtgates should get some queries.
+		assert.Contains(t, []int{3, 4}, vtgatesWithQueries)
+	}
 }

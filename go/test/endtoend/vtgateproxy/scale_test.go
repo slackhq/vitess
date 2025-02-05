@@ -43,6 +43,10 @@ func TestVtgateProxyScaleFirstReady(t *testing.T) {
 	testVtgateProxyScale(t, "first_ready")
 }
 
+func TestVtgateProxyScaleStickyRandom(t *testing.T) {
+	testVtgateProxyScale(t, "sticky_random")
+}
+
 func testVtgateProxyScale(t *testing.T, loadBalancer string) {
 	defer cluster.PanicHandler(t)
 
