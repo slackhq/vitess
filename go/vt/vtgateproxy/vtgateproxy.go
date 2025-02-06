@@ -53,6 +53,7 @@ const (
 var (
 	vtgateHostsFile = flag.String("vtgate_hosts_file", "", "json file describing the host list to use for vtgate:// resolution")
 	numConnections  = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
+	numBackupConns  = flag.Int("num_backup_conns", 1, "number of backup remote-zone GPRC connections to maintain")
 	poolTypeField   = flag.String("pool_type_field", "", "Field name used to specify the target vtgate type and filter the hosts")
 	affinityField   = flag.String("affinity_field", "", "Attribute (JSON file) used to specify the routing affinity , e.g. 'az_id'")
 	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
@@ -218,6 +219,7 @@ func Init() {
 	case "round_robin":
 	case "first_ready":
 	case "pick_first":
+	case "sticky_random":
 		break
 	default:
 		log.Fatalf("invalid balancer type %s", *balancerType)
@@ -235,6 +237,7 @@ func Init() {
 		*affinityField,
 		*affinityValue,
 		*numConnections,
+		*numBackupConns,
 	)
 
 	if err != nil {
