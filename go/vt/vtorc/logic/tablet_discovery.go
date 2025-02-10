@@ -175,9 +175,6 @@ func getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[strin
 		})
 	}
 	_ = eg.Wait() // always nil
-	if len(failedCells) > 1 {
-		slices.Sort(failedCells)
-	}
 	return tabletsByCell, failedCells
 }
 
