@@ -32,6 +32,7 @@ import (
 func init() {
 	servenv.RegisterDefaultFlags()
 	servenv.RegisterGRPCServerFlags()
+	servenv.RegisterHandoffFlags()
 }
 
 func main() {

@@ -290,7 +290,7 @@ func serveGRPC() {
 
 	// listen on the port
 	log.Infof("Listening for gRPC calls on port %v", gRPCPort)
-	listener, err := net.Listen("tcp", net.JoinHostPort(gRPCBindAddress, strconv.Itoa(gRPCPort)))
+	listener, err := HandoffOrListen("grpc", "tcp", net.JoinHostPort(gRPCBindAddress, strconv.Itoa(gRPCPort)))
 	if err != nil {
 		log.Exitf("Cannot listen on port %v for gRPC: %v", gRPCPort, err)
 	}

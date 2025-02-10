@@ -30,6 +30,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pires/go-proxyproto"
+
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -504,7 +506,15 @@ func initMySQLProtocol() {
 	}
 	if *mysqlServerPort >= 0 {
 		log.Infof("Mysql Server listening on Port %d", *mysqlServerPort)
-		mysqlListener, err = mysql.NewListener(*mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, fmt.Sprintf("%v", *mysqlServerPort)), authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlProxyProtocol, *mysqlConnBufferPooling, *mysqlKeepAlivePeriod, *mysqlServerFlushDelay)
+		listener, err := servenv.HandoffOrListen("mysql", *mysqlTCPVersion, net.JoinHostPort(*mysqlServerBindAddress, fmt.Sprintf("%v", *mysqlServerPort)))
+		if err != nil {
+			log.Exitf("Listen failed: %v", err)
+		}
+		if *mysqlProxyProtocol {
+			listener = &proxyproto.Listener{Listener: listener}
+		}
+
+		mysqlListener, err = mysql.NewFromListener(listener, authServer, proxyHandle, *mysqlConnReadTimeout, *mysqlConnWriteTimeout, *mysqlConnBufferPooling, *mysqlKeepAlivePeriod, *mysqlServerFlushDelay)
 		if err != nil {
 			log.Exitf("mysql.NewListener failed: %v", err)
 		}
