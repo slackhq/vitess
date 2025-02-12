@@ -9,7 +9,8 @@ permissions: read-all
 
 jobs:
   close_stale_pull_requests:
-    runs-on: ubuntu-24.04
+    runs-on:
+      group: vitess-ubuntu20
     permissions:
       pull-requests: write
 

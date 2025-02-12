@@ -29,7 +29,6 @@ import (
 type mysqlVersion string
 
 const (
-	mysql57 mysqlVersion = "mysql57"
 	mysql80 mysqlVersion = "mysql80"
 	mysql84 mysqlVersion = "mysql84"
 
@@ -43,7 +42,7 @@ var (
 )
 
 var (
-	unitTestDatabases = []mysqlVersion{mysql57, mysql80, mysql84}
+	unitTestDatabases = []mysqlVersion{mysql80, mysql84}
 )
 
 const (
@@ -283,9 +282,6 @@ func generateClusterWorkflows(list []string, tpl string) {
 					test.InstallXtraBackup = true
 					break
 				}
-			}
-			if mysqlVersion == mysql57 {
-				test.Platform = string(mysql57)
 			}
 			if strings.HasPrefix(cluster, "vreplication") || strings.HasSuffix(cluster, "heavy") {
 				test.LimitResourceUsage = true
