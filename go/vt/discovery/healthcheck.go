@@ -377,12 +377,11 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 	}
 
 	for _, c := range cells {
-		var filters TabletFilters
 		log.Infof("Setting up healthcheck for cell: %v", c)
 		if c == "" {
 			continue
 		}
-		topoWatchers = append(topoWatchers, NewTopologyWatcher(ctx, topoServer, hc, filters, c, refreshInterval, refreshKnownTablets, topo.DefaultConcurrency))
+		topoWatchers = append(topoWatchers, NewTopologyWatcher(ctx, topoServer, hc, filters, c, refreshInterval, refreshKnownTablets))
 	}
 
 	hc.topoWatchers = topoWatchers

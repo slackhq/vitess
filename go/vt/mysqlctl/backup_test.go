@@ -26,9 +26,11 @@ import (
 	"path"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/test/utils"
@@ -37,6 +39,7 @@ import (
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/mysql/fakesqldb"
+	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl/backupstats"
 	"vitess.io/vitess/go/vt/mysqlctl/backupstorage"
@@ -509,7 +512,7 @@ func TestRestoreManifestMySQLVersionValidation(t *testing.T) {
 
 			manifest := BackupManifest{
 				BackupTime:   time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-				BackupMethod: "fake",
+				BackupMethod: fakeBackupEngineName,
 				Keyspace:     "test",
 				Shard:        "-",
 				MySQLVersion: tc.fromVersion,
@@ -610,7 +613,7 @@ func createFakeBackupRestoreEnv(t *testing.T) *fakeBackupRestoreEnv {
 
 	manifest := BackupManifest{
 		BackupTime:   FormatRFC3339(time.Now().Add(-1 * time.Hour)),
-		BackupMethod: "fake",
+		BackupMethod: fakeBackupEngineName,
 		Keyspace:     "test",
 		Shard:        "-",
 		MySQLVersion: "8.0.32",
@@ -623,8 +626,8 @@ func createFakeBackupRestoreEnv(t *testing.T) *fakeBackupRestoreEnv {
 	testBackupEngine.ExecuteRestoreReturn = FakeBackupEngineExecuteRestoreReturn{&manifest, nil}
 
 	previousBackupEngineImplementation := backupEngineImplementation
-	BackupRestoreEngineMap["fake"] = &testBackupEngine
-	backupEngineImplementation = "fake"
+	BackupRestoreEngineMap[fakeBackupEngineName] = &testBackupEngine
+	backupEngineImplementation = fakeBackupEngineName
 
 	testBackupStorage := FakeBackupStorage{}
 	testBackupStorage.ListBackupsReturn = FakeBackupStorageListBackupsReturn{
@@ -639,9 +642,9 @@ func createFakeBackupRestoreEnv(t *testing.T) *fakeBackupRestoreEnv {
 	testBackupStorage.StartBackupReturn = FakeBackupStorageStartBackupReturn{&FakeBackupHandle{}, nil}
 	testBackupStorage.WithParamsReturn = &testBackupStorage
 
-	backupstorage.BackupStorageMap["fake"] = &testBackupStorage
+	backupstorage.BackupStorageMap[fakeBackupEngineName] = &testBackupStorage
 	previousBackupStorageImplementation := backupstorage.BackupStorageImplementation
-	backupstorage.BackupStorageImplementation = "fake"
+	backupstorage.BackupStorageImplementation = fakeBackupEngineName
 
 	// all restore integration tests must be leak checked
 	t.Cleanup(func() {
@@ -652,10 +655,10 @@ func createFakeBackupRestoreEnv(t *testing.T) *fakeBackupRestoreEnv {
 		backupstats.DeprecatedBackupDurationS.Reset()
 		backupstats.DeprecatedRestoreDurationS.Reset()
 
-		delete(BackupRestoreEngineMap, "fake")
+		delete(BackupRestoreEngineMap, fakeBackupEngineName)
 		backupEngineImplementation = previousBackupEngineImplementation
 
-		delete(backupstorage.BackupStorageMap, "fake")
+		delete(backupstorage.BackupStorageMap, fakeBackupEngineName)
 		backupstorage.BackupStorageImplementation = previousBackupStorageImplementation
 		mysqld.Close()
 		sqldb.Close()
@@ -677,4 +680,74 @@ func (fbe *fakeBackupRestoreEnv) setStats(stats *backupstats.FakeStats) {
 	fbe.backupParams.Stats = nil
 	fbe.restoreParams.Stats = nil
 	fbe.stats = nil
+}
+
+func TestParseBackupName(t *testing.T) {
+	// backup name doesn't contain 3 parts
+	_, _, err := ParseBackupName("dir", "asd.saddsa")
+	assert.ErrorContains(t, err, "cannot backup name")
+
+	// Invalid time
+	bt, al, err := ParseBackupName("dir", "2024-03-18.123.tablet_id")
+	assert.Nil(t, bt)
+	assert.Nil(t, al)
+	assert.NoError(t, err)
+
+	// Valid case
+	bt, al, err = ParseBackupName("dir", "2024-03-18.180911.cell1-42")
+	assert.NotNil(t, *bt, time.Date(2024, 03, 18, 18, 9, 11, 0, time.UTC))
+	assert.Equal(t, "cell1", al.Cell)
+	assert.Equal(t, uint32(42), al.Uid)
+	assert.NoError(t, err)
+}
+
+func TestShouldRestore(t *testing.T) {
+	env := createFakeBackupRestoreEnv(t)
+
+	b, err := ShouldRestore(env.ctx, env.restoreParams)
+	assert.False(t, b)
+	assert.Error(t, err)
+
+	env.restoreParams.DeleteBeforeRestore = true
+	b, err = ShouldRestore(env.ctx, env.restoreParams)
+	assert.True(t, b)
+	assert.NoError(t, err)
+	env.restoreParams.DeleteBeforeRestore = false
+
+	env.mysqld.FetchSuperQueryMap = map[string]*sqltypes.Result{
+		"SHOW DATABASES": {Rows: [][]sqltypes.Value{{sqltypes.NewVarBinary("any_db")}}},
+	}
+	b, err = ShouldRestore(env.ctx, env.restoreParams)
+	assert.NoError(t, err)
+	assert.True(t, b)
+
+	env.mysqld.FetchSuperQueryMap = map[string]*sqltypes.Result{
+		"SHOW DATABASES": {Rows: [][]sqltypes.Value{{sqltypes.NewVarBinary("test")}}},
+	}
+	b, err = ShouldRestore(env.ctx, env.restoreParams)
+	assert.False(t, b)
+	assert.NoError(t, err)
+}
+
+func TestScanLinesToLogger(t *testing.T) {
+	reader, writer := io.Pipe()
+	logger := logutil.NewMemoryLogger()
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go scanLinesToLogger("test", reader, logger, wg.Done)
+
+	for i := range 100 {
+		_, err := writer.Write([]byte(fmt.Sprintf("foobar %d\n", i)))
+		require.NoError(t, err)
+	}
+
+	writer.Close()
+	wg.Wait()
+
+	require.Equal(t, 100, len(logger.Events))
+
+	for i, event := range logger.Events {
+		require.Equal(t, fmt.Sprintf("test: foobar %d", i), event.Value)
+	}
 }
