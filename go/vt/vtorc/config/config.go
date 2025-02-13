@@ -143,7 +143,7 @@ func UpdateConfigValuesFromFlags() {
 
 // ERSEnabled reports whether VTOrc is allowed to run ERS or not.
 func ERSEnabled() bool {
-	return allowRecovery && ersEnabled
+	return ersEnabled
 }
 
 // SetERSEnabled sets the value for the ersEnabled variable. This should only be used from tests.
