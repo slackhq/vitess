@@ -18,7 +18,6 @@ package smartconnpool
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -202,7 +201,7 @@ func (pool *ConnPool[C]) open() {
 
 	// The expire worker takes care of removing from the waiter list any clients whose
 	// context has been cancelled.
-	pool.runWorker(pool.close, 1*time.Second, func(_ time.Time) bool {
+	pool.runWorker(pool.close, 100*time.Millisecond, func(now time.Time) bool {
 		pool.wait.expire(false)
 		return true
 	})
@@ -403,13 +402,13 @@ func (pool *ConnPool[C]) put(conn *Pooled[C]) {
 			return
 		}
 	} else {
-		conn.timeUsed = time.Now()
+		conn.timeUsed.update()
 
 		lifetime := pool.extendedMaxLifetime()
-		if lifetime > 0 && time.Until(conn.timeCreated.Add(lifetime)) < 0 {
+		if lifetime > 0 && conn.timeCreated.elapsed() > lifetime {
 			pool.Metrics.maxLifetimeClosed.Add(1)
 			conn.Close()
-			if err := pool.connReopen(context.Background(), conn, conn.timeUsed); err != nil {
+			if err := pool.connReopen(context.Background(), conn, conn.timeUsed.get()); err != nil {
 				pool.closedConn()
 				return
 			}
@@ -430,6 +429,22 @@ func (pool *ConnPool[C]) put(conn *Pooled[C]) {
 			pool.freshSettingsStack.Store(int64(stack))
 		}
 	}
+}
+
+func (pool *ConnPool[C]) pop(stack *connStack[C]) *Pooled[C] {
+	// retry-loop: pop a connection from the stack and atomically check whether
+	// its timeout has elapsed. If the timeout has elapsed, the borrow will fail,
+	// which means that a background worker has already marked this connection
+	// as stale and is in the process of shutting it down. If we successfully mark
+	// the timeout as borrowed, we know that background workers will not be able
+	// to expire this connection (even if it's still visible to them), so it's
+	// safe to return it
+	for conn, ok := stack.Pop(); ok; conn, ok = stack.Pop() {
+		if conn.timeUsed.borrow() {
+			return conn
+		}
+	}
+	return nil
 }
 
 // closeOnIdleLimitReached closes a connection if the number of idle connections (active - inuse) in the pool
@@ -458,15 +473,15 @@ func (pool *ConnPool[D]) extendedMaxLifetime() time.Duration {
 	return time.Duration(maxLifetime) + time.Duration(extended)
 }
 
-func (pool *ConnPool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Time) error {
+func (pool *ConnPool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Duration) error {
 	var err error
 	dbconn.Conn, err = pool.config.connect(ctx)
 	if err != nil {
 		return err
 	}
 
-	dbconn.timeUsed = now
-	dbconn.timeCreated = now
+	dbconn.timeUsed.set(now)
+	dbconn.timeCreated.set(now)
 	return nil
 }
 
@@ -475,13 +490,14 @@ func (pool *ConnPool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	return &Pooled[C]{
-		timeCreated: now,
-		timeUsed:    now,
-		pool:        pool,
-		Conn:        conn,
-	}, nil
+	pooled := &Pooled[C]{
+		pool: pool,
+		Conn: conn,
+	}
+	now := monotonicNow()
+	pooled.timeUsed.set(now)
+	pooled.timeCreated.set(now)
+	return pooled, nil
 }
 
 func (pool *ConnPool[C]) getFromSettingsStack(setting *Setting) *Pooled[C] {
@@ -499,7 +515,7 @@ func (pool *ConnPool[C]) getFromSettingsStack(setting *Setting) *Pooled[C] {
 
 	for i := uint32(0); i <= stackMask; i++ {
 		pos := (i + start) & stackMask
-		if conn, ok := pool.settings[pos].Pop(); ok {
+		if conn := pool.pop(&pool.settings[pos]); conn != nil {
 			return conn
 		}
 	}
@@ -533,7 +549,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// best case: if there's a connection in the clean stack, return it right away
-	if conn, ok := pool.clean.Pop(); ok {
+	if conn := pool.pop(&pool.clean); conn != nil {
 		pool.borrowed.Add(1)
 		return conn, nil
 	}
@@ -569,7 +585,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 		err = conn.Conn.ResetSetting(ctx)
 		if err != nil {
 			conn.Close()
-			err = pool.connReopen(ctx, conn, time.Now())
+			err = pool.connReopen(ctx, conn, monotonicNow())
 			if err != nil {
 				pool.closedConn()
 				return nil, err
@@ -587,10 +603,10 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 
 	var err error
 	// best case: check if there's a connection in the setting stack where our Setting belongs
-	conn, _ := pool.settings[setting.bucket&stackMask].Pop()
+	conn := pool.pop(&pool.settings[setting.bucket&stackMask])
 	// if there's connection with our setting, try popping a clean connection
 	if conn == nil {
-		conn, _ = pool.clean.Pop()
+		conn = pool.pop(&pool.clean)
 	}
 	// otherwise try opening a brand new connection and we'll apply the setting to it
 	if conn == nil {
@@ -629,7 +645,7 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 			err = conn.Conn.ResetSetting(ctx)
 			if err != nil {
 				conn.Close()
-				err = pool.connReopen(ctx, conn, time.Now())
+				err = pool.connReopen(ctx, conn, monotonicNow())
 				if err != nil {
 					pool.closedConn()
 					return nil, err
@@ -694,7 +710,7 @@ func (pool *ConnPool[C]) setCapacity(ctx context.Context, newcap int64) error {
 		// try closing from connections which are currently idle in the stacks
 		conn := pool.getFromSettingsStack(nil)
 		if conn == nil {
-			conn, _ = pool.clean.Pop()
+			conn = pool.pop(&pool.clean)
 		}
 		if conn == nil {
 			time.Sleep(delay)
@@ -716,21 +732,22 @@ func (pool *ConnPool[C]) closeIdleResources(now time.Time) {
 		return
 	}
 
-	var conns []*Pooled[C]
+	mono := monotonicFromTime(now)
 
 	closeInStack := func(s *connStack[C]) {
-		conns = s.PopAll(conns[:0])
-		slices.Reverse(conns)
-
-		for _, conn := range conns {
-			if conn.timeUsed.Add(timeout).Sub(now) < 0 {
+		// Do a read-only best effort iteration of all the connection in this
+		// stack and atomically attempt to mark them as expired.
+		// Any connections that are marked as expired are _not_ removed from
+		// the stack; it's generally unsafe to remove nodes from the stack
+		// besides the head. When clients pop from the stack, they'll immediately
+		// notice the expired connection and ignore it.
+		// see: timestamp.expired
+		for conn := s.Peek(); conn != nil; conn = conn.next.Load() {
+			if conn.timeUsed.expired(mono, timeout) {
 				pool.Metrics.idleClosed.Add(1)
 				conn.Close()
 				pool.closedConn()
-				continue
 			}
-
-			s.Push(conn)
 		}
 	}
 
