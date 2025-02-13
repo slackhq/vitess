@@ -17,8 +17,7 @@ jobs:
   build:
     timeout-minutes: 60
     name: Run endtoend tests on Cluster (vreplication_migrate_vdiff2_convert_tz)
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: vitess-ubuntu20-16cpu-1
 
     steps:
     - name: Skip CI

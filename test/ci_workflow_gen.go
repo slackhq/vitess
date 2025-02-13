@@ -32,6 +32,7 @@ const (
 	mysql80 mysqlVersion = "mysql80"
 	mysql84 mysqlVersion = "mysql84"
 
+	cores16Runner       = "vitess-ubuntu20-16cpu-1"
 	defaultMySQLVersion = mysql80
 )
 
@@ -171,6 +172,7 @@ type clusterTest struct {
 	EnableBinlogTransactionCompression bool
 	PartialKeyspace                    bool
 	Cores16                            bool
+	Cores16Runner                      string
 }
 
 type vitessTesterTest struct {
@@ -259,6 +261,7 @@ func generateClusterWorkflows(list []string, tpl string) {
 			for _, cores16Cluster := range cores16Clusters {
 				if cores16Cluster == cluster {
 					test.Cores16 = true
+					test.Cores16Runner = cores16Runner
 					break
 				}
 			}

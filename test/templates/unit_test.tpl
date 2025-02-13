@@ -14,8 +14,7 @@ env:
 jobs:
   test:
     name: {{.Name}}
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: {{if .Cores16}}{{ .Cores16Runner }}{{else}}ubuntu-24.04{{end}}
 
     steps:
     - name: Skip CI

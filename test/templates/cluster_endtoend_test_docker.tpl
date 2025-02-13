@@ -6,8 +6,7 @@ permissions: read-all
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: {{if .Cores16}}{{ .Cores16Runner }}{{else}}ubuntu-24.04{{end}}
 
     steps:
     - name: Skip CI
