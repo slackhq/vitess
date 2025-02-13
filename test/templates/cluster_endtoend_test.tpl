@@ -15,7 +15,7 @@ jobs:
   build:
     timeout-minutes: 60
     name: Run endtoend tests on {{.Name}}
-    runs-on: {{if .Cores16}}{{ .Cores16Runner }}{{else}}ubuntu-24.04{{end}}
+    runs-on: {{.RunsOn}}
 
     steps:
     - name: Skip CI
