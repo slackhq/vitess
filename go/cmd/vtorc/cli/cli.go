@@ -69,7 +69,7 @@ func run(cmd *cobra.Command, args []string) {
 	// Log final config values to debug if something goes wrong.
 	config.LogConfigValues()
 	if !config.Config.AllowRecovery {
-		log.Info("--allow-recoveries is set to false, disabling recoveries")
+		log.Info("--allow-recovery is set to 'false', disabling recoveries")
 		if err := logic.DisableRecovery(); err != nil {
 			log.Errorf("failed to disable recoveries: %+v", err)
 			return
