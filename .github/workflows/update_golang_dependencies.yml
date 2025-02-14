@@ -6,7 +6,9 @@ on:
   workflow_dispatch:
 
 permissions: read-all
-
+env:
+  GOPRIVATE: github.com/slackhq/vitess-addons
+  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 jobs:
   update_golang_deps:
     if: github.repository == 'vitessio/vitess'

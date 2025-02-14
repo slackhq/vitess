@@ -8,7 +8,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions: read-all
-
+env:
+  GOPRIVATE: github.com/slackhq/vitess-addons
+  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 jobs:
   upgrade_downgrade_test_e2e:
     timeout-minutes: 60
