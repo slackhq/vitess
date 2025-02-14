@@ -27,6 +27,9 @@ jobs:
         go-version-file: go.mod
         cache: 'false'
 
+    - name: Setup github.com/slackhq/vitess-additions access token
+      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
     - name: Tune the OS
       run: |
         sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"

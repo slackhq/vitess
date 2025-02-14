@@ -29,6 +29,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup github.com/slackhq/vitess-additions access token
+        run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
       - name: Detect new version and update codebase
         env:
           GH_TOKEN: ${{ github.token }}
