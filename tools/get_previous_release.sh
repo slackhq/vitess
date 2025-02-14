@@ -20,5 +20,6 @@
 
 # github.base_ref $1
 
+# Hardcode previous version to be https://github.com/slackhq/vitess/tree/slack-19.0.
 target_release="slack-19.0"
 echo "$target_release"
