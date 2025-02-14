@@ -159,7 +159,7 @@ var (
 )
 
 type unitTest struct {
-	Name, Platform, FileName, Evalengine string
+	Name, RunsOn, Platform, FileName, Evalengine string
 }
 
 type clusterTest struct {
@@ -178,6 +178,7 @@ type clusterTest struct {
 type vitessTesterTest struct {
 	FileName string
 	Name     string
+	RunsOn   string
 	Path     string
 }
 
@@ -234,8 +235,9 @@ func canonnizeList(list []string) []string {
 func generateVitessTesterWorkflows(mp map[string]string, tpl string) {
 	for test, testPath := range mp {
 		tt := &vitessTesterTest{
-			Name: fmt.Sprintf("Vitess Tester (%v)", test),
-			Path: testPath,
+			Name:   fmt.Sprintf("Vitess Tester (%v)", test),
+			RunsOn: defaultRunnerName,
+			Path:   testPath,
 		}
 
 		templateFileName := tpl
@@ -322,6 +324,7 @@ func generateUnitTestWorkflows() {
 		for _, evalengine := range []string{"1", "0"} {
 			test := &unitTest{
 				Name:       fmt.Sprintf("Unit Test (%s%s)", evalengineToString(evalengine), platform),
+				RunsOn:     defaultRunnerName,
 				Platform:   string(platform),
 				Evalengine: evalengine,
 			}
