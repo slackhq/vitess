@@ -10,7 +10,7 @@ env:
   LAUNCHABLE_ORGANIZATION: "vitess"
   LAUNCHABLE_WORKSPACE: "vitess-app"
   GITHUB_PR_HEAD_SHA: "${{`{{ github.event.pull_request.head.sha }}`}}"
-  GOPRIVATE: github.com/slackhq/vitess-addons
+  GOPRIVATE: "github.com/slackhq/vitess-addons"
   GH_ACCESS_TOKEN: "${{`{{ secrets.GH_ACCESS_TOKEN }}`}}"
 {{if .InstallXtraBackup}}
   # This is used if we need to pin the xtrabackup version used in tests.
