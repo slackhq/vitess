@@ -17,8 +17,7 @@ jobs:
   upgrade_downgrade_test:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Online DDL flow
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: vitess-ubuntu20-16cpu-1
 
     steps:
     - name: Skip CI

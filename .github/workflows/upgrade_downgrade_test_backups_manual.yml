@@ -15,8 +15,7 @@ jobs:
   upgrade_downgrade_test_manual:
     timeout-minutes: 40
     name: Run Upgrade Downgrade Test - Backups - Manual
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: vitess-ubuntu20-16cpu-1
 
     steps:
     - name: Skip CI

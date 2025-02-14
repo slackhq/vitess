@@ -5,8 +5,7 @@ jobs:
 
   build:
     name: End-to-End Test (Race)
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: ubuntu-24.04
     steps:
     - name: Skip CI
       run: |
