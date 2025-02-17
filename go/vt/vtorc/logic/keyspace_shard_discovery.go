@@ -149,7 +149,7 @@ func refreshAllShards(ctx context.Context, keyspaceName string) error {
 		log.Error(err)
 		return err
 	}
-	savedShards := make(map[string]bool)
+	savedShards := make(map[string]bool, len(shardInfos))
 	for _, shardInfo := range shardInfos {
 		err = inst.SaveShard(shardInfo)
 		if err != nil {
