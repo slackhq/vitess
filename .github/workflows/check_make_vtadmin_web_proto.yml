@@ -59,7 +59,7 @@ jobs:
       with:
         go-version-file: go.mod
 
-    - name: Setup github.com/slackhq/vitess-additions access token
+    - name: Setup GitHub access token
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.proto_changes == 'true'
       run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 

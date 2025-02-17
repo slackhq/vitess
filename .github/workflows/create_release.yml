@@ -30,7 +30,7 @@ jobs:
         go-version-file: go.mod
         cache: 'false'
 
-    - name: Setup github.com/slackhq/vitess-additions access token
+    - name: Setup GitHub access token
       run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS

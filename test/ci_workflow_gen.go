@@ -54,7 +54,7 @@ const (
 // github.com/org/repo format. This assumes a GitHub PAT token is
 // set as a repo secret named GH_ACCESS_TOKEN. The GitHub PAT must
 // have read access to your vitess fork/repo.
-const goPrivate = ""
+const goPrivate = "github.com/slackhq/vitess-addons"
 
 const (
 	workflowConfigDir = "../.github/workflows"
