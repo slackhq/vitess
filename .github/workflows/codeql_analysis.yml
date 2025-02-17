@@ -13,7 +13,6 @@ permissions: read-all
 
 env:
   GOPRIVATE: "github.com/slackhq/vitess-addons"
-  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 
 jobs:
   analyze:
@@ -41,7 +40,7 @@ jobs:
           go-version-file: go.mod
 
     - name: Setup github.com/slackhq/vitess-additions access token
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
       # Initializes the CodeQL tools for scanning.
       - name: Initialize CodeQL

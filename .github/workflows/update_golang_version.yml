@@ -8,7 +8,6 @@ on:
 permissions: read-all
 env:
   GOPRIVATE: "github.com/slackhq/vitess-addons"
-  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 jobs:
   update_golang_version:
     if: github.repository == 'vitessio/vitess'
@@ -32,7 +31,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Setup github.com/slackhq/vitess-additions access token
-        run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+        run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
       - name: Detect new version and update codebase
         env:

@@ -11,7 +11,6 @@ env:
   LAUNCHABLE_WORKSPACE: "vitess-app"
   GITHUB_PR_HEAD_SHA: "${{`{{ github.event.pull_request.head.sha }}`}}"
   GOPRIVATE: "github.com/slackhq/vitess-addons"
-  GH_ACCESS_TOKEN: "${{`{{ secrets.GH_ACCESS_TOKEN }}`}}"
 {{if .InstallXtraBackup}}
   # This is used if we need to pin the xtrabackup version used in tests.
   # If this is NOT set then the latest version available will be used.
@@ -101,7 +100,7 @@ jobs:
 
     - name: Setup github.com/slackhq/vitess-additions access token
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+      run: git config --global url.https://${{`{{ secrets.GH_ACCESS_TOKEN }}`}}@github.com/.insteadOf https://github.com/
 
     - name: Set up python
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
