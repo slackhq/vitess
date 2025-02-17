@@ -46,7 +46,7 @@ var (
 )
 
 const (
-	cores16RunnerName = "vitess-ubuntu20-16cpu-1"
+	cores16RunnerName = "vitess-ubuntu24-16cpu-1"
 	defaultRunnerName = "ubuntu-24.04"
 )
 

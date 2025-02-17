@@ -8,7 +8,7 @@ jobs:
 
   build:
     name: Local example using ${{ matrix.topo }} on Ubuntu
-    runs-on: vitess-ubuntu20-16cpu-1
+    runs-on: vitess-ubuntu24-16cpu-1
     strategy:
       matrix:
         topo: [consul,etcd,zk2]

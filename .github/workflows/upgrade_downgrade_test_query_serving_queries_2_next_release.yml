@@ -21,7 +21,7 @@ jobs:
   upgrade_downgrade_test:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Query Serving (Queries - 2) Next Release
-    runs-on: vitess-ubuntu20-16cpu-1
+    runs-on: vitess-ubuntu24-16cpu-1
 
     steps:
     - name: Skip CI

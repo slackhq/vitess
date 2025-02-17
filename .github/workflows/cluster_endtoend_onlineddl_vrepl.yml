@@ -19,7 +19,7 @@ jobs:
   build:
     timeout-minutes: 60
     name: Run endtoend tests on Cluster (onlineddl_vrepl)
-    runs-on: vitess-ubuntu20-16cpu-1
+    runs-on: vitess-ubuntu24-16cpu-1
 
     steps:
     - name: Skip CI

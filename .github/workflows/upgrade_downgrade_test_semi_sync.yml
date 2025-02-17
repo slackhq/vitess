@@ -15,7 +15,7 @@ jobs:
   upgrade_downgrade_test_e2e:
     timeout-minutes: 60
     name: Run Semi Sync Upgrade Downgrade Test
-    runs-on: vitess-ubuntu20-16cpu-1
+    runs-on: vitess-ubuntu24-16cpu-1
 
     steps:
       - name: Skip CI
