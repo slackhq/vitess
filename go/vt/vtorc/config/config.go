@@ -47,25 +47,24 @@ const (
 )
 
 var (
-	sqliteDataFile                 = "file::memory:?mode=memory&cache=shared"
-	instancePollTime               = 5 * time.Second
-	snapshotTopologyInterval       = 0 * time.Hour
-	reasonableReplicationLag       = 10 * time.Second
-	auditFileLocation              = ""
-	auditToBackend                 = false
-	auditToSyslog                  = false
-	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
-	allowRecovery                  = true
-	recoveryPeriodBlockDuration    = 30 * time.Second
-	preventCrossCellFailover       = false
-	waitReplicasTimeout            = 30 * time.Second
-	tolerableReplicationLag        = 0 * time.Second
-	topoInformationRefreshDuration = 15 * time.Second
-	recoveryPollDuration           = 1 * time.Second
-	ersEnabled                     = true
-	convertTabletsWithErrantGTIDs  = false
-
-	DiscoveryMaxConcurrency uint = 300 // Number of goroutines doing hosts discovery
+	sqliteDataFile                      = "file::memory:?mode=memory&cache=shared"
+	instancePollTime                    = 5 * time.Second
+	snapshotTopologyInterval            = 0 * time.Hour
+	reasonableReplicationLag            = 10 * time.Second
+	auditFileLocation                   = ""
+	auditToBackend                      = false
+	auditToSyslog                       = false
+	auditPurgeDuration                  = 7 * 24 * time.Hour // Equivalent of 7 days
+	allowRecovery                       = true
+	recoveryPeriodBlockDuration         = 30 * time.Second
+	preventCrossCellFailover            = false
+	waitReplicasTimeout                 = 30 * time.Second
+	tolerableReplicationLag             = 0 * time.Second
+	topoInformationRefreshDuration      = 15 * time.Second
+	recoveryPollDuration                = 1 * time.Second
+	ersEnabled                          = true
+	convertTabletsWithErrantGTIDs       = false
+	discoveryMaxConcurrency        uint = 300 // Number of goroutines doing hosts discovery
 )
 
 // RegisterFlags registers the flags required by VTOrc
@@ -87,7 +86,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&recoveryPollDuration, "recovery-poll-duration", recoveryPollDuration, "Timer duration on which VTOrc polls its database to run a recovery")
 	fs.BoolVar(&ersEnabled, "allow-emergency-reparent", ersEnabled, "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.BoolVar(&convertTabletsWithErrantGTIDs, "change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs, "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
-	fs.UintVar(&DiscoveryMaxConcurrency, "discovery-max-concurrency", DiscoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
+	fs.UintVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 }
 
 // Configuration makes for vtorc configuration input, which can be provided by user via JSON formatted file.
@@ -110,6 +109,7 @@ type Configuration struct {
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
 	AllowRecovery                         bool   // Allow recoveries.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
+	DiscoveryMaxConcurrency               uint   // Number of goroutines dedicated to doing hosts discovery
 }
 
 // ToJSONString will marshal this configuration as JSON
@@ -141,6 +141,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
 	Config.AllowRecovery = allowRecovery
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
+	Config.DiscoveryMaxConcurrency = discoveryMaxConcurrency
 }
 
 // ERSEnabled reports whether VTOrc is allowed to run ERS or not.

@@ -58,6 +58,7 @@ func TestReadTopologyInstanceBufferable(t *testing.T) {
 	}
 	servenv.ParseFlags("vtorc")
 	config.Config.AllowRecovery = true
+	config.Config.DiscoveryMaxConcurrency = 10
 	config.Config.RecoveryPeriodBlockSeconds = 1
 	config.Config.InstancePollSeconds = 1
 	config.MarkConfigurationLoaded()
