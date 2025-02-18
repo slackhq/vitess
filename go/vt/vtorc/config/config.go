@@ -69,6 +69,7 @@ var (
 
 // RegisterFlags registers the flags required by VTOrc
 func RegisterFlags(fs *pflag.FlagSet) {
+	fs.IntVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 	fs.StringVar(&sqliteDataFile, "sqlite-data-file", sqliteDataFile, "SQLite Datafile to use as VTOrc's database")
 	fs.DurationVar(&instancePollTime, "instance-poll-time", instancePollTime, "Timer duration on which VTOrc refreshes MySQL information")
 	fs.DurationVar(&snapshotTopologyInterval, "snapshot-topology-interval", snapshotTopologyInterval, "Timer duration on which VTOrc takes a snapshot of the current MySQL information it has in the database. Should be in multiple of hours")
@@ -86,7 +87,6 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&recoveryPollDuration, "recovery-poll-duration", recoveryPollDuration, "Timer duration on which VTOrc polls its database to run a recovery")
 	fs.BoolVar(&ersEnabled, "allow-emergency-reparent", ersEnabled, "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.BoolVar(&convertTabletsWithErrantGTIDs, "change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs, "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
-	fs.IntVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 }
 
 // Configuration makes for vtorc configuration input, which can be provided by user via JSON formatted file.
