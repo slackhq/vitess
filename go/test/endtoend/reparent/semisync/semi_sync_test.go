@@ -25,13 +25,14 @@ import (
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/test/endtoend/cluster"
 	"vitess.io/vitess/go/test/endtoend/reparent/utils"
+	e2eutils "vitess.io/vitess/go/test/endtoend/utils"
 )
 
 func TestSemiSyncUpgradeDowngrade(t *testing.T) {
-	if utils.BinaryIsAtLeastAtVersion(20, "vttablet") {
+	if e2eutils.BinaryIsAtLeastAtVersion(20, "vttablet") {
 		t.Skip("We only want to run this test for >= v20 vttablet")
 	}
-	if utils.BinaryIsAtLeastAtVersion(20, "vttabletold") {
+	if e2eutils.BinaryIsAtLeastAtVersion(20, "vttabletold") {
 		t.Skip("We only want to run this test for >= v20 vttablet")
 	}
 
