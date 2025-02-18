@@ -28,6 +28,13 @@ import (
 )
 
 func TestSemiSyncUpgradeDowngrade(t *testing.T) {
+	if utils.BinaryIsAtLeastAtVersion(20, "vttablet") {
+		t.Skip("We only want to run this test for >= v20 vttablet")
+	}
+	if utils.BinaryIsAtLeastAtVersion(20, "vttabletold") {
+		t.Skip("We only want to run this test for >= v20 vttablet")
+	}
+
 	ver, err := cluster.GetMajorVersion("vtgate")
 	require.NoError(t, err)
 	if ver != 21 {
