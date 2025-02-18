@@ -78,7 +78,7 @@ jobs:
 
     - name: Setup github.com/slackhq/vitess-addons access token
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+      run: git config --global url.ssh://org-6911160@github.com/slackhq/.insteadOf https://github.com/slackhq/
 
     - name: Set up python
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'

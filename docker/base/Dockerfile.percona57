@@ -42,7 +42,7 @@ USER vitess
 
 # Allow checkout of github.com/slackhq/vitess-addons (private repo)
 ENV GOPRIVATE=github.com/slackhq/vitess-addons
-RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+RUN git config --global url.ssh://org-6911160@github.com/slackhq/.insteadOf https://github.com/slackhq/
 
 # Build Vitess
 RUN make build

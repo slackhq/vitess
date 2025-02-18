@@ -177,7 +177,7 @@ bashcmd=$(append_cmd "$bashcmd" "export EXTRA_BIN=/tmp/bin")
 
 # Setup git for private go modules
 bashcmd=$(append_cmd "$bashcmd" "export GOPRIVATE=$GOPRIVATE")
-bashcmd=$(append_cmd "$bashcmd" "git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/")
+bashcmd=$(append_cmd "$bashcmd" "git config --global url.ssh://org-6911160@github.com/slackhq/.insteadOf https://github.com/slackhq/")
 
 bashcmd=$(append_cmd "$bashcmd" "mkdir -p dist; mkdir -p bin; mkdir -p lib; mkdir -p vthook")
 bashcmd=$(append_cmd "$bashcmd" "rm -rf /vt/dist; ln -s /vt/src/vitess.io/vitess/dist /vt/dist")
