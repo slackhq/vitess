@@ -94,6 +94,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 // strictly expected from user.
 // TODO(sougou): change this to yaml parsing, and possible merge with tabletenv.
 type Configuration struct {
+	DiscoveryMaxConcurrency               uint   // Number of goroutines dedicated to doing hosts discovery.
 	SQLite3DataFile                       string // full path to sqlite3 datafile
 	InstancePollSeconds                   uint   // Number of seconds between instance reads
 	SnapshotTopologiesIntervalHours       uint   // Interval in hour between snapshot-topologies invocation. Default: 0 (disabled)
@@ -109,7 +110,6 @@ type Configuration struct {
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
 	AllowRecovery                         bool   // Allow recoveries.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
-	DiscoveryMaxConcurrency               uint   // Number of goroutines dedicated to doing hosts discovery
 }
 
 // ToJSONString will marshal this configuration as JSON
@@ -125,6 +125,7 @@ var readFileNames []string
 // UpdateConfigValuesFromFlags is used to update the config values from the flags defined.
 // This is done before we read any configuration files from the user. So the config files take precedence.
 func UpdateConfigValuesFromFlags() {
+	Config.DiscoveryMaxConcurrency = discoveryMaxConcurrency
 	Config.SQLite3DataFile = sqliteDataFile
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
@@ -141,7 +142,6 @@ func UpdateConfigValuesFromFlags() {
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
 	Config.AllowRecovery = allowRecovery
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
-	Config.DiscoveryMaxConcurrency = discoveryMaxConcurrency
 }
 
 // ERSEnabled reports whether VTOrc is allowed to run ERS or not.
@@ -172,6 +172,7 @@ func LogConfigValues() {
 
 func newConfiguration() *Configuration {
 	return &Configuration{
+		DiscoveryMaxConcurrency:               300,
 		SQLite3DataFile:                       "file::memory:?mode=memory&cache=shared",
 		InstancePollSeconds:                   5,
 		SnapshotTopologiesIntervalHours:       0,
