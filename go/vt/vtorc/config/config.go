@@ -47,6 +47,7 @@ const (
 )
 
 var (
+	discoveryMaxConcurrency        uint = 300
 	sqliteDataFile                      = "file::memory:?mode=memory&cache=shared"
 	instancePollTime                    = 5 * time.Second
 	snapshotTopologyInterval            = 0 * time.Hour
@@ -64,7 +65,6 @@ var (
 	recoveryPollDuration                = 1 * time.Second
 	ersEnabled                          = true
 	convertTabletsWithErrantGTIDs       = false
-	discoveryMaxConcurrency        uint = 300 // Number of goroutines doing hosts discovery
 )
 
 // RegisterFlags registers the flags required by VTOrc
