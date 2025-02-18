@@ -47,24 +47,24 @@ const (
 )
 
 var (
-	discoveryMaxConcurrency        uint = 300
-	sqliteDataFile                      = "file::memory:?mode=memory&cache=shared"
-	instancePollTime                    = 5 * time.Second
-	snapshotTopologyInterval            = 0 * time.Hour
-	reasonableReplicationLag            = 10 * time.Second
-	auditFileLocation                   = ""
-	auditToBackend                      = false
-	auditToSyslog                       = false
-	auditPurgeDuration                  = 7 * 24 * time.Hour // Equivalent of 7 days
-	allowRecovery                       = true
-	recoveryPeriodBlockDuration         = 30 * time.Second
-	preventCrossCellFailover            = false
-	waitReplicasTimeout                 = 30 * time.Second
-	tolerableReplicationLag             = 0 * time.Second
-	topoInformationRefreshDuration      = 15 * time.Second
-	recoveryPollDuration                = 1 * time.Second
-	ersEnabled                          = true
-	convertTabletsWithErrantGTIDs       = false
+	discoveryMaxConcurrency        = 300
+	sqliteDataFile                 = "file::memory:?mode=memory&cache=shared"
+	instancePollTime               = 5 * time.Second
+	snapshotTopologyInterval       = 0 * time.Hour
+	reasonableReplicationLag       = 10 * time.Second
+	auditFileLocation              = ""
+	auditToBackend                 = false
+	auditToSyslog                  = false
+	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
+	allowRecovery                  = true
+	recoveryPeriodBlockDuration    = 30 * time.Second
+	preventCrossCellFailover       = false
+	waitReplicasTimeout            = 30 * time.Second
+	tolerableReplicationLag        = 0 * time.Second
+	topoInformationRefreshDuration = 15 * time.Second
+	recoveryPollDuration           = 1 * time.Second
+	ersEnabled                     = true
+	convertTabletsWithErrantGTIDs  = false
 )
 
 // RegisterFlags registers the flags required by VTOrc
@@ -86,7 +86,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&recoveryPollDuration, "recovery-poll-duration", recoveryPollDuration, "Timer duration on which VTOrc polls its database to run a recovery")
 	fs.BoolVar(&ersEnabled, "allow-emergency-reparent", ersEnabled, "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.BoolVar(&convertTabletsWithErrantGTIDs, "change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs, "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
-	fs.UintVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
+	fs.IntVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 }
 
 // Configuration makes for vtorc configuration input, which can be provided by user via JSON formatted file.
@@ -125,7 +125,7 @@ var readFileNames []string
 // UpdateConfigValuesFromFlags is used to update the config values from the flags defined.
 // This is done before we read any configuration files from the user. So the config files take precedence.
 func UpdateConfigValuesFromFlags() {
-	Config.DiscoveryMaxConcurrency = discoveryMaxConcurrency
+	Config.DiscoveryMaxConcurrency = uint(discoveryMaxConcurrency)
 	Config.SQLite3DataFile = sqliteDataFile
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
