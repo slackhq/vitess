@@ -39,7 +39,6 @@ const (
 	AuditPageSize                         = 20
 	DebugMetricsIntervalSeconds           = 10
 	StaleInstanceCoordinatesExpireSeconds = 60
-	DiscoveryMaxConcurrency               = 300 // Number of goroutines doing hosts discovery
 	DiscoveryQueueCapacity                = 100000
 	DiscoveryQueueMaxStatisticsSize       = 120
 	DiscoveryCollectionRetentionSeconds   = 120
@@ -65,6 +64,8 @@ var (
 	recoveryPollDuration           = 1 * time.Second
 	ersEnabled                     = true
 	convertTabletsWithErrantGTIDs  = false
+
+	DiscoveryMaxConcurrency uint = 300 // Number of goroutines doing hosts discovery
 )
 
 // RegisterFlags registers the flags required by VTOrc
@@ -86,6 +87,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&recoveryPollDuration, "recovery-poll-duration", recoveryPollDuration, "Timer duration on which VTOrc polls its database to run a recovery")
 	fs.BoolVar(&ersEnabled, "allow-emergency-reparent", ersEnabled, "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.BoolVar(&convertTabletsWithErrantGTIDs, "change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs, "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
+	fs.UintVar(&DiscoveryMaxConcurrency, "discovery-max-concurrency", DiscoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 }
 
 // Configuration makes for vtorc configuration input, which can be provided by user via JSON formatted file.
