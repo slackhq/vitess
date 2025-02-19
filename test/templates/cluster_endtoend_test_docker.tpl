@@ -3,10 +3,13 @@ on: [push, pull_request]
 
 permissions: read-all
 
+env:
+{{if .GoPrivate}}  GOPRIVATE: "{{.GoPrivate}}"{{end}}
+
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    runs-on: {{if .Cores16}}gh-hosted-runners-16cores-1-24.04{{else}}ubuntu-24.04{{end}}
+    runs-on: {{.RunsOn}}
 
     steps:
     - name: Skip CI
@@ -20,7 +23,7 @@ jobs:
       id: skip-workflow
       run: |
         skip='false'
-        if [[ "{{"${{github.event.pull_request}}"}}" ==  "" ]] && [[ "{{"${{github.ref}}"}}" != "refs/heads/main" ]] && [[ ! "{{"${{github.ref}}"}}" =~ ^refs/heads/release-[0-9]+\.[0-9]$ ]] && [[ ! "{{"${{github.ref}}"}}" =~ "refs/tags/.*" ]]; then
+        if [[ "{{"${{github.event.pull_request}}"}}" ==  "" ]] && [[ "{{"${{github.ref}}"}}" != "refs/heads/main" ]] && [[ ! "{{"${{github.ref}}"}}" =~ ^refs/heads/slack-[0-9]+\.[0-9]$ ]] && [[ ! "{{"${{github.ref}}"}}" =~ "refs/tags/.*" ]]; then
           skip='true'
         fi
         echo Skip ${skip}
@@ -60,6 +63,12 @@ jobs:
       uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
       with:
         go-version-file: go.mod
+
+{{if .GoPrivate}}
+    - name: Setup GitHub access token
+      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://${{`{{ secrets.GH_ACCESS_TOKEN }}`}}@github.com/.insteadOf https://github.com/
+{{end}}
 
     - name: Tune the OS
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'

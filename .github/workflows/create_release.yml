@@ -11,6 +11,9 @@ permissions:
   contents: write
   actions: read
 
+env:
+  GOPRIVATE: "github.com/slackhq/vitess-addons"
+
 jobs:
   build:
     name: Create Release
@@ -26,6 +29,9 @@ jobs:
       with:
         go-version-file: go.mod
         cache: 'false'
+
+    - name: Setup GitHub access token
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS
       run: |
