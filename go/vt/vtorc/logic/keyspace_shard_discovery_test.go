@@ -321,10 +321,7 @@ func TestRefreshAllShards(t *testing.T) {
 
 	ctx := context.Background()
 	ts = memorytopo.NewServer(ctx, "zone1")
-	require.NoError(t, ts.CreateKeyspace(ctx, "ks1", &topodatapb.Keyspace{
-		KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
-		DurabilityPolicy: policy.DurabilityNone,
-	}))
+	require.NoError(t, ts.CreateKeyspace(ctx, "ks1", keyspaceDurabilityNone))
 
 	shards := []string{"-80", "80-"}
 	for _, shard := range shards {
