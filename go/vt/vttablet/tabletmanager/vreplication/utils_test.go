@@ -24,6 +24,7 @@ import (
 
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/vt/vterrors"
+	vttablet "vitess.io/vitess/go/vt/vttablet/common"
 
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
