@@ -41826,6 +41826,9 @@ export namespace replicationdata {
 
         /** FullStatus super_read_only */
         super_read_only?: (boolean|null);
+
+        /** FullStatus source_alias */
+        source_alias?: (topodata.ITabletAlias|null);
     }
 
     /** Represents a FullStatus. */
@@ -41899,6 +41902,9 @@ export namespace replicationdata {
 
         /** FullStatus super_read_only. */
         public super_read_only: boolean;
+
+        /** FullStatus source_alias. */
+        public source_alias?: (topodata.ITabletAlias|null);
 
         /**
          * Creates a new FullStatus instance using the specified properties.
