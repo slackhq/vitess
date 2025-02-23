@@ -198,7 +198,7 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 		goto Cleanup
 	}
 
-	fs, err = fullStatus(tabletAlias)
+	fs, err = fullStatus(tablet)
 	if err != nil {
 		goto Cleanup
 	}
