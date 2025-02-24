@@ -550,7 +550,7 @@ func (vrw *VReplicationWorkflow) canSwitch(keyspace, workflowName string) (reaso
 			case binlogdatapb.VReplicationWorkflowState_Copying.String():
 				return cannotSwitchCopyIncomplete, nil
 			case binlogdatapb.VReplicationWorkflowState_Error.String():
-				return cannotSwitchError, nil
+				return fmt.Sprintf("%s: %s", cannotSwitchError, st.Message), nil
 			}
 		}
 	}
