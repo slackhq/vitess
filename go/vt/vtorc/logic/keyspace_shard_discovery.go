@@ -18,9 +18,9 @@ package logic
 
 import (
 	"context"
-	"sync"
 
 	"golang.org/x/exp/maps"
+	"golang.org/x/sync/errgroup"
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/key"
