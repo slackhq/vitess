@@ -162,6 +162,12 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 	// Semi sync settings - "show status like 'rpl_semi_sync_%'
 	semiSyncTimeout, semiSyncNumReplicas := tm.MysqlDaemon.SemiSyncSettings()
 
+	// Replication source tablet alias
+	sourceAlias, err := tm.getReplicationSourceAlias(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return &replicationdatapb.FullStatus{
 		ServerId:                    serverID,
 		ServerUuid:                  serverUUID,
@@ -184,6 +190,7 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 		SemiSyncPrimaryTimeout:      semiSyncTimeout,
 		SemiSyncWaitForReplicaCount: semiSyncNumReplicas,
 		SuperReadOnly:               superReadOnly,
+		SourceAlias:                 sourceAlias,
 	}, nil
 }
 
@@ -688,6 +695,14 @@ func (tm *TabletManager) SetReplicationSource(ctx context.Context, parentAlias *
 	return tm.setReplicationSourceLocked(ctx, parentAlias, timeCreatedNS, waitPosition, forceStartReplication, semiSyncAction)
 }
 
+func (tm *TabletManager) getReplicationSourceAlias(ctx context.Context) (*topodatapb.TabletAlias, error) {
+	if err := tm.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer tm.unlock()
+	return tm.sourceAlias, nil
+}
+
 func (tm *TabletManager) setReplicationSourceSemiSyncNoAction(ctx context.Context, parentAlias *topodatapb.TabletAlias, timeCreatedNS int64, waitPosition string, forceStartReplication bool) error {
 	log.Infof("SetReplicationSource: parent: %v  position: %v force: %v", parentAlias, waitPosition, forceStartReplication)
 	if err := tm.lock(ctx); err != nil {
@@ -805,6 +820,9 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 			}
 		}
 	}
+
+	// Store the current primary alias
+	tm.sourceAlias = parentAlias
 
 	return nil
 }

@@ -57,6 +57,7 @@ CREATE TABLE database_instance (
 	log_replica_updates tinyint NOT NULL,
 	binary_log_file varchar(128) NOT NULL,
 	binary_log_pos bigint NOT NULL,
+	source_alias varchar(256) NOT NULL,
 	source_host varchar(128) NOT NULL,
 	source_port smallint NOT NULL,
 	replica_sql_running tinyint NOT NULL,

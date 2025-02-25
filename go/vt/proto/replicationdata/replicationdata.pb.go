@@ -28,6 +28,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+	topodata "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 const (
@@ -429,27 +430,28 @@ type FullStatus struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ServerId                    uint32         `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
-	ServerUuid                  string         `protobuf:"bytes,2,opt,name=server_uuid,json=serverUuid,proto3" json:"server_uuid,omitempty"`
-	ReplicationStatus           *Status        `protobuf:"bytes,3,opt,name=replication_status,json=replicationStatus,proto3" json:"replication_status,omitempty"`
-	PrimaryStatus               *PrimaryStatus `protobuf:"bytes,4,opt,name=primary_status,json=primaryStatus,proto3" json:"primary_status,omitempty"`
-	GtidPurged                  string         `protobuf:"bytes,5,opt,name=gtid_purged,json=gtidPurged,proto3" json:"gtid_purged,omitempty"`
-	Version                     string         `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
-	VersionComment              string         `protobuf:"bytes,7,opt,name=version_comment,json=versionComment,proto3" json:"version_comment,omitempty"`
-	ReadOnly                    bool           `protobuf:"varint,8,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
-	GtidMode                    string         `protobuf:"bytes,9,opt,name=gtid_mode,json=gtidMode,proto3" json:"gtid_mode,omitempty"`
-	BinlogFormat                string         `protobuf:"bytes,10,opt,name=binlog_format,json=binlogFormat,proto3" json:"binlog_format,omitempty"`
-	BinlogRowImage              string         `protobuf:"bytes,11,opt,name=binlog_row_image,json=binlogRowImage,proto3" json:"binlog_row_image,omitempty"`
-	LogBinEnabled               bool           `protobuf:"varint,12,opt,name=log_bin_enabled,json=logBinEnabled,proto3" json:"log_bin_enabled,omitempty"`
-	LogReplicaUpdates           bool           `protobuf:"varint,13,opt,name=log_replica_updates,json=logReplicaUpdates,proto3" json:"log_replica_updates,omitempty"`
-	SemiSyncPrimaryEnabled      bool           `protobuf:"varint,14,opt,name=semi_sync_primary_enabled,json=semiSyncPrimaryEnabled,proto3" json:"semi_sync_primary_enabled,omitempty"`
-	SemiSyncReplicaEnabled      bool           `protobuf:"varint,15,opt,name=semi_sync_replica_enabled,json=semiSyncReplicaEnabled,proto3" json:"semi_sync_replica_enabled,omitempty"`
-	SemiSyncPrimaryStatus       bool           `protobuf:"varint,16,opt,name=semi_sync_primary_status,json=semiSyncPrimaryStatus,proto3" json:"semi_sync_primary_status,omitempty"`
-	SemiSyncReplicaStatus       bool           `protobuf:"varint,17,opt,name=semi_sync_replica_status,json=semiSyncReplicaStatus,proto3" json:"semi_sync_replica_status,omitempty"`
-	SemiSyncPrimaryClients      uint32         `protobuf:"varint,18,opt,name=semi_sync_primary_clients,json=semiSyncPrimaryClients,proto3" json:"semi_sync_primary_clients,omitempty"`
-	SemiSyncPrimaryTimeout      uint64         `protobuf:"varint,19,opt,name=semi_sync_primary_timeout,json=semiSyncPrimaryTimeout,proto3" json:"semi_sync_primary_timeout,omitempty"`
-	SemiSyncWaitForReplicaCount uint32         `protobuf:"varint,20,opt,name=semi_sync_wait_for_replica_count,json=semiSyncWaitForReplicaCount,proto3" json:"semi_sync_wait_for_replica_count,omitempty"`
-	SuperReadOnly               bool           `protobuf:"varint,21,opt,name=super_read_only,json=superReadOnly,proto3" json:"super_read_only,omitempty"`
+	ServerId                    uint32                `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerUuid                  string                `protobuf:"bytes,2,opt,name=server_uuid,json=serverUuid,proto3" json:"server_uuid,omitempty"`
+	ReplicationStatus           *Status               `protobuf:"bytes,3,opt,name=replication_status,json=replicationStatus,proto3" json:"replication_status,omitempty"`
+	PrimaryStatus               *PrimaryStatus        `protobuf:"bytes,4,opt,name=primary_status,json=primaryStatus,proto3" json:"primary_status,omitempty"`
+	GtidPurged                  string                `protobuf:"bytes,5,opt,name=gtid_purged,json=gtidPurged,proto3" json:"gtid_purged,omitempty"`
+	Version                     string                `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
+	VersionComment              string                `protobuf:"bytes,7,opt,name=version_comment,json=versionComment,proto3" json:"version_comment,omitempty"`
+	ReadOnly                    bool                  `protobuf:"varint,8,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	GtidMode                    string                `protobuf:"bytes,9,opt,name=gtid_mode,json=gtidMode,proto3" json:"gtid_mode,omitempty"`
+	BinlogFormat                string                `protobuf:"bytes,10,opt,name=binlog_format,json=binlogFormat,proto3" json:"binlog_format,omitempty"`
+	BinlogRowImage              string                `protobuf:"bytes,11,opt,name=binlog_row_image,json=binlogRowImage,proto3" json:"binlog_row_image,omitempty"`
+	LogBinEnabled               bool                  `protobuf:"varint,12,opt,name=log_bin_enabled,json=logBinEnabled,proto3" json:"log_bin_enabled,omitempty"`
+	LogReplicaUpdates           bool                  `protobuf:"varint,13,opt,name=log_replica_updates,json=logReplicaUpdates,proto3" json:"log_replica_updates,omitempty"`
+	SemiSyncPrimaryEnabled      bool                  `protobuf:"varint,14,opt,name=semi_sync_primary_enabled,json=semiSyncPrimaryEnabled,proto3" json:"semi_sync_primary_enabled,omitempty"`
+	SemiSyncReplicaEnabled      bool                  `protobuf:"varint,15,opt,name=semi_sync_replica_enabled,json=semiSyncReplicaEnabled,proto3" json:"semi_sync_replica_enabled,omitempty"`
+	SemiSyncPrimaryStatus       bool                  `protobuf:"varint,16,opt,name=semi_sync_primary_status,json=semiSyncPrimaryStatus,proto3" json:"semi_sync_primary_status,omitempty"`
+	SemiSyncReplicaStatus       bool                  `protobuf:"varint,17,opt,name=semi_sync_replica_status,json=semiSyncReplicaStatus,proto3" json:"semi_sync_replica_status,omitempty"`
+	SemiSyncPrimaryClients      uint32                `protobuf:"varint,18,opt,name=semi_sync_primary_clients,json=semiSyncPrimaryClients,proto3" json:"semi_sync_primary_clients,omitempty"`
+	SemiSyncPrimaryTimeout      uint64                `protobuf:"varint,19,opt,name=semi_sync_primary_timeout,json=semiSyncPrimaryTimeout,proto3" json:"semi_sync_primary_timeout,omitempty"`
+	SemiSyncWaitForReplicaCount uint32                `protobuf:"varint,20,opt,name=semi_sync_wait_for_replica_count,json=semiSyncWaitForReplicaCount,proto3" json:"semi_sync_wait_for_replica_count,omitempty"`
+	SuperReadOnly               bool                  `protobuf:"varint,21,opt,name=super_read_only,json=superReadOnly,proto3" json:"super_read_only,omitempty"`
+	SourceAlias                 *topodata.TabletAlias `protobuf:"bytes,24,opt,name=source_alias,json=sourceAlias,proto3" json:"source_alias,omitempty"`
 }
 
 func (x *FullStatus) Reset() {
@@ -631,12 +633,20 @@ func (x *FullStatus) GetSuperReadOnly() bool {
 	return false
 }
 
+func (x *FullStatus) GetSourceAlias() *topodata.TabletAlias {
+	if x != nil {
+		return x.SourceAlias
+	}
+	return nil
+}
+
 var File_replicationdata_proto protoreflect.FileDescriptor
 
 var file_replicationdata_proto_rawDesc = []byte{
 	0x0a, 0x15, 0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x64, 0x61, 0x74,
 	0x61, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0f, 0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x64, 0x61, 0x74, 0x61, 0x22, 0xbd, 0x07, 0x0a, 0x06, 0x53, 0x74, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x64, 0x61, 0x74, 0x61, 0x1a, 0x0e, 0x74, 0x6f, 0x70, 0x6f, 0x64, 0x61,
+	0x74, 0x61, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0xbd, 0x07, 0x0a, 0x06, 0x53, 0x74, 0x61,
 	0x74, 0x75, 0x73, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x18,
 	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x12,
 	0x36, 0x0a, 0x17, 0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x6c,
@@ -709,7 +719,7 @@ var file_replicationdata_proto_rawDesc = []byte{
 	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x23,
 	0x0a, 0x0d, 0x66, 0x69, 0x6c, 0x65, 0x5f, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x18,
 	0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x66, 0x69, 0x6c, 0x65, 0x50, 0x6f, 0x73, 0x69, 0x74,
-	0x69, 0x6f, 0x6e, 0x22, 0xeb, 0x07, 0x0a, 0x0a, 0x46, 0x75, 0x6c, 0x6c, 0x53, 0x74, 0x61, 0x74,
+	0x69, 0x6f, 0x6e, 0x22, 0xa5, 0x08, 0x0a, 0x0a, 0x46, 0x75, 0x6c, 0x6c, 0x53, 0x74, 0x61, 0x74,
 	0x75, 0x73, 0x12, 0x1b, 0x0a, 0x09, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x5f, 0x69, 0x64, 0x18,
 	0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x08, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x49, 0x64, 0x12,
 	0x1f, 0x0a, 0x0b, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x5f, 0x75, 0x75, 0x69, 0x64, 0x18, 0x02,
@@ -772,14 +782,17 @@ var file_replicationdata_proto_rawDesc = []byte{
 	0x6c, 0x69, 0x63, 0x61, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x26, 0x0a, 0x0f, 0x73, 0x75, 0x70,
 	0x65, 0x72, 0x5f, 0x72, 0x65, 0x61, 0x64, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x15, 0x20, 0x01,
 	0x28, 0x08, 0x52, 0x0d, 0x73, 0x75, 0x70, 0x65, 0x72, 0x52, 0x65, 0x61, 0x64, 0x4f, 0x6e, 0x6c,
-	0x79, 0x2a, 0x3b, 0x0a, 0x13, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x4d, 0x6f, 0x64, 0x65, 0x12, 0x12, 0x0a, 0x0e, 0x49, 0x4f, 0x41, 0x4e,
-	0x44, 0x53, 0x51, 0x4c, 0x54, 0x48, 0x52, 0x45, 0x41, 0x44, 0x10, 0x00, 0x12, 0x10, 0x0a, 0x0c,
-	0x49, 0x4f, 0x54, 0x48, 0x52, 0x45, 0x41, 0x44, 0x4f, 0x4e, 0x4c, 0x59, 0x10, 0x01, 0x42, 0x2e,
-	0x5a, 0x2c, 0x76, 0x69, 0x74, 0x65, 0x73, 0x73, 0x2e, 0x69, 0x6f, 0x2f, 0x76, 0x69, 0x74, 0x65,
-	0x73, 0x73, 0x2f, 0x67, 0x6f, 0x2f, 0x76, 0x74, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x72,
-	0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x64, 0x61, 0x74, 0x61, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x79, 0x12, 0x38, 0x0a, 0x0c, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x61, 0x6c, 0x69, 0x61,
+	0x73, 0x18, 0x18, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x74, 0x6f, 0x70, 0x6f, 0x64, 0x61,
+	0x74, 0x61, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x41, 0x6c, 0x69, 0x61, 0x73, 0x52, 0x0b,
+	0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x41, 0x6c, 0x69, 0x61, 0x73, 0x2a, 0x3b, 0x0a, 0x13, 0x53,
+	0x74, 0x6f, 0x70, 0x52, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x4d, 0x6f,
+	0x64, 0x65, 0x12, 0x12, 0x0a, 0x0e, 0x49, 0x4f, 0x41, 0x4e, 0x44, 0x53, 0x51, 0x4c, 0x54, 0x48,
+	0x52, 0x45, 0x41, 0x44, 0x10, 0x00, 0x12, 0x10, 0x0a, 0x0c, 0x49, 0x4f, 0x54, 0x48, 0x52, 0x45,
+	0x41, 0x44, 0x4f, 0x4e, 0x4c, 0x59, 0x10, 0x01, 0x42, 0x2e, 0x5a, 0x2c, 0x76, 0x69, 0x74, 0x65,
+	0x73, 0x73, 0x2e, 0x69, 0x6f, 0x2f, 0x76, 0x69, 0x74, 0x65, 0x73, 0x73, 0x2f, 0x67, 0x6f, 0x2f,
+	0x76, 0x74, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x64, 0x61, 0x74, 0x61, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -802,17 +815,19 @@ var file_replicationdata_proto_goTypes = []interface{}{
 	(*StopReplicationStatus)(nil), // 2: replicationdata.StopReplicationStatus
 	(*PrimaryStatus)(nil),         // 3: replicationdata.PrimaryStatus
 	(*FullStatus)(nil),            // 4: replicationdata.FullStatus
+	(*topodata.TabletAlias)(nil),  // 5: topodata.TabletAlias
 }
 var file_replicationdata_proto_depIdxs = []int32{
 	1, // 0: replicationdata.StopReplicationStatus.before:type_name -> replicationdata.Status
 	1, // 1: replicationdata.StopReplicationStatus.after:type_name -> replicationdata.Status
 	1, // 2: replicationdata.FullStatus.replication_status:type_name -> replicationdata.Status
 	3, // 3: replicationdata.FullStatus.primary_status:type_name -> replicationdata.PrimaryStatus
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 4: replicationdata.FullStatus.source_alias:type_name -> topodata.TabletAlias
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_replicationdata_proto_init() }
