@@ -39,7 +39,6 @@ const (
 	AuditPageSize                         = 20
 	DebugMetricsIntervalSeconds           = 10
 	StaleInstanceCoordinatesExpireSeconds = 60
-	DiscoveryMaxConcurrency               = 300 // Number of goroutines doing hosts discovery
 	DiscoveryQueueCapacity                = 100000
 	DiscoveryQueueMaxStatisticsSize       = 120
 	DiscoveryCollectionRetentionSeconds   = 120
@@ -48,6 +47,7 @@ const (
 )
 
 var (
+	discoveryMaxConcurrency        = 300
 	sqliteDataFile                 = "file::memory:?mode=memory&cache=shared"
 	instancePollTime               = 5 * time.Second
 	snapshotTopologyInterval       = 0 * time.Hour
@@ -56,6 +56,7 @@ var (
 	auditToBackend                 = false
 	auditToSyslog                  = false
 	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
+	allowRecovery                  = true
 	recoveryPeriodBlockDuration    = 30 * time.Second
 	preventCrossCellFailover       = false
 	waitReplicasTimeout            = 30 * time.Second
@@ -68,6 +69,7 @@ var (
 
 // RegisterFlags registers the flags required by VTOrc
 func RegisterFlags(fs *pflag.FlagSet) {
+	fs.IntVar(&discoveryMaxConcurrency, "discovery-max-concurrency", discoveryMaxConcurrency, "Number of goroutines dedicated to doing hosts discovery")
 	fs.StringVar(&sqliteDataFile, "sqlite-data-file", sqliteDataFile, "SQLite Datafile to use as VTOrc's database")
 	fs.DurationVar(&instancePollTime, "instance-poll-time", instancePollTime, "Timer duration on which VTOrc refreshes MySQL information")
 	fs.DurationVar(&snapshotTopologyInterval, "snapshot-topology-interval", snapshotTopologyInterval, "Timer duration on which VTOrc takes a snapshot of the current MySQL information it has in the database. Should be in multiple of hours")
@@ -76,6 +78,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&auditToBackend, "audit-to-backend", auditToBackend, "Whether to store the audit log in the VTOrc database")
 	fs.BoolVar(&auditToSyslog, "audit-to-syslog", auditToSyslog, "Whether to store the audit log in the syslog")
 	fs.DurationVar(&auditPurgeDuration, "audit-purge-duration", auditPurgeDuration, "Duration for which audit logs are held before being purged. Should be in multiples of days")
+	fs.BoolVar(&allowRecovery, "allow-recovery", allowRecovery, "Allow recovery actions")
 	fs.DurationVar(&recoveryPeriodBlockDuration, "recovery-period-block-duration", recoveryPeriodBlockDuration, "Duration for which a new recovery is blocked on an instance after running a recovery")
 	fs.BoolVar(&preventCrossCellFailover, "prevent-cross-cell-failover", preventCrossCellFailover, "Prevent VTOrc from promoting a primary in a different cell than the current primary in case of a failover")
 	fs.DurationVar(&waitReplicasTimeout, "wait-replicas-timeout", waitReplicasTimeout, "Duration for which to wait for replica's to respond when issuing RPCs")
@@ -91,6 +94,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 // strictly expected from user.
 // TODO(sougou): change this to yaml parsing, and possible merge with tabletenv.
 type Configuration struct {
+	DiscoveryMaxConcurrency               uint   // Number of goroutines dedicated to doing hosts discovery.
 	SQLite3DataFile                       string // full path to sqlite3 datafile
 	InstancePollSeconds                   uint   // Number of seconds between instance reads
 	SnapshotTopologiesIntervalHours       uint   // Interval in hour between snapshot-topologies invocation. Default: 0 (disabled)
@@ -104,6 +108,7 @@ type Configuration struct {
 	WaitReplicasTimeoutSeconds            int    // Timeout on amount of time to wait for the replicas in case of ERS. Should be a small value because we should fail-fast. Should not be larger than LockTimeout since that is the total time we use for an ERS.
 	TolerableReplicationLagSeconds        int    // Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS.
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
+	AllowRecovery                         bool   // Allow recoveries.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
 }
 
@@ -120,6 +125,7 @@ var readFileNames []string
 // UpdateConfigValuesFromFlags is used to update the config values from the flags defined.
 // This is done before we read any configuration files from the user. So the config files take precedence.
 func UpdateConfigValuesFromFlags() {
+	Config.DiscoveryMaxConcurrency = uint(discoveryMaxConcurrency)
 	Config.SQLite3DataFile = sqliteDataFile
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
 	Config.InstancePollSeconds = uint(instancePollTime / time.Second)
@@ -134,6 +140,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.WaitReplicasTimeoutSeconds = int(waitReplicasTimeout / time.Second)
 	Config.TolerableReplicationLagSeconds = int(tolerableReplicationLag / time.Second)
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
+	Config.AllowRecovery = allowRecovery
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
 }
 
@@ -165,6 +172,7 @@ func LogConfigValues() {
 
 func newConfiguration() *Configuration {
 	return &Configuration{
+		DiscoveryMaxConcurrency:               300,
 		SQLite3DataFile:                       "file::memory:?mode=memory&cache=shared",
 		InstancePollSeconds:                   5,
 		SnapshotTopologiesIntervalHours:       0,
@@ -172,6 +180,7 @@ func newConfiguration() *Configuration {
 		AuditLogFile:                          "",
 		AuditToSyslog:                         false,
 		AuditToBackendDB:                      false,
+		AllowRecovery:                         true,
 		AuditPurgeDays:                        7,
 		RecoveryPeriodBlockSeconds:            30,
 		PreventCrossDataCenterPrimaryFailover: false,
