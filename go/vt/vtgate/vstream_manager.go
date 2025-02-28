@@ -18,6 +18,7 @@ package vtgate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -47,8 +48,11 @@ type vstreamManager struct {
 	toposerv srvtopo.Server
 	cell     string
 
-	vstreamsCreated *stats.CountersWithMultiLabels
-	vstreamsLag     *stats.GaugesWithMultiLabels
+	vstreamsCreated         *stats.CountersWithMultiLabels
+	vstreamsLag             *stats.GaugesWithMultiLabels
+	vstreamsCount           *stats.CountersWithMultiLabels
+	vstreamsEventsStreamed  *stats.CountersWithMultiLabels
+	vstreamsEndedWithErrors *stats.CountersWithMultiLabels
 }
 
 // maxSkewTimeoutSeconds is the maximum allowed skew between two streams when the MinimizeSkew flag is set
@@ -129,6 +133,7 @@ type journalEvent struct {
 
 func newVStreamManager(resolver *srvtopo.Resolver, serv srvtopo.Server, cell string) *vstreamManager {
 	exporter := servenv.NewExporter(cell, "VStreamManager")
+	labels := []string{"Keyspace", "ShardName", "TabletType"}
 
 	return &vstreamManager{
 		resolver: resolver,
@@ -137,11 +142,23 @@ func newVStreamManager(resolver *srvtopo.Resolver, serv srvtopo.Server, cell str
 		vstreamsCreated: exporter.NewCountersWithMultiLabels(
 			"VStreamsCreated",
 			"Number of vstreams created",
-			[]string{"Keyspace", "ShardName", "TabletType"}),
+			labels),
 		vstreamsLag: exporter.NewGaugesWithMultiLabels(
 			"VStreamsLag",
 			"Difference between event current time and the binlog event timestamp",
-			[]string{"Keyspace", "ShardName", "TabletType"}),
+			labels),
+		vstreamsCount: exporter.NewCountersWithMultiLabels(
+			"VStreamsCount",
+			"Number of active vstreams",
+			labels),
+		vstreamsEventsStreamed: exporter.NewCountersWithMultiLabels(
+			"VStreamsEventsStreamed",
+			"Number of events sent across all vstreams",
+			labels),
+		vstreamsEndedWithErrors: exporter.NewCountersWithMultiLabels(
+			"VStreamsEndedWithErrors",
+			"Number of vstreams that ended with errors",
+			labels),
 	}
 }
 
@@ -362,11 +379,26 @@ func (vs *vstream) startOneStream(ctx context.Context, sgtid *binlogdatapb.Shard
 	vs.wg.Add(1)
 	go func() {
 		defer vs.wg.Done()
+
+		labelValues := []string{sgtid.Keyspace, sgtid.Shard, vs.tabletType.String()}
+		// Initialize vstreamsEndedWithErrors metric to zero.
+		vs.vsm.vstreamsEndedWithErrors.Add(labelValues, 0)
+		vs.vsm.vstreamsCreated.Add(labelValues, 1)
+		vs.vsm.vstreamsCount.Add(labelValues, 1)
+
 		err := vs.streamFromTablet(ctx, sgtid)
 
 		// Set the error on exit. First one wins.
 		if err != nil {
 			log.Errorf("Error in vstream for %+v: %s", sgtid, err)
+			// Get the original/base error.
+			uerr := vterrors.UnwrapAll(err)
+			if !errors.Is(uerr, context.Canceled) && !errors.Is(uerr, context.DeadlineExceeded) {
+				// The client did not intentionally end the stream so this was an error in the
+				// vstream itself.
+				vs.vsm.vstreamsEndedWithErrors.Add(labelValues, 1)
+			}
+			vs.vsm.vstreamsCount.Add(labelValues, -1)
 			vs.once.Do(func() {
 				vs.setError(err, fmt.Sprintf("error starting stream from shard GTID %+v", sgtid))
 				vs.cancel()
@@ -487,6 +519,7 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 	// It will be closed when all journal events converge.
 	var journalDone chan struct{}
 	ignoreTablets := make([]*topodatapb.TabletAlias, 0)
+	labelValues := []string{sgtid.Keyspace, sgtid.Shard, vs.tabletType.String()}
 
 	errCount := 0
 	for {
@@ -574,17 +607,10 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 			Filter:       vs.filter,
 			TableLastPKs: sgtid.TablePKs,
 		}
-		var vstreamCreatedOnce sync.Once
 		log.Infof("Starting to vstream from %s, with req %+v", tabletAliasString, req)
 		err = tabletConn.VStream(ctx, req, func(events []*binlogdatapb.VEvent) error {
 			// We received a valid event. Reset error count.
 			errCount = 0
-
-			labels := []string{sgtid.Keyspace, sgtid.Shard, req.Target.TabletType.String()}
-
-			vstreamCreatedOnce.Do(func() {
-				vs.vsm.vstreamsCreated.Add(labels, 1)
-			})
 
 			select {
 			case <-ctx.Done():
@@ -689,8 +715,7 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 					sendevents = append(sendevents, event)
 				}
 				lag := event.CurrentTime/1e9 - event.Timestamp
-				vs.vsm.vstreamsLag.Set(labels, lag)
-
+				vs.vsm.vstreamsLag.Set(labelValues, lag)
 			}
 			if len(sendevents) != 0 {
 				eventss = append(eventss, sendevents)
@@ -728,6 +753,7 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 		}
 		log.Infof("vstream for %s/%s error, retrying: %v", sgtid.Keyspace, sgtid.Shard, err)
 	}
+
 }
 
 // shouldRetry determines whether we should exit immediately or retry the vstream.
@@ -758,6 +784,7 @@ func (vs *vstream) shouldRetry(err error) (bool, bool) {
 func (vs *vstream) sendAll(ctx context.Context, sgtid *binlogdatapb.ShardGtid, eventss [][]*binlogdatapb.VEvent) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
+	labelValues := []string{sgtid.Keyspace, sgtid.Shard, vs.tabletType.String()}
 
 	// Send all chunks while holding the lock.
 	for _, events := range eventss {
@@ -810,6 +837,7 @@ func (vs *vstream) sendAll(ctx context.Context, sgtid *binlogdatapb.ShardGtid, e
 		case <-ctx.Done():
 			return nil
 		case vs.eventCh <- events:
+			vs.vsm.vstreamsEventsStreamed.Add(labelValues, int64(len(events)))
 		}
 	}
 	return nil
