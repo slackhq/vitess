@@ -169,6 +169,8 @@ func tstWorkflowExec(t *testing.T, cells, workflow, sourceKs, targetKs, tables, 
 	output, err := vc.VtctldClient.ExecuteCommandWithOutput(args...)
 	lastOutput = output
 	if err != nil {
+		t.Errorf("%s: %s", err, output)
+
 		return fmt.Errorf("%s: %s", err, output)
 	}
 	return nil
