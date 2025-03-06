@@ -168,6 +168,7 @@ func LogConfigValues() {
 
 func newConfiguration() *Configuration {
 	return &Configuration{
+		DiscoveryWorkers:                      300,
 		SQLite3DataFile:                       "file::memory:?mode=memory&cache=shared",
 		InstancePollSeconds:                   5,
 		SnapshotTopologiesIntervalHours:       0,
