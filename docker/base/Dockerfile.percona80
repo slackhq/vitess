@@ -45,4 +45,4 @@ RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https
 USER vitess
 
 # Build Vitess
-RUN make build
+RUN make debug
