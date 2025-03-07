@@ -130,7 +130,7 @@ endif
 	go build -trimpath \
 		$(EXTRA_BUILD_FLAGS) $(VT_GO_PARALLEL) \
 		-ldflags "$(EXTRA_BUILD_LDFLAGS) $(shell tools/build_version_flags.sh)"  \
-		-gcflags -'N -l' \
+		-gcflags='all=-N -l' \
 		-o ${VTROOTBIN} ./go/...
 
 # install copies the files needed to run Vitess into the given directory tree.
