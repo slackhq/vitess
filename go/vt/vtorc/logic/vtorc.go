@@ -133,7 +133,7 @@ func waitForLocksRelease() {
 func handleDiscoveryRequests() {
 	discoveryQueue = discovery.NewQueue()
 	// create a pool of discovery workers
-	for i := uint(0); i < config.GetDiscoveryWorkers(); i++ {
+	for i := uint(0); i < config.Config.DiscoveryWorkers; i++ {
 		go func() {
 			for {
 				tabletAlias := discoveryQueue.Consume()
