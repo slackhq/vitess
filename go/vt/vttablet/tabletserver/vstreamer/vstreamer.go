@@ -80,8 +80,9 @@ type vstreamer struct {
 	pos     replication.Position
 	stopPos string
 
-	phase string
-	vse   *Engine
+	phase   string
+	vse     *Engine
+	options *binlogdatapb.VStreamOptions
 }
 
 // streamerPlan extends the original plan to also include
@@ -114,7 +115,9 @@ type streamerPlan struct {
 //
 // vschema: the current vschema. This value can later be changed through the SetVSchema method.
 // send: callback function to send events.
-func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine, startPos string, stopPos string, filter *binlogdatapb.Filter, vschema *localVSchema, throttlerApp throttlerapp.Name, send func([]*binlogdatapb.VEvent) error, phase string, vse *Engine) *vstreamer {
+func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine, startPos string, stopPos string,
+	filter *binlogdatapb.Filter, vschema *localVSchema, throttlerApp throttlerapp.Name,
+	send func([]*binlogdatapb.VEvent) error, phase string, vse *Engine, options *binlogdatapb.VStreamOptions) *vstreamer {
 	ctx, cancel := context.WithCancel(ctx)
 	return &vstreamer{
 		ctx:          ctx,
@@ -131,6 +134,7 @@ func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine
 		plans:        make(map[uint64]*streamerPlan),
 		phase:        phase,
 		vse:          vse,
+		options:      options,
 	}
 }
 
@@ -169,7 +173,7 @@ func (vs *vstreamer) Stream() error {
 	if err != nil {
 		vs.vse.errorCounts.Add("StreamRows", 1)
 		vs.vse.vstreamersEndedWithErrors.Add(1)
-		return err
+		return vterrors.Wrapf(err, "failed to determine starting position")
 	}
 	vs.pos = pos
 	return vs.replicate(ctx)
@@ -274,7 +278,8 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 			bufferedEvents = append(bufferedEvents, vevent)
 		default:
 			vs.vse.errorCounts.Add("BufferAndTransmit", 1)
-			return fmt.Errorf("unexpected event: %v", vevent)
+			return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "usupported event type %s found for event: %+v",
+				vevent.Type.String(), vevent)
 		}
 		return nil
 	}
@@ -353,11 +358,13 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 		case ev, ok := <-throttledEvents:
 			if !ok {
 				select {
+				case err := <-errs:
+					return err
 				case <-ctx.Done():
 					return nil
 				default:
 				}
-				return fmt.Errorf("unexpected server EOF")
+				return vterrors.Errorf(vtrpcpb.Code_ABORTED, "unexpected server EOF while parsing events")
 			}
 			vevents, err := vs.parseEvent(ev)
 			if err != nil {
@@ -370,16 +377,18 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 						return nil
 					}
 					vs.vse.errorCounts.Add("BufferAndTransmit", 1)
-					return fmt.Errorf("error sending event: %v", err)
+					return vterrors.Wrapf(err, "error sending event: %+v", vevent)
 				}
 			}
 		case vs.vschema = <-vs.vevents:
 			select {
+			case err := <-errs:
+				return err
 			case <-ctx.Done():
 				return nil
 			default:
 				if err := vs.rebuildPlans(); err != nil {
-					return err
+					return vterrors.Wrap(err, "failed to rebuild replication plans")
 				}
 			}
 		case err := <-errs:
@@ -392,7 +401,7 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 					return nil
 				}
 				vs.vse.errorCounts.Add("Send", 1)
-				return fmt.Errorf("error sending event: %v", err)
+				return vterrors.Wrapf(err, "failed to send heartbeat event")
 			}
 		}
 	}
@@ -439,7 +448,7 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent) ([]*binlogdatapb.VEvent, e
 	case ev.IsGTID():
 		gtid, hasBegin, err := ev.GTID(vs.format)
 		if err != nil {
-			return nil, fmt.Errorf("can't get GTID from binlog event: %v, event data: %#v", err, ev)
+			return nil, vterrors.Wrapf(err, "failed to get GTID from binlog event: %#v", ev)
 		}
 		if hasBegin {
 			vevents = append(vevents, &binlogdatapb.VEvent{
@@ -457,7 +466,7 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent) ([]*binlogdatapb.VEvent, e
 	case ev.IsQuery():
 		q, err := ev.Query(vs.format)
 		if err != nil {
-			return nil, fmt.Errorf("can't get query from binlog event: %v, event data: %#v", err, ev)
+			return nil, vterrors.Wrapf(err, "failed to get query from binlog event: %#v", ev)
 		}
 		// Insert/Delete/Update are supported only to be used in the context of external mysql streams where source databases
 		// could be using SBR. Vitess itself will never run into cases where it needs to consume non rbr statements.
@@ -558,28 +567,30 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent) ([]*binlogdatapb.VEvent, e
 
 		tm, err := ev.TableMap(vs.format)
 		if err != nil {
-			return nil, err
+			return nil, vterrors.Wrapf(err, "failed to parse table map from binlog event: %#v", ev)
 		}
-
 		if plan, ok := vs.plans[id]; ok {
 			// When the underlying mysql server restarts the table map can change.
 			// Usually the vstreamer will also error out when this happens, and vstreamer re-initializes its table map.
 			// But if the vstreamer is not aware of the restart, we could get an id that matches one in the cache, but
 			// is for a different table. We then invalidate and recompute the plan for this id.
-			if plan == nil || plan.Table.Name == tm.Name {
+			isInternal := tm.Database == sidecar.GetName()
+			if plan == nil ||
+				(plan.Table.Name == tm.Name && isInternal == plan.IsInternal) {
 				return nil, nil
 			}
 			vs.plans[id] = nil
 			log.Infof("table map changed: id %d for %s has changed to %s", id, plan.Table.Name, tm.Name)
 		}
 
-		if tm.Database == sidecar.GetName() && tm.Name == "resharding_journal" {
-			// A journal is a special case that generates a JOURNAL event.
-			return nil, vs.buildJournalPlan(id, tm)
-		} else if tm.Database == sidecar.GetName() && tm.Name == "schema_version" && !vs.se.SkipMetaCheck {
-			// Generates a Version event when it detects that a schema is stored in the schema_version table.
-			return nil, vs.buildVersionPlan(id, tm)
+		// The database connector `vs.cp` points to the keyspace's database.
+		// If this is also setup as the sidecar database name, as is the case in the distributed transaction unit tests,
+		// for example, we stream all tables as usual.
+		// If not, we only stream the schema_version and journal tables and those specified in the internal_tables list.
+		if tm.Database == sidecar.GetName() && vs.cp.DBName() != sidecar.GetName() {
+			return vs.buildSidecarTablePlan(id, tm)
 		}
+
 		if tm.Database != "" && tm.Database != vs.cp.DBName() {
 			vs.plans[id] = nil
 			return nil, nil
@@ -595,7 +606,7 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent) ([]*binlogdatapb.VEvent, e
 		vevent, err := vs.buildTablePlan(id, tm)
 		if err != nil {
 			vs.vse.errorCounts.Add("TablePlan", 1)
-			return nil, err
+			return nil, vterrors.Wrapf(err, "failed to build table replication plan for table %s", tm.Name)
 		}
 		if vevent != nil {
 			vevents = append(vevents, vevent)
@@ -660,72 +671,84 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent) ([]*binlogdatapb.VEvent, e
 	return vevents, nil
 }
 
-func (vs *vstreamer) buildJournalPlan(id uint64, tm *mysql.TableMap) error {
-	conn, err := vs.cp.Connect(vs.ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	qr, err := conn.ExecuteFetch(sqlparser.BuildParsedQuery("select * from %s.resharding_journal where 1 != 1",
-		sidecar.GetIdentifier()).Query, 1, true)
-	if err != nil {
-		return err
-	}
-	fields := qr.Fields
-	if len(fields) < len(tm.Types) {
-		return fmt.Errorf("cannot determine table columns for %s: event has %v, schema has %v", tm.Name, tm.Types, fields)
-	}
-	table := &Table{
-		Name:   fmt.Sprintf("%s.resharding_journal", sidecar.GetIdentifier()),
-		Fields: fields[:len(tm.Types)],
-	}
-	// Build a normal table plan, which means, return all rows
-	// and columns as is. Special handling is done when we actually
-	// receive the row event. We'll build a JOURNAL event instead.
-	plan, err := buildREPlan(vs.se.Environment(), table, nil, "")
-	if err != nil {
-		return err
-	}
-	vs.plans[id] = &streamerPlan{
-		Plan:     plan,
-		TableMap: tm,
-	}
-	vs.journalTableID = id
-	return nil
-}
+func (vs *vstreamer) buildSidecarTablePlan(id uint64, tm *mysql.TableMap) ([]*binlogdatapb.VEvent, error) {
+	tableName := tm.Name
+	switch tableName {
+	case "resharding_journal":
+		// A journal is a special case that generates a JOURNAL event.
+	case "schema_version":
+		// Generates a Version event when it detects that a schema is stored in the schema_version table.
 
-func (vs *vstreamer) buildVersionPlan(id uint64, tm *mysql.TableMap) error {
+		// SkipMetaCheck is set during PITR restore: some table metadata is not fetched in that case.
+		if vs.se.SkipMetaCheck {
+			return nil, nil
+		}
+	default:
+		if vs.options == nil {
+			return nil, nil
+		}
+		found := false
+		for _, table := range vs.options.InternalTables {
+			if table == tableName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, nil
+		}
+	}
+
 	conn, err := vs.cp.Connect(vs.ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
-	qr, err := conn.ExecuteFetch(sqlparser.BuildParsedQuery("select * from %s.schema_version where 1 != 1",
-		sidecar.GetIdentifier()).Query, 1, true)
+	qr, err := conn.ExecuteFetch(sqlparser.BuildParsedQuery("select * from %s.%s where 1 != 1",
+		sidecar.GetIdentifier(), tableName).Query, 1, true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fields := qr.Fields
 	if len(fields) < len(tm.Types) {
-		return fmt.Errorf("cannot determine table columns for %s: event has %v, schema has %v", tm.Name, tm.Types, fields)
+		return nil, fmt.Errorf("cannot determine table columns for %s: event has %v, schema has %v", tm.Name, tm.Types, fields)
 	}
 	table := &Table{
-		Name:   fmt.Sprintf("%s.schema_version", sidecar.GetIdentifier()),
+		Name:   tableName,
 		Fields: fields[:len(tm.Types)],
 	}
+
 	// Build a normal table plan, which means, return all rows
-	// and columns as is. Special handling is done when we actually
-	// receive the row event. We'll build a JOURNAL event instead.
+	// and columns as is. Special handling may be done when we actually
+	// receive the row event, example: we'll build a JOURNAL or VERSION event instead.
 	plan, err := buildREPlan(vs.se.Environment(), table, nil, "")
 	if err != nil {
-		return err
+		return nil, err
 	}
+	plan.IsInternal = true
 	vs.plans[id] = &streamerPlan{
 		Plan:     plan,
 		TableMap: tm,
 	}
-	vs.versionTableID = id
-	return nil
+
+	var vevents []*binlogdatapb.VEvent
+	switch tm.Name {
+	case "resharding_journal":
+		vs.journalTableID = id
+	case "schema_version":
+		vs.versionTableID = id
+	default:
+		vevents = append(vevents, &binlogdatapb.VEvent{
+			Type: binlogdatapb.VEventType_FIELD,
+			FieldEvent: &binlogdatapb.FieldEvent{
+				TableName:       tableName,
+				Fields:          plan.fields(),
+				Keyspace:        vs.vse.keyspace,
+				Shard:           vs.vse.shard,
+				IsInternalTable: plan.IsInternal,
+			}})
+	}
+	return vevents, nil
 }
 
 func (vs *vstreamer) buildTablePlan(id uint64, tm *mysql.TableMap) (*binlogdatapb.VEvent, error) {
@@ -812,7 +835,7 @@ func getExtColInfos(ctx context.Context, cp dbconfigs.Connector, table, database
 	extColInfos := make(map[string]*extColInfo)
 	conn, err := cp.Connect(ctx)
 	if err != nil {
-		return nil, err
+		return nil, vterrors.Wrapf(err, "failed to connect to database %s", database)
 	}
 	defer conn.Close()
 	queryTemplate := "select column_name, column_type from information_schema.columns where table_schema=%s and table_name=%s;"
@@ -871,7 +894,7 @@ nextrow:
 	for _, row := range rows.Rows {
 		afterOK, afterValues, _, err := vs.extractRowAndFilter(plan, row.Data, rows.DataColumns, row.NullColumns)
 		if err != nil {
-			return nil, err
+			return nil, vterrors.Wrap(err, "failed to extract journal from binlog event and apply filters")
 		}
 		if !afterOK {
 			// This can happen if someone manually deleted rows.
@@ -893,7 +916,7 @@ nextrow:
 				return nil, err
 			}
 			if err := prototext.Unmarshal(avBytes, journal); err != nil {
-				return nil, err
+				return nil, vterrors.Wrap(err, "failed to unmarshal journal event")
 			}
 			vevents = append(vevents, &binlogdatapb.VEvent{
 				Type:    binlogdatapb.VEventType_JOURNAL,
@@ -909,11 +932,11 @@ func (vs *vstreamer) processRowEvent(vevents []*binlogdatapb.VEvent, plan *strea
 	for _, row := range rows.Rows {
 		beforeOK, beforeValues, _, err := vs.extractRowAndFilter(plan, row.Identify, rows.IdentifyColumns, row.NullIdentifyColumns)
 		if err != nil {
-			return nil, err
+			return nil, vterrors.Wrap(err, "failed to extract row's before values from binlog event and apply filters")
 		}
 		afterOK, afterValues, partial, err := vs.extractRowAndFilter(plan, row.Data, rows.DataColumns, row.NullColumns)
 		if err != nil {
-			return nil, err
+			return nil, vterrors.Wrap(err, "failed to extract row's after values from binlog event and apply filters")
 		}
 		if !beforeOK && !afterOK {
 			continue
@@ -939,11 +962,12 @@ func (vs *vstreamer) processRowEvent(vevents []*binlogdatapb.VEvent, plan *strea
 		vevents = append(vevents, &binlogdatapb.VEvent{
 			Type: binlogdatapb.VEventType_ROW,
 			RowEvent: &binlogdatapb.RowEvent{
-				TableName:  plan.Table.Name,
-				RowChanges: rowChanges,
-				Keyspace:   vs.vse.keyspace,
-				Shard:      vs.vse.shard,
-				Flags:      uint32(rows.Flags),
+				TableName:       plan.Table.Name,
+				RowChanges:      rowChanges,
+				Keyspace:        vs.vse.keyspace,
+				Shard:           vs.vse.shard,
+				Flags:           uint32(rows.Flags),
+				IsInternalTable: plan.IsInternal,
 			},
 		})
 	}
@@ -1002,7 +1026,8 @@ func (vs *vstreamer) extractRowAndFilter(plan *streamerPlan, data []byte, dataCo
 		if err != nil {
 			log.Errorf("extractRowAndFilter: %s, table: %s, colNum: %d, fields: %+v, current values: %+v",
 				err, plan.Table.Name, colNum, plan.Table.Fields, values)
-			return false, nil, false, err
+			return false, nil, false, vterrors.Wrapf(err, "failed to extract row's value for column %s from binlog event",
+				plan.Table.Fields[colNum].Name)
 		}
 		pos += l
 
