@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 
 	channelz "github.com/rantav/go-grpc-channelz"
 	"google.golang.org/grpc/channelz/service"
