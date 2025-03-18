@@ -226,7 +226,7 @@ func insertRow(keyspace, table string, id int) {
 	vtgateConn.ExecuteFetch("begin", 1000, false)
 	_, err := vtgateConn.ExecuteFetch(fmt.Sprintf("insert into %s (name) values ('%s%d')", table, table, id), 1000, false)
 	if err != nil {
-		log.Infof("error inserting row %d: %v", id, err)
+		log.Errorf("error inserting row %d: %v", id, err)
 	}
 	vtgateConn.ExecuteFetch("commit", 1000, false)
 }
@@ -390,13 +390,15 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	defer vc.TearDown()
 
 	defaultCell := vc.Cells[vc.CellNames[0]]
-	vc.AddKeyspace(t, []*Cell{defaultCell}, "unsharded", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID+100, nil)
+	_, err := vc.AddKeyspace(t, []*Cell{defaultCell}, "unsharded", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID+100, nil)
+	require.NoError(t, err)
 
 	vtgateConn := getConnection(t, vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateMySQLPort)
 	defer vtgateConn.Close()
 	verifyClusterHealth(t, vc)
 
-	vc.AddKeyspace(t, []*Cell{defaultCell}, "sharded", "-80,80-", vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+200, nil)
+	_, err = vc.AddKeyspace(t, []*Cell{defaultCell}, "sharded", "-80,80-", vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+200, nil)
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
