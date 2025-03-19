@@ -298,6 +298,9 @@ message Keyspace {
   // used for various system metadata that is stored in each
   // tablet's mysqld instance.
   string sidecar_db_name = 10;
+
+  // VtorcConfig is the keyspace config for Vtorc.
+  VtorcConfig vtorc_config = 11;
 }
 
 // ShardReplication describes the MySQL replication relationships
@@ -385,6 +388,13 @@ message ThrottlerConfig {
 
   // ThrottledApps is a map of rules for app-specific throttling
   map<string, ThrottledAppRule> throttled_apps = 5;
+}
+
+// VtorcConfig stores configuration for Vtorc.
+message VtorcConfig {
+  // DisableEmergencyReparent reflects if EmergencyReparentShard
+  // can be used to reparent in Vtorc recoveries.
+  bool disable_emergency_reparent = 1;
 }
 
 // SrvKeyspace is a rollup node for the keyspace itself.

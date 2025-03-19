@@ -25,11 +25,17 @@ import (
 	"github.com/spf13/pflag"
 
 	"vitess.io/vitess/go/vt/log"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 const (
 	LostInRecoveryDowntimeSeconds int = 60 * 60 * 24 * 365
 )
+
+// DefaultKeyspaceTopoConfig is the default topo-based VTOrc config for a keyspace.
+var DefaultKeyspaceTopoConfig = &topodatapb.VtorcConfig{
+	DisableEmergencyReparent: false,
+}
 
 var configurationLoaded = make(chan bool)
 

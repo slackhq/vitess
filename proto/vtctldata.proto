@@ -510,6 +510,8 @@ message CreateKeyspaceRequest {
   // SidecarDBName is the name of the sidecar database that
   // each vttablet in the keyspace will use.
   string sidecar_db_name = 11;
+  // VtorcConfig is the vtorc config for the keyspace.
+  topodata.VtorcConfig vtorc_config = 12;
 }
 
 message CreateKeyspaceResponse {
@@ -1903,4 +1905,18 @@ message WorkflowUpdateResponse {
   }
   string summary = 1;
   repeated TabletInfo details = 2;
+}
+
+message DisableVtorcEmergencyReparentRequest {
+  string keyspace = 1;
+}
+
+message DisableVtorcEmergencyReparentResponse {
+}
+
+message EnableVtorcEmergencyReparentRequest {
+  string keyspace = 1;
+}
+
+message EnableVtorcEmergencyReparentResponse {
 }
