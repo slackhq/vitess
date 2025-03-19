@@ -371,11 +371,11 @@ func (m *ThrottlerConfig) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *VtorcConfig) CloneVT() *VtorcConfig {
+func (m *KeyspaceVtorcConfig) CloneVT() *KeyspaceVtorcConfig {
 	if m == nil {
-		return (*VtorcConfig)(nil)
+		return (*KeyspaceVtorcConfig)(nil)
 	}
-	r := &VtorcConfig{
+	r := &KeyspaceVtorcConfig{
 		DisableEmergencyReparent: m.DisableEmergencyReparent,
 	}
 	if len(m.unknownFields) > 0 {
@@ -385,7 +385,7 @@ func (m *VtorcConfig) CloneVT() *VtorcConfig {
 	return r
 }
 
-func (m *VtorcConfig) CloneMessageVT() proto.Message {
+func (m *KeyspaceVtorcConfig) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -1513,7 +1513,7 @@ func (m *ThrottlerConfig) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *VtorcConfig) MarshalVT() (dAtA []byte, err error) {
+func (m *KeyspaceVtorcConfig) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -1526,12 +1526,12 @@ func (m *VtorcConfig) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *VtorcConfig) MarshalToVT(dAtA []byte) (int, error) {
+func (m *KeyspaceVtorcConfig) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *VtorcConfig) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *KeyspaceVtorcConfig) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -2296,7 +2296,7 @@ func (m *ThrottlerConfig) SizeVT() (n int) {
 	return n
 }
 
-func (m *VtorcConfig) SizeVT() (n int) {
+func (m *KeyspaceVtorcConfig) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -4132,7 +4132,7 @@ func (m *Keyspace) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.VtorcConfig == nil {
-				m.VtorcConfig = &VtorcConfig{}
+				m.VtorcConfig = &KeyspaceVtorcConfig{}
 			}
 			if err := m.VtorcConfig.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -5109,7 +5109,7 @@ func (m *ThrottlerConfig) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *VtorcConfig) UnmarshalVT(dAtA []byte) error {
+func (m *KeyspaceVtorcConfig) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5132,10 +5132,10 @@ func (m *VtorcConfig) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: VtorcConfig: wiretype end group for non-group")
+			return fmt.Errorf("proto: KeyspaceVtorcConfig: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: VtorcConfig: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: KeyspaceVtorcConfig: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:

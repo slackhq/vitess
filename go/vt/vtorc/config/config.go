@@ -33,7 +33,7 @@ const (
 )
 
 // DefaultKeyspaceTopoConfig is the default topo-based VTOrc config for a keyspace.
-var DefaultKeyspaceTopoConfig = &topodatapb.VtorcConfig{
+var DefaultKeyspaceTopoConfig = &topodatapb.KeyspaceVtorcConfig{
 	DisableEmergencyReparent: false,
 }
 
