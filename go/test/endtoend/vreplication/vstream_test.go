@@ -226,7 +226,7 @@ func insertRow(keyspace, table string, id int) {
 	vtgateConn.ExecuteFetch("begin", 1000, false)
 	_, err := vtgateConn.ExecuteFetch(fmt.Sprintf("insert into %s (name) values ('%s%d')", table, table, id), 1000, false)
 	if err != nil {
-		log.Infof("error inserting row %d: %v", id, err)
+		log.Errorf("error inserting row %d: %v", id, err)
 	}
 	vtgateConn.ExecuteFetch("commit", 1000, false)
 }
@@ -390,13 +390,15 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	defer vc.TearDown()
 
 	defaultCell := vc.Cells[vc.CellNames[0]]
-	vc.AddKeyspace(t, []*Cell{defaultCell}, "unsharded", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID+100, nil)
+	_, err := vc.AddKeyspace(t, []*Cell{defaultCell}, "unsharded", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID+100, nil)
+	require.NoError(t, err)
 
 	vtgateConn := getConnection(t, vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateMySQLPort)
 	defer vtgateConn.Close()
 	verifyClusterHealth(t, vc)
 
-	vc.AddKeyspace(t, []*Cell{defaultCell}, "sharded", "-80,80-", vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+200, nil)
+	_, err = vc.AddKeyspace(t, []*Cell{defaultCell}, "sharded", "-80,80-", vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+200, nil)
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
@@ -515,6 +517,196 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	return ne
 }
 
+// Validate that we can resume a VStream when the keyspace has been resharded
+// while not streaming. Ensure that there we successfully transition from the
+// old shards -- which are in the VGTID from the previous stream -- and that
+// we miss no row events during the process.
+func TestMultiVStreamsKeyspaceReshard(t *testing.T) {
+	ctx := context.Background()
+	ks := "testks"
+	wf := "multiVStreamsKeyspaceReshard"
+	baseTabletID := 100
+	tabletType := topodatapb.TabletType_PRIMARY.String()
+	oldShards := "-80,80-"
+	newShards := "-40,40-80,80-c0,c0-"
+	oldShardRowEvents, newShardRowEvents := 0, 0
+	vc = NewVitessCluster(t, nil)
+	defer vc.TearDown()
+	defaultCell := vc.Cells[vc.CellNames[0]]
+	ogdr := defaultReplicas
+	defaultReplicas = 0 // Because of CI resource constraints we can only run this test with primary tablets
+	defer func(dr int) { defaultReplicas = dr }(ogdr)
+
+	// For our sequences etc.
+	_, err := vc.AddKeyspace(t, []*Cell{defaultCell}, "global", "0", vschemaUnsharded, schemaUnsharded, defaultReplicas, defaultRdonly, baseTabletID, nil)
+	require.NoError(t, err)
+
+	// Setup the keyspace with our old/original shards.
+	keyspace, err := vc.AddKeyspace(t, []*Cell{defaultCell}, ks, oldShards, vschemaSharded, schemaSharded, defaultReplicas, defaultRdonly, baseTabletID+1000, nil)
+	require.NoError(t, err)
+
+	// Add the new shards.
+	err = vc.AddShards(t, []*Cell{defaultCell}, keyspace, newShards, defaultReplicas, defaultRdonly, baseTabletID+2000, targetKsOpts)
+	require.NoError(t, err)
+
+	vtgateConn := getConnection(t, vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateMySQLPort)
+	defer vtgateConn.Close()
+	verifyClusterHealth(t, vc)
+
+	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
+	require.NoError(t, err)
+	defer vstreamConn.Close()
+
+	// Ensure that we're starting with a clean slate.
+	_, err = vtgateConn.ExecuteFetch(fmt.Sprintf("delete from %s.customer", ks), 1000, false)
+	require.NoError(t, err)
+
+	// Coordinate go-routines.
+	streamCtx, streamCancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer streamCancel()
+	done := make(chan struct{})
+
+	// First goroutine that keeps inserting rows into the table being streamed until the
+	// stream context is cancelled.
+	go func() {
+		id := 1
+		for {
+			select {
+			case <-streamCtx.Done():
+				// Give the VStream a little catch-up time before telling it to stop
+				// via the done channel.
+				time.Sleep(10 * time.Second)
+				close(done)
+				return
+			default:
+				insertRow(ks, "customer", id)
+				time.Sleep(250 * time.Millisecond)
+				id++
+			}
+		}
+	}()
+
+	// Create the Reshard workflow and wait for it to finish the copy phase.
+	reshardAction(t, "Create", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+	waitForWorkflowState(t, vc, fmt.Sprintf("%s.%s", ks, wf), binlogdatapb.VReplicationWorkflowState_Running.String())
+
+	vgtid := &binlogdatapb.VGtid{
+		ShardGtids: []*binlogdatapb.ShardGtid{{
+			Keyspace: "/.*", // Match all keyspaces just to be more realistic.
+		}}}
+
+	filter := &binlogdatapb.Filter{
+		Rules: []*binlogdatapb.Rule{{
+			// Only stream the customer table and its sequence backing table.
+			Match: "/customer.*",
+		}},
+	}
+	flags := &vtgatepb.VStreamFlags{}
+
+	// Stream events but stop once we have a VGTID with positions for the old/original shards.
+	var newVGTID *binlogdatapb.VGtid
+	func() {
+		var reader vtgateconn.VStreamReader
+		reader, err = vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for _, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.GetRowEvent().GetShard()
+						switch shard {
+						case "-80", "80-":
+							oldShardRowEvents++
+						case "0":
+							// We expect some for the sequence backing table, but don't care.
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					case binlogdatapb.VEventType_VGTID:
+						newVGTID = ev.GetVgtid()
+						if len(newVGTID.GetShardGtids()) == 3 {
+							// We want a VGTID with a position for the global shard and the old shards.
+							canStop := true
+							for _, sg := range newVGTID.GetShardGtids() {
+								if sg.GetGtid() == "" {
+									canStop = false
+								}
+							}
+							if canStop {
+								return
+							}
+						}
+					}
+				}
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-streamCtx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	// Confirm that we have shard GTIDs for the global shard and the old/original shards.
+	require.Len(t, newVGTID.GetShardGtids(), 3)
+
+	// Switch the traffic to the new shards.
+	reshardAction(t, "SwitchTraffic", wf, ks, oldShards, newShards, defaultCellName, tabletType)
+
+	// Now start a new VStream from our previous VGTID which only has the old/original shards.
+	func() {
+		var reader vtgateconn.VStreamReader
+		reader, err = vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, newVGTID, filter, flags)
+		require.NoError(t, err)
+		for {
+			evs, err := reader.Recv()
+
+			switch err {
+			case nil:
+				for _, ev := range evs {
+					switch ev.Type {
+					case binlogdatapb.VEventType_ROW:
+						shard := ev.RowEvent.Shard
+						switch shard {
+						case "-80", "80-":
+							oldShardRowEvents++
+						case "-40", "40-80", "80-c0", "c0-":
+							newShardRowEvents++
+						case "0":
+							// Again, we expect some for the sequence backing table, but don't care.
+						default:
+							require.FailNow(t, fmt.Sprintf("received event for unexpected shard: %s", shard))
+						}
+					}
+				}
+			default:
+				require.FailNow(t, fmt.Sprintf("VStream returned unexpected error: %v", err))
+			}
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+
+	// We should have a mix of events across the old and new shards.
+	require.NotZero(t, oldShardRowEvents)
+	require.NotZero(t, newShardRowEvents)
+
+	// The number of row events streamed by the VStream API should match the number of rows inserted.
+	customerResult := execVtgateQuery(t, vtgateConn, ks, "select count(*) from customer")
+	customerCount, err := customerResult.Rows[0][0].ToInt64()
+	require.NoError(t, err)
+	require.Equal(t, customerCount, int64(oldShardRowEvents+newShardRowEvents))
+}
+
 func TestVStreamFailover(t *testing.T) {
 	testVStreamWithFailover(t, true)
 }
@@ -557,4 +749,140 @@ func TestVStreamCopyMultiKeyspaceReshard(t *testing.T) {
 	require.NotZero(t, ne.num80DashEvents)
 	require.NotZero(t, ne.numDash40Events)
 	require.NotZero(t, ne.num40DashEvents)
+}
+
+const (
+	vstreamHeartbeatsTestContextTimeout = 20 * time.Second
+	// Expect a reasonable number of heartbeats to be received in the test duration, should ideally be ~ timeout
+	// since the heartbeat interval is set to 1s. But we set it to 10 to be conservative to avoid CI flakiness.
+	numExpectedHeartbeats = 10
+)
+
+func doVStream(t *testing.T, vc *VitessCluster, flags *vtgatepb.VStreamFlags) (numRowEvents map[string]int, numFieldEvents map[string]int) {
+	// Stream for a while to ensure heartbeats are sent.
+	ctx, cancel := context.WithTimeout(context.Background(), vstreamHeartbeatsTestContextTimeout)
+	defer cancel()
+
+	numRowEvents = make(map[string]int)
+	numFieldEvents = make(map[string]int)
+	vstreamConn, err := vtgateconn.Dial(ctx, fmt.Sprintf("%s:%d", vc.ClusterConfig.hostname, vc.ClusterConfig.vtgateGrpcPort))
+	require.NoError(t, err)
+	defer vstreamConn.Close()
+
+	done := false
+	vgtid := &binlogdatapb.VGtid{
+		ShardGtids: []*binlogdatapb.ShardGtid{{
+			Keyspace: "product",
+			Shard:    "0",
+			Gtid:     "",
+		}}}
+
+	filter := &binlogdatapb.Filter{
+		Rules: []*binlogdatapb.Rule{{
+			Match:  "customer",
+			Filter: "select * from customer",
+		}},
+	}
+	// Stream events from the VStream API.
+	reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+	require.NoError(t, err)
+	for !done {
+		evs, err := reader.Recv()
+		switch err {
+		case nil:
+			for _, ev := range evs {
+				switch ev.Type {
+				case binlogdatapb.VEventType_ROW:
+					rowEvent := ev.RowEvent
+					arr := strings.Split(rowEvent.TableName, ".")
+					require.Equal(t, len(arr), 2)
+					tableName := arr[1]
+					require.Equal(t, "product", rowEvent.Keyspace)
+					require.Equal(t, "0", rowEvent.Shard)
+					numRowEvents[tableName]++
+
+				case binlogdatapb.VEventType_FIELD:
+					fieldEvent := ev.FieldEvent
+					arr := strings.Split(fieldEvent.TableName, ".")
+					require.Equal(t, len(arr), 2)
+					tableName := arr[1]
+					require.Equal(t, "product", fieldEvent.Keyspace)
+					require.Equal(t, "0", fieldEvent.Shard)
+					numFieldEvents[tableName]++
+				default:
+				}
+			}
+		case io.EOF:
+			log.Infof("Stream Ended")
+			done = true
+		default:
+			log.Errorf("remote error: %v", err)
+			done = true
+		}
+	}
+	return numRowEvents, numFieldEvents
+}
+
+// TestVStreamHeartbeats enables streaming of the internal Vitess heartbeat tables in the VStream API and
+// ensures that the heartbeat events are received as expected by the client.
+func TestVStreamHeartbeats(t *testing.T) {
+	// Enable continuous heartbeats.
+	extraVTTabletArgs = append(extraVTTabletArgs,
+		"--heartbeat_enable",
+		"--heartbeat_interval", "1s",
+		"--heartbeat_on_demand_duration", "0",
+	)
+	setSidecarDBName("_vt")
+	config := *mainClusterConfig
+	config.overrideHeartbeatOptions = true
+	vc = NewVitessCluster(t, &clusterOptions{
+		clusterConfig: &config,
+	})
+	defer vc.TearDown()
+
+	require.NotNil(t, vc)
+	defaultReplicas = 0
+	defaultRdonly = 0
+
+	defaultCell := vc.Cells[vc.CellNames[0]]
+	vc.AddKeyspace(t, []*Cell{defaultCell}, "product", "0", initialProductVSchema, initialProductSchema,
+		defaultReplicas, defaultRdonly, 100, nil)
+	verifyClusterHealth(t, vc)
+	insertInitialData(t)
+
+	expectedNumRowEvents := make(map[string]int)
+	expectedNumRowEvents["customer"] = 3 // 3 rows inserted in the customer table in insertInitialData()
+
+	type testCase struct {
+		name               string
+		flags              *vtgatepb.VStreamFlags
+		expectedHeartbeats int
+	}
+	testCases := []testCase{
+		{
+			name: "With Keyspace Heartbeats On",
+			flags: &vtgatepb.VStreamFlags{
+				StreamKeyspaceHeartbeats: true,
+			},
+			expectedHeartbeats: numExpectedHeartbeats,
+		},
+		{
+			name:               "With Keyspace Heartbeats Off",
+			flags:              nil,
+			expectedHeartbeats: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotNumRowEvents, gotNumFieldEvents := doVStream(t, vc, tc.flags)
+			for k := range expectedNumRowEvents {
+				require.Equalf(t, 1, gotNumFieldEvents[k], "incorrect number of field events for table %s, got %d", k, gotNumFieldEvents[k])
+			}
+			require.GreaterOrEqual(t, gotNumRowEvents["heartbeat"], tc.expectedHeartbeats, "incorrect number of heartbeat events received")
+			log.Infof("Total number of heartbeat events received: %v", gotNumRowEvents["heartbeat"])
+			delete(gotNumRowEvents, "heartbeat")
+			require.Equal(t, expectedNumRowEvents, gotNumRowEvents)
+		})
+	}
 }
