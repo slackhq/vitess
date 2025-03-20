@@ -1074,7 +1074,6 @@ func (vs *vstream) keyspaceHasBeenResharded(ctx context.Context, keyspace string
 	// definitive determination by looking at the shard keyranges.
 	// All we care about are the shard info records now.
 	sis := maps.Values(shards)
-
 	for i := range sis {
 		for j := range sis {
 			if sis[i].ShardName() == sis[j].ShardName() && key.KeyRangeEqual(sis[i].GetKeyRange(), sis[j].GetKeyRange()) {

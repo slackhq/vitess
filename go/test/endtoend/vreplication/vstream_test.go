@@ -607,6 +607,7 @@ func TestMultiVStreamsKeyspaceReshard(t *testing.T) {
 	var newVGTID *binlogdatapb.VGtid
 	func() {
 		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+
 		require.NoError(t, err)
 		for {
 			evs, err := reader.Recv()
@@ -661,6 +662,7 @@ func TestMultiVStreamsKeyspaceReshard(t *testing.T) {
 	// Now start a new VStream from our previous VGTID which only has the old/original shards.
 	func() {
 		reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, newVGTID, filter, flags)
+
 		require.NoError(t, err)
 		for {
 			evs, err := reader.Recv()
