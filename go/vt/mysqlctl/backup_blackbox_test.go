@@ -112,7 +112,7 @@ func TestExecuteBackup(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateKeyspace(ctx, keyspace, &topodata.Keyspace{}))
-	require.NoError(t, ts.CreateShard(ctx, keyspace, shard))
+	require.NoError(t, ts.CreateShard(ctx, keyspace, shard, nil))
 
 	tablet := topo.NewTablet(100, "cell1", "mykeyspace-00-80-0100")
 	tablet.Keyspace = keyspace
@@ -258,7 +258,7 @@ func TestExecuteBackupWithSafeUpgrade(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateKeyspace(ctx, keyspace, &topodata.Keyspace{}))
-	require.NoError(t, ts.CreateShard(ctx, keyspace, shard))
+	require.NoError(t, ts.CreateShard(ctx, keyspace, shard, nil))
 
 	tablet := topo.NewTablet(100, "cell1", "mykeyspace-00-80-0100")
 	tablet.Keyspace = keyspace
@@ -351,7 +351,7 @@ func TestExecuteBackupWithCanceledContext(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateKeyspace(ctx, keyspace, &topodata.Keyspace{}))
-	require.NoError(t, ts.CreateShard(ctx, keyspace, shard))
+	require.NoError(t, ts.CreateShard(ctx, keyspace, shard, nil))
 
 	tablet := topo.NewTablet(100, "cell1", "mykeyspace-00-80-0100")
 	tablet.Keyspace = keyspace
@@ -440,7 +440,7 @@ func TestExecuteRestoreWithTimedOutContext(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateKeyspace(ctx, keyspace, &topodata.Keyspace{}))
-	require.NoError(t, ts.CreateShard(ctx, keyspace, shard))
+	require.NoError(t, ts.CreateShard(ctx, keyspace, shard, nil))
 
 	tablet := topo.NewTablet(100, "cell1", "mykeyspace-00-80-0100")
 	tablet.Keyspace = keyspace

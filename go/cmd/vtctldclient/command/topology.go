@@ -22,8 +22,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/cmd/vtctldclient/cli"
-
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
+	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 )
 
 var (
@@ -34,6 +35,16 @@ var (
 		DisableFlagsInUseLine: true,
 		Args:                  cobra.ExactArgs(1),
 		RunE:                  commandGetTopologyPath,
+	}
+
+	// SetVtorcEmergencyReparent enables/disables the use of EmergencyReparentShard in VTOrc recoveries for a given keyspace or keyspace/shard.
+	SetVtorcEmergencyReparent = &cobra.Command{
+		Use:                   "SetVtorcEmergencyReparent [--enable|-e] [--disable|-d] <keyspace> <shard>",
+		Short:                 "Enable/disables the use of EmergencyReparentShard in VTOrc recoveries for a given keyspace or keyspace/shard.",
+		DisableFlagsInUseLine: true,
+		Aliases:               []string{"setvtorcemergencyreparent"},
+		Args:                  cobra.RangeArgs(1, 2),
+		RunE:                  commandSetVtorcEmergencyReparent,
 	}
 )
 
@@ -59,6 +70,43 @@ func commandGetTopologyPath(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var setVtorcEmergencyReparentOptions = struct {
+	Disable bool
+	Enable  bool
+}{}
+
+func commandSetVtorcEmergencyReparent(cmd *cobra.Command, args []string) error {
+	cli.FinishedParsing(cmd)
+
+	ks := cmd.Flags().Arg(0)
+	shard := cmd.Flags().Arg(1)
+	keyspaceShard := topoproto.KeyspaceShardString(ks, shard)
+	if !setVtorcEmergencyReparentOptions.Disable && !setVtorcEmergencyReparentOptions.Enable {
+		return fmt.Errorf("SetVtorcEmergencyReparent(%v) error: must set --enable or --disable flag", keyspaceShard)
+	}
+	if setVtorcEmergencyReparentOptions.Disable && setVtorcEmergencyReparentOptions.Enable {
+		return fmt.Errorf("SetVtorcEmergencyReparent(%v) error: --enable and --disable flags are mutually exclusive", keyspaceShard)
+	}
+
+	_, err := client.SetVtorcEmergencyReparent(commandCtx, &vtctldatapb.SetVtorcEmergencyReparentRequest{
+		Keyspace: ks,
+		Shard:    shard,
+		Disable:  setVtorcEmergencyReparentOptions.Disable,
+	})
+
+	if err != nil {
+		return fmt.Errorf("SetVtorcEmergencyReparent(%v) error: %w; please check the topo", keyspaceShard, err)
+	}
+
+	fmt.Printf("Successfully updated keyspace/shard %v.\n", keyspaceShard)
+
+	return nil
+}
+
 func init() {
 	Root.AddCommand(GetTopologyPath)
+
+	Root.AddCommand(SetVtorcEmergencyReparent)
+	SetVtorcEmergencyReparent.Flags().BoolVarP(&setVtorcEmergencyReparentOptions.Disable, "disable", "d", false, "Disable the use of EmergencyReparentShard in recoveries.")
+	SetVtorcEmergencyReparent.Flags().BoolVarP(&setVtorcEmergencyReparentOptions.Enable, "enable", "e", false, "Enable the use of EmergencyReparentShard in recoveries.")
 }

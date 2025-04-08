@@ -340,7 +340,7 @@ func newFakeTopo(t *testing.T) *topo.Server {
 		t.Fatalf("CreateKeyspace failed: %v", err)
 	}
 	for i, shard := range []string{"0", "1", "2"} {
-		if err := ts.CreateShard(ctx, "test_keyspace", shard); err != nil {
+		if err := ts.CreateShard(ctx, "test_keyspace", shard, nil); err != nil {
 			t.Fatalf("CreateShard(%v) failed: %v", shard, err)
 		}
 		tablet := &topodatapb.Tablet{
@@ -367,6 +367,7 @@ func newFakeTopo(t *testing.T) *topo.Server {
 	if err := ts.CreateShard(ctx, "unsharded_keyspace", "0"); err != nil {
 		t.Fatalf("CreateShard(%v) failed: %v", "0", err)
 	}
+
 	tablet := &topodatapb.Tablet{
 		Alias: &topodatapb.TabletAlias{
 			Cell: "test_cell",

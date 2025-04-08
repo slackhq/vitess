@@ -25,11 +25,17 @@ import (
 	"github.com/spf13/pflag"
 
 	"vitess.io/vitess/go/vt/log"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 const (
 	LostInRecoveryDowntimeSeconds int = 60 * 60 * 24 * 365
 )
+
+// DefaultKeyspaceTopoConfig is the default topo-based VTOrc config for a keyspace.
+var DefaultKeyspaceTopoConfig = &topodatapb.KeyspaceVtorcConfig{
+	DisableEmergencyReparent: false,
+}
 
 var configurationLoaded = make(chan bool)
 
@@ -68,7 +74,7 @@ var (
 
 // RegisterFlags registers the flags required by VTOrc
 func RegisterFlags(fs *pflag.FlagSet) {
-	fs.Int("discovery-workers", discoveryWorkers, "Number of workers used for tablet discovery")
+	fs.IntVar(&discoveryWorkers, "discovery-workers", discoveryWorkers, "Number of workers used for tablet discovery")
 	fs.StringVar(&sqliteDataFile, "sqlite-data-file", sqliteDataFile, "SQLite Datafile to use as VTOrc's database")
 	fs.DurationVar(&instancePollTime, "instance-poll-time", instancePollTime, "Timer duration on which VTOrc refreshes MySQL information")
 	fs.DurationVar(&snapshotTopologyInterval, "snapshot-topology-interval", snapshotTopologyInterval, "Timer duration on which VTOrc takes a snapshot of the current MySQL information it has in the database. Should be in multiple of hours")
