@@ -35,11 +35,14 @@ import (
 func FindAllTargetsAndKeyspaces(ctx context.Context, ts Server, cell string, keyspaces []string, tabletTypes []topodatapb.TabletType) ([]*querypb.Target, []string, error) {
 	var err error
 	if len(keyspaces) == 0 {
+		log.Error("FindAllTargetsAndKeyspaces: discovery.KeyspacesToWatch is empty")
 		keyspaces, err = ts.GetSrvKeyspaceNames(ctx, cell, true)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
+
+	log.Infof("FindAllTargetsAndKeyspaces: keyspaces: %v", keyspaces)
 
 	var targets []*querypb.Target
 	var wg sync.WaitGroup
