@@ -23,7 +23,6 @@ import (
 
 	"vitess.io/vitess/go/cmd/vtctldclient/cli"
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
-	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 )
 
