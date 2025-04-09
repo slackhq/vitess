@@ -364,7 +364,7 @@ func newFakeTopo(t *testing.T) *topo.Server {
 	if err := ts.CreateKeyspace(ctx, "unsharded_keyspace", &topodatapb.Keyspace{}); err != nil {
 		t.Fatalf("CreateKeyspace failed: %v", err)
 	}
-	if err := ts.CreateShard(ctx, "unsharded_keyspace", "0"); err != nil {
+	if err := ts.CreateShard(ctx, "unsharded_keyspace", "0", nil); err != nil {
 		t.Fatalf("CreateShard(%v) failed: %v", "0", err)
 	}
 
