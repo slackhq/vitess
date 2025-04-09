@@ -290,10 +290,6 @@ func (ts *Server) UpdateShardFields(ctx context.Context, keyspace, shard string,
 // This will lock the Keyspace, as we may be looking at other shard servedTypes.
 // Using GetOrCreateShard is probably a better idea for most use cases.
 func (ts *Server) CreateShard(ctx context.Context, keyspace, shard string, vtorcConfig *topodatapb.ShardVtorcConfig) (err error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	if err := ValidateKeyspaceName(keyspace); err != nil {
 		return err
 	}
