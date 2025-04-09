@@ -54,7 +54,7 @@ func TestSaveAndReadKeyspace(t *testing.T) {
 			},
 			keyspaceWanted: &topodatapb.Keyspace{
 				KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
-				DurabilityPolicy: policy.DurabilitySemiSync,
+				DurabilityPolicy: "semi_sync",
 				VtorcConfig:      vtorcconfig.DefaultKeyspaceTopoConfig,
 			},
 			semiSyncAckersWanted: 1,

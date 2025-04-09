@@ -26,7 +26,6 @@ import (
 	"vitess.io/vitess/go/protoutil"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
-	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 	"vitess.io/vitess/go/vt/vtorc/db"
 )
 
@@ -174,7 +173,7 @@ func TestReadKeyspaceShardStats(t *testing.T) {
 		keyspaceInfo := &topo.KeyspaceInfo{
 			Keyspace: &topodatapb.Keyspace{
 				KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
-				DurabilityPolicy: policy.DurabilityNone,
+				DurabilityPolicy: "none",
 			},
 		}
 		keyspaceInfo.SetKeyspaceName("test")
@@ -221,7 +220,7 @@ func TestReadKeyspaceShardStats(t *testing.T) {
 		keyspaceInfo := &topo.KeyspaceInfo{
 			Keyspace: &topodatapb.Keyspace{
 				KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
-				DurabilityPolicy: policy.DurabilityNone,
+				DurabilityPolicy: "none",
 				VtorcConfig: &topodatapb.KeyspaceVtorcConfig{
 					DisableEmergencyReparent: true,
 				},
