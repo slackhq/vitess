@@ -125,7 +125,7 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses5
 
-        sudo apt-get install -y make unzip g++ etcd curl git wget eatmydata
+        sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget eatmydata
         sudo service mysql stop
         sudo service etcd stop
 
