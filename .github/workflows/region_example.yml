@@ -8,8 +8,7 @@ jobs:
 
   build:
     name: Region Sharding example using ${{ matrix.topo }} on ubuntu-22.04
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: vitess-ubuntu24-16cpu-1
     strategy:
       matrix:
         topo: [etcd]

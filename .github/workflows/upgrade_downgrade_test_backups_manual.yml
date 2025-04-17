@@ -15,8 +15,7 @@ jobs:
   upgrade_downgrade_test_manual:
     timeout-minutes: 40
     name: Run Upgrade Downgrade Test - Backups - Manual
-    runs-on:
-      group: vitess-ubuntu20
+    runs-on: vitess-ubuntu24-16cpu-1
     env:
       GOPRIVATE: github.com/slackhq/vitess-addons
       GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
