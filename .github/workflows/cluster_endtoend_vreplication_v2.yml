@@ -113,7 +113,7 @@ jobs:
         sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb
 
         # Install everything else we need, and configure
-        sudo apt-get install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils libncurses6
+        sudo apt-get -qq install -y mysql-server mysql-shell mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils libncurses6
 
         sudo service mysql stop
         sudo service etcd stop
