@@ -80,7 +80,6 @@ func ElectNewPrimary(
 	}
 
 	var (
-		wg sync.WaitGroup
 		// mutex to secure the next two fields from concurrent access
 		mu sync.Mutex
 		// tablets that are possible candidates to be the new primary and their positions
@@ -138,7 +137,10 @@ func ElectNewPrimary(
 		})
 	}
 
-	wg.Wait()
+	err := errorGroup.Wait()
+	if err != nil {
+		return nil, err
+	}
 
 	// return an error if there are no valid tablets available
 	if len(validTablets) == 0 {
@@ -146,7 +148,7 @@ func ElectNewPrimary(
 	}
 
 	// sort the tablets for finding the best primary
-	err := sortTabletsForReparent(validTablets, tabletPositions, durability)
+	err = sortTabletsForReparent(validTablets, tabletPositions, durability)
 	if err != nil {
 		return nil, err
 	}

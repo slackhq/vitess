@@ -36,8 +36,8 @@ done
 sleep 5
 
 # Wait for all the replica tablets to be in the serving state before initiating
-# InitShardPrimary. This is essential, since we want the RESTORE phase to be
-# complete before we start InitShardPrimary, otherwise we end up reading the
+# PlannedReparentShard. This is essential, since we want the RESTORE phase to be
+# complete before we start PlannedReparentShard, otherwise we end up reading the
 # tablet type to RESTORE and do not set semi-sync, which leads to the primary
 # hanging on writes.
 totalTime=600
