@@ -8078,6 +8078,21 @@ func TestPlannedReparentShard(t *testing.T) {
 						Error: nil,
 					},
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000101": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 				PrimaryPositionResults: map[string]struct {
 					Position string
 					Error    error
@@ -8191,7 +8206,23 @@ func TestPlannedReparentShard(t *testing.T) {
 					Shard:    "-",
 				},
 			},
-			tmc: nil,
+			tmc: &testutil.TabletManagerClient{
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Error: fmt.Errorf("primary status failed"),
+					},
+					"zone1-0000000101": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
+			},
 			req: &vtctldatapb.PlannedReparentShardRequest{
 				Keyspace: "testkeyspace",
 				Shard:    "-",

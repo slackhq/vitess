@@ -110,6 +110,18 @@ func TestPlannedReparenter_ReparentShard(t *testing.T) {
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": nil,
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 			},
 			tablets: []*topodatapb.Tablet{
 				{
@@ -219,6 +231,18 @@ func TestPlannedReparenter_ReparentShard(t *testing.T) {
 				PopulateReparentJournalResults: map[string]error{
 					"zone1-0000000200": nil,
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 			},
 			tablets: []*topodatapb.Tablet{
 				{
@@ -296,6 +320,18 @@ func TestPlannedReparenter_ReparentShard(t *testing.T) {
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": nil,
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 			},
 			tablets: []*topodatapb.Tablet{
 				{
@@ -355,7 +391,17 @@ func TestPlannedReparenter_ReparentShard(t *testing.T) {
 			// fail the preflight checks. Other functions are unit-tested
 			// thoroughly to cover all the cases.
 			name: "reparent fails",
-			tmc:  nil,
+			tmc: &testutil.TabletManagerClient{
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
+			},
 			tablets: []*topodatapb.Tablet{
 				{
 					Alias: &topodatapb.TabletAlias{
@@ -2418,6 +2464,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 						Error: nil,
 					},
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 				PopulateReparentJournalResults: map[string]error{
 					"zone1-0000000200": nil, // zone1-200 gets promoted
 				},
@@ -2498,6 +2556,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": nil,
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 			},
 			tablets: []*topodatapb.Tablet{
 				{
@@ -2564,6 +2634,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 							Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-10",
 						},
 						Error: nil,
+					},
+				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
 					},
 				},
 				PrimaryPositionResults: map[string]struct {
@@ -2666,6 +2748,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 				SetReplicationSourceResults: map[string]error{
 					"zone1-0000000100": nil, // called during reparentTablets to make this tablet a replica of newPrimary
 				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
 			},
 			tablets: []*topodatapb.Tablet{
 				// Shard has no current primary in the beginning.
@@ -2736,7 +2830,9 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 					Error    error
 				}{
 					"zone1-0000000200": {
-						Error: mysql.ErrNotReplica,
+						Position: &replicationdatapb.Status{
+							Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-2",
+						},
 					},
 					"zone1-0000000100": {
 						Error: fmt.Errorf("not providing replication status, so that 200 wins"),
@@ -2744,6 +2840,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 				},
 				SetReplicationSourceResults: map[string]error{
 					"zone1-0000000100": nil, // called during reparentTablets to make this tablet a replica of newPrimary
+				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
 				},
 			},
 			tablets: []*topodatapb.Tablet{
@@ -2791,7 +2899,20 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 		},
 		{
 			name: "preflight checks determine PRS is no-op",
-			tmc:  nil,
+			tmc: &testutil.TabletManagerClient{
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+				},
+			},
 			tablets: []*topodatapb.Tablet{
 				{
 					Alias: &topodatapb.TabletAlias{
@@ -2841,6 +2962,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 			tmc: &testutil.TabletManagerClient{
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": assert.AnError,
+				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
 				},
 			},
 			tablets: []*topodatapb.Tablet{
@@ -2909,6 +3042,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 				},
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": nil,
+				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
 				},
 			},
 			tablets: []*topodatapb.Tablet{
@@ -2982,6 +3127,18 @@ func TestPlannedReparenter_reparentShardLocked(t *testing.T) {
 				},
 				SetReadWriteResults: map[string]error{
 					"zone1-0000000100": nil,
+				},
+				// This is only needed to verify reachability, so empty results are fine.
+				PrimaryStatusResults: map[string]struct {
+					Status *replicationdatapb.PrimaryStatus
+					Error  error
+				}{
+					"zone1-0000000200": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
+					"zone1-0000000100": {
+						Status: &replicationdatapb.PrimaryStatus{},
+					},
 				},
 			},
 			tablets: []*topodatapb.Tablet{
