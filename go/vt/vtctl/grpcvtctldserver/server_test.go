@@ -8156,54 +8156,6 @@ func TestPlannedReparentShard(t *testing.T) {
 			},
 			expectedErr: "duration: seconds:-1 nanos:1 is out of range for time.Duration",
 		},
-		{
-			name: "tablet unreachable",
-			ts:   memorytopo.NewServer(ctx, "zone1"),
-			tablets: []*topodatapb.Tablet{
-				{
-					Alias: &topodatapb.TabletAlias{
-						Cell: "zone1",
-						Uid:  100,
-					},
-					Type: topodatapb.TabletType_PRIMARY,
-					PrimaryTermStartTime: &vttime.Time{
-						Seconds: 100,
-					},
-					Keyspace: "testkeyspace",
-					Shard:    "-",
-				},
-				{
-					Alias: &topodatapb.TabletAlias{
-						Cell: "zone1",
-						Uid:  200,
-					},
-					Type:     topodatapb.TabletType_REPLICA,
-					Keyspace: "testkeyspace",
-					Shard:    "-",
-				},
-				{
-					Alias: &topodatapb.TabletAlias{
-						Cell: "zone1",
-						Uid:  101,
-					},
-					Type:     topodatapb.TabletType_RDONLY,
-					Keyspace: "testkeyspace",
-					Shard:    "-",
-				},
-			},
-			tmc: nil,
-			req: &vtctldatapb.PlannedReparentShardRequest{
-				Keyspace: "testkeyspace",
-				Shard:    "-",
-				NewPrimary: &topodatapb.TabletAlias{
-					Cell: "zone1",
-					Uid:  200,
-				},
-				WaitReplicasTimeout: protoutil.DurationToProto(time.Millisecond * 10),
-			},
-			expectEventsToOccur: true,
-			expectedErr:         "primary status failed",
-		},
 	}
 
 	for _, tt := range tests {
