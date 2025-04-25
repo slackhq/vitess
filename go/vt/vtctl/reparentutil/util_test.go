@@ -874,8 +874,10 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  0,
 			},
-			expected:    nil,
-			errContains: nil,
+			expected: &topodatapb.TabletAlias{
+				Cell: "zone1",
+				Uid:  102,
+			},
 		},
 		{
 			name: "only available tablet is AvoidPrimary",
