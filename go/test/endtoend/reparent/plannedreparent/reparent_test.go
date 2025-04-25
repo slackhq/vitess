@@ -294,7 +294,7 @@ func TestReparentWithDownReplica(t *testing.T) {
 	out, err := utils.Prs(t, clusterInstance, tablets[1])
 	require.Error(t, err)
 	// Assert that PRS failed
-	if clusterInstance.VtctlMajorVersion <= 20 {
+	if clusterInstance.VtctlMajorVersion <= 18 {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.PrimaryStatus on %s", tablets[2].Alias))
 	} else {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.GetGlobalStatusVars on %s", tablets[2].Alias))
