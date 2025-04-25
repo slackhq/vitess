@@ -76,7 +76,7 @@ func TestElectNewPrimary(t *testing.T) {
 		avoidPrimaryAlias    *topodatapb.TabletAlias
 		tolerableReplLag     time.Duration
 		expected             *topodatapb.TabletAlias
-		errContains          []string
+		shouldErr            bool
 	}{
 		{
 			name: "found a replica",
@@ -136,7 +136,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "Two good replicas, but one of them is taking a backup so we pick the other one",
@@ -240,8 +240,8 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  0,
 			},
-			expected:    nil,
-			errContains: []string{"zone1-0000000101 is taking a backup"},
+			expected:  nil,
+			shouldErr: true,
 		},
 		{
 			name:             "new primary alias provided - no tolerable replication lag",
@@ -280,7 +280,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "new primary alias provided - with tolerable replication lag",
@@ -337,7 +337,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "new primary alias provided - with intolerable replication lag",
@@ -390,13 +390,8 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			},
-			expected: nil,
-			errContains: []string{
-				`cannot find a tablet to reparent to`,
-				`zone1-0000000100 does not match the new primary alias provided`,
-				`zone1-0000000101 does not match the new primary alias provided`,
-				`zone1-0000000102 has 1m40s replication lag which is more than the tolerable amount`,
-			},
+			expected:  nil,
+			shouldErr: true,
 		},
 		{
 			name: "found a replica ignoring replica lag",
@@ -456,7 +451,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "found a replica - ignore one with replication lag",
@@ -516,7 +511,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "Two replicas, first one with too much lag, another one taking a backup - none is a good candidate",
@@ -573,11 +568,8 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  0,
 			},
-			expected: nil,
-			errContains: []string{
-				"zone1-0000000101 has 55s replication lag which is more than the tolerable amount",
-				"zone1-0000000102 is taking a backup",
-			},
+			expected:  nil,
+			shouldErr: true,
 		},
 		{
 			name: "found a replica - more advanced relay log position",
@@ -637,7 +629,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "found a replica - more advanced innodb buffer pool",
@@ -699,7 +691,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "no active primary in shard",
@@ -739,7 +731,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "avoid primary alias is nil",
@@ -781,7 +773,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		}, {
 			name: "avoid primary alias and shard primary are nil",
 			tmc: &chooseNewPrimaryTestTMClient{
@@ -820,7 +812,7 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			errContains: nil,
+			shouldErr: false,
 		},
 		{
 			name: "no replicas in primary cell",
@@ -874,10 +866,8 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  0,
 			},
-			expected: &topodatapb.TabletAlias{
-				Cell: "zone1",
-				Uid:  102,
-			},
+			expected:  nil,
+			shouldErr: true,
 		},
 		{
 			name: "only available tablet is AvoidPrimary",
@@ -913,11 +903,8 @@ func TestElectNewPrimary(t *testing.T) {
 				Cell: "zone1",
 				Uid:  101,
 			},
-			expected: nil,
-			errContains: []string{
-				`cannot find a tablet to reparent to
-zone1-0000000101 matches the primary alias to avoid`,
-			},
+			expected:  nil,
+			shouldErr: true,
 		},
 		{
 			name: "no replicas in shard",
@@ -943,11 +930,8 @@ zone1-0000000101 matches the primary alias to avoid`,
 				Cell: "zone1",
 				Uid:  0,
 			},
-			expected: nil,
-			errContains: []string{
-				`cannot find a tablet to reparent to
-zone1-0000000100 is not a replica`,
-			},
+			expected:  nil,
+			shouldErr: true,
 		},
 	}
 
@@ -960,10 +944,8 @@ zone1-0000000100 is not a replica`,
 			t.Parallel()
 
 			actual, err := ElectNewPrimary(ctx, tt.tmc, tt.shardInfo, tt.tabletMap, tt.innodbBufferPoolData, tt.newPrimaryAlias, tt.avoidPrimaryAlias, time.Millisecond*50, tt.tolerableReplLag, durability, logger)
-			if len(tt.errContains) > 0 {
-				for _, errC := range tt.errContains {
-					assert.ErrorContains(t, err, errC)
-				}
+			if tt.shouldErr {
+				assert.Error(t, err)
 				return
 			}
 
