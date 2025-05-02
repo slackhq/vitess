@@ -166,12 +166,7 @@ func TestDeleteWithLimit(t *testing.T) {
 	defer closer()
 
 	// initial rows
-	if utils.BinaryIsAtLeastAtVersion(20, "vtgate") {
-		mcmp.Exec("insert into s_tbl(id, col) values (1,10), (4,20), (5,5), (6,15), (7,17), (8,80)")
-	} else {
-		// revert output change from https://github.com/vitessio/vitess/pull/18078. This seems incompatible with slack-19.0.
-		mcmp.Exec("insert into s_tbl(id, col) values (1,10), (2,10), (3,10), (4,20), (5,5), (6,15), (7,17), (8,80)")
-	}
+	mcmp.Exec("insert into s_tbl(id, col) values (1,10), (4,20), (5,5), (6,15), (7,17), (8,80)")
 	mcmp.Exec("insert into order_tbl(region_id, oid, cust_no) values (1,1,4), (1,2,2), (2,3,5), (2,4,55)")
 
 	// delete with limit
@@ -182,14 +177,8 @@ func TestDeleteWithLimit(t *testing.T) {
 	require.EqualValues(t, 1, qr.RowsAffected)
 
 	// check rows
-	if utils.BinaryIsAtLeastAtVersion(20, "vtgate") {
-		mcmp.AssertMatches(`select id, col from s_tbl order by id`,
-			`[[INT64(4) INT64(20)] [INT64(7) INT64(17)] [INT64(8) INT64(80)]]`)
-	} else {
-		// revert output change from https://github.com/vitessio/vitess/pull/18078. This seems incompatible with slack-19.0.
-		mcmp.AssertMatches(`select id, col from s_tbl order by id`,
-			`[[INT64(3) INT64(10)] [INT64(4) INT64(20)] [INT64(6) INT64(15)] [INT64(7) INT64(17)] [INT64(8) INT64(80)]]`)
-	}
+	mcmp.AssertMatches(`select id, col from s_tbl order by id`,
+		`[[INT64(4) INT64(20)] [INT64(7) INT64(17)] [INT64(8) INT64(80)]]`)
 	// 2 rows matches but limit is 1, so any one of the row can remain in table.
 	mcmp.AssertMatchesAnyNoCompare(`select region_id, oid, cust_no from order_tbl order by oid`,
 		`[[INT64(1) INT64(2) INT64(2)] [INT64(2) INT64(3) INT64(5)] [INT64(2) INT64(4) INT64(55)]]`,
