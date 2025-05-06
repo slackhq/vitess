@@ -181,7 +181,7 @@ func (t *Timings) Label() string {
 	return t.label
 }
 
-var bucketCutoffs = []int64{5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10}
+var bucketCutoffs = []int64{5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 2e9, 3e9, 4e9, 5e9, 1e10}
 
 var bucketLabels []string
 
