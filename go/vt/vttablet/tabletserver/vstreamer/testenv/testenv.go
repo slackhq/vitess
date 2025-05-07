@@ -74,7 +74,7 @@ func Init(ctx context.Context) (*Env, error) {
 	if err := te.TopoServ.CreateKeyspace(ctx, te.KeyspaceName, &topodatapb.Keyspace{}); err != nil {
 		return nil, err
 	}
-	if err := te.TopoServ.CreateShard(ctx, te.KeyspaceName, te.ShardName); err != nil {
+	if err := te.TopoServ.CreateShard(ctx, te.KeyspaceName, te.ShardName, nil); err != nil {
 		panic(err)
 	}
 	// Add a random suffix to metric name to avoid panic. Another option would have been to generate a random string.

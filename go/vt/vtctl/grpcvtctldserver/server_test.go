@@ -5060,9 +5060,9 @@ func TestFindAllShardsInKeyspace(t *testing.T) {
 	}
 	testutil.AddKeyspace(ctx, t, ts, ks)
 
-	si1, err := ts.GetOrCreateShard(ctx, ks.Name, "-80")
+	si1, err := ts.GetOrCreateShard(ctx, ks.Name, "-80", nil)
 	require.NoError(t, err)
-	si2, err := ts.GetOrCreateShard(ctx, ks.Name, "80-")
+	si2, err := ts.GetOrCreateShard(ctx, ks.Name, "80-", nil)
 	require.NoError(t, err)
 
 	resp, err := vtctld.FindAllShardsInKeyspace(ctx, &vtctldatapb.FindAllShardsInKeyspaceRequest{Keyspace: ks.Name})
