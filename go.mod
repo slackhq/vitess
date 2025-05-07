@@ -19,7 +19,7 @@ require (
 	github.com/evanphx/json-patch v5.9.0+incompatible
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-sql-driver/mysql v1.7.1
-	github.com/golang/glog v1.2.0
+	github.com/golang/glog v1.2.4
 	github.com/golang/protobuf v1.5.4
 	github.com/golang/snappy v0.0.4
 	github.com/google/go-cmp v0.6.0
@@ -93,6 +93,7 @@ require (
 require (
 	github.com/Shopify/toxiproxy/v2 v2.8.0
 	github.com/bndr/gotabulate v1.1.2
+	github.com/dustin/go-humanize v1.0.1
 	github.com/gammazero/deque v0.2.1
 	github.com/google/safehtml v0.1.0
 	github.com/hashicorp/go-cleanhttp v0.5.2
@@ -101,7 +102,7 @@ require (
 	github.com/kr/text v0.2.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nsf/jsondiff v0.0.0-20210926074059-1e845ec5d249
-	github.com/slackhq/vitess-addons v0.19.8
+	github.com/slackhq/vitess-addons v0.19.9
 	github.com/slok/noglog v0.2.0
 	github.com/spf13/afero v1.11.0
 	github.com/spf13/jwalterweatherman v1.1.0
@@ -133,7 +134,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.6.1 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect

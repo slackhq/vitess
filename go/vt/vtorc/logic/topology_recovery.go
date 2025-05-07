@@ -19,9 +19,11 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -75,6 +77,9 @@ var (
 		"Shard",
 	})
 
+	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
+	shardsLockCounter int64
+
 	// recoveriesCounter counts the number of recoveries that VTOrc has performed
 	recoveriesCounter = stats.NewCountersWithSingleLabel("RecoveriesCount", "Count of the different recoveries performed", "RecoveryType", actionableRecoveriesNames...)
 
@@ -87,6 +92,10 @@ var (
 	// vtops
 	vtopsExec         = external.NewExecVTOps()
 	vtopsSlackChannel = os.Getenv("SLACK_CHANNEL")
+
+	// shardLockTimings measures the timing of LockShard operations.
+	shardLockTimingsActions = []string{"Lock", "Unlock"}
+	shardLockTimings        = stats.NewTimings("ShardLockTimings", "Timings of global shard locks", "Action", shardLockTimingsActions...)
 )
 
 // recoveryFunction is the code of the recovery function to be used
@@ -171,6 +180,10 @@ var emergencyRestartReplicaTopologyInstanceMap *cache.Cache
 var emergencyOperationGracefulPeriodMap *cache.Cache
 
 func init() {
+	// ShardLocksActive is a stats representation of shardsLockCounter.
+	stats.NewGaugeFunc("ShardLocksActive", "Number of actively-held shard locks", func() int64 {
+		return atomic.LoadInt64(&shardsLockCounter)
+	})
 	go initializeTopologyRecoveryPostConfiguration()
 }
 
@@ -180,6 +193,45 @@ func initializeTopologyRecoveryPostConfiguration() {
 	emergencyReadTopologyInstanceMap = cache.New(time.Second, time.Millisecond*250)
 	emergencyRestartReplicaTopologyInstanceMap = cache.New(time.Second*30, time.Second)
 	emergencyOperationGracefulPeriodMap = cache.New(time.Second*5, time.Millisecond*500)
+}
+
+func getLockAction(analysedInstance string, code inst.AnalysisCode) string {
+	return fmt.Sprintf("VTOrc Recovery for %v on %v", code, analysedInstance)
+}
+
+// LockShard locks the keyspace-shard preventing others from performing conflicting actions.
+func LockShard(ctx context.Context, keyspace, shard, lockAction string) (context.Context, func(*error), error) {
+	if keyspace == "" {
+		return nil, nil, errors.New("can't lock shard: keyspace is unspecified")
+	}
+	if shard == "" {
+		return nil, nil, errors.New("can't lock shard: shard name is unspecified")
+	}
+	val := atomic.LoadInt32(&hasReceivedSIGTERM)
+	if val > 0 {
+		return nil, nil, errors.New("can't lock shard: SIGTERM received")
+	}
+
+	startTime := time.Now()
+	defer func() {
+		lockTime := time.Since(startTime)
+		shardLockTimings.Add("Lock", lockTime)
+	}()
+
+	atomic.AddInt64(&shardsLockCounter, 1)
+	ctx, unlock, err := ts.TryLockShard(ctx, keyspace, shard, lockAction)
+	if err != nil {
+		atomic.AddInt64(&shardsLockCounter, -1)
+		return nil, nil, err
+	}
+	return ctx, func(e *error) {
+		startTime := time.Now()
+		defer func() {
+			atomic.AddInt64(&shardsLockCounter, -1)
+			shardLockTimings.Add("Unlock", time.Since(startTime))
+		}()
+		unlock(e)
+	}, nil
 }
 
 // AuditTopologyRecovery audits a single step in a topology recovery process.
@@ -309,7 +361,6 @@ func postErsCompletion(topologyRecovery *TopologyRecovery, analysisEntry *inst.R
 		_ = AuditTopologyRecovery(topologyRecovery, message)
 		_ = inst.AuditOperation(recoveryName, analysisEntry.AnalyzedInstanceAlias, message)
 		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("%v: successfully promoted %+v", recoveryName, promotedReplica.InstanceAlias))
-		vtopsExec.RaiseProblem(analysisEntry, topologyRecovery.SuccessorAlias, "orc-dead-tablet")
 	}
 }
 
@@ -768,12 +819,12 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	recoveryName := getRecoverFunctionName(checkAndRecoverFunctionCode)
 	recoveriesCounter.Add(recoveryName, 1)
 	if err != nil {
-		message := fmt.Sprintf("Recovery failed on %s for problem %s. Error: %s", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error())
+		message := fmt.Sprintf("Recovery failed on %s (%s) for problem %s. Error: %s", analysisEntry.AnalyzedInstanceAlias, analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis, err.Error())
 		vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
 		logger.Errorf(message)
 		recoveriesFailureCounter.Add(recoveryName, 1)
 	} else {
-		message := fmt.Sprintf("Recovery succeeded on %s for problem %s.", analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis)
+		message := fmt.Sprintf("Recovery succeeded on %s (%s) for problem %s.", analysisEntry.AnalyzedInstanceAlias, analysisEntry.AnalyzedInstanceHostname, analysisEntry.Analysis)
 		logger.Info(message)
 		vtopsExec.SendSlackMessage(message, vtopsSlackChannel)
 		recoveriesSuccessfulCounter.Add(recoveryName, 1)
