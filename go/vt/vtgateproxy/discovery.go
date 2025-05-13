@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math/rand"
@@ -39,9 +40,10 @@ import (
 	svcdisco "slack-github.com/slack/svcdisco-client-go/service_discovery"
 )
 
-func (b *GateResolverBuilder) doSvcDisco() (map[string][]targetHost, error) {
+var discoveryUsesRotor = flag.Bool("with_rotor_discovery", false, "If true, query Rotor directly for vtgate service discovery")
+
+func (b *GateResolverBuilder) discoverFromRotor() (map[string][]targetHost, error) {
 	client, err := svcdisco.NewSvcDiscovery()
-	log.Infof("Getting service discovery")
 	if err != nil {
 		return nil, err
 	}
@@ -50,13 +52,9 @@ func (b *GateResolverBuilder) doSvcDisco() (map[string][]targetHost, error) {
 		return nil, err
 	}
 
-	log.Infof("Building target list")
-
 	targets := map[string][]targetHost{}
 	for _, eps := range endpoints {
 		for _, ep := range eps {
-
-			log.Infof("FOUND TARGET: %+v", *ep)
 			target := targetHost{}
 			target.Addr = ep.Address.Address
 
@@ -72,6 +70,7 @@ func (b *GateResolverBuilder) doSvcDisco() (map[string][]targetHost, error) {
 
 			if target.PoolType == "" || target.Affinity == "" || target.Hostname == "" {
 				log.Errorf("Malformed target from Rotor: %+v", ep)
+				continue
 			}
 
 			target.IsLocal = (b.affinityValue == target.Affinity)
@@ -81,12 +80,9 @@ func (b *GateResolverBuilder) doSvcDisco() (map[string][]targetHost, error) {
 			} else {
 				targets[target.PoolType] = []targetHost{target}
 			}
-
-			log.Infof("TARGET::: %+v", target)
 		}
 	}
 
-	log.Infof("Targets: %+v", targets)
 	return targets, nil
 }
 
@@ -117,7 +113,7 @@ const PoolTypeAttr = "PoolType"
 const ZoneLocalAttr = "ZoneLocal"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
-type JSONGateResolver struct {
+type GateResolver struct {
 	target       resolver.Target
 	clientConn   resolver.ClientConn
 	poolType     string
@@ -125,9 +121,9 @@ type JSONGateResolver struct {
 	mu           sync.Mutex
 }
 
-func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+func (r *GateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
 
-func (r *JSONGateResolver) Close() {
+func (r *GateResolver) Close() {
 	log.Infof("Closing resolver for target %s", r.target.URL.String())
 }
 
@@ -143,7 +139,7 @@ type GateResolverBuilder struct {
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
-	resolvers []*JSONGateResolver
+	resolvers []*GateResolver
 
 	sorter   *shuffleSorter
 	ticker   *time.Ticker
@@ -204,13 +200,20 @@ func (*GateResolverBuilder) Scheme() string { return "vtgate" }
 // Parse and validate the format of the file and start watching for changes
 func (b *GateResolverBuilder) start() error {
 
-	b.targets, _ = b.doSvcDisco()
+	var allTargets map[string][]targetHost
+	var err error
+	if *discoveryUsesRotor {
+		allTargets, err = b.discoverFromRotor()
+	} else {
+		// Perform the initial parse
+		allTargets, err = b.parseJSON()
+	}
 
-	// // Perform the initial parse
-	// _, err := b.parse()
-	// if err != nil {
-	// 	return err
-	// }
+	if err != nil {
+		return err
+	}
+
+	b.selectTargets(allTargets)
 
 	// Validate some stats
 	if len(b.targets) == 0 {
@@ -245,35 +248,48 @@ func (b *GateResolverBuilder) start() error {
 	go func() {
 		var parseErr error
 		for range b.ticker.C {
-			checkFileStat, err := os.Stat(b.jsonPath)
-			if err != nil {
-				log.Errorf("Error stat'ing config %v\n", err)
-				parseCount.Add("error", 1)
-				continue
-			}
-			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
-			if isUnchanged {
-				// no change
-				continue
-			}
 
-			fileStat = checkFileStat
+			var allTargets map[string][]targetHost
 
-			contentsChanged, err := b.parse()
-			if err != nil {
-				parseCount.Add("error", 1)
-				if parseErr == nil || err.Error() != parseErr.Error() {
-					parseErr = err
-					log.Error(err)
+			if *discoveryUsesRotor {
+				allTargets, err = b.discoverFromRotor()
+				if err != nil {
+					log.Errorf("Error querying Rotor: %v\n", err)
+					continue
 				}
-				continue
+			} else {
+				checkFileStat, err := os.Stat(b.jsonPath)
+				if err != nil {
+					log.Errorf("Error stat'ing config %v\n", err)
+					parseCount.Add("error", 1)
+					continue
+				}
+				isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
+				if isUnchanged {
+					// no change
+					continue
+				}
+
+				fileStat = checkFileStat
+
+				allTargets, err = b.parseJSON()
+				if err != nil {
+					parseCount.Add("error", 1)
+					if parseErr == nil || err.Error() != parseErr.Error() {
+						parseErr = err
+						log.Error(err)
+					}
+					continue
+				}
 			}
 			parseErr = nil
-			if !contentsChanged {
+			if allTargets == nil {
 				parseCount.Add("unchanged", 1)
 				continue
 			}
 			parseCount.Add("changed", 1)
+
+			b.selectTargets(allTargets)
 
 			var wg sync.WaitGroup
 
@@ -282,7 +298,7 @@ func (b *GateResolverBuilder) start() error {
 			b.mu.RLock()
 			for _, r := range b.resolvers {
 				wg.Add(1)
-				go func(r *JSONGateResolver) {
+				go func(r *GateResolver) {
 					defer wg.Done()
 
 					err = b.update(r)
@@ -299,23 +315,23 @@ func (b *GateResolverBuilder) start() error {
 	return nil
 }
 
-// parse the file and build the target host list, returning whether or not the list was
-// updated since the last parse, or if the checksum matched
-func (b *GateResolverBuilder) parse() (bool, error) {
+// parseJSON the file and build the target host list, returning whether or not the list was
+// updated since the last parseJSON, or if the checksum matched
+func (b *GateResolverBuilder) parseJSON() (map[string][]targetHost, error) {
 	data, err := os.ReadFile(b.jsonPath)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, bytes.NewReader(data)); err != nil {
-		return false, err
+		return nil, err
 	}
 	sum := h.Sum(nil)
 
 	if bytes.Equal(sum, b.checksum) {
 		log.V(100).Infof("file did not change (checksum %x), skipping re-parse", sum)
-		return false, nil
+		return nil, nil
 	}
 	b.checksum = sum
 	log.V(100).Infof("detected file change (checksum %x), parsing", sum)
@@ -323,7 +339,7 @@ func (b *GateResolverBuilder) parse() (bool, error) {
 	hosts := []map[string]interface{}{}
 	err = json.Unmarshal(data, &hosts)
 	if err != nil {
-		return false, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
+		return nil, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
 	}
 
 	var allTargets = map[string][]targetHost{}
@@ -335,11 +351,11 @@ func (b *GateResolverBuilder) parse() (bool, error) {
 		affinity, hasAffinity := host[b.affinityField]
 
 		if !hasAddress {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: address field %s not present", b.jsonPath, b.addressField)
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: address field %s not present", b.jsonPath, b.addressField)
 		}
 
 		if !hasPort {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s not present", b.jsonPath, b.portField)
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: port field %s not present", b.jsonPath, b.portField)
 		}
 
 		if !hasHostname {
@@ -347,11 +363,11 @@ func (b *GateResolverBuilder) parse() (bool, error) {
 		}
 
 		if b.poolTypeField != "" && !hasPoolType {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: pool type field %s not present", b.jsonPath, b.poolTypeField)
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: pool type field %s not present", b.jsonPath, b.poolTypeField)
 		}
 
 		if b.affinityField != "" && !hasAffinity {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: affinity field %s not present", b.jsonPath, b.affinityField)
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: affinity field %s not present", b.jsonPath, b.affinityField)
 		}
 
 		if b.poolTypeField == "" {
@@ -369,12 +385,17 @@ func (b *GateResolverBuilder) parse() (bool, error) {
 		case string:
 			// nothing to do
 		default:
-			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
 
 		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
 		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
 	}
+
+	return allTargets, nil
+}
+
+func (b *GateResolverBuilder) selectTargets(allTargets map[string][]targetHost) {
 
 	// If a pool disappears, the metric will not record this unless all counts
 	// are reset each time the file is parsed. If this ends up causing problems
@@ -403,8 +424,6 @@ func (b *GateResolverBuilder) parse() (bool, error) {
 	b.mu.Lock()
 	b.targets = selected
 	b.mu.Unlock()
-
-	return true, nil
 }
 
 func (b *GateResolverBuilder) GetPools() []string {
@@ -466,7 +485,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 }
 
 // Update the current list of hosts for the given resolver
-func (b *GateResolverBuilder) update(r *JSONGateResolver) error {
+func (b *GateResolverBuilder) update(r *GateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.getTargets(r.poolType)
@@ -512,7 +531,7 @@ func (b *GateResolverBuilder) Build(target resolver.Target, cc resolver.ClientCo
 
 	log.V(100).Infof("Start discovery for target %v poolType %s affinity %s\n", target.URL.String(), poolType, b.affinityValue)
 
-	r := &JSONGateResolver{
+	r := &GateResolver{
 		target:     target,
 		clientConn: cc,
 		poolType:   poolType,
