@@ -17,6 +17,7 @@ package vtgateproxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,7 +35,60 @@ import (
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+
+	svcdisco "slack-github.com/slack/svcdisco-client-go/service_discovery"
 )
+
+func (b *GateResolverBuilder) doSvcDisco() (map[string][]targetHost, error) {
+	client, err := svcdisco.NewSvcDiscovery()
+	log.Infof("Getting service discovery")
+	if err != nil {
+		return nil, err
+	}
+	endpoints, err := client.FetchResources(context.Background(), []string{"vitess-vtgate@dev-us-east-1-vitess1"})
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("Building target list")
+
+	targets := map[string][]targetHost{}
+	for _, eps := range endpoints {
+		for _, ep := range eps {
+
+			log.Infof("FOUND TARGET: %+v", *ep)
+			target := targetHost{}
+			target.Addr = ep.Address.Address
+
+			for tag := range ep.Tags {
+				if strings.HasPrefix(tag, "type-") {
+					target.PoolType, _ = strings.CutPrefix(tag, "type-")
+				} else if strings.HasPrefix(tag, "az_id:") {
+					target.Affinity, _ = strings.CutPrefix(tag, "az_id:")
+				} else if strings.HasPrefix(tag, "pod:") {
+					target.Hostname, _ = strings.CutPrefix(tag, "pod:")
+				}
+			}
+
+			if target.PoolType == "" || target.Affinity == "" || target.Hostname == "" {
+				log.Errorf("Malformed target from Rotor: %+v", ep)
+			}
+
+			target.IsLocal = (b.affinityValue == target.Affinity)
+
+			if pool, exists := targets[target.PoolType]; exists {
+				targets[target.PoolType] = append(pool, target)
+			} else {
+				targets[target.PoolType] = []targetHost{target}
+			}
+
+			log.Infof("TARGET::: %+v", target)
+		}
+	}
+
+	log.Infof("Targets: %+v", targets)
+	return targets, nil
+}
 
 // File based discovery for vtgate grpc endpoints
 //
@@ -76,7 +131,7 @@ func (r *JSONGateResolver) Close() {
 	log.Infof("Closing resolver for target %s", r.target.URL.String())
 }
 
-type JSONGateResolverBuilder struct {
+type GateResolverBuilder struct {
 	jsonPath       string
 	addressField   string
 	portField      string
@@ -108,7 +163,7 @@ var (
 	targetCount = stats.NewGaugesWithSingleLabel("JsonDiscoveryTargetCount", "Count of hosts returned from discovery by pool type", "pool")
 )
 
-func RegisterJSONGateResolver(
+func RegisterGateResolver(
 	jsonPath string,
 	addressField string,
 	portField string,
@@ -117,8 +172,8 @@ func RegisterJSONGateResolver(
 	affinityValue string,
 	numConnections int,
 	numBackupConns int,
-) (*JSONGateResolverBuilder, error) {
-	jsonDiscovery := &JSONGateResolverBuilder{
+) (*GateResolverBuilder, error) {
+	jsonDiscovery := &GateResolverBuilder{
 		targets:        map[string][]targetHost{},
 		jsonPath:       jsonPath,
 		addressField:   addressField,
@@ -144,15 +199,18 @@ func RegisterJSONGateResolver(
 	return jsonDiscovery, nil
 }
 
-func (*JSONGateResolverBuilder) Scheme() string { return "vtgate" }
+func (*GateResolverBuilder) Scheme() string { return "vtgate" }
 
 // Parse and validate the format of the file and start watching for changes
-func (b *JSONGateResolverBuilder) start() error {
-	// Perform the initial parse
-	_, err := b.parse()
-	if err != nil {
-		return err
-	}
+func (b *GateResolverBuilder) start() error {
+
+	b.targets, _ = b.doSvcDisco()
+
+	// // Perform the initial parse
+	// _, err := b.parse()
+	// if err != nil {
+	// 	return err
+	// }
 
 	// Validate some stats
 	if len(b.targets) == 0 {
@@ -243,7 +301,7 @@ func (b *JSONGateResolverBuilder) start() error {
 
 // parse the file and build the target host list, returning whether or not the list was
 // updated since the last parse, or if the checksum matched
-func (b *JSONGateResolverBuilder) parse() (bool, error) {
+func (b *GateResolverBuilder) parse() (bool, error) {
 	data, err := os.ReadFile(b.jsonPath)
 	if err != nil {
 		return false, err
@@ -349,7 +407,7 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	return true, nil
 }
 
-func (b *JSONGateResolverBuilder) GetPools() []string {
+func (b *GateResolverBuilder) GetPools() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	var pools []string
@@ -360,7 +418,7 @@ func (b *JSONGateResolverBuilder) GetPools() []string {
 	return pools
 }
 
-func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
+func (b *GateResolverBuilder) getTargets(poolType string) []targetHost {
 	// Copy the target slice
 	b.mu.RLock()
 	targets := []targetHost{}
@@ -408,7 +466,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 }
 
 // Update the current list of hosts for the given resolver
-func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
+func (b *GateResolverBuilder) update(r *JSONGateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.getTargets(r.poolType)
@@ -439,7 +497,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 }
 
 // Build a new Resolver to route to the given target
-func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+func (b *GateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	attrs := target.URL.Query()
 
 	// If the config specifies a pool type attribute, then the caller must supply it in the connection
@@ -474,7 +532,7 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 
 // debugTargets will return the builder's targets with a sorted slice of
 // poolTypes for rendering debug output
-func (b *JSONGateResolverBuilder) debugTargets() any {
+func (b *GateResolverBuilder) debugTargets() any {
 	pools := b.GetPools()
 	targets := map[string][]targetHost{}
 	for pool := range b.targets {

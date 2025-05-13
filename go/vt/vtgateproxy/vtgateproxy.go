@@ -229,7 +229,7 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
-	_, err := RegisterJSONGateResolver(
+	_, err := RegisterGateResolver(
 		*vtgateHostsFile,
 		*addressField,
 		*portField,

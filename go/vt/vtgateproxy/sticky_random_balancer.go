@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
+
 	"vitess.io/vitess/go/vt/log"
 )
 

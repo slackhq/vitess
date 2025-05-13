@@ -116,7 +116,14 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/cncf/xds/go v0.0.0-20231128003011-0fa0005c9caa // indirect
+	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/go-chi/chi/v5 v5.0.10 // indirect
+	github.com/golang/mock v1.6.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
+	slack-github.com/go/instance v1.5.0 // indirect
+	slack-github.com/slack/slack-rotor v0.0.0-20240319155527-55e25ed65e91 // indirect
+	slack-github.com/slack/svcdisco-client-go v0.0.0-20250429132454-11722dec64b4 // indirect
 )
 
 require (
