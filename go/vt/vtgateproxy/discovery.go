@@ -197,6 +197,101 @@ func RegisterGateResolver(
 
 func (*GateResolverBuilder) Scheme() string { return "vtgate" }
 
+func (b *GateResolverBuilder) targetsChanged(allTargets map[string][]targetHost) {
+	b.selectTargets(allTargets)
+
+	var wg sync.WaitGroup
+
+	// notify all the resolvers that the targets changed in parallel, since each update might sleep for
+	// the warmup time
+	b.mu.RLock()
+	for _, r := range b.resolvers {
+		wg.Add(1)
+		go func(r *GateResolver) {
+			defer wg.Done()
+
+			err := b.update(r)
+			if err != nil {
+				log.Errorf("Failed to update resolver: %v", err)
+			}
+		}(r)
+	}
+	b.mu.RUnlock()
+	wg.Wait()
+}
+
+func (b *GateResolverBuilder) discoveryLoopRotor() error {
+	// Start a config watcher
+	b.ticker = time.NewTicker(1 * time.Second)
+
+	go func() {
+		for range b.ticker.C {
+
+			allTargets, err := b.discoverFromRotor()
+			if err != nil {
+				log.Errorf("Error querying Rotor: %v\n", err)
+				continue
+			}
+			if allTargets == nil {
+				parseCount.Add("unchanged", 1)
+				continue
+			}
+			parseCount.Add("changed", 1)
+			b.targetsChanged(allTargets)
+		}
+	}()
+	return nil
+}
+
+func (b *GateResolverBuilder) discoveryLoopJSON() error {
+	// Start a config watcher
+	b.ticker = time.NewTicker(1 * time.Second)
+	fileStat, err := os.Stat(b.jsonPath)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		var parseErr error
+		for range b.ticker.C {
+
+			checkFileStat, err := os.Stat(b.jsonPath)
+			if err != nil {
+				log.Errorf("Error stat'ing config %v\n", err)
+				parseCount.Add("error", 1)
+				continue
+			}
+			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
+			if isUnchanged {
+				// no change
+				continue
+			}
+
+			fileStat = checkFileStat
+
+			allTargets, err := b.parseJSON()
+			if err != nil {
+				parseCount.Add("error", 1)
+				if parseErr == nil || err.Error() != parseErr.Error() {
+					parseErr = err
+					log.Error(err)
+				}
+				continue
+			}
+
+			parseErr = nil
+			if allTargets == nil {
+				parseCount.Add("unchanged", 1)
+				continue
+			}
+			parseCount.Add("changed", 1)
+			b.targetsChanged(allTargets)
+		}
+	}()
+
+	return nil
+}
+
 // Parse and validate the format of the file and start watching for changes
 func (b *GateResolverBuilder) start() error {
 
@@ -238,81 +333,11 @@ func (b *GateResolverBuilder) start() error {
 
 	log.Infof("loaded targets, pool types %v, affinity %s, groups %v", poolTypes, *affinityValue, affinityTypes)
 
-	// Start a config watcher
-	b.ticker = time.NewTicker(1 * time.Second)
-	fileStat, err := os.Stat(b.jsonPath)
-	if err != nil {
-		return err
+	if *discoveryUsesRotor {
+		return b.discoveryLoopRotor()
+	} else {
+		return b.discoveryLoopJSON()
 	}
-
-	go func() {
-		var parseErr error
-		for range b.ticker.C {
-
-			var allTargets map[string][]targetHost
-
-			if *discoveryUsesRotor {
-				allTargets, err = b.discoverFromRotor()
-				if err != nil {
-					log.Errorf("Error querying Rotor: %v\n", err)
-					continue
-				}
-			} else {
-				checkFileStat, err := os.Stat(b.jsonPath)
-				if err != nil {
-					log.Errorf("Error stat'ing config %v\n", err)
-					parseCount.Add("error", 1)
-					continue
-				}
-				isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
-				if isUnchanged {
-					// no change
-					continue
-				}
-
-				fileStat = checkFileStat
-
-				allTargets, err = b.parseJSON()
-				if err != nil {
-					parseCount.Add("error", 1)
-					if parseErr == nil || err.Error() != parseErr.Error() {
-						parseErr = err
-						log.Error(err)
-					}
-					continue
-				}
-			}
-			parseErr = nil
-			if allTargets == nil {
-				parseCount.Add("unchanged", 1)
-				continue
-			}
-			parseCount.Add("changed", 1)
-
-			b.selectTargets(allTargets)
-
-			var wg sync.WaitGroup
-
-			// notify all the resolvers that the targets changed in parallel, since each update might sleep for
-			// the warmup time
-			b.mu.RLock()
-			for _, r := range b.resolvers {
-				wg.Add(1)
-				go func(r *GateResolver) {
-					defer wg.Done()
-
-					err = b.update(r)
-					if err != nil {
-						log.Errorf("Failed to update resolver: %v", err)
-					}
-				}(r)
-			}
-			b.mu.RUnlock()
-			wg.Wait()
-		}
-	}()
-
-	return nil
 }
 
 // parseJSON the file and build the target host list, returning whether or not the list was
