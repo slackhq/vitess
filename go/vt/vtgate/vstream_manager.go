@@ -789,7 +789,7 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 		})
 		// If stream was ended (by a journal event), return nil without checking for error.
 		select {
-		case go/vt/vtgate/vstream_manager.go-journalDone:
+		case <-journalDone:
 			return nil
 		default:
 		}
