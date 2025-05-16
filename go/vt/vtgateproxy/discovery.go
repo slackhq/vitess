@@ -17,6 +17,7 @@ package vtgateproxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,66 +35,50 @@ import (
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+
+	svcdisco "slack-github.com/slack/svcdisco-client-go/service_discovery"
+	"slack-github.com/slack/svcdisco-client-go/source"
 )
 
-// File based discovery for vtgate grpc endpoints
+// Discovery for vtgate grpc endpoints.
 //
-// This loads the list of hosts from json and watches for changes to the list of hosts. It will select N connection to maintain to backend vtgates.
-// Connections will rebalance every 5 minutes
-//
-// Example json config - based on the slack hosts format
-//
-// [
-//     {
-//         "address": "10.4.56.194",
-//         "az_id": "use1-az1",
-//         "port": 15999,
-//         "type": "aux"
-//     },
-//
-// URL scheme:
-// vtgate://<type>?az_id=<string>
-//
-// num_connections: Option number of hosts to open connections to for round-robin selection
-// az_id: Filter to just hosts in this az (optional)
-// type: Only select from hosts of this type (required)
-//
+// We support two ways of getting endpoint discovery information
+//  - reading from a JSON file, rendered by consul-template from Rotor
+//  - directly from the local Rotor frontend
 
 const PoolTypeAttr = "PoolType"
 const ZoneLocalAttr = "ZoneLocal"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
-type JSONGateResolver struct {
-	target       resolver.Target
-	clientConn   resolver.ClientConn
-	poolType     string
+type GateResolver struct {
+	target     resolver.Target
+	clientConn resolver.ClientConn
+	poolType   string
+
 	currentAddrs []resolver.Address
 	mu           sync.Mutex
 }
 
-func (r *JSONGateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+func (r *GateResolver) ResolveNow(o resolver.ResolveNowOptions) {}
 
-func (r *JSONGateResolver) Close() {
+func (r *GateResolver) Close() {
 	log.Infof("Closing resolver for target %s", r.target.URL.String())
 }
 
-type JSONGateResolverBuilder struct {
-	jsonPath       string
-	addressField   string
-	portField      string
-	poolTypeField  string
-	affinityField  string
+type GateResolverBuilder struct {
+	scheme         string
 	affinityValue  string
+	poolTypeField  string
 	numConnections int
 	numBackupConns int
 
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
-	resolvers []*JSONGateResolver
+	resolvers []*GateResolver
 
-	sorter   *shuffleSorter
-	ticker   *time.Ticker
-	checksum []byte
+	sorter *shuffleSorter
+
+	discovery GateDiscovery
 }
 
 type targetHost struct {
@@ -100,15 +86,91 @@ type targetHost struct {
 	Addr     string
 	PoolType string
 	Affinity string
-	IsLocal  bool
+}
+
+type GateDiscovery interface {
+
+	// discover returns a set of candidate vtgates synchronously
+	discover() (map[string][]targetHost, error)
+
+	// discoverAsync passes candidate vtgate to the given callback whenever there is a change, and
+	// continues to do so forever.
+	// The callback should not be called multiple times concurrently by discoverAsync.
+	discoverAsync(func(map[string][]targetHost)) error
+}
+
+// File based discovery for vtgate grpc endpoints
+//
+// This loads the list of hosts from json and watches for changes to the list of hosts. It will select N connection to maintain to backend vtgates.
+// Connections will rebalance every 5 minutes
+//
+// # Example json config - based on the slack hosts format
+//
+// [
+//
+//	{
+//	    "address": "10.4.56.194",
+//	    "az_id": "use1-az1",
+//	    "port": 15999,
+//	    "type": "aux"
+//	},
+//
+// URL scheme:
+// vtgate://<type>?az_id=<string>
+//
+// num_connections: Option number of hosts to open connections to for round-robin selection
+// az_id: Filter to just hosts in this az (optional)
+// type: Only select from hosts of this type (required)
+type JSONGateDiscovery struct {
+	jsonPath      string
+	addressField  string
+	portField     string
+	poolTypeField string
+	affinityField string
+
+	ticker   *time.Ticker
+	checksum []byte
+}
+
+// RotorGateDiscovery watches service discovery information via Rotor
+type RotorGateDiscovery struct {
+	service string
 }
 
 var (
 	parseCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryParseCount", "Count of results of JSON host file parsing (changed, unchanged, error)", "result")
 	targetCount = stats.NewGaugesWithSingleLabel("JsonDiscoveryTargetCount", "Count of hosts returned from discovery by pool type", "pool")
+
+	discoveryCount = stats.NewGaugesWithMultiLabels("DiscoveryTargetCount", "Count of hosts returned from discovery by pool type and discovery scheme", []string{"pool", "scheme"})
+	selectedCount  = stats.NewGaugesWithMultiLabels("SelectedCount", "Count of hosts passed to GRPC balancer by pool type, scheme and locality", []string{"pool", "scheme", "locality"})
 )
 
+func RegisterRotorGateResolver(scheme, service, poolTypeField, affinityValue string, numConnections int,
+	numBackupConns int) (*GateResolverBuilder, error) {
+	resolverBuilder := &GateResolverBuilder{
+		scheme:         scheme,
+		affinityValue:  affinityValue,
+		numConnections: numConnections,
+		numBackupConns: numBackupConns,
+		sorter:         newShuffleSorter(),
+		poolTypeField:  poolTypeField,
+		discovery:      RotorGateDiscovery{service: service},
+	}
+
+	resolver.Register(resolverBuilder)
+
+	log.Infof("Registered Rotor discovery scheme %v to watch: %v\n", resolverBuilder.Scheme(), service)
+	if err := resolverBuilder.start(); err != nil {
+		return nil, err
+	}
+
+	servenv.AddStatusPart("Rotor Discovery", targetsTemplate, resolverBuilder.debugTargets)
+
+	return resolverBuilder, nil
+}
+
 func RegisterJSONGateResolver(
+	scheme string,
 	jsonPath string,
 	addressField string,
 	portField string,
@@ -117,18 +179,23 @@ func RegisterJSONGateResolver(
 	affinityValue string,
 	numConnections int,
 	numBackupConns int,
-) (*JSONGateResolverBuilder, error) {
-	jsonDiscovery := &JSONGateResolverBuilder{
+) (*GateResolverBuilder, error) {
+
+	jsonDiscovery := &GateResolverBuilder{
+		scheme:         scheme,
 		targets:        map[string][]targetHost{},
-		jsonPath:       jsonPath,
-		addressField:   addressField,
-		portField:      portField,
-		poolTypeField:  poolTypeField,
-		affinityField:  affinityField,
 		affinityValue:  affinityValue,
 		numConnections: numConnections,
 		numBackupConns: numBackupConns,
 		sorter:         newShuffleSorter(),
+		poolTypeField:  poolTypeField,
+		discovery: JSONGateDiscovery{
+			jsonPath:      jsonPath,
+			addressField:  addressField,
+			portField:     portField,
+			poolTypeField: poolTypeField,
+			affinityField: affinityField,
+		},
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -144,19 +211,44 @@ func RegisterJSONGateResolver(
 	return jsonDiscovery, nil
 }
 
-func (*JSONGateResolverBuilder) Scheme() string { return "vtgate" }
+func (b *GateResolverBuilder) Scheme() string { return b.scheme }
+
+func (b *GateResolverBuilder) targetsChanged(allTargets map[string][]targetHost) {
+	b.selectTargets(allTargets)
+
+	var wg sync.WaitGroup
+
+	// notify all the resolvers that the targets changed in parallel, since each update might sleep for
+	// the warmup time
+	b.mu.RLock()
+	for _, r := range b.resolvers {
+		wg.Add(1)
+		go func(r *GateResolver) {
+			defer wg.Done()
+
+			err := b.update(r)
+			if err != nil {
+				log.Errorf("Failed to update resolver: %v", err)
+			}
+		}(r)
+	}
+	b.mu.RUnlock()
+	wg.Wait()
+}
 
 // Parse and validate the format of the file and start watching for changes
-func (b *JSONGateResolverBuilder) start() error {
-	// Perform the initial parse
-	_, err := b.parse()
+func (b *GateResolverBuilder) start() error {
+	allTargets, err := b.discovery.discover()
+
 	if err != nil {
 		return err
 	}
 
+	b.selectTargets(allTargets)
+
 	// Validate some stats
 	if len(b.targets) == 0 {
-		return fmt.Errorf("no valid targets in file %s", b.jsonPath)
+		return fmt.Errorf("no valid targets")
 	}
 
 	// Log some stats on startup
@@ -175,148 +267,14 @@ func (b *JSONGateResolverBuilder) start() error {
 
 	parseCount.Add("changed", 1)
 
-	log.Infof("loaded targets, pool types %v, affinity %s, groups %v", poolTypes, *affinityValue, affinityTypes)
+	log.Infof("[%s] loaded targets, pool types %v, affinity %s, groups %v", b.Scheme(), poolTypes, *affinityValue, affinityTypes)
 
-	// Start a config watcher
-	b.ticker = time.NewTicker(1 * time.Second)
-	fileStat, err := os.Stat(b.jsonPath)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		var parseErr error
-		for range b.ticker.C {
-			checkFileStat, err := os.Stat(b.jsonPath)
-			if err != nil {
-				log.Errorf("Error stat'ing config %v\n", err)
-				parseCount.Add("error", 1)
-				continue
-			}
-			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
-			if isUnchanged {
-				// no change
-				continue
-			}
-
-			fileStat = checkFileStat
-
-			contentsChanged, err := b.parse()
-			if err != nil {
-				parseCount.Add("error", 1)
-				if parseErr == nil || err.Error() != parseErr.Error() {
-					parseErr = err
-					log.Error(err)
-				}
-				continue
-			}
-			parseErr = nil
-			if !contentsChanged {
-				parseCount.Add("unchanged", 1)
-				continue
-			}
-			parseCount.Add("changed", 1)
-
-			var wg sync.WaitGroup
-
-			// notify all the resolvers that the targets changed in parallel, since each update might sleep for
-			// the warmup time
-			b.mu.RLock()
-			for _, r := range b.resolvers {
-				wg.Add(1)
-				go func(r *JSONGateResolver) {
-					defer wg.Done()
-
-					err = b.update(r)
-					if err != nil {
-						log.Errorf("Failed to update resolver: %v", err)
-					}
-				}(r)
-			}
-			b.mu.RUnlock()
-			wg.Wait()
-		}
-	}()
-
-	return nil
+	return b.discovery.discoverAsync(func(allTargets map[string][]targetHost) {
+		b.targetsChanged(allTargets)
+	})
 }
 
-// parse the file and build the target host list, returning whether or not the list was
-// updated since the last parse, or if the checksum matched
-func (b *JSONGateResolverBuilder) parse() (bool, error) {
-	data, err := os.ReadFile(b.jsonPath)
-	if err != nil {
-		return false, err
-	}
-
-	h := sha256.New()
-	if _, err := io.Copy(h, bytes.NewReader(data)); err != nil {
-		return false, err
-	}
-	sum := h.Sum(nil)
-
-	if bytes.Equal(sum, b.checksum) {
-		log.V(100).Infof("file did not change (checksum %x), skipping re-parse", sum)
-		return false, nil
-	}
-	b.checksum = sum
-	log.V(100).Infof("detected file change (checksum %x), parsing", sum)
-
-	hosts := []map[string]interface{}{}
-	err = json.Unmarshal(data, &hosts)
-	if err != nil {
-		return false, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
-	}
-
-	var allTargets = map[string][]targetHost{}
-	for _, host := range hosts {
-		hostname, hasHostname := host["host"]
-		address, hasAddress := host[b.addressField]
-		port, hasPort := host[b.portField]
-		poolType, hasPoolType := host[b.poolTypeField]
-		affinity, hasAffinity := host[b.affinityField]
-
-		if !hasAddress {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: address field %s not present", b.jsonPath, b.addressField)
-		}
-
-		if !hasPort {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s not present", b.jsonPath, b.portField)
-		}
-
-		if !hasHostname {
-			hostname = address
-		}
-
-		if b.poolTypeField != "" && !hasPoolType {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: pool type field %s not present", b.jsonPath, b.poolTypeField)
-		}
-
-		if b.affinityField != "" && !hasAffinity {
-			return false, fmt.Errorf("error parsing JSON discovery file %s: affinity field %s not present", b.jsonPath, b.affinityField)
-		}
-
-		if b.poolTypeField == "" {
-			poolType = ""
-		}
-
-		if b.affinityField == "" {
-			affinity = ""
-		}
-
-		// Handle both int and string values for port
-		switch port.(type) {
-		case int:
-			port = fmt.Sprintf("%d", port)
-		case string:
-			// nothing to do
-		default:
-			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
-		}
-
-		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
-		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
-	}
+func (b *GateResolverBuilder) selectTargets(allTargets map[string][]targetHost) {
 
 	// If a pool disappears, the metric will not record this unless all counts
 	// are reset each time the file is parsed. If this ends up causing problems
@@ -325,10 +283,20 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 	// targets and only resetting pools which disappear.
 	targetCount.ResetAll()
 
+	b.mu.RLock()
+	for pool := range b.targets {
+		discoveryCount.Reset([]string{pool, b.scheme})
+		selectedCount.Reset([]string{pool, b.scheme, "local"})
+		selectedCount.Reset([]string{pool, b.scheme, "remote"})
+	}
+	b.mu.RUnlock()
+
 	var selected = map[string][]targetHost{}
 
 	for poolType := range allTargets {
-		b.sorter.shuffleSort(allTargets[poolType])
+		discoveryCount.Set([]string{poolType, b.scheme}, int64(len(allTargets[poolType])))
+
+		b.sorter.shuffleSort(allTargets[poolType], b.affinityValue)
 
 		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
 		// from the tail (remote zone). if that's not possible, just take the whole set
@@ -340,16 +308,26 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 		}
 
 		targetCount.Set(poolType, int64(len(selected[poolType])))
+
+		var localCount, remoteCount int64
+		for _, t := range selected[poolType] {
+			if t.Affinity == b.affinityValue {
+				localCount += 1
+			} else {
+				remoteCount += 1
+			}
+		}
+
+		selectedCount.Set([]string{poolType, b.scheme, "local"}, localCount)
+		selectedCount.Set([]string{poolType, b.scheme, "remote"}, remoteCount)
 	}
 
 	b.mu.Lock()
 	b.targets = selected
 	b.mu.Unlock()
-
-	return true, nil
 }
 
-func (b *JSONGateResolverBuilder) GetPools() []string {
+func (b *GateResolverBuilder) GetPools() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	var pools []string
@@ -360,14 +338,14 @@ func (b *JSONGateResolverBuilder) GetPools() []string {
 	return pools
 }
 
-func (b *JSONGateResolverBuilder) getTargets(poolType string) []targetHost {
+func (b *GateResolverBuilder) getTargets(poolType string) []targetHost {
 	// Copy the target slice
 	b.mu.RLock()
 	targets := []targetHost{}
 	targets = append(targets, b.targets[poolType]...)
 	b.mu.RUnlock()
 
-	b.sorter.shuffleSort(targets)
+	b.sorter.shuffleSort(targets, b.affinityValue)
 
 	return targets
 }
@@ -387,7 +365,7 @@ func newShuffleSorter() *shuffleSorter {
 // shuffleSort shuffles a slice of targetHost to ensure every host has a
 // different order to iterate through, putting the affinity matching (e.g. same
 // az) hosts at the front and the non-matching ones at the end.
-func (s *shuffleSorter) shuffleSort(targets []targetHost) {
+func (s *shuffleSorter) shuffleSort(targets []targetHost, targetAffinity string) {
 	n := len(targets)
 	head := 0
 	// Only need to do n-1 swaps since the last host is always in the right place.
@@ -397,7 +375,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 		j := head + s.rand.Intn(tail-head+1)
 		s.mu.Unlock()
 
-		if targets[j].IsLocal {
+		if targets[j].Affinity == targetAffinity {
 			targets[head], targets[j] = targets[j], targets[head]
 			head++
 		} else {
@@ -408,7 +386,7 @@ func (s *shuffleSorter) shuffleSort(targets []targetHost) {
 }
 
 // Update the current list of hosts for the given resolver
-func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
+func (b *GateResolverBuilder) update(r *GateResolver) error {
 	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
 
 	targets := b.getTargets(r.poolType)
@@ -420,7 +398,7 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 
 	var addrs []resolver.Address
 	for _, target := range targets {
-		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.IsLocal)
+		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.Affinity == b.affinityValue)
 		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attrs})
 	}
 
@@ -439,8 +417,9 @@ func (b *JSONGateResolverBuilder) update(r *JSONGateResolver) error {
 }
 
 // Build a new Resolver to route to the given target
-func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+func (b *GateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	attrs := target.URL.Query()
+	log.Infof("[%s] building resolver for %+v", b.Scheme(), target.URL)
 
 	// If the config specifies a pool type attribute, then the caller must supply it in the connection
 	// attributes, otherwise reject the request.
@@ -454,7 +433,7 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 
 	log.V(100).Infof("Start discovery for target %v poolType %s affinity %s\n", target.URL.String(), poolType, b.affinityValue)
 
-	r := &JSONGateResolver{
+	r := &GateResolver{
 		target:     target,
 		clientConn: cc,
 		poolType:   poolType,
@@ -474,7 +453,7 @@ func (b *JSONGateResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 
 // debugTargets will return the builder's targets with a sorted slice of
 // poolTypes for rendering debug output
-func (b *JSONGateResolverBuilder) debugTargets() any {
+func (b *GateResolverBuilder) debugTargets() any {
 	pools := b.GetPools()
 	targets := map[string][]targetHost{}
 	for pool := range b.targets {
@@ -487,6 +466,221 @@ func (b *JSONGateResolverBuilder) debugTargets() any {
 		Pools:   pools,
 		Targets: targets,
 	}
+}
+
+func (b RotorGateDiscovery) discover() (map[string][]targetHost, error) {
+	client, err := svcdisco.NewSvcDiscovery()
+	if err != nil {
+		return nil, err
+	}
+	endpoints, err := client.FetchResources(context.Background(), []string{b.service}) //[]string{"vitess-vtgate@dev-us-east-1-vitess1"})
+	if err != nil {
+		return nil, err
+	}
+
+	return b.targetsFromEndpoints(endpoints), nil
+}
+
+func (b RotorGateDiscovery) targetsFromEndpoints(eps map[string][]*source.Endpoint) map[string][]targetHost {
+	targets := map[string][]targetHost{}
+	for _, eps := range eps {
+		for _, ep := range eps {
+			target := targetHost{}
+
+			port := ""
+
+			for tag := range ep.Tags {
+				if strings.HasPrefix(tag, "type-") {
+					target.PoolType, _ = strings.CutPrefix(tag, "type-")
+				} else if strings.HasPrefix(tag, "az_id:") {
+					target.Affinity, _ = strings.CutPrefix(tag, "az_id:")
+				} else if strings.HasPrefix(tag, "pod:") {
+					target.Hostname, _ = strings.CutPrefix(tag, "pod:")
+				} else if strings.HasPrefix(tag, "grpc:") {
+					port, _ = strings.CutPrefix(tag, "grpc:")
+				}
+			}
+
+			target.Addr = fmt.Sprintf("%s:%s", ep.Address.Address, port)
+			///			log.Infof("Rotor: Found address with: %s", target.Addr)
+
+			if target.PoolType == "" || target.Affinity == "" || target.Hostname == "" || port == "" {
+				log.Errorf("Malformed target from Rotor: %+v", ep)
+				continue
+			}
+
+			if pool, exists := targets[target.PoolType]; exists {
+				targets[target.PoolType] = append(pool, target)
+			} else {
+				targets[target.PoolType] = []targetHost{target}
+			}
+		}
+	}
+
+	return targets
+}
+
+func (b RotorGateDiscovery) discoverAsync(cb func(map[string][]targetHost)) error {
+	client, err := svcdisco.NewSvcDiscovery()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		err := client.WatchResourcesUntilCancel(context.Background(), b.service, func(eps map[string][]*source.Endpoint) {
+			targets := b.targetsFromEndpoints(eps)
+			cb(targets)
+		})
+		if err != nil {
+			log.Errorf("Error watching resources in Rotor: %v", err)
+			return
+		}
+	}()
+
+	return nil
+}
+
+func (b JSONGateDiscovery) discover() (map[string][]targetHost, error) {
+	allTargets, err := b.parseJSON()
+	if err != nil {
+		parseCount.Add("error", 1)
+		if err == nil {
+			log.Error(err)
+		}
+	}
+
+	return allTargets, nil
+}
+
+// Checks every second if the JSON file has changed on disk, and reloads if so.
+func (b JSONGateDiscovery) discoverAsync(cb func(map[string][]targetHost)) error {
+	// Start a config watcher
+	b.ticker = time.NewTicker(1 * time.Second)
+	fileStat, err := os.Stat(b.jsonPath)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		var parseErr error
+		for range b.ticker.C {
+
+			checkFileStat, err := os.Stat(b.jsonPath)
+			if err != nil {
+				log.Errorf("Error stat'ing config %v\n", err)
+				parseCount.Add("error", 1)
+				continue
+			}
+			isUnchanged := checkFileStat.Size() == fileStat.Size() && checkFileStat.ModTime() == fileStat.ModTime()
+			if isUnchanged {
+				// no change
+				continue
+			}
+
+			fileStat = checkFileStat
+
+			allTargets, err := b.parseJSON()
+			if err != nil {
+				parseCount.Add("error", 1)
+				if parseErr == nil || err.Error() != parseErr.Error() {
+					parseErr = err
+					log.Error(err)
+				}
+				continue
+			}
+
+			parseErr = nil
+			if allTargets == nil {
+				parseCount.Add("unchanged", 1)
+				continue
+			}
+			parseCount.Add("changed", 1)
+
+			cb(allTargets)
+		}
+	}()
+
+	return nil
+}
+
+// parseJSON the file and build the target host list, returning whether or not the list was
+// updated since the last parseJSON, or if the checksum matched
+func (b *JSONGateDiscovery) parseJSON() (map[string][]targetHost, error) {
+	data, err := os.ReadFile(b.jsonPath)
+	if err != nil {
+		return nil, err
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(h, bytes.NewReader(data)); err != nil {
+		return nil, err
+	}
+	sum := h.Sum(nil)
+
+	if bytes.Equal(sum, b.checksum) {
+		log.V(100).Infof("file did not change (checksum %x), skipping re-parse", sum)
+		return nil, nil
+	}
+	b.checksum = sum
+	log.V(100).Infof("detected file change (checksum %x), parsing", sum)
+
+	hosts := []map[string]interface{}{}
+	err = json.Unmarshal(data, &hosts)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing JSON discovery file %s: %v", b.jsonPath, err)
+	}
+
+	var allTargets = map[string][]targetHost{}
+	for _, host := range hosts {
+		hostname, hasHostname := host["host"]
+		address, hasAddress := host[b.addressField]
+		port, hasPort := host[b.portField]
+		poolType, hasPoolType := host[b.poolTypeField]
+		affinity, hasAffinity := host[b.affinityField]
+
+		if !hasAddress {
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: address field %s not present", b.jsonPath, b.addressField)
+		}
+
+		if !hasPort {
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: port field %s not present", b.jsonPath, b.portField)
+		}
+
+		if !hasHostname {
+			hostname = address
+		}
+
+		if b.poolTypeField != "" && !hasPoolType {
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: pool type field %s not present", b.jsonPath, b.poolTypeField)
+		}
+
+		if b.affinityField != "" && !hasAffinity {
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: affinity field %s not present", b.jsonPath, b.affinityField)
+		}
+
+		if b.poolTypeField == "" {
+			poolType = ""
+		}
+
+		if b.affinityField == "" {
+			affinity = ""
+		}
+
+		// Handle both int and string values for port
+		switch port.(type) {
+		case int:
+			port = fmt.Sprintf("%d", port)
+		case string:
+			// nothing to do
+		default:
+			return nil, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
+		}
+		//		log.Infof("JSON: Found host with address %s", fmt.Sprintf("%s:%s", address, port))
+		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
+		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
+	}
+
+	return allTargets, nil
 }
 
 const (
@@ -509,7 +703,7 @@ const (
 	<td>{{.Hostname}}</td>
 	<td>{{.Addr}}</td>
     <td>{{.Affinity}}</td>
-    <td>{{.IsLocal}}</td>
+
   </tr>{{end}}
 {{end}}
 </table>
