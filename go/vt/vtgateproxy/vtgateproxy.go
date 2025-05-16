@@ -51,16 +51,18 @@ const (
 )
 
 var (
-	vtgateHostsFile = flag.String("vtgate_hosts_file", "", "json file describing the host list to use for vtgate:// resolution")
-	numConnections  = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
-	numBackupConns  = flag.Int("num_backup_conns", 1, "number of backup remote-zone GPRC connections to maintain")
-	poolTypeField   = flag.String("pool_type_field", "", "Field name used to specify the target vtgate type and filter the hosts")
-	affinityField   = flag.String("affinity_field", "", "Attribute (JSON file) used to specify the routing affinity , e.g. 'az_id'")
-	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
-	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
-	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
-	balancerType    = flag.String("balancer", "round_robin", "load balancing algorithm to use")
-	warmupTime      = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
+	vtgateHostsFile    = flag.String("vtgate_hosts_file", "", "json file describing the host list to use for vtgate:// resolution")
+	numConnections     = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
+	numBackupConns     = flag.Int("num_backup_conns", 1, "number of backup remote-zone GPRC connections to maintain")
+	poolTypeField      = flag.String("pool_type_field", "", "Field name used to specify the target vtgate type and filter the hosts")
+	affinityField      = flag.String("affinity_field", "", "Attribute (JSON file) used to specify the routing affinity , e.g. 'az_id'")
+	affinityValue      = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
+	addressField       = flag.String("address_field", "address", "field name in the json file containing the address")
+	portField          = flag.String("port_field", "port", "field name in the json file containing the port")
+	balancerType       = flag.String("balancer", "round_robin", "load balancing algorithm to use")
+	warmupTime         = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
+	discoveryUsesRotor = flag.Bool("with_rotor_discovery", false, "If true, query Rotor directly for vtgate service discovery")
+	rotorService       = flag.String("rotor_service", "vitess-vtgate@dev-us-east-1-vitess1", "Rotor query string")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
@@ -118,8 +120,12 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
 
 	targetURL := url.URL{
-		Scheme: "vtgate",
+		Scheme: "vtgate-file",
 		Host:   "pool",
+	}
+
+	if scheme, ok := connectionAttributes["scheme"]; ok {
+		targetURL.Scheme = scheme
 	}
 
 	values := url.Values{}
@@ -229,7 +235,8 @@ func Init() {
 		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
 	})
 
-	_, err := RegisterGateResolver(
+	_, err := RegisterJSONGateResolver(
+		"vtgate-file",
 		*vtgateHostsFile,
 		*addressField,
 		*portField,
@@ -241,6 +248,21 @@ func Init() {
 	)
 
 	if err != nil {
-		log.Fatalf("error initializing resolver: %v", err)
+		log.Fatalf("error initializing JSON resolver: %v", err)
+	}
+
+	if *discoveryUsesRotor {
+		_, err = RegisterRotorGateResolver(
+			"vtgate-rotor",
+			*rotorService, // TODO: should presumably be the local Rotor endpoint
+			*poolTypeField,
+			*affinityValue,
+			*numConnections,
+			*numBackupConns,
+		)
+
+		if err != nil {
+			log.Fatalf("error initializing Rotor resolver: %v", err)
+		}
 	}
 }

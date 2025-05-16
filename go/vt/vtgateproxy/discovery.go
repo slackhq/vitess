@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"math/rand"
@@ -38,85 +37,24 @@ import (
 	"vitess.io/vitess/go/vt/servenv"
 
 	svcdisco "slack-github.com/slack/svcdisco-client-go/service_discovery"
+	"slack-github.com/slack/svcdisco-client-go/source"
 )
 
-var discoveryUsesRotor = flag.Bool("with_rotor_discovery", false, "If true, query Rotor directly for vtgate service discovery")
-
-func (b *GateResolverBuilder) discoverFromRotor() (map[string][]targetHost, error) {
-	client, err := svcdisco.NewSvcDiscovery()
-	if err != nil {
-		return nil, err
-	}
-	endpoints, err := client.FetchResources(context.Background(), []string{"vitess-vtgate@dev-us-east-1-vitess1"})
-	if err != nil {
-		return nil, err
-	}
-
-	targets := map[string][]targetHost{}
-	for _, eps := range endpoints {
-		for _, ep := range eps {
-			target := targetHost{}
-			target.Addr = ep.Address.Address
-
-			for tag := range ep.Tags {
-				if strings.HasPrefix(tag, "type-") {
-					target.PoolType, _ = strings.CutPrefix(tag, "type-")
-				} else if strings.HasPrefix(tag, "az_id:") {
-					target.Affinity, _ = strings.CutPrefix(tag, "az_id:")
-				} else if strings.HasPrefix(tag, "pod:") {
-					target.Hostname, _ = strings.CutPrefix(tag, "pod:")
-				}
-			}
-
-			if target.PoolType == "" || target.Affinity == "" || target.Hostname == "" {
-				log.Errorf("Malformed target from Rotor: %+v", ep)
-				continue
-			}
-
-			target.IsLocal = (b.affinityValue == target.Affinity)
-
-			if pool, exists := targets[target.PoolType]; exists {
-				targets[target.PoolType] = append(pool, target)
-			} else {
-				targets[target.PoolType] = []targetHost{target}
-			}
-		}
-	}
-
-	return targets, nil
-}
-
-// File based discovery for vtgate grpc endpoints
+// Discovery for vtgate grpc endpoints.
 //
-// This loads the list of hosts from json and watches for changes to the list of hosts. It will select N connection to maintain to backend vtgates.
-// Connections will rebalance every 5 minutes
-//
-// Example json config - based on the slack hosts format
-//
-// [
-//     {
-//         "address": "10.4.56.194",
-//         "az_id": "use1-az1",
-//         "port": 15999,
-//         "type": "aux"
-//     },
-//
-// URL scheme:
-// vtgate://<type>?az_id=<string>
-//
-// num_connections: Option number of hosts to open connections to for round-robin selection
-// az_id: Filter to just hosts in this az (optional)
-// type: Only select from hosts of this type (required)
-//
+// We support two ways of getting endpoint discovery information
+//  - reading from a JSON file, rendered by consul-template from Rotor
+//  - directly from the local Rotor frontend
 
 const PoolTypeAttr = "PoolType"
 const ZoneLocalAttr = "ZoneLocal"
 
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type GateResolver struct {
-	target       resolver.Target
-	clientConn   resolver.ClientConn
-	poolType     string
+	target     resolver.Target
+	clientConn resolver.ClientConn
+	poolType   string
+
 	currentAddrs []resolver.Address
 	mu           sync.Mutex
 }
@@ -128,12 +66,9 @@ func (r *GateResolver) Close() {
 }
 
 type GateResolverBuilder struct {
-	jsonPath       string
-	addressField   string
-	portField      string
-	poolTypeField  string
-	affinityField  string
+	scheme         string
 	affinityValue  string
+	poolTypeField  string
 	numConnections int
 	numBackupConns int
 
@@ -141,9 +76,9 @@ type GateResolverBuilder struct {
 	targets   map[string][]targetHost
 	resolvers []*GateResolver
 
-	sorter   *shuffleSorter
-	ticker   *time.Ticker
-	checksum []byte
+	sorter *shuffleSorter
+
+	discovery GateDiscovery
 }
 
 type targetHost struct {
@@ -151,15 +86,91 @@ type targetHost struct {
 	Addr     string
 	PoolType string
 	Affinity string
-	IsLocal  bool
+}
+
+type GateDiscovery interface {
+
+	// discover returns a set of candidate vtgates synchronously
+	discover() (map[string][]targetHost, error)
+
+	// discoverAsync passes candidate vtgate to the given callback whenever there is a change, and
+	// continues to do so forever.
+	// The callback should not be called multiple times concurrently by discoverAsync.
+	discoverAsync(func(map[string][]targetHost)) error
+}
+
+// File based discovery for vtgate grpc endpoints
+//
+// This loads the list of hosts from json and watches for changes to the list of hosts. It will select N connection to maintain to backend vtgates.
+// Connections will rebalance every 5 minutes
+//
+// # Example json config - based on the slack hosts format
+//
+// [
+//
+//	{
+//	    "address": "10.4.56.194",
+//	    "az_id": "use1-az1",
+//	    "port": 15999,
+//	    "type": "aux"
+//	},
+//
+// URL scheme:
+// vtgate://<type>?az_id=<string>
+//
+// num_connections: Option number of hosts to open connections to for round-robin selection
+// az_id: Filter to just hosts in this az (optional)
+// type: Only select from hosts of this type (required)
+type JSONGateDiscovery struct {
+	jsonPath      string
+	addressField  string
+	portField     string
+	poolTypeField string
+	affinityField string
+
+	ticker   *time.Ticker
+	checksum []byte
+}
+
+// RotorGateDiscovery watches service discovery information via Rotor
+type RotorGateDiscovery struct {
+	service string
 }
 
 var (
 	parseCount  = stats.NewCountersWithSingleLabel("JsonDiscoveryParseCount", "Count of results of JSON host file parsing (changed, unchanged, error)", "result")
 	targetCount = stats.NewGaugesWithSingleLabel("JsonDiscoveryTargetCount", "Count of hosts returned from discovery by pool type", "pool")
+
+	discoveryCount = stats.NewGaugesWithMultiLabels("DiscoveryTargetCount", "Count of hosts returned from discovery by pool type and discovery scheme", []string{"pool", "scheme"})
+	selectedCount  = stats.NewGaugesWithMultiLabels("SelectedCount", "Count of hosts passed to GRPC balancer by pool type, scheme and locality", []string{"pool", "scheme", "locality"})
 )
 
-func RegisterGateResolver(
+func RegisterRotorGateResolver(scheme, service, poolTypeField, affinityValue string, numConnections int,
+	numBackupConns int) (*GateResolverBuilder, error) {
+	resolverBuilder := &GateResolverBuilder{
+		scheme:         scheme,
+		affinityValue:  affinityValue,
+		numConnections: numConnections,
+		numBackupConns: numBackupConns,
+		sorter:         newShuffleSorter(),
+		poolTypeField:  poolTypeField,
+		discovery:      RotorGateDiscovery{service: service},
+	}
+
+	resolver.Register(resolverBuilder)
+
+	log.Infof("Registered Rotor discovery scheme %v to watch: %v\n", resolverBuilder.Scheme(), service)
+	if err := resolverBuilder.start(); err != nil {
+		return nil, err
+	}
+
+	servenv.AddStatusPart("Rotor Discovery", targetsTemplate, resolverBuilder.debugTargets)
+
+	return resolverBuilder, nil
+}
+
+func RegisterJSONGateResolver(
+	scheme string,
 	jsonPath string,
 	addressField string,
 	portField string,
@@ -169,17 +180,22 @@ func RegisterGateResolver(
 	numConnections int,
 	numBackupConns int,
 ) (*GateResolverBuilder, error) {
+
 	jsonDiscovery := &GateResolverBuilder{
+		scheme:         scheme,
 		targets:        map[string][]targetHost{},
-		jsonPath:       jsonPath,
-		addressField:   addressField,
-		portField:      portField,
-		poolTypeField:  poolTypeField,
-		affinityField:  affinityField,
 		affinityValue:  affinityValue,
 		numConnections: numConnections,
 		numBackupConns: numBackupConns,
 		sorter:         newShuffleSorter(),
+		poolTypeField:  poolTypeField,
+		discovery: JSONGateDiscovery{
+			jsonPath:      jsonPath,
+			addressField:  addressField,
+			portField:     portField,
+			poolTypeField: poolTypeField,
+			affinityField: affinityField,
+		},
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -195,7 +211,7 @@ func RegisterGateResolver(
 	return jsonDiscovery, nil
 }
 
-func (*GateResolverBuilder) Scheme() string { return "vtgate" }
+func (b *GateResolverBuilder) Scheme() string { return b.scheme }
 
 func (b *GateResolverBuilder) targetsChanged(allTargets map[string][]targetHost) {
 	b.selectTargets(allTargets)
@@ -220,30 +236,324 @@ func (b *GateResolverBuilder) targetsChanged(allTargets map[string][]targetHost)
 	wg.Wait()
 }
 
-func (b *GateResolverBuilder) discoveryLoopRotor() error {
-	// Start a config watcher
-	b.ticker = time.NewTicker(1 * time.Second)
+// Parse and validate the format of the file and start watching for changes
+func (b *GateResolverBuilder) start() error {
+	allTargets, err := b.discovery.discover()
+
+	if err != nil {
+		return err
+	}
+
+	b.selectTargets(allTargets)
+
+	// Validate some stats
+	if len(b.targets) == 0 {
+		return fmt.Errorf("no valid targets")
+	}
+
+	// Log some stats on startup
+	poolTypes := map[string]int{}
+	affinityTypes := map[string]int{}
+
+	for _, ts := range b.targets {
+		for _, t := range ts {
+			count := poolTypes[t.PoolType]
+			poolTypes[t.PoolType] = count + 1
+
+			count = affinityTypes[t.Affinity]
+			affinityTypes[t.Affinity] = count + 1
+		}
+	}
+
+	parseCount.Add("changed", 1)
+
+	log.Infof("[%s] loaded targets, pool types %v, affinity %s, groups %v", b.Scheme(), poolTypes, *affinityValue, affinityTypes)
+
+	return b.discovery.discoverAsync(func(allTargets map[string][]targetHost) {
+		b.targetsChanged(allTargets)
+	})
+}
+
+func (b *GateResolverBuilder) selectTargets(allTargets map[string][]targetHost) {
+
+	// If a pool disappears, the metric will not record this unless all counts
+	// are reset each time the file is parsed. If this ends up causing problems
+	// with the metric briefly dropping to 0, it could be done by rlocking the
+	// target lock and then comparing the previous targets with the current
+	// targets and only resetting pools which disappear.
+	targetCount.ResetAll()
+
+	b.mu.RLock()
+	for pool := range b.targets {
+		discoveryCount.Reset([]string{pool, b.scheme})
+		selectedCount.Reset([]string{pool, b.scheme, "local"})
+		selectedCount.Reset([]string{pool, b.scheme, "remote"})
+	}
+	b.mu.RUnlock()
+
+	var selected = map[string][]targetHost{}
+
+	for poolType := range allTargets {
+		discoveryCount.Set([]string{poolType, b.scheme}, int64(len(allTargets[poolType])))
+
+		b.sorter.shuffleSort(allTargets[poolType], b.affinityValue)
+
+		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
+		// from the tail (remote zone). if that's not possible, just take the whole set
+		if len(allTargets[poolType]) >= b.numConnections+b.numBackupConns {
+			remoteOffset := len(allTargets[poolType]) - b.numBackupConns
+			selected[poolType] = append(allTargets[poolType][:b.numConnections], allTargets[poolType][remoteOffset:]...)
+		} else {
+			selected[poolType] = allTargets[poolType]
+		}
+
+		targetCount.Set(poolType, int64(len(selected[poolType])))
+
+		var localCount, remoteCount int64
+		for _, t := range selected[poolType] {
+			if t.Affinity == b.affinityValue {
+				localCount += 1
+			} else {
+				remoteCount += 1
+			}
+		}
+
+		selectedCount.Set([]string{poolType, b.scheme, "local"}, localCount)
+		selectedCount.Set([]string{poolType, b.scheme, "remote"}, remoteCount)
+	}
+
+	b.mu.Lock()
+	b.targets = selected
+	b.mu.Unlock()
+}
+
+func (b *GateResolverBuilder) GetPools() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var pools []string
+	for pool := range b.targets {
+		pools = append(pools, pool)
+	}
+	sort.Strings(pools)
+	return pools
+}
+
+func (b *GateResolverBuilder) getTargets(poolType string) []targetHost {
+	// Copy the target slice
+	b.mu.RLock()
+	targets := []targetHost{}
+	targets = append(targets, b.targets[poolType]...)
+	b.mu.RUnlock()
+
+	b.sorter.shuffleSort(targets, b.affinityValue)
+
+	return targets
+}
+
+type shuffleSorter struct {
+	rand *rand.Rand
+	mu   *sync.Mutex
+}
+
+func newShuffleSorter() *shuffleSorter {
+	return &shuffleSorter{
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		mu:   &sync.Mutex{},
+	}
+}
+
+// shuffleSort shuffles a slice of targetHost to ensure every host has a
+// different order to iterate through, putting the affinity matching (e.g. same
+// az) hosts at the front and the non-matching ones at the end.
+func (s *shuffleSorter) shuffleSort(targets []targetHost, targetAffinity string) {
+	n := len(targets)
+	head := 0
+	// Only need to do n-1 swaps since the last host is always in the right place.
+	tail := n - 1
+	for i := 0; i < n-1; i++ {
+		s.mu.Lock()
+		j := head + s.rand.Intn(tail-head+1)
+		s.mu.Unlock()
+
+		if targets[j].Affinity == targetAffinity {
+			targets[head], targets[j] = targets[j], targets[head]
+			head++
+		} else {
+			targets[tail], targets[j] = targets[j], targets[tail]
+			tail--
+		}
+	}
+}
+
+// Update the current list of hosts for the given resolver
+func (b *GateResolverBuilder) update(r *GateResolver) error {
+	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
+
+	targets := b.getTargets(r.poolType)
+
+	// There should only ever be a single goroutine calling update on a given Resolver,
+	// but add a lock just in case to ensure that the r.currentAddrs are in fact synchronized
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var addrs []resolver.Address
+	for _, target := range targets {
+		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.Affinity == b.affinityValue)
+		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attrs})
+	}
+
+	// If we've already selected some targets, give the new addresses some time to warm up before removing
+	// the old ones from the list
+	if r.currentAddrs != nil && warmupTime.Seconds() > 0 {
+		combined := append(r.currentAddrs, addrs...)
+		log.V(100).Infof("updating targets for %s to warmup %v", r.target.URL.String(), targets)
+		_ = r.clientConn.UpdateState(resolver.State{Addresses: combined})
+		time.Sleep(*warmupTime)
+	}
+
+	log.V(100).Infof("updating targets for %s after warmup to %v", r.target.URL.String(), targets)
+	r.currentAddrs = addrs
+	return r.clientConn.UpdateState(resolver.State{Addresses: addrs})
+}
+
+// Build a new Resolver to route to the given target
+func (b *GateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+	attrs := target.URL.Query()
+	log.Infof("[%s] building resolver for %+v", b.Scheme(), target.URL)
+
+	// If the config specifies a pool type attribute, then the caller must supply it in the connection
+	// attributes, otherwise reject the request.
+	poolType := ""
+	if b.poolTypeField != "" {
+		poolType = attrs.Get(b.poolTypeField)
+		if poolType == "" {
+			return nil, fmt.Errorf("pool type attribute %s not in target", b.poolTypeField)
+		}
+	}
+
+	log.V(100).Infof("Start discovery for target %v poolType %s affinity %s\n", target.URL.String(), poolType, b.affinityValue)
+
+	r := &GateResolver{
+		target:     target,
+		clientConn: cc,
+		poolType:   poolType,
+	}
+
+	err := b.update(r)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock()
+	b.resolvers = append(b.resolvers, r)
+	b.mu.Unlock()
+
+	return r, nil
+}
+
+// debugTargets will return the builder's targets with a sorted slice of
+// poolTypes for rendering debug output
+func (b *GateResolverBuilder) debugTargets() any {
+	pools := b.GetPools()
+	targets := map[string][]targetHost{}
+	for pool := range b.targets {
+		targets[pool] = b.getTargets(pool)
+	}
+	return struct {
+		Pools   []string
+		Targets map[string][]targetHost
+	}{
+		Pools:   pools,
+		Targets: targets,
+	}
+}
+
+func (b RotorGateDiscovery) discover() (map[string][]targetHost, error) {
+	client, err := svcdisco.NewSvcDiscovery()
+	if err != nil {
+		return nil, err
+	}
+	endpoints, err := client.FetchResources(context.Background(), []string{b.service}) //[]string{"vitess-vtgate@dev-us-east-1-vitess1"})
+	if err != nil {
+		return nil, err
+	}
+
+	return b.targetsFromEndpoints(endpoints), nil
+}
+
+func (b RotorGateDiscovery) targetsFromEndpoints(eps map[string][]*source.Endpoint) map[string][]targetHost {
+	targets := map[string][]targetHost{}
+	for _, eps := range eps {
+		for _, ep := range eps {
+			target := targetHost{}
+
+			port := ""
+
+			for tag := range ep.Tags {
+				if strings.HasPrefix(tag, "type-") {
+					target.PoolType, _ = strings.CutPrefix(tag, "type-")
+				} else if strings.HasPrefix(tag, "az_id:") {
+					target.Affinity, _ = strings.CutPrefix(tag, "az_id:")
+				} else if strings.HasPrefix(tag, "pod:") {
+					target.Hostname, _ = strings.CutPrefix(tag, "pod:")
+				} else if strings.HasPrefix(tag, "grpc:") {
+					port, _ = strings.CutPrefix(tag, "grpc:")
+				}
+			}
+
+			target.Addr = fmt.Sprintf("%s:%s", ep.Address.Address, port)
+			///			log.Infof("Rotor: Found address with: %s", target.Addr)
+
+			if target.PoolType == "" || target.Affinity == "" || target.Hostname == "" || port == "" {
+				log.Errorf("Malformed target from Rotor: %+v", ep)
+				continue
+			}
+
+			if pool, exists := targets[target.PoolType]; exists {
+				targets[target.PoolType] = append(pool, target)
+			} else {
+				targets[target.PoolType] = []targetHost{target}
+			}
+		}
+	}
+
+	return targets
+}
+
+func (b RotorGateDiscovery) discoverAsync(cb func(map[string][]targetHost)) error {
+	client, err := svcdisco.NewSvcDiscovery()
+	if err != nil {
+		return err
+	}
 
 	go func() {
-		for range b.ticker.C {
-
-			allTargets, err := b.discoverFromRotor()
-			if err != nil {
-				log.Errorf("Error querying Rotor: %v\n", err)
-				continue
-			}
-			if allTargets == nil {
-				parseCount.Add("unchanged", 1)
-				continue
-			}
-			parseCount.Add("changed", 1)
-			b.targetsChanged(allTargets)
+		err := client.WatchResourcesUntilCancel(context.Background(), b.service, func(eps map[string][]*source.Endpoint) {
+			targets := b.targetsFromEndpoints(eps)
+			cb(targets)
+		})
+		if err != nil {
+			log.Errorf("Error watching resources in Rotor: %v", err)
+			return
 		}
 	}()
+
 	return nil
 }
 
-func (b *GateResolverBuilder) discoveryLoopJSON() error {
+func (b JSONGateDiscovery) discover() (map[string][]targetHost, error) {
+	allTargets, err := b.parseJSON()
+	if err != nil {
+		parseCount.Add("error", 1)
+		if err == nil {
+			log.Error(err)
+		}
+	}
+
+	return allTargets, nil
+}
+
+// Checks every second if the JSON file has changed on disk, and reloads if so.
+func (b JSONGateDiscovery) discoverAsync(cb func(map[string][]targetHost)) error {
 	// Start a config watcher
 	b.ticker = time.NewTicker(1 * time.Second)
 	fileStat, err := os.Stat(b.jsonPath)
@@ -285,64 +595,17 @@ func (b *GateResolverBuilder) discoveryLoopJSON() error {
 				continue
 			}
 			parseCount.Add("changed", 1)
-			b.targetsChanged(allTargets)
+
+			cb(allTargets)
 		}
 	}()
 
 	return nil
 }
 
-// Parse and validate the format of the file and start watching for changes
-func (b *GateResolverBuilder) start() error {
-
-	var allTargets map[string][]targetHost
-	var err error
-	if *discoveryUsesRotor {
-		allTargets, err = b.discoverFromRotor()
-	} else {
-		// Perform the initial parse
-		allTargets, err = b.parseJSON()
-	}
-
-	if err != nil {
-		return err
-	}
-
-	b.selectTargets(allTargets)
-
-	// Validate some stats
-	if len(b.targets) == 0 {
-		return fmt.Errorf("no valid targets in file %s", b.jsonPath)
-	}
-
-	// Log some stats on startup
-	poolTypes := map[string]int{}
-	affinityTypes := map[string]int{}
-
-	for _, ts := range b.targets {
-		for _, t := range ts {
-			count := poolTypes[t.PoolType]
-			poolTypes[t.PoolType] = count + 1
-
-			count = affinityTypes[t.Affinity]
-			affinityTypes[t.Affinity] = count + 1
-		}
-	}
-
-	parseCount.Add("changed", 1)
-
-	log.Infof("loaded targets, pool types %v, affinity %s, groups %v", poolTypes, *affinityValue, affinityTypes)
-
-	if *discoveryUsesRotor {
-		return b.discoveryLoopRotor()
-	} else {
-		return b.discoveryLoopJSON()
-	}
-}
-
 // parseJSON the file and build the target host list, returning whether or not the list was
 // updated since the last parseJSON, or if the checksum matched
-func (b *GateResolverBuilder) parseJSON() (map[string][]targetHost, error) {
+func (b *JSONGateDiscovery) parseJSON() (map[string][]targetHost, error) {
 	data, err := os.ReadFile(b.jsonPath)
 	if err != nil {
 		return nil, err
@@ -412,183 +675,12 @@ func (b *GateResolverBuilder) parseJSON() (map[string][]targetHost, error) {
 		default:
 			return nil, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
-
-		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
+		//		log.Infof("JSON: Found host with address %s", fmt.Sprintf("%s:%s", address, port))
+		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string)}
 		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
 	}
 
 	return allTargets, nil
-}
-
-func (b *GateResolverBuilder) selectTargets(allTargets map[string][]targetHost) {
-
-	// If a pool disappears, the metric will not record this unless all counts
-	// are reset each time the file is parsed. If this ends up causing problems
-	// with the metric briefly dropping to 0, it could be done by rlocking the
-	// target lock and then comparing the previous targets with the current
-	// targets and only resetting pools which disappear.
-	targetCount.ResetAll()
-
-	var selected = map[string][]targetHost{}
-
-	for poolType := range allTargets {
-		b.sorter.shuffleSort(allTargets[poolType])
-
-		// try to pick numConnections from the front of the list (local zone) and numBackupConnections
-		// from the tail (remote zone). if that's not possible, just take the whole set
-		if len(allTargets[poolType]) >= b.numConnections+b.numBackupConns {
-			remoteOffset := len(allTargets[poolType]) - b.numBackupConns
-			selected[poolType] = append(allTargets[poolType][:b.numConnections], allTargets[poolType][remoteOffset:]...)
-		} else {
-			selected[poolType] = allTargets[poolType]
-		}
-
-		targetCount.Set(poolType, int64(len(selected[poolType])))
-	}
-
-	b.mu.Lock()
-	b.targets = selected
-	b.mu.Unlock()
-}
-
-func (b *GateResolverBuilder) GetPools() []string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	var pools []string
-	for pool := range b.targets {
-		pools = append(pools, pool)
-	}
-	sort.Strings(pools)
-	return pools
-}
-
-func (b *GateResolverBuilder) getTargets(poolType string) []targetHost {
-	// Copy the target slice
-	b.mu.RLock()
-	targets := []targetHost{}
-	targets = append(targets, b.targets[poolType]...)
-	b.mu.RUnlock()
-
-	b.sorter.shuffleSort(targets)
-
-	return targets
-}
-
-type shuffleSorter struct {
-	rand *rand.Rand
-	mu   *sync.Mutex
-}
-
-func newShuffleSorter() *shuffleSorter {
-	return &shuffleSorter{
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
-		mu:   &sync.Mutex{},
-	}
-}
-
-// shuffleSort shuffles a slice of targetHost to ensure every host has a
-// different order to iterate through, putting the affinity matching (e.g. same
-// az) hosts at the front and the non-matching ones at the end.
-func (s *shuffleSorter) shuffleSort(targets []targetHost) {
-	n := len(targets)
-	head := 0
-	// Only need to do n-1 swaps since the last host is always in the right place.
-	tail := n - 1
-	for i := 0; i < n-1; i++ {
-		s.mu.Lock()
-		j := head + s.rand.Intn(tail-head+1)
-		s.mu.Unlock()
-
-		if targets[j].IsLocal {
-			targets[head], targets[j] = targets[j], targets[head]
-			head++
-		} else {
-			targets[tail], targets[j] = targets[j], targets[tail]
-			tail--
-		}
-	}
-}
-
-// Update the current list of hosts for the given resolver
-func (b *GateResolverBuilder) update(r *GateResolver) error {
-	log.V(100).Infof("resolving target %s to %d connections\n", r.target.URL.String(), *numConnections)
-
-	targets := b.getTargets(r.poolType)
-
-	// There should only ever be a single goroutine calling update on a given Resolver,
-	// but add a lock just in case to ensure that the r.currentAddrs are in fact synchronized
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	var addrs []resolver.Address
-	for _, target := range targets {
-		attrs := attributes.New(PoolTypeAttr, r.poolType).WithValue(ZoneLocalAttr, target.IsLocal)
-		addrs = append(addrs, resolver.Address{Addr: target.Addr, Attributes: attrs})
-	}
-
-	// If we've already selected some targets, give the new addresses some time to warm up before removing
-	// the old ones from the list
-	if r.currentAddrs != nil && warmupTime.Seconds() > 0 {
-		combined := append(r.currentAddrs, addrs...)
-		log.V(100).Infof("updating targets for %s to warmup %v", r.target.URL.String(), targets)
-		_ = r.clientConn.UpdateState(resolver.State{Addresses: combined})
-		time.Sleep(*warmupTime)
-	}
-
-	log.V(100).Infof("updating targets for %s after warmup to %v", r.target.URL.String(), targets)
-	r.currentAddrs = addrs
-	return r.clientConn.UpdateState(resolver.State{Addresses: addrs})
-}
-
-// Build a new Resolver to route to the given target
-func (b *GateResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	attrs := target.URL.Query()
-
-	// If the config specifies a pool type attribute, then the caller must supply it in the connection
-	// attributes, otherwise reject the request.
-	poolType := ""
-	if b.poolTypeField != "" {
-		poolType = attrs.Get(b.poolTypeField)
-		if poolType == "" {
-			return nil, fmt.Errorf("pool type attribute %s not in target", b.poolTypeField)
-		}
-	}
-
-	log.V(100).Infof("Start discovery for target %v poolType %s affinity %s\n", target.URL.String(), poolType, b.affinityValue)
-
-	r := &GateResolver{
-		target:     target,
-		clientConn: cc,
-		poolType:   poolType,
-	}
-
-	err := b.update(r)
-	if err != nil {
-		return nil, err
-	}
-
-	b.mu.Lock()
-	b.resolvers = append(b.resolvers, r)
-	b.mu.Unlock()
-
-	return r, nil
-}
-
-// debugTargets will return the builder's targets with a sorted slice of
-// poolTypes for rendering debug output
-func (b *GateResolverBuilder) debugTargets() any {
-	pools := b.GetPools()
-	targets := map[string][]targetHost{}
-	for pool := range b.targets {
-		targets[pool] = b.getTargets(pool)
-	}
-	return struct {
-		Pools   []string
-		Targets map[string][]targetHost
-	}{
-		Pools:   pools,
-		Targets: targets,
-	}
 }
 
 const (
@@ -611,7 +703,7 @@ const (
 	<td>{{.Hostname}}</td>
 	<td>{{.Addr}}</td>
     <td>{{.Affinity}}</td>
-    <td>{{.IsLocal}}</td>
+
   </tr>{{end}}
 {{end}}
 </table>
