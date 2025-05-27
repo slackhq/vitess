@@ -22,7 +22,7 @@
 package vtgateproxy
 
 import (
-	"math/rand/v2"
+	"math/rand"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
@@ -100,7 +100,7 @@ func (p *stickyPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error)
 		log.V(100).Infof("stickyRandomPicker: using connId %d", connId)
 	} else {
 		log.V(100).Infof("stickyRandomPicker: nonexistent connId -- using random")
-		connId = rand.IntN(subConnsLen) // shouldn't happen
+		connId = rand.Intn(subConnsLen) // shouldn't happen
 	}
 
 	// XXX/demmer might want to hash the connId rather than just mod
