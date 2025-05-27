@@ -43,12 +43,12 @@ var (
 )
 
 var (
-	unitTestDatabases = []mysqlVersion{mysql57, mysql80, mysql84}
+	unitTestDatabases = []mysqlVersion{mysql80, mysql84}
 )
 
 const (
 	oracleCloudRunner = "oracle-16cpu-64gb-x86-64"
-	githubRunner      = "gh-hosted-runners-16cores-1-24.04"
+	githubRunner      = "vitess-ubuntu24-16cpu-1"
 	cores16RunnerName = githubRunner
 	defaultRunnerName = "ubuntu-24.04"
 )
@@ -57,7 +57,7 @@ const (
 // github.com/org/repo format. This assumes a GitHub PAT token is
 // set as a repo secret named GH_ACCESS_TOKEN. The GitHub PAT must
 // have read access to your vitess fork/repo.
-const goPrivate = ""
+const goPrivate = "github.com/slackhq/vitess-addons"
 
 const (
 	workflowConfigDir = "../.github/workflows"
