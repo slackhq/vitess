@@ -956,11 +956,11 @@ func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcPr
 	t.Helper()
 	timeout := 15 * time.Second
 	startTime := time.Now()
+	mapKey := fmt.Sprintf("%s.%s.%s", recoveryName, keyspace, shard)
 	for time.Since(startTime) < timeout {
 		vars := vtorcInstance.GetVars()
 		successfulRecoveriesMap := vars["SuccessfulRecoveries"].(map[string]interface{})
-		successCountKey := recoveryName + "." + keyspace + "." + shard
-		successCount := getIntFromValue(successfulRecoveriesMap[successCountKey])
+		successCount := getIntFromValue(successfulRecoveriesMap[mapKey])
 		if successCount == countExpected {
 			return
 		}
