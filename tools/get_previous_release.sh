@@ -20,19 +20,6 @@
 
 # github.base_ref $1
 
-target_release=""
-
-base_release_branch=$(echo "$1" | grep -E 'release-[0-9]*.0$')
-if [ "$base_release_branch" == "" ]; then
-  base_release_branch=$(echo "$2" | grep -E 'release-[0-9]*.0$')
-fi
-if [ "$base_release_branch" != "" ]; then
-  major_release=$(echo "$base_release_branch" | sed 's/release-*//' | sed 's/\.0//')
-  target_major_release=$((major_release-1))
-  target_release="release-$target_major_release.0"
-else
-  target_major_release=$(git show-ref | grep -E 'refs/remotes/origin/release-[0-9]*\.0$' | sed 's/[a-z0-9]* refs\/remotes\/origin\/release-//' | sed 's/\.0//' | sort -nr | head -n1)
-  target_release="release-$target_major_release.0"
-fi
+target_release="slack-19.0"
 
 echo "$target_release"
