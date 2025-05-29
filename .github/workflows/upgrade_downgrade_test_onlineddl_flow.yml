@@ -82,11 +82,11 @@ jobs:
         echo $next_release_ref
         echo "next_release_ref=${next_release_ref}" >> $GITHUB_OUTPUT
 
-    - name: Set up Go
+    - name: Set up last release Go
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
       with:
-        go-version: 1.23.8
+        go-version: 1.22.8
 
     - name: Setup GitHub access token
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
@@ -156,6 +156,12 @@ jobs:
         mkdir -p /tmp/vitess-build-last/
         cp -R bin /tmp/vitess-build-last/
         rm -Rf bin/*
+
+    - name: Set up Go
+      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
+      uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+      with:
+        go-version: 1.23.8
 
     # Checkout to the next release of Vitess
     - name: Check out next version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})
