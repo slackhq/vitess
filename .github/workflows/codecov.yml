@@ -36,6 +36,10 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.changed_files == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Set up python
       if: steps.changes.outputs.changed_files == 'true'
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
