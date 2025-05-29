@@ -117,7 +117,7 @@ func NewTabletGateway(ctx context.Context, hc discovery.HealthCheck, serv srvtop
 			var err error
 			serv, err = srvtopo.NewKeyspaceFilteringServer(serv, discovery.KeyspacesToWatch)
 			if err != nil {
-				log.Fatalf("Unable to construct SrvTopo server: %v", err.Error())
+				log.Exitf("Unable to construct SrvTopo server: %v", err.Error())
 			}
 
 			topoServer, err = serv.GetTopoServer()
