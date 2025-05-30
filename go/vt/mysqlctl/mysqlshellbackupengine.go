@@ -463,7 +463,7 @@ func (be *MySQLShellBackupEngine) restorePreCheck(ctx context.Context, params Re
 
 		_, sv, err := ParseVersionString(version)
 		if err != nil {
-			return false, fmt.Errorf("%w: failed to parse MySQL version (version: %s): %v", ErrMySQLShellPreCheck, version, err)
+			return false, fmt.Errorf("%w: failed to parse MySQL version (version: %s): %v", MySQLShellPreCheckError, version, err)
 		}
 
 		versionStr := fmt.Sprintf("%d.%d.%d", sv.Major, sv.Minor, sv.Patch)
@@ -475,7 +475,7 @@ func (be *MySQLShellBackupEngine) restorePreCheck(ctx context.Context, params Re
 		}
 
 		if !capable {
-			return false, fmt.Errorf("%w: MySQL version doesn't support disabling the redo log (must be >=8.0.21)", MySQLShellPreCheckError)
+			return false, fmt.Errorf("%w: MySQL version doesn't support disabling the redo log (must be >=8.0.21, current version: %s)", MySQLShellPreCheckError, versionStr)
 		}
 	}
 
