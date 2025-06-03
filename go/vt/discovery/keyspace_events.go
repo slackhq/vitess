@@ -88,6 +88,12 @@ type ShardEvent struct {
 // It requires access to a topology server, and an existing HealthCheck implementation which
 // will be used to detect unhealthy nodes.
 func NewKeyspaceEventWatcher(ctx context.Context, topoServer srvtopo.Server, hc HealthCheck, localCell string) *KeyspaceEventWatcher {
+	var err error
+	topoServer, err = srvtopo.NewKeyspaceFilteringServer(topoServer, KeyspacesToWatch)
+	if err != nil {
+		log.Fatalf("Unable to construct SrvTopo server: %v", err.Error())
+	}
+
 	kew := &KeyspaceEventWatcher{
 		hc:        hc,
 		ts:        topoServer,
