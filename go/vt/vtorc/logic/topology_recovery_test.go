@@ -28,7 +28,6 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
-	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/db"
 	"vitess.io/vitess/go/vt/vtorc/inst"
@@ -319,7 +318,7 @@ func TestRecheckPrimaryHealth(t *testing.T) {
 					MysqlHostname: "localhost",
 					MysqlPort:     6708,
 				},
-				DurabilityPolicy:              policy.DurabilityNone,
+				DurabilityPolicy:              "none",
 				LastCheckValid:                1,
 				CountReplicas:                 4,
 				CountValidReplicas:            4,
@@ -327,7 +326,6 @@ func TestRecheckPrimaryHealth(t *testing.T) {
 				CountValidOracleGTIDReplicas:  4,
 				CountLoggingReplicas:          2,
 				IsPrimary:                     1,
-				CurrentTabletType:             int(topodatapb.TabletType_PRIMARY),
 			}, {
 				TabletInfo: &topodatapb.Tablet{
 					Alias:         &topodatapb.TabletAlias{Cell: "zon1", Uid: 100},
@@ -338,7 +336,7 @@ func TestRecheckPrimaryHealth(t *testing.T) {
 					MysqlHostname: "localhost",
 					MysqlPort:     6709,
 				},
-				DurabilityPolicy: policy.DurabilityNone,
+				DurabilityPolicy: "none",
 				PrimaryTabletInfo: &topodatapb.Tablet{
 					Alias: &topodatapb.TabletAlias{Cell: "zon1", Uid: 101},
 				},
