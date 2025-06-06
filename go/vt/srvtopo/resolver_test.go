@@ -48,7 +48,7 @@ func initResolver(t *testing.T, ctx context.Context, name string) *Resolver {
 	}
 	for _, kr := range shardKrArray {
 		shard := key.KeyRangeString(kr)
-		if err := ts.CreateShard(ctx, "sks", shard); err != nil {
+		if err := ts.CreateShard(ctx, "sks", shard, nil); err != nil {
 			t.Fatalf("CreateShard(\"%v\") failed: %v", shard, err)
 		}
 	}
@@ -57,7 +57,7 @@ func initResolver(t *testing.T, ctx context.Context, name string) *Resolver {
 	if err := ts.CreateKeyspace(ctx, "uks", &topodatapb.Keyspace{}); err != nil {
 		t.Fatalf("CreateKeyspace(uks) failed: %v", err)
 	}
-	if err := ts.CreateShard(ctx, "uks", "0"); err != nil {
+	if err := ts.CreateShard(ctx, "uks", "0", nil); err != nil {
 		t.Fatalf("CreateShard(0) failed: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func initResolver(t *testing.T, ctx context.Context, name string) *Resolver {
 	// Create snapshot keyspace and shard.
 	err = ts.CreateKeyspace(ctx, "rks", &topodatapb.Keyspace{KeyspaceType: topodatapb.KeyspaceType_SNAPSHOT})
 	require.NoError(t, err, "CreateKeyspace(rks) failed: %v")
-	err = ts.CreateShard(ctx, "rks", "-80")
+	err = ts.CreateShard(ctx, "rks", "-80", nil)
 	require.NoError(t, err, "CreateShard(-80) failed: %v")
 
 	// Rebuild should error because allowPartial is false and shard does not cover full keyrange
@@ -84,7 +84,7 @@ func initResolver(t *testing.T, ctx context.Context, name string) *Resolver {
 	require.NoError(t, err, "RebuildKeyspace(rks) failed")
 
 	// Create missing shard
-	err = ts.CreateShard(ctx, "rks", "80-")
+	err = ts.CreateShard(ctx, "rks", "80-", nil)
 	require.NoError(t, err, "CreateShard(80-) failed: %v")
 
 	// Rebuild should now succeed even with allowPartial false
