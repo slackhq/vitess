@@ -465,6 +465,7 @@ func (vc *VitessCluster) AddKeyspace(t *testing.T, cells []*Cell, ksName string,
 		cell.Keyspaces[ksName] = keyspace
 		cellsToWatch = cellsToWatch + cell.Name
 	}
+
 	for _, cell := range cells {
 		if len(cell.Vtgates) == 0 {
 			log.Infof("Starting vtgate")
@@ -486,6 +487,7 @@ func (vc *VitessCluster) AddKeyspace(t *testing.T, cells []*Cell, ksName string,
 
 	err = vc.VtctldClient.ExecuteCommand("RebuildKeyspaceGraph", ksName)
 	require.NoError(t, err)
+
 	return keyspace, nil
 }
 
