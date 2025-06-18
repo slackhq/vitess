@@ -119,7 +119,7 @@ func TestReparentReplicaOffline(t *testing.T) {
 	out, err := utils.PrsWithTimeout(t, clusterInstance, tablets[1], false, "", "31s")
 	require.Error(t, err)
 
-	// Assert that PRS failed
+	// Assert that PRS failed - hacked to support https://github.com/slackhq/vitess/pull/648
 	if clusterInstance.VtctlMajorVersion <= 19 {
 		assert.True(t, utils.SetReplicationSourceFailed(tablets[3], out))
 		utils.CheckPrimaryTablet(t, clusterInstance, tablets[1])
