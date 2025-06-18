@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rebase:*)",
+      "Bash(awk:*)",
+      "Bash(do echo \"Resolving $file\" git checkout --theirs \"$file\" done)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
