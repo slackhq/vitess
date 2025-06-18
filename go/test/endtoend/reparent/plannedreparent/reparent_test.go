@@ -120,8 +120,13 @@ func TestReparentReplicaOffline(t *testing.T) {
 	require.Error(t, err)
 
 	// Assert that PRS failed
-	assert.Contains(t, out, "rpc error: code = DeadlineExceeded desc")
-	utils.CheckPrimaryTablet(t, clusterInstance, tablets[0])
+	if clusterInstance.VtctlMajorVersion <= 19 {
+		assert.True(t, utils.SetReplicationSourceFailed(tablets[3], out))
+		utils.CheckPrimaryTablet(t, clusterInstance, tablets[1])
+	} else {
+		assert.Contains(t, out, "rpc error: code = DeadlineExceeded desc")
+		utils.CheckPrimaryTablet(t, clusterInstance, tablets[0])
+	}
 }
 
 func TestReparentAvoid(t *testing.T) {
