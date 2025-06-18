@@ -5074,6 +5074,7 @@
         "user.user"
       ]
     }
+<<<<<<< HEAD
   },
   {
     "comment": "order by and project pushed under route having database qualifier - it should be removed in final query",
@@ -5119,5 +5120,7 @@
         "Table": "information_schema.`table`"
       }
     }
+=======
+>>>>>>> 85f4346ebb (`slack-22.0`: merge `v22.0.1` patch release (#672))
   }
 ]
