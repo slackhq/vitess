@@ -99,7 +99,7 @@ func TestQueryTimeoutWithTables(t *testing.T) {
 	utils.Exec(t, mcmp.VtConn, "select /*vt+ QUERY_TIMEOUT_MS=500 */ sleep(0.1) from t1 where id1 = 1")
 	_, err = utils.ExecAllowError(t, mcmp.VtConn, "select /*vt+ QUERY_TIMEOUT_MS=20 */ sleep(0.1) from t1 where id1 = 1")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "context deadline exceeded")
+	assert.ErrorContains(t, err, "DeadlineExceeded")
 	assert.ErrorContains(t, err, "(errno 1317) (sqlstate 70100)")
 }
 
@@ -125,7 +125,7 @@ func TestQueryTimeoutWithShardTargeting(t *testing.T) {
 	for _, query := range queries {
 		t.Run(query, func(t *testing.T) {
 			_, err := utils.ExecAllowError(t, mcmp.VtConn, query)
-			assert.ErrorContains(t, err, "context deadline exceeded")
+			// the error message can be different based on VTGate or VTTABLET or grpc error.
 			assert.ErrorContains(t, err, "(errno 1317) (sqlstate 70100)")
 		})
 	}
