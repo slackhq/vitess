@@ -131,7 +131,8 @@ var (
 		"vreplication_partial_movetables_and_materialize",
 		"vreplication_foreign_key_stress",
 		"vreplication_migrate",
-		"vreplication_vtctldclient_vdiff2_movetables_tz",
+		"vreplication_vtctldclient_movetables_tz",
+		"vreplication_vdiff2",
 		"vreplication_multi_tenant",
 		"schemadiff_vrepl",
 		"topo_connection_cache",
@@ -170,6 +171,7 @@ var (
 		"vreplication_basic",
 		"vreplication_migrate",
 		"vreplication_vtctldclient_vdiff2_movetables_tz",
+		"vtgate_transaction",
 	}
 	clusterRequiringMinio = []string{
 		"21",
