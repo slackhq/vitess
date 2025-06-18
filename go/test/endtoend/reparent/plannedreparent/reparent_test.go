@@ -299,14 +299,18 @@ func TestReparentWithDownReplica(t *testing.T) {
 	// Perform a graceful reparent operation. It will fail as one tablet is down.
 	out, err := utils.Prs(t, clusterInstance, tablets[1])
 	require.Error(t, err)
+	var insertVal int
 	// Assert that PRS failed
 	if clusterInstance.VtctlMajorVersion <= 20 {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.PrimaryStatus on %s", tablets[2].Alias))
+		// NOTE: partially reverted PR #16374 to support slack-19.0
+		// insert data into the new primary, check the connected replica work
+		insertVal = utils.ConfirmReplication(t, tablets[1], []*cluster.Vttablet{tablets[0], tablets[3]})
 	} else {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.GetGlobalStatusVars on %s", tablets[2].Alias))
+		// insert data into the old primary, check the connected replica works. The primary tablet shouldn't have changed.
+		insertVal = utils.ConfirmReplication(t, tablets[0], []*cluster.Vttablet{tablets[1], tablets[3]})
 	}
-	// insert data into the old primary, check the connected replica works. The primary tablet shouldn't have changed.
-	insertVal := utils.ConfirmReplication(t, tablets[0], []*cluster.Vttablet{tablets[1], tablets[3]})
 
 	// restart mysql on the old replica, should still be connecting to the old primary
 	tablets[2].MysqlctlProcess.InitMysql = false
