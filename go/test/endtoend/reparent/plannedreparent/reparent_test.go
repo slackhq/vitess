@@ -119,9 +119,14 @@ func TestReparentReplicaOffline(t *testing.T) {
 	out, err := utils.PrsWithTimeout(t, clusterInstance, tablets[1], false, "", "31s")
 	require.Error(t, err)
 
-	// Assert that PRS failed
-	assert.Contains(t, out, "rpc error: code = DeadlineExceeded desc")
-	utils.CheckPrimaryTablet(t, clusterInstance, tablets[0])
+	// Assert that PRS failed - hacked to support https://github.com/slackhq/vitess/pull/648
+	if clusterInstance.VtctlMajorVersion <= 19 {
+		assert.True(t, utils.SetReplicationSourceFailed(tablets[3], out))
+		utils.CheckPrimaryTablet(t, clusterInstance, tablets[1])
+	} else {
+		assert.Contains(t, out, "rpc error: code = DeadlineExceeded desc")
+		utils.CheckPrimaryTablet(t, clusterInstance, tablets[0])
+	}
 }
 
 func TestReparentAvoid(t *testing.T) {
@@ -294,14 +299,18 @@ func TestReparentWithDownReplica(t *testing.T) {
 	// Perform a graceful reparent operation. It will fail as one tablet is down.
 	out, err := utils.Prs(t, clusterInstance, tablets[1])
 	require.Error(t, err)
+	var insertVal int
 	// Assert that PRS failed
 	if clusterInstance.VtctlMajorVersion <= 20 {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.PrimaryStatus on %s", tablets[2].Alias))
+		// NOTE: partially reverted PR #16374 to support slack-19.0
+		// insert data into the new primary, check the connected replica work
+		insertVal = utils.ConfirmReplication(t, tablets[1], []*cluster.Vttablet{tablets[0], tablets[3]})
 	} else {
 		assert.Contains(t, out, fmt.Sprintf("TabletManager.GetGlobalStatusVars on %s", tablets[2].Alias))
+		// insert data into the old primary, check the connected replica works. The primary tablet shouldn't have changed.
+		insertVal = utils.ConfirmReplication(t, tablets[0], []*cluster.Vttablet{tablets[1], tablets[3]})
 	}
-	// insert data into the old primary, check the connected replica works. The primary tablet shouldn't have changed.
-	insertVal := utils.ConfirmReplication(t, tablets[0], []*cluster.Vttablet{tablets[1], tablets[3]})
 
 	// restart mysql on the old replica, should still be connecting to the old primary
 	tablets[2].MysqlctlProcess.InitMysql = false
