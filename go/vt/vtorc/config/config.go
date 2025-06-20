@@ -56,6 +56,7 @@ var (
 	auditToBackend                 = false
 	auditToSyslog                  = false
 	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
+	allowRecovery                  = true
 	recoveryPeriodBlockDuration    = 30 * time.Second
 	preventCrossCellFailover       = false
 	waitReplicasTimeout            = 30 * time.Second
@@ -68,7 +69,7 @@ var (
 
 // RegisterFlags registers the flags required by VTOrc
 func RegisterFlags(fs *pflag.FlagSet) {
-	fs.Int("discovery-workers", discoveryWorkers, "Number of workers used for tablet discovery")
+	fs.IntVar(&discoveryWorkers, "discovery-workers", discoveryWorkers, "Number of workers used for tablet discovery")
 	fs.StringVar(&sqliteDataFile, "sqlite-data-file", sqliteDataFile, "SQLite Datafile to use as VTOrc's database")
 	fs.DurationVar(&instancePollTime, "instance-poll-time", instancePollTime, "Timer duration on which VTOrc refreshes MySQL information")
 	fs.DurationVar(&snapshotTopologyInterval, "snapshot-topology-interval", snapshotTopologyInterval, "Timer duration on which VTOrc takes a snapshot of the current MySQL information it has in the database. Should be in multiple of hours")
@@ -77,6 +78,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&auditToBackend, "audit-to-backend", auditToBackend, "Whether to store the audit log in the VTOrc database")
 	fs.BoolVar(&auditToSyslog, "audit-to-syslog", auditToSyslog, "Whether to store the audit log in the syslog")
 	fs.DurationVar(&auditPurgeDuration, "audit-purge-duration", auditPurgeDuration, "Duration for which audit logs are held before being purged. Should be in multiples of days")
+	fs.BoolVar(&allowRecovery, "allow-recovery", allowRecovery, "Allow recovery actions")
 	fs.DurationVar(&recoveryPeriodBlockDuration, "recovery-period-block-duration", recoveryPeriodBlockDuration, "Duration for which a new recovery is blocked on an instance after running a recovery")
 	fs.BoolVar(&preventCrossCellFailover, "prevent-cross-cell-failover", preventCrossCellFailover, "Prevent VTOrc from promoting a primary in a different cell than the current primary in case of a failover")
 	fs.DurationVar(&waitReplicasTimeout, "wait-replicas-timeout", waitReplicasTimeout, "Duration for which to wait for replica's to respond when issuing RPCs")
@@ -106,6 +108,7 @@ type Configuration struct {
 	WaitReplicasTimeoutSeconds            int    // Timeout on amount of time to wait for the replicas in case of ERS. Should be a small value because we should fail-fast. Should not be larger than LockTimeout since that is the total time we use for an ERS.
 	TolerableReplicationLagSeconds        int    // Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS.
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
+	AllowRecovery                         bool   // Allow recoveries.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
 }
 
@@ -137,6 +140,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.WaitReplicasTimeoutSeconds = int(waitReplicasTimeout / time.Second)
 	Config.TolerableReplicationLagSeconds = int(tolerableReplicationLag / time.Second)
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
+	Config.AllowRecovery = allowRecovery
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
 }
 
@@ -176,6 +180,7 @@ func newConfiguration() *Configuration {
 		AuditLogFile:                          "",
 		AuditToSyslog:                         false,
 		AuditToBackendDB:                      false,
+		AllowRecovery:                         true,
 		AuditPurgeDays:                        7,
 		RecoveryPeriodBlockSeconds:            30,
 		PreventCrossDataCenterPrimaryFailover: false,
