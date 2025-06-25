@@ -2850,6 +2850,12 @@ func (s *VtctldServer) PlannedReparentShard(ctx context.Context, req *vtctldatap
 	if err != nil {
 		return nil, err
 	}
+	poolCloseTimeout, ok, err := protoutil.DurationFromProto(req.PoolCloseTimeout)
+	if err != nil {
+		return nil, err
+	} else if !ok {
+		poolCloseTimeout = 10 * time.Second
+	}
 
 	span.Annotate("keyspace", req.Keyspace)
 	span.Annotate("shard", req.Shard)
@@ -2885,6 +2891,7 @@ func (s *VtctldServer) PlannedReparentShard(ctx context.Context, req *vtctldatap
 			ExpectedPrimaryAlias: req.ExpectedPrimary,
 			WaitReplicasTimeout:  waitReplicasTimeout,
 			TolerableReplLag:     tolerableReplLag,
+			PoolCloseTimeout:     poolCloseTimeout,
 		},
 	)
 

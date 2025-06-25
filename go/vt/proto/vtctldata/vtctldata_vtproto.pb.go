@@ -3310,6 +3310,7 @@ func (m *PlannedReparentShardRequest) CloneVT() *PlannedReparentShardRequest {
 		AvoidPrimary:            m.AvoidPrimary.CloneVT(),
 		WaitReplicasTimeout:     m.WaitReplicasTimeout.CloneVT(),
 		TolerableReplicationLag: m.TolerableReplicationLag.CloneVT(),
+		PoolCloseTimeout:        m.PoolCloseTimeout.CloneVT(),
 		ExpectedPrimary:         m.ExpectedPrimary.CloneVT(),
 	}
 	if len(m.unknownFields) > 0 {
@@ -14357,6 +14358,16 @@ func (m *PlannedReparentShardRequest) MarshalToSizedBufferVT(dAtA []byte) (int, 
 		i--
 		dAtA[i] = 0x42
 	}
+	if m.PoolCloseTimeout != nil {
+		size, err := m.PoolCloseTimeout.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.TolerableReplicationLag != nil {
 		size, err := m.TolerableReplicationLag.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
@@ -23310,6 +23321,10 @@ func (m *PlannedReparentShardRequest) SizeVT() (n int) {
 	}
 	if m.TolerableReplicationLag != nil {
 		l = m.TolerableReplicationLag.SizeVT()
+		n += 1 + l + sov(uint64(l))
+	}
+	if m.PoolCloseTimeout != nil {
+		l = m.PoolCloseTimeout.SizeVT()
 		n += 1 + l + sov(uint64(l))
 	}
 	if m.ExpectedPrimary != nil {
@@ -47553,6 +47568,42 @@ func (m *PlannedReparentShardRequest) UnmarshalVT(dAtA []byte) error {
 				m.TolerableReplicationLag = &vttime.Duration{}
 			}
 			if err := m.TolerableReplicationLag.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PoolCloseTimeout", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.PoolCloseTimeout == nil {
+				m.PoolCloseTimeout = &vttime.Duration{}
+			}
+			if err := m.PoolCloseTimeout.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

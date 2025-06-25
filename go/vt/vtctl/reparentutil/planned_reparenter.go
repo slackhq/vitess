@@ -60,6 +60,7 @@ type PlannedReparentOptions struct {
 	ExpectedPrimaryAlias *topodatapb.TabletAlias
 	WaitReplicasTimeout  time.Duration
 	TolerableReplLag     time.Duration
+	PoolCloseTimeout     time.Duration
 
 	// Private options managed internally. We use value-passing semantics to
 	// set these options inside a PlannedReparent without leaking these details
