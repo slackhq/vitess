@@ -198,6 +198,7 @@ var plannedReparentShardOptions = struct {
 	ExpectedPrimaryAliasStr string
 	WaitReplicasTimeout     time.Duration
 	TolerableReplicationLag time.Duration
+	PoolCloseTimeout        time.Duration
 }{}
 
 func commandPlannedReparentShard(cmd *cobra.Command, args []string) error {
@@ -243,6 +244,7 @@ func commandPlannedReparentShard(cmd *cobra.Command, args []string) error {
 		ExpectedPrimary:         expectedPrimaryAlias,
 		WaitReplicasTimeout:     protoutil.DurationToProto(plannedReparentShardOptions.WaitReplicasTimeout),
 		TolerableReplicationLag: protoutil.DurationToProto(plannedReparentShardOptions.TolerableReplicationLag),
+		PoolCloseTimeout:        protoutil.DurationToProto(plannedReparentShardOptions.PoolCloseTimeout),
 	})
 	if err != nil {
 		return err
@@ -316,6 +318,7 @@ func init() {
 
 	PlannedReparentShard.Flags().DurationVar(&plannedReparentShardOptions.WaitReplicasTimeout, "wait-replicas-timeout", topo.RemoteOperationTimeout, "Time to wait for replicas to catch up on replication both before and after reparenting.")
 	PlannedReparentShard.Flags().DurationVar(&plannedReparentShardOptions.TolerableReplicationLag, "tolerable-replication-lag", 0, "Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary.")
+	PlannedReparentShard.Flags().DurationVar(&plannedReparentShardOptions.PoolCloseTimeout, "pool-close-timeout", 10*time.Second, "Duration to wait for pool connections to close during reparent.")
 	PlannedReparentShard.Flags().StringVar(&plannedReparentShardOptions.NewPrimaryAliasStr, "new-primary", "", "Alias of a tablet that should be the new primary.")
 	PlannedReparentShard.Flags().StringVar(&plannedReparentShardOptions.AvoidPrimaryAliasStr, "avoid-primary", "", "Alias of a tablet that should not be the primary; i.e. \"reparent to any other tablet if this one is the primary\".")
 	PlannedReparentShard.Flags().StringVar(&plannedReparentShardOptions.ExpectedPrimaryAliasStr, "expected-primary", "", "Alias of a tablet that must be the current primary in order for the reparent to be processed.")

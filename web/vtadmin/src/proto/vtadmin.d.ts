@@ -59706,6 +59706,9 @@ export namespace vtctldata {
         /** PlannedReparentShardRequest tolerable_replication_lag */
         tolerable_replication_lag?: (vttime.IDuration|null);
 
+        /** PlannedReparentShardRequest pool_close_timeout */
+        pool_close_timeout?: (vttime.IDuration|null);
+
         /** PlannedReparentShardRequest expected_primary */
         expected_primary?: (topodata.ITabletAlias|null);
     }
@@ -59736,6 +59739,9 @@ export namespace vtctldata {
 
         /** PlannedReparentShardRequest tolerable_replication_lag. */
         public tolerable_replication_lag?: (vttime.IDuration|null);
+
+        /** PlannedReparentShardRequest pool_close_timeout. */
+        public pool_close_timeout?: (vttime.IDuration|null);
 
         /** PlannedReparentShardRequest expected_primary. */
         public expected_primary?: (topodata.ITabletAlias|null);

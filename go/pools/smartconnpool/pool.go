@@ -90,11 +90,12 @@ type Connector[C Connection] func(ctx context.Context) (C, error)
 type RefreshCheck func() (bool, error)
 
 type Config[C Connection] struct {
-	Capacity        int64
-	IdleTimeout     time.Duration
-	MaxLifetime     time.Duration
-	RefreshInterval time.Duration
-	LogWait         func(time.Time)
+	Capacity         int64
+	IdleTimeout      time.Duration
+	MaxLifetime      time.Duration
+	RefreshInterval  time.Duration
+	PoolCloseTimeout time.Duration
+	LogWait          func(time.Time)
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -142,6 +143,8 @@ type ConnPool[C Connection] struct {
 		idleTimeout atomic.Int64
 		// refreshInterval is how often to call the refresh check
 		refreshInterval atomic.Int64
+		// poolCloseTimeout is the maximum time to wait for pool connections to close
+		poolCloseTimeout atomic.Int64
 		// logWait is called every time a client must block waiting for a connection
 		logWait func(time.Time)
 	}
@@ -158,6 +161,11 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.maxLifetime.Store(config.MaxLifetime.Nanoseconds())
 	pool.config.idleTimeout.Store(config.IdleTimeout.Nanoseconds())
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
+	poolCloseTimeout := config.PoolCloseTimeout
+	if poolCloseTimeout == 0 {
+		poolCloseTimeout = PoolCloseTimeout
+	}
+	pool.config.poolCloseTimeout.Store(poolCloseTimeout.Nanoseconds())
 	pool.config.logWait = config.LogWait
 	pool.wait.init()
 
@@ -247,9 +255,9 @@ func (pool *ConnPool[C]) Open(connect Connector[C], refresh RefreshCheck) *ConnP
 
 // Close shuts down the pool. No connections will be returned from ConnPool.Get after calling this,
 // but calling ConnPool.Put is still allowed. This function will not return until all of the pool's
-// connections have been returned or the default PoolCloseTimeout has elapsed
+// connections have been returned or the configured PoolCloseTimeout has elapsed
 func (pool *ConnPool[C]) Close() {
-	ctx, cancel := context.WithTimeout(context.Background(), PoolCloseTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), pool.PoolCloseTimeout())
 	defer cancel()
 
 	if err := pool.CloseWithContext(ctx); err != nil {
@@ -288,7 +296,7 @@ func (pool *ConnPool[C]) reopen() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), PoolCloseTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), pool.PoolCloseTimeout())
 	defer cancel()
 
 	// to re-open the connection pool, first set the capacity to 0 so we close
@@ -345,6 +353,10 @@ func (pool *ConnPool[C]) SetIdleTimeout(duration time.Duration) {
 
 func (pool *ConnPool[D]) RefreshInterval() time.Duration {
 	return time.Duration(pool.config.refreshInterval.Load())
+}
+
+func (pool *ConnPool[D]) PoolCloseTimeout() time.Duration {
+	return time.Duration(pool.config.poolCloseTimeout.Load())
 }
 
 func (pool *ConnPool[C]) recordWait(start time.Time) {

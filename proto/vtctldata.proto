@@ -1271,6 +1271,9 @@ message PlannedReparentShardRequest {
   // acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary.
   // A value of 0 indicates that Vitess shouldn't consider the replication lag at all.
   vttime.Duration tolerable_replication_lag = 6;
+  // PoolCloseTimeout is the duration to wait for pool connections to close during reparent.
+  // If not specified, defaults to 10 seconds.
+  vttime.Duration pool_close_timeout = 7;
   // ExpectedPrimary is the optional alias we expect to be the current primary in order for
   // the reparent operation to succeed.
   topodata.TabletAlias expected_primary = 8;
