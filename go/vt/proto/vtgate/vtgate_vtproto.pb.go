@@ -352,14 +352,20 @@ func (m *VStreamFlags) CloneVT() *VStreamFlags {
 		return (*VStreamFlags)(nil)
 	}
 	r := &VStreamFlags{
-		MinimizeSkew:                m.MinimizeSkew,
-		HeartbeatInterval:           m.HeartbeatInterval,
-		StopOnReshard:               m.StopOnReshard,
-		Cells:                       m.Cells,
-		CellPreference:              m.CellPreference,
-		TabletOrder:                 m.TabletOrder,
-		StreamKeyspaceHeartbeats:    m.StreamKeyspaceHeartbeats,
-		IncludeReshardJournalEvents: m.IncludeReshardJournalEvents,
+		MinimizeSkew:                 m.MinimizeSkew,
+		HeartbeatInterval:            m.HeartbeatInterval,
+		StopOnReshard:                m.StopOnReshard,
+		Cells:                        m.Cells,
+		CellPreference:               m.CellPreference,
+		TabletOrder:                  m.TabletOrder,
+		StreamKeyspaceHeartbeats:     m.StreamKeyspaceHeartbeats,
+		IncludeReshardJournalEvents:  m.IncludeReshardJournalEvents,
+		ExcludeKeyspaceFromTableName: m.ExcludeKeyspaceFromTableName,
+	}
+	if rhs := m.TablesToCopy; rhs != nil {
+		tmpContainer := make([]string, len(rhs))
+		copy(tmpContainer, rhs)
+		r.TablesToCopy = tmpContainer
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -1481,6 +1487,25 @@ func (m *VStreamFlags) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.ExcludeKeyspaceFromTableName {
+		i--
+		if m.ExcludeKeyspaceFromTableName {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x50
+	}
+	if len(m.TablesToCopy) > 0 {
+		for iNdEx := len(m.TablesToCopy) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.TablesToCopy[iNdEx])
+			copy(dAtA[i:], m.TablesToCopy[iNdEx])
+			i = encodeVarint(dAtA, i, uint64(len(m.TablesToCopy[iNdEx])))
+			i--
+			dAtA[i] = 0x4a
+		}
+	}
 	if m.IncludeReshardJournalEvents {
 		i--
 		if m.IncludeReshardJournalEvents {
@@ -2303,6 +2328,15 @@ func (m *VStreamFlags) SizeVT() (n int) {
 		n += 2
 	}
 	if m.IncludeReshardJournalEvents {
+		n += 2
+	}
+	if len(m.TablesToCopy) > 0 {
+		for _, s := range m.TablesToCopy {
+			l = len(s)
+			n += 1 + l + sov(uint64(l))
+		}
+	}
+	if m.ExcludeKeyspaceFromTableName {
 		n += 2
 	}
 	n += len(m.unknownFields)
@@ -5290,6 +5324,58 @@ func (m *VStreamFlags) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.IncludeReshardJournalEvents = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TablesToCopy", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.TablesToCopy = append(m.TablesToCopy, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExcludeKeyspaceFromTableName", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ExcludeKeyspaceFromTableName = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skip(dAtA[iNdEx:])
