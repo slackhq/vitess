@@ -487,7 +487,7 @@ func TestStreamRowsHeartbeat(t *testing.T) {
 		if rows.Heartbeat {
 			atomic.AddInt32(&heartbeatCount, 1)
 			// After receiving at least 3 heartbeats, we can be confident the fix is working
-			if heartbeatCount >= 3 {
+			if atomic.LoadInt32(&heartbeatCount) >= 3 {
 				cancel()
 				return nil
 			}
