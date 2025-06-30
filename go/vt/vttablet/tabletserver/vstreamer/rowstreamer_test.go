@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -479,12 +480,12 @@ func TestStreamRowsHeartbeat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	heartbeatCount := 0
+	var heartbeatCount int32
 	dataReceived := false
 
 	err := engine.StreamRows(ctx, "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		if rows.Heartbeat {
-			heartbeatCount++
+			atomic.AddInt32(&heartbeatCount, 1)
 			// After receiving at least 3 heartbeats, we can be confident the fix is working
 			if heartbeatCount >= 3 {
 				cancel()
@@ -511,7 +512,7 @@ func TestStreamRowsHeartbeat(t *testing.T) {
 	// This is the critical test: we should receive multiple heartbeats
 	// Without the fix (missing for loop), we would only get 1 heartbeat
 	// With the fix, we should get at least 3 heartbeats
-	if heartbeatCount < 3 {
+	if heartbeatCount := atomic.LoadInt32(&heartbeatCount); heartbeatCount < 3 {
 		t.Errorf("expected at least 3 heartbeats, got %d. This indicates the heartbeat goroutine is not running continuously", heartbeatCount)
 	}
 }
