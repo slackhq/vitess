@@ -221,7 +221,7 @@ func (ph *proxyHandler) ComQuery(c *mysql.Conn, query string, callback func(*sql
 
 	ctx = context.WithValue(ctx, CONN_ID_KEY, int(c.ConnectionID))
 
-	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP {
+	if session.SessionPb().Options.Workload == querypb.ExecuteOptions_OLAP || strings.Contains(query, "/* VTGATEPROXY_STREAM_EXECUTE */") {
 		err := ph.proxy.StreamExecute(ctx, session, query, make(map[string]*querypb.BindVariable), callback)
 		return sqlerror.NewSQLErrorFromError(err)
 	}
