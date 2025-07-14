@@ -304,9 +304,6 @@ func getValidCandidatesAndPositionsAsList(validCandidates map[string]replication
 // there are fewer than 3 candidates, all provided candidates are the majority.
 func getValidCandidatesMajorityCount(validCandidates map[string]replication.Position) int {
 	totalCandidates := len(validCandidates)
-	if totalCandidates == 0 {
-		return 0
-	}
 	if totalCandidates < 3 {
 		return totalCandidates
 	}
@@ -330,8 +327,8 @@ func restrictValidCandidates(validCandidates map[string]replication.Position, ta
 		validPositions = append(validPositions, position)
 	}
 
-	// sort by replication positions with greatest GTID set first, then remove replicas
-	// that are not part of the majority of the most-advanced replicas.
+	// sort by replication positions with greatest GTID set first, then remove
+	// replicas that are not part of a majority of the most-advanced replicas.
 	slices.SortStableFunc(validPositions, func(a, b replication.Position) int {
 		return replication.ComparePositions(a, b)
 	})
