@@ -1,5 +1,5 @@
 /*
-zsh:1: command not found: q
+Copyright 2021 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -316,7 +316,7 @@ func getValidCandidatesMajorityCount(validCandidates map[string]replication.Posi
 // restrictValidCandidates is used to restrict some candidates from being considered eligible for becoming the intermediate source or the final promotion candidate
 func restrictValidCandidates(validCandidates map[string]replication.Position, tabletMap map[string]*topo.TabletInfo) (map[string]replication.Position, error) {
 	restrictedValidCandidates := make(map[string]replication.Position)
-	validPositionsSlice := make([]replication.Position, 0, len(validCandidates))
+	validPositions := make([]replication.Position, 0, len(validCandidates))
 	for candidate, position := range validCandidates {
 		candidateInfo, ok := tabletMap[candidate]
 		if !ok {
@@ -327,18 +327,18 @@ func restrictValidCandidates(validCandidates map[string]replication.Position, ta
 			continue
 		}
 		restrictedValidCandidates[candidate] = position
-		validPositionsSlice = append(validPositionsSlice, position)
+		validPositions = append(validPositions, position)
 	}
 
 	// sort by replication positions with greatest GTID set first, then remove replicas
 	// that are not part of the majority of the most-advanced replicas.
-	slices.SortStableFunc(validPositionsSlice, func(a, b replication.Position) int {
+	slices.SortStableFunc(validPositions, func(a, b replication.Position) int {
 		return replication.ComparePositions(a, b)
 	})
 	majorityCandidatesCount := getValidCandidatesMajorityCount(restrictedValidCandidates)
-	validPositionsSlice = validPositionsSlice[:majorityCandidatesCount]
+	validPositions = validPositions[:majorityCandidatesCount]
 	for tabletAlias, position := range restrictedValidCandidates {
-		if slices.ContainsFunc(validPositionsSlice, func(rp replication.Position) bool {
+		if slices.ContainsFunc(validPositions, func(rp replication.Position) bool {
 			return position.Equal(rp)
 		}) {
 			continue
