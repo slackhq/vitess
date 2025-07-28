@@ -78,6 +78,7 @@ var (
 	mysqlDrainOnTerm         bool
 
 	mysqlServerFlushDelay = 100 * time.Millisecond
+	mysqlServerMultiQuery = false
 )
 
 func registerPluginFlags(fs *pflag.FlagSet) {
@@ -101,9 +102,10 @@ func registerPluginFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&mysqlQueryTimeout, "mysql_server_query_timeout", mysqlQueryTimeout, "mysql query timeout")
 	fs.BoolVar(&mysqlConnBufferPooling, "mysql-server-pool-conn-read-buffers", mysqlConnBufferPooling, "If set, the server will pool incoming connection read buffers")
 	fs.DurationVar(&mysqlKeepAlivePeriod, "mysql-server-keepalive-period", mysqlKeepAlivePeriod, "TCP period between keep-alives")
-	fs.DurationVar(&mysqlServerFlushDelay, "mysql_server_flush_delay", mysqlServerFlushDelay, "Delay after which buffered response will be flushed to the client.")
-	fs.StringVar(&mysqlDefaultWorkloadName, "mysql_default_workload", mysqlDefaultWorkloadName, "Default session workload (OLTP, OLAP, DBA)")
-	fs.BoolVar(&mysqlDrainOnTerm, "mysql-server-drain-onterm", mysqlDrainOnTerm, "If set, the server waits for --onterm_timeout for already connected clients to complete their in flight work")
+	fs.DurationVar(&mysqlServerFlushDelay, "mysql-server-flush-delay", mysqlServerFlushDelay, "Delay after which buffered response will be flushed to the client.")
+	fs.StringVar(&mysqlDefaultWorkloadName, "mysql-default-workload", mysqlDefaultWorkloadName, "Default session workload (OLTP, OLAP, DBA)")
+	fs.BoolVar(&mysqlDrainOnTerm, "mysql-server-drain-onterm", mysqlDrainOnTerm, "If set, the server waits for --onterm-timeout for already connected clients to complete their in flight work")
+	fs.BoolVar(&mysqlServerMultiQuery, "mysql-server-multi-query-protocol", mysqlServerMultiQuery, "If set, the server will use the new implementation of handling queries where-in multiple queries are sent together.")
 }
 
 // vtgateHandler implements the Listener interface.
@@ -620,6 +622,7 @@ func initMySQLProtocol(vtgate *VTGate) *mysqlServer {
 			mysqlConnBufferPooling,
 			mysqlKeepAlivePeriod,
 			mysqlServerFlushDelay,
+			mysqlServerMultiQuery,
 		)
 		if err != nil {
 			log.Exitf("mysql.NewListener failed: %v", err)
@@ -665,6 +668,7 @@ func newMysqlUnixSocket(address string, authServer mysql.AuthServer, handler mys
 		mysqlConnBufferPooling,
 		mysqlKeepAlivePeriod,
 		mysqlServerFlushDelay,
+		mysqlServerMultiQuery,
 	)
 
 	switch err := err.(type) {
@@ -698,6 +702,7 @@ func newMysqlUnixSocket(address string, authServer mysql.AuthServer, handler mys
 			mysqlConnBufferPooling,
 			mysqlKeepAlivePeriod,
 			mysqlServerFlushDelay,
+			mysqlServerMultiQuery,
 		)
 		return listener, listenerErr
 	default:
