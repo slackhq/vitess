@@ -148,8 +148,14 @@ func (*JSONGateResolverBuilder) Scheme() string { return "vtgate" }
 
 // Parse and validate the format of the file and start watching for changes
 func (b *JSONGateResolverBuilder) start() error {
+	// Stat before parse to prevent the race condition with the polling loop
+	fileStat, err := os.Stat(b.jsonPath)
+	if err != nil {
+		return err
+	}
+
 	// Perform the initial parse
-	_, err := b.parse()
+	_, err = b.parse()
 	if err != nil {
 		return err
 	}
@@ -179,10 +185,6 @@ func (b *JSONGateResolverBuilder) start() error {
 
 	// Start a config watcher
 	b.ticker = time.NewTicker(1 * time.Second)
-	fileStat, err := os.Stat(b.jsonPath)
-	if err != nil {
-		return err
-	}
 
 	go func() {
 		var parseErr error
