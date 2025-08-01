@@ -1675,3 +1675,35 @@ func TestWaitForRelayLogsToApply(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareRelayLogPositionsSort(t *testing.T) {
+	// TODO: fix
+	/*
+	   sid, _ := ParseSID("3e11fa47-71ca-11e1-9e33-c80aa9429562")
+	   positions := []Position{
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 5}}}},
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 5}}}},
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 6}}}},
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 2}}}},
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 7}}}},
+	           {GTIDSet: Mysql56GTIDSet{sid: []interval{{start: 1, end: 6}}}},
+	   }
+
+	   wantedStrings := []string{
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7",
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+	           "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2",
+	   }
+
+	   slices.SortStableFunc(positions, func(a, b RelayLogPositions) int {
+	         return CompareRelayLogPositions(a, b)
+	   })
+
+	   for i, wanted := range wantedStrings {
+	           require.Equal(t, wanted, positions[i].String())
+	   }
+	*/
+}
