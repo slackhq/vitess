@@ -106,10 +106,9 @@ var (
 
 // Mysqld is the object that represents a mysqld daemon running on this server.
 type Mysqld struct {
-	dbcfgs   *dbconfigs.DBConfigs
-	dbaPool  *dbconnpool.ConnectionPool
-	appPool  *dbconnpool.ConnectionPool
-	lockConn *dbconnpool.PooledDBConnection
+	dbcfgs  *dbconfigs.DBConfigs
+	dbaPool *dbconnpool.ConnectionPool
+	appPool *dbconnpool.ConnectionPool
 
 	capabilities capabilitySet
 
@@ -117,6 +116,7 @@ type Mysqld struct {
 	mutex         sync.Mutex
 	onTermFuncs   []func()
 	cancelWaitCmd chan struct{}
+	lockConn      *dbconnpool.PooledDBConnection
 }
 
 func init() {
