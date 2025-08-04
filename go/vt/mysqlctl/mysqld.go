@@ -161,12 +161,10 @@ func NewMysqld(dbcfgs *dbconfigs.DBConfigs) *Mysqld {
 	// Create and open the connection pool for dba access.
 	exporter := servenv.NewExporter("MySQLDaemon", "")
 	result.dbaPool = dbconnpool.NewConnectionPool("DbaConnPool", exporter, dbaPoolSize, DbaIdleTimeout, 0, PoolDynamicHostnameResolution)
-	result.dbaPool.ConnPool.RegisterStats(exporter, "DbaConnPool")
 	result.dbaPool.Open(dbcfgs.DbaWithDB())
 
 	// Create and open the connection pool for app access.
 	result.appPool = dbconnpool.NewConnectionPool("AppConnPool", exporter, appPoolSize, appIdleTimeout, 0, PoolDynamicHostnameResolution)
-	result.appPool.ConnPool.RegisterStats(exporter, "AppConnPool")
 	result.appPool.Open(dbcfgs.AppWithDB())
 
 	/*
