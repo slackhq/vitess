@@ -85,6 +85,9 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 	cp.ConnPool.RegisterStats(env.Exporter(), name)
 
 	cp.dbaPool = dbconnpool.NewConnectionPool("", env.Exporter(), 1, config.IdleTimeout, config.MaxLifetime, 0)
+	if name != "" {
+		cp.dbaPool.ConnPool.RegisterStats(env.Exporter(), name+"DbaPool")
+	}
 
 	return cp
 }
