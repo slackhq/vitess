@@ -57,17 +57,62 @@ type RelayLogPositions struct {
 	Executed replication.Position
 }
 
+// atLeastSimple returns true when the combined set contains at least the provided set,
+// and if both are equal, the executed set is used to sort the two.
+func (rlp *RelayLogPositions) atLeastSimple(pos RelayLogPositions) bool {
+	atLeast := rlp.Combined.AtLeast(pos.Combined)
+	if rlp.Combined.Equal(pos.Combined) {
+		return atLeast && rlp.Executed.AtLeast(pos.Executed)
+	}
+	return atLeast
+}
+
 // AtLeast returns true if the RelayLogPositions object contains at
 // least the positions provided as pos.
 func (rlp *RelayLogPositions) AtLeast(pos RelayLogPositions) bool {
 	if rlp.Combined.IsZero() || pos.Combined.IsZero() {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
-	atLeast := rlp.Combined.AtLeast(pos.Combined)
-	if rlp.Combined.Equal(pos.Combined) {
-		return atLeast && rlp.Executed.AtLeast(pos.Executed)
+
+	// do basic sort if SourceUUIDs are empty.
+	if rlp.SourceUUID.IsZero() && pos.SourceUUID.IsZero() {
+		return rlp.atLeastSimple(pos)
 	}
-	return atLeast
+
+	// convert positions to replication.Mysql56GTIDSet objects.
+	sid := rlp.SourceUUID
+	rlpSet, rlpOk := rlp.Combined.GTIDSet.(replication.Mysql56GTIDSet)
+	posSet, posOk := pos.Combined.GTIDSet.(replication.Mysql56GTIDSet)
+
+	// do simple comparison if either combined set is not
+	// MySQL56GTIDSet or if the SID does not match.
+	if !rlpOk || !posOk || rlp.SourceUUID != pos.SourceUUID {
+		return rlp.atLeastSimple(pos)
+	}
+
+	if len(rlpSet[sid]) >= 0 && len(posSet[sid]) >= 0 {
+		rlpSIDSet := rlpSet.CloneSIDs(sid)
+		posSIDSet := posSet.CloneSIDs(sid)
+
+		// if combined SID + intervals are equal, sort by the SID executed GTID set.
+		if rlpSIDSet.Equal(posSIDSet) {
+			rlpSet, rlpOk = rlp.Executed.GTIDSet.(replication.Mysql56GTIDSet)
+			posSet, posOk = pos.Executed.GTIDSet.(replication.Mysql56GTIDSet)
+			if rlpOk && posOk {
+				rlpSIDSet := rlpSet.CloneSIDs(sid)
+				posSIDSet := posSet.CloneSIDs(sid)
+				if len(rlpSIDSet[sid]) == 0 || len(posSIDSet[sid]) == 0 {
+					return false
+				}
+				if rlpSIDSet.Equal(posSIDSet) {
+					return false
+				}
+				return rlpSIDSet.Contains(posSIDSet)
+			}
+		}
+	}
+
+	return rlp.Combined.AtLeast(pos.Combined)
 }
 
 // Equal returns true if the RelayLogPositions object is equal to
@@ -92,57 +137,10 @@ func CompareRelayLogPositions(a, b RelayLogPositions) int {
 	return 1
 }
 
-// CompareMySQLGTIDPositions compares two RelayLogPositions based with
-// replication.Mysql56GTIDSet as the underlying GTIDSet.
-func CompareMySQLGTIDPositions(a, b RelayLogPositions) int {
-	aCombinedSet, aOk := a.Combined.GTIDSet.(replication.Mysql56GTIDSet)
-	bCombinedSet, bOk := b.Combined.GTIDSet.(replication.Mysql56GTIDSet)
-
-	// do a regular comparison if either set is not MySQL56GTIDSet
-	// or if the SourceUUID does not match.
-	if !aOk || !bOk || a.SourceUUID != b.SourceUUID {
-		return CompareRelayLogPositions(a, b)
-	}
-
-	// return 0 if both SID sets are empty.
-	sid := a.SourceUUID
-	if len(aCombinedSet[sid]) == 0 && len(bCombinedSet[sid]) == 0 {
-		return 0
-	}
-
-	// if sid+intervals are equal, sort by executed gtid set.
-	aCombinedSIDSet := aCombinedSet.CloneSIDs(sid)
-	bCombinedSIDSet := bCombinedSet.CloneSIDs(sid)
-	if aCombinedSIDSet.Equal(bCombinedSIDSet) {
-		aExecutedSet, aExecutedOk := a.Executed.GTIDSet.(replication.Mysql56GTIDSet)
-		bExecutedSet, bExecutedOk := b.Executed.GTIDSet.(replication.Mysql56GTIDSet)
-		if !aExecutedOk || !bExecutedOk {
-			return 0
-		}
-
-		aSIDSet := aExecutedSet.CloneSIDs(sid)
-		bSIDSet := bExecutedSet.CloneSIDs(sid)
-		if aSIDSet.Equal(bSIDSet) || len(aSIDSet[sid]) == 0 || len(bSIDSet[sid]) == 0 {
-			return 0
-		}
-		if !aSIDSet.Contains(bSIDSet) {
-			return 1
-		}
-		if !bSIDSet.Contains(aSIDSet) {
-			return -1
-		}
-	}
-
-	return CompareRelayLogPositions(a, b)
-}
-
 // sortRelayLogPositions sorts RelayLogPositions using replication positions.
 func sortRelayLogPositions(p []RelayLogPositions) []RelayLogPositions {
 	positions := p
 	slices.SortFunc(positions, func(a, b RelayLogPositions) int {
-		if !a.SourceUUID.IsZero() && !b.SourceUUID.IsZero() {
-			return CompareMySQLGTIDPositions(a, b)
-		}
 		return CompareRelayLogPositions(a, b)
 	})
 	return positions
