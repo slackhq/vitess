@@ -41,6 +41,11 @@ import (
 
 // RelayLogPositions contains the positions of the relay log.
 type RelayLogPositions struct {
+	// SourceUUID contains the mysql server uuid of the
+	// current replication source (PRIMARY).
+	// TODO: use to compare GTIDSets more precicely.
+	SourceUUID replication.SID
+
 	// Combined represents the entire range
 	// of the relaylog with the retrieved +
 	// executed GTID sets combined.
@@ -175,8 +180,9 @@ func FindValidEmergencyReparentCandidates(
 		}
 
 		positionMap[alias] = RelayLogPositions{
-			Combined: status.RelayLogPosition,
-			Executed: status.Position,
+			SourceUUID: status.SourceUUID,
+			Combined:   status.RelayLogPosition,
+			Executed:   status.Position,
 		}
 	}
 
