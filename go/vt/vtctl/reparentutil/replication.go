@@ -106,7 +106,6 @@ func CompareMySQLGTIDPositions(a, b RelayLogPositions) int {
 
 	// return 0 if both SID sets are empty.
 	sid := a.SourceUUID
-	aCombinedSet, aOk := a.Combined.GTIDSet.(replication.Mysql56GTIDSet)
 	if len(aCombinedSet[sid]) == 0 && len(bCombinedSet[sid]) == 0 {
 		return 0
 	}
