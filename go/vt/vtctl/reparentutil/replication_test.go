@@ -1779,29 +1779,36 @@ func TestCompareRelayLogPositionsSort(t *testing.T) {
 		return CompareRelayLogPositions(a, b)
 	})
 
-	wantedCombinedStrings := []string{
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3,3e11fa47-71ca-11e1-9e33-c80aa9429563:1-9999",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3",
-	}
-	for i, wanted := range wantedCombinedStrings {
-		require.Equal(t, wanted, positions[i].Combined.String())
+	wantedPositions := []RelayLogPositions{
+		{
+			Combined: replication.Position{GTIDSet: gtidSet1},
+			Executed: replication.Position{GTIDSet: gtidSet5},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet2},
+			Executed: replication.Position{GTIDSet: gtidSet3},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet2},
+			Executed: replication.Position{GTIDSet: gtidSet5},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet3},
+			Executed: replication.Position{GTIDSet: gtidSet4},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet3},
+			Executed: replication.Position{GTIDSet: gtidSet4},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet6},
+			Executed: replication.Position{GTIDSet: gtidSet7},
+		},
+		{
+			Combined: replication.Position{GTIDSet: gtidSet4},
+			Executed: replication.Position{GTIDSet: gtidSet5},
+		},
 	}
 
-	wantedExecutedStrings := []string{
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1,3e11fa47-71ca-11e1-9e33-c80aa9429563:1-999",
-		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2",
-	}
-	for i, wanted := range wantedExecutedStrings {
-		require.Equal(t, wanted, positions[i].Executed.String())
-	}
+	require.Equal(t, wantedPositions, positions)
 }
