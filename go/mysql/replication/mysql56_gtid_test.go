@@ -53,6 +53,17 @@ func TestParseMysql56GTIDInvalid(t *testing.T) {
 	}
 }
 
+func TestSIDIsZero(t *testing.T) {
+	{
+		sid := SID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+		require.True(t, sid.IsZero())
+	}
+	{
+		sid := SID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+		require.False(t, sid.IsZero())
+	}
+}
+
 func TestSIDString(t *testing.T) {
 	input := SID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	want := "00010203-0405-0607-0809-0a0b0c0d0e0f"

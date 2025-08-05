@@ -335,9 +335,7 @@ func restrictValidCandidates(validCandidates map[string]RelayLogPositions, table
 
 	// sort by replication positions with greatest GTID set first, then remove
 	// replicas that are not part of a majority of the most-advanced replicas.
-	slices.SortFunc(validPositions, func(a, b RelayLogPositions) int {
-		return CompareRelayLogPositions(a, b)
-	})
+	validPositions = sortRelayLogPositions(validPositions)
 	majorityCandidatesCount := getValidCandidatesMajorityCount(restrictedValidCandidates)
 	validPositions = validPositions[:majorityCandidatesCount]
 	for tabletAlias, position := range restrictedValidCandidates {

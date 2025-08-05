@@ -55,6 +55,11 @@ func parseMysql56GTID(s string) (GTID, error) {
 // SID is the 16-byte unique ID of a MySQL 5.6 server.
 type SID [16]byte
 
+// IsZero returns true if an sid is empty.
+func (sid SID) IsZero() bool {
+	return sid == SID{}
+}
+
 // String prints an SID in the form used by MySQL 5.6.
 func (sid SID) String() string {
 	dst := []byte("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")

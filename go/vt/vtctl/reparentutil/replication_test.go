@@ -19,7 +19,6 @@ package reparentutil
 import (
 	"context"
 	"os"
-	"slices"
 	"testing"
 	"time"
 
@@ -1736,7 +1735,8 @@ func TestRelayLogPositions_Equal(t *testing.T) {
 	}))
 }
 
-func TestCompareRelayLogPositionsSort(t *testing.T) {
+func TestSortRelayLogPositions(t *testing.T) {
+	sid, _ := replication.ParseSID("3e11fa47-71ca-11e1-9e33-c80aa9429562")
 	gtidSet1, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7")
 	gtidSet2, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6")
 	gtidSet3, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5")
@@ -1744,71 +1744,162 @@ func TestCompareRelayLogPositionsSort(t *testing.T) {
 	gtidSet5, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2")
 	gtidSet6, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3,3e11fa47-71ca-11e1-9e33-c80aa9429563:1-9999")
 	gtidSet7, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-1,3e11fa47-71ca-11e1-9e33-c80aa9429563:1-999")
-	positions := []RelayLogPositions{
+
+	testCases := []struct {
+		name   string
+		in     []RelayLogPositions
+		wanted []RelayLogPositions
+	}{
 		{
-			Combined: replication.Position{GTIDSet: gtidSet3},
-			Executed: replication.Position{GTIDSet: gtidSet4},
+			name: "no mysql gtid source UUID",
+			in: []RelayLogPositions{
+				{
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet4},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet6},
+					Executed: replication.Position{GTIDSet: gtidSet7},
+				},
+			},
+			wanted: []RelayLogPositions{
+				{
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet6},
+					Executed: replication.Position{GTIDSet: gtidSet7},
+				},
+				{
+					Combined: replication.Position{GTIDSet: gtidSet4},
+					Executed: replication.Position{GTIDSet: gtidSet5},
+				},
+			},
 		},
 		{
-			Combined: replication.Position{GTIDSet: gtidSet3},
-			Executed: replication.Position{GTIDSet: gtidSet4},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet2},
-			Executed: replication.Position{GTIDSet: gtidSet3},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet4},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet1},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet2},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet6},
-			Executed: replication.Position{GTIDSet: gtidSet7},
+			name: "with mysql gtid source UUID",
+			in: []RelayLogPositions{
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet3},
+					Executed:   replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet3},
+					Executed:   replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet2},
+					Executed:   replication.Position{GTIDSet: gtidSet3},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet4},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet1},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet2},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet6},
+					Executed:   replication.Position{GTIDSet: gtidSet7},
+				},
+			},
+			wanted: []RelayLogPositions{
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet1},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet2},
+					Executed:   replication.Position{GTIDSet: gtidSet3},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet2},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet3},
+					Executed:   replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet3},
+					Executed:   replication.Position{GTIDSet: gtidSet4},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet4},
+					Executed:   replication.Position{GTIDSet: gtidSet5},
+				},
+				{
+					SourceUUID: sid,
+					Combined:   replication.Position{GTIDSet: gtidSet6},
+					Executed:   replication.Position{GTIDSet: gtidSet7},
+				},
+			},
 		},
 	}
 
-	slices.SortFunc(positions, func(a, b RelayLogPositions) int {
-		return CompareRelayLogPositions(a, b)
-	})
-
-	wantedPositions := []RelayLogPositions{
-		{
-			Combined: replication.Position{GTIDSet: gtidSet1},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet2},
-			Executed: replication.Position{GTIDSet: gtidSet3},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet2},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet3},
-			Executed: replication.Position{GTIDSet: gtidSet4},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet3},
-			Executed: replication.Position{GTIDSet: gtidSet4},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet6},
-			Executed: replication.Position{GTIDSet: gtidSet7},
-		},
-		{
-			Combined: replication.Position{GTIDSet: gtidSet4},
-			Executed: replication.Position{GTIDSet: gtidSet5},
-		},
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			positions := sortRelayLogPositions(testCase.in)
+			for i, wanted := range testCase.wanted {
+				require.Equal(t, wanted.SourceUUID, positions[i].SourceUUID)
+				require.Equal(t, wanted.Combined.String(), positions[i].Combined.String())
+				require.Equal(t, wanted.Executed.String(), positions[i].Executed.String())
+			}
+		})
 	}
-
-	require.Equal(t, wantedPositions, positions)
 }

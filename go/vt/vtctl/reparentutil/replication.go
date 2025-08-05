@@ -18,6 +18,7 @@ package reparentutil
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -89,6 +90,62 @@ func CompareRelayLogPositions(a, b RelayLogPositions) int {
 		return -1
 	}
 	return 1
+}
+
+// CompareMySQLGTIDPositions compares two RelayLogPositions based with
+// replication.Mysql56GTIDSet as the underlying GTIDSet.
+func CompareMySQLGTIDPositions(a, b RelayLogPositions) int {
+	sid := a.SourceUUID
+	aCombinedSet, aOk := a.Combined.GTIDSet.(replication.Mysql56GTIDSet)
+	bCombinedSet, bOk := b.Combined.GTIDSet.(replication.Mysql56GTIDSet)
+
+	// do a regular comparison if either set is not MySQL56GTIDSet
+	// or if the SourceUUID does not match.
+	if !aOk || !bOk || a.SourceUUID != a.SourceUUID {
+		return CompareRelayLogPositions(a, b)
+	}
+
+	// return 0 if both SID sets are empty.
+	if len(aCombinedSet[sid]) == 0 && len(bCombinedSet[sid]) == 0 {
+		return 0
+	}
+
+	// if sid+intervals are equal, sort by executed gtid set.
+	aCombinedSIDSet := aCombinedSet.CloneSIDs(sid)
+	bCombinedSIDSet := bCombinedSet.CloneSIDs(sid)
+	if aCombinedSIDSet.Equal(bCombinedSIDSet) {
+		aExecutedSet, aExecutedOk := a.Executed.GTIDSet.(replication.Mysql56GTIDSet)
+		bExecutedSet, bExecutedOk := b.Executed.GTIDSet.(replication.Mysql56GTIDSet)
+		if !aExecutedOk || !bExecutedOk {
+			return 0
+		}
+
+		aSIDSet := aExecutedSet.CloneSIDs(sid)
+		bSIDSet := bExecutedSet.CloneSIDs(sid)
+		if aSIDSet.Equal(bSIDSet) || len(aSIDSet[sid]) == 0 || len(bSIDSet[sid]) == 0 {
+			return 0
+		}
+		if !aSIDSet.Contains(bSIDSet) {
+			return 1
+		}
+		if !bSIDSet.Contains(aSIDSet) {
+			return -1
+		}
+	}
+
+	return CompareRelayLogPositions(a, b)
+}
+
+// sortRelayLogPositions sorts RelayLogPositions using replication positions.
+func sortRelayLogPositions(p []RelayLogPositions) []RelayLogPositions {
+	positions := p
+	slices.SortFunc(positions, func(a, b RelayLogPositions) int {
+		if !a.SourceUUID.IsZero() && !b.SourceUUID.IsZero() {
+			return CompareMySQLGTIDPositions(a, b)
+		}
+		return CompareRelayLogPositions(a, b)
+	})
+	return positions
 }
 
 // FindPositionsOfAllCandidates will find candidates for an emergency
