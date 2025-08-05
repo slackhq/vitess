@@ -95,17 +95,18 @@ func CompareRelayLogPositions(a, b RelayLogPositions) int {
 // CompareMySQLGTIDPositions compares two RelayLogPositions based with
 // replication.Mysql56GTIDSet as the underlying GTIDSet.
 func CompareMySQLGTIDPositions(a, b RelayLogPositions) int {
-	sid := a.SourceUUID
 	aCombinedSet, aOk := a.Combined.GTIDSet.(replication.Mysql56GTIDSet)
 	bCombinedSet, bOk := b.Combined.GTIDSet.(replication.Mysql56GTIDSet)
 
 	// do a regular comparison if either set is not MySQL56GTIDSet
 	// or if the SourceUUID does not match.
-	if !aOk || !bOk || a.SourceUUID != a.SourceUUID {
+	if !aOk || !bOk || a.SourceUUID != b.SourceUUID {
 		return CompareRelayLogPositions(a, b)
 	}
 
 	// return 0 if both SID sets are empty.
+	sid := a.SourceUUID
+	aCombinedSet, aOk := a.Combined.GTIDSet.(replication.Mysql56GTIDSet)
 	if len(aCombinedSet[sid]) == 0 && len(bCombinedSet[sid]) == 0 {
 		return 0
 	}
