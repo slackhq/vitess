@@ -44,7 +44,6 @@ import (
 type RelayLogPositions struct {
 	// SourceUUID contains the mysql server uuid of the
 	// current replication source (PRIMARY).
-	// TODO: use to compare GTIDSets more precicely.
 	SourceUUID replication.SID
 
 	// Combined represents the entire range
