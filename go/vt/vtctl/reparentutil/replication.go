@@ -89,7 +89,7 @@ func (rlp *RelayLogPositions) AtLeast(pos RelayLogPositions) bool {
 		return rlp.atLeastSimple(pos)
 	}
 
-	if len(rlpSet[sid]) >= 0 && len(posSet[sid]) >= 0 {
+	if len(rlpSet[sid]) > 0 && len(posSet[sid]) > 0 {
 		rlpSIDSet := rlpSet.CloneSIDs(sid)
 		posSIDSet := posSet.CloneSIDs(sid)
 
