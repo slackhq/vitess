@@ -58,8 +58,8 @@ func (rlp *RelayLogPositions) AtLeast(pos RelayLogPositions) bool {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
 	atLeast := rlp.Combined.AtLeast(pos.Combined)
-	if atLeast && !rlp.Executed.IsZero() {
-		return rlp.Executed.AtLeast(pos.Executed)
+	if rlp.Combined.Equal(pos.Combined) {
+		return atLeast && rlp.Executed.AtLeast(pos.Executed)
 	}
 	return atLeast
 }
@@ -80,7 +80,7 @@ func CompareRelayLogPositions(a, b RelayLogPositions) int {
 	if a.Equal(b) {
 		return 0
 	}
-	if a.AtLeast(b) {
+	if a.AtLeast(b) && !b.AtLeast(a) {
 		return -1
 	}
 	return 1
