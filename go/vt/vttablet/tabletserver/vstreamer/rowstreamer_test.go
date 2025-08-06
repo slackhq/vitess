@@ -20,9 +20,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-
 	"sync/atomic"
-
 	"testing"
 	"time"
 
