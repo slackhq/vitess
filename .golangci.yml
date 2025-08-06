@@ -20,8 +20,8 @@ linters:
     - errcheck
     - govet
     - ineffassign
-    - staticcheck
     - typecheck
+    - staticcheck
     - gosimple
 
     # Extras
