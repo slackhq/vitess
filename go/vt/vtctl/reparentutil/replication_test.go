@@ -1750,7 +1750,7 @@ func TestSortRelayLogPositions(t *testing.T) {
 		wanted []RelayLogPositions
 	}{
 		{
-			name: "no mysql gtid source UUID",
+			name: "default",
 			in: []RelayLogPositions{
 				{
 					Combined: replication.Position{GTIDSet: gtidSet3},
