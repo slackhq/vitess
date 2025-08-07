@@ -64,6 +64,7 @@ var (
 	recoveryPollDuration           = 1 * time.Second
 	ersEnabled                     = true
 	convertTabletsWithErrantGTIDs  = false
+	staleReplicaTimeoutDuration    = 1 * time.Hour
 )
 
 // RegisterFlags registers the flags required by VTOrc
@@ -85,6 +86,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&recoveryPollDuration, "recovery-poll-duration", recoveryPollDuration, "Timer duration on which VTOrc polls its database to run a recovery")
 	fs.BoolVar(&ersEnabled, "allow-emergency-reparent", ersEnabled, "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.BoolVar(&convertTabletsWithErrantGTIDs, "change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs, "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
+	fs.DurationVar(&staleReplicaTimeoutDuration, "stale-replica-timeout", staleReplicaTimeoutDuration, "Duration for which a replica must be continuously failing discovery before being ignored during emergency reparent")
 }
 
 // Configuration makes for vtorc configuration input, which can be provided by user via JSON formatted file.
@@ -107,6 +109,7 @@ type Configuration struct {
 	TolerableReplicationLagSeconds        int    // Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS.
 	TopoInformationRefreshSeconds         int    // Timer duration on which VTOrc refreshes the keyspace and vttablet records from the topo-server.
 	RecoveryPollSeconds                   int    // Timer duration on which VTOrc recovery analysis runs
+	StaleReplicaTimeoutSeconds            int    // Duration in seconds for which a replica must be continuously failing discovery before being ignored during emergency reparent
 }
 
 // ToJSONString will marshal this configuration as JSON
@@ -138,6 +141,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.TolerableReplicationLagSeconds = int(tolerableReplicationLag / time.Second)
 	Config.TopoInformationRefreshSeconds = int(topoInformationRefreshDuration / time.Second)
 	Config.RecoveryPollSeconds = int(recoveryPollDuration / time.Second)
+	Config.StaleReplicaTimeoutSeconds = int(staleReplicaTimeoutDuration / time.Second)
 }
 
 // ERSEnabled reports whether VTOrc is allowed to run ERS or not.
@@ -182,6 +186,7 @@ func newConfiguration() *Configuration {
 		WaitReplicasTimeoutSeconds:            30,
 		TopoInformationRefreshSeconds:         15,
 		RecoveryPollSeconds:                   1,
+		StaleReplicaTimeoutSeconds:            3600, // 1 hour default
 	}
 }
 

@@ -816,6 +816,15 @@ func TestReadStaleReplicaAliases(t *testing.T) {
 				"update database_instance set last_seen = datetime('now', '-2 hour'), last_checked = datetime('now', '-3 hour') where alias = 'zone1-0000000100'",
 			},
 			instancesExpected: nil, // Should not be ignored since is_last_check_valid = 1
+		}, {
+			name:     "Configuration timeout is respected",
+			keyspace: "ks",
+			shard:    "0",
+			sql: []string{
+				// Replica failing for 45 minutes - should not be ignored with default 1 hour timeout
+				"update database_instance set last_seen = datetime('now', '-45 minute'), last_checked = datetime('now') where alias = 'zone1-0000000100'",
+			},
+			instancesExpected: nil, // Should not be ignored since failure is less than configured timeout
 		},
 	}
 
@@ -853,4 +862,42 @@ func TestReadStaleReplicaAliases(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReadStaleReplicaAliasesWithCustomTimeout tests that changing the configuration changes the behavior
+func TestReadStaleReplicaAliasesWithCustomTimeout(t *testing.T) {
+	defer func() {
+		db.ClearVTOrcDatabase()
+	}()
+	
+	// Setup initial test data
+	for _, query := range initialSQL {
+		_, err := db.ExecVTOrc(query)
+		require.NoError(t, err)
+	}
+	
+	// Reset all instances to non-stale state
+	_, err := db.ExecVTOrc("update database_instance set last_seen = datetime('now'), last_checked = datetime('now')")
+	require.NoError(t, err)
+	
+	// Set a replica to be stale for 30 minutes
+	_, err = db.ExecVTOrc("update database_instance set last_seen = datetime('now', '-30 minute'), last_checked = datetime('now') where alias = 'zone1-0000000100'")
+	require.NoError(t, err)
+	
+	// With default 1 hour timeout, this should not be ignored
+	staleAliases, err := ReadStaleReplicaAliases("ks", "0")
+	require.NoError(t, err)
+	require.Empty(t, staleAliases, "30 minute stale replica should not be ignored with 1 hour timeout")
+	
+	// Change configuration to 20 minutes (1200 seconds)
+	originalTimeout := config.Config.StaleReplicaTimeoutSeconds
+	config.Config.StaleReplicaTimeoutSeconds = 1200 // 20 minutes
+	defer func() {
+		config.Config.StaleReplicaTimeoutSeconds = originalTimeout
+	}()
+	
+	// Now the same replica should be ignored
+	staleAliases, err = ReadStaleReplicaAliases("ks", "0")
+	require.NoError(t, err)
+	require.Equal(t, []string{"zone1-0000000100"}, staleAliases, "30 minute stale replica should be ignored with 20 minute timeout")
 }

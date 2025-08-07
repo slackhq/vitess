@@ -685,17 +685,17 @@ func ReadInstancesWithErrantGTIds(keyspace string, shard string) ([]*Instance, e
 	return readInstancesByCondition(condition, args, "")
 }
 
-// ReadStaleReplicaAliases reads tablet aliases of replicas in a keyspace/shard that have been failing discovery for more than 1 hour
+// ReadStaleReplicaAliases reads tablet aliases of replicas in a keyspace/shard that have been failing discovery for more than the configured timeout
 func ReadStaleReplicaAliases(keyspace string, shard string) ([]string, error) {
 	condition := `
 		keyspace = ?
 		and shard = ?
 		and tablet_type != 1
-		and seconds_since_last_seen > 3600
+		and seconds_since_last_seen > ?
 		and is_last_check_valid = 0
 	`
 
-	instances, err := readInstancesByCondition(condition, sqlutils.Args(keyspace, shard), "")
+	instances, err := readInstancesByCondition(condition, sqlutils.Args(keyspace, shard, config.Config.StaleReplicaTimeoutSeconds), "")
 	if err != nil {
 		return nil, err
 	}
