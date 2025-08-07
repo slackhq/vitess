@@ -685,6 +685,31 @@ func ReadInstancesWithErrantGTIds(keyspace string, shard string) ([]*Instance, e
 	return readInstancesByCondition(condition, args, "")
 }
 
+// ReadStaleReplicaAliases reads tablet aliases of replicas in a keyspace/shard that haven't been successfully discovered in the last hour
+func ReadStaleReplicaAliases(keyspace string, shard string) ([]string, error) {
+	condition := `
+		keyspace = ?
+		and shard = ?
+		and tablet_type != 'PRIMARY'
+		and (
+			seconds_since_last_seen > 3600
+			or is_last_check_valid = 0
+		)
+	`
+
+	instances, err := readInstancesByCondition(condition, sqlutils.Args(keyspace, shard), "")
+	if err != nil {
+		return nil, err
+	}
+
+	var staleAliases []string
+	for _, instance := range instances {
+		staleAliases = append(staleAliases, instance.InstanceAlias)
+	}
+
+	return staleAliases, nil
+}
+
 // GetKeyspaceShardName gets the keyspace shard name for the given instance key
 func GetKeyspaceShardName(tabletAlias string) (keyspace string, shard string, err error) {
 	query := `
