@@ -29,6 +29,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/slackhq/vitess-addons/go/external"
 
+	"vitess.io/vitess/go/sets"
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
@@ -305,6 +306,18 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 		_ = resolveRecovery(topologyRecovery, promotedReplica)
 	}()
 
+	// Get stale replicas to ignore during emergency reparent
+	staleReplicasList, err := inst.ReadStaleReplicaAliases(tablet.Keyspace, tablet.Shard)
+	if err != nil {
+		logger.Warningf("Failed to read stale replicas for %s/%s: %v", tablet.Keyspace, tablet.Shard, err)
+		staleReplicasList = nil
+	} else if len(staleReplicasList) > 0 {
+		logger.Infof("Ignoring %d stale replicas during ERS: %v", len(staleReplicasList), staleReplicasList)
+	}
+
+	// Convert slice to sets.Set
+	staleReplicas := sets.New[string](staleReplicasList...)
+
 	ev, err := reparentutil.NewEmergencyReparenter(ts, tmc, logutil.NewCallbackLogger(func(event *logutilpb.Event) {
 		level := event.GetLevel()
 		value := event.GetValue()
@@ -322,7 +335,7 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 		tablet.Keyspace,
 		tablet.Shard,
 		reparentutil.EmergencyReparentOptions{
-			IgnoreReplicas:            nil,
+			IgnoreReplicas:            staleReplicas,
 			WaitReplicasTimeout:       time.Duration(config.Config.WaitReplicasTimeoutSeconds) * time.Second,
 			PreventCrossCellPromotion: config.Config.PreventCrossDataCenterPrimaryFailover,
 			WaitAllTablets:            waitForAllTablets,

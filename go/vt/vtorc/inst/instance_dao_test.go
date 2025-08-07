@@ -749,3 +749,155 @@ func TestGetDatabaseState(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, ds, `"alias": "zone1-0000000112"`)
 }
+
+// TestReadStaleReplicaAliases tests the functionality of ReadStaleReplicaAliases to ensure it correctly identifies 
+// replicas that have been failing discovery for more than 1 hour
+func TestReadStaleReplicaAliases(t *testing.T) {
+	tests := []struct {
+		name              string
+		keyspace          string
+		shard             string
+		sql               []string
+		instancesExpected []string
+	}{
+		{
+			name:              "No stale replicas",
+			keyspace:          "ks",
+			shard:             "0", 
+			sql:               []string{"update database_instance set last_seen = datetime('now'), last_checked = datetime('now')"},
+			instancesExpected: nil,
+		}, {
+			name:     "Replica with recent failed check but recent success",
+			keyspace: "ks",
+			shard:    "0",
+			sql: []string{
+				// Simulate recent success (last_seen recent) but current failure (last_checked > last_seen)
+				"update database_instance set last_seen = datetime('now', '-30 minute'), last_checked = datetime('now') where alias = 'zone1-0000000100'",
+			},
+			instancesExpected: nil, // Should not be ignored since failure is < 1 hour
+		}, {
+			name:     "Replica failing for more than 1 hour",
+			keyspace: "ks", 
+			shard:    "0",
+			sql: []string{
+				// Simulate failure for more than 1 hour (last_seen > 1 hour ago, last_checked recent)
+				"update database_instance set last_seen = datetime('now', '-2 hour'), last_checked = datetime('now') where alias = 'zone1-0000000100'",
+			},
+			instancesExpected: []string{"zone1-0000000100"},
+		}, {
+			name:     "Primary should not be included even if stale",
+			keyspace: "ks",
+			shard:    "0", 
+			sql: []string{
+				// Make primary stale but it should not be returned since we filter tablet_type != 'PRIMARY'
+				"update database_instance set last_seen = datetime('now', '-2 hour'), last_checked = datetime('now') where alias = 'zone1-0000000101'",
+				// zone1-0000000101 is already PRIMARY (tablet_type = 1) in the initial data
+			},
+			instancesExpected: nil,
+		}, {
+			name:     "Multiple replicas with mixed staleness", 
+			keyspace: "ks",
+			shard:    "0",
+			sql: []string{
+				// One replica failing for > 1 hour
+				"update database_instance set last_seen = datetime('now', '-2 hour'), last_checked = datetime('now') where alias = 'zone1-0000000100'",
+				// One replica with recent success  
+				"update database_instance set last_seen = datetime('now', '-10 minute'), last_checked = datetime('now', '-10 minute') where alias = 'zone1-0000000102'",
+				// One replica failing for > 1 hour
+				"update database_instance set last_seen = datetime('now', '-90 minute'), last_checked = datetime('now') where alias = 'zone1-0000000112'",
+			},
+			instancesExpected: []string{"zone1-0000000100", "zone1-0000000112"},
+		}, {
+			name:     "Replica with old success but recent failure should not be ignored",
+			keyspace: "ks",
+			shard:    "0",
+			sql: []string{
+				// last_seen is old but last_checked shows recent success (last_checked <= last_seen means is_last_check_valid = 1)  
+				"update database_instance set last_seen = datetime('now', '-2 hour'), last_checked = datetime('now', '-3 hour') where alias = 'zone1-0000000100'",
+			},
+			instancesExpected: nil, // Should not be ignored since is_last_check_valid = 1
+		}, {
+			name:     "Configuration timeout is respected",
+			keyspace: "ks",
+			shard:    "0",
+			sql: []string{
+				// Replica failing for 45 minutes - should not be ignored with default 1 hour timeout
+				"update database_instance set last_seen = datetime('now', '-45 minute'), last_checked = datetime('now') where alias = 'zone1-0000000100'",
+			},
+			instancesExpected: nil, // Should not be ignored since failure is less than configured timeout
+		},
+	}
+
+	defer func() {
+		db.ClearVTOrcDatabase()
+	}()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db.ClearVTOrcDatabase()
+			// Setup initial test data
+			for _, query := range initialSQL {
+				_, err := db.ExecVTOrc(query)
+				require.NoError(t, err)
+			}
+			
+			// Reset all instances to non-stale state before each test
+			_, err := db.ExecVTOrc("update database_instance set last_seen = datetime('now'), last_checked = datetime('now')")
+			require.NoError(t, err)
+			
+			// Run test-specific setup SQL
+			for _, query := range tt.sql {
+				_, err := db.ExecVTOrc(query)
+				require.NoError(t, err)
+			}
+			
+			// Test the function
+			staleAliases, err := ReadStaleReplicaAliases(tt.keyspace, tt.shard)
+			require.NoError(t, err)
+			
+			if tt.instancesExpected == nil {
+				require.Empty(t, staleAliases, "Expected no stale replicas")
+			} else {
+				require.ElementsMatch(t, staleAliases, tt.instancesExpected, "Stale replica aliases don't match expected")
+			}
+		})
+	}
+}
+
+// TestReadStaleReplicaAliasesWithCustomTimeout tests that changing the configuration changes the behavior
+func TestReadStaleReplicaAliasesWithCustomTimeout(t *testing.T) {
+	defer func() {
+		db.ClearVTOrcDatabase()
+	}()
+	
+	// Setup initial test data
+	for _, query := range initialSQL {
+		_, err := db.ExecVTOrc(query)
+		require.NoError(t, err)
+	}
+	
+	// Reset all instances to non-stale state
+	_, err := db.ExecVTOrc("update database_instance set last_seen = datetime('now'), last_checked = datetime('now')")
+	require.NoError(t, err)
+	
+	// Set a replica to be stale for 30 minutes
+	_, err = db.ExecVTOrc("update database_instance set last_seen = datetime('now', '-30 minute'), last_checked = datetime('now') where alias = 'zone1-0000000100'")
+	require.NoError(t, err)
+	
+	// With default 1 hour timeout, this should not be ignored
+	staleAliases, err := ReadStaleReplicaAliases("ks", "0")
+	require.NoError(t, err)
+	require.Empty(t, staleAliases, "30 minute stale replica should not be ignored with 1 hour timeout")
+	
+	// Change configuration to 20 minutes (1200 seconds)
+	originalTimeout := config.Config.StaleReplicaTimeoutSeconds
+	config.Config.StaleReplicaTimeoutSeconds = 1200 // 20 minutes
+	defer func() {
+		config.Config.StaleReplicaTimeoutSeconds = originalTimeout
+	}()
+	
+	// Now the same replica should be ignored
+	staleAliases, err = ReadStaleReplicaAliases("ks", "0")
+	require.NoError(t, err)
+	require.Equal(t, []string{"zone1-0000000100"}, staleAliases, "30 minute stale replica should be ignored with 20 minute timeout")
+}
