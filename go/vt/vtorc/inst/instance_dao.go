@@ -690,7 +690,7 @@ func ReadStaleReplicaAliases(keyspace string, shard string) ([]string, error) {
 	condition := `
 		keyspace = ?
 		and shard = ?
-		and tablet_type != 'PRIMARY'
+		and tablet_type != 1
 		and seconds_since_last_seen > 3600
 		and is_last_check_valid = 0
 	`
