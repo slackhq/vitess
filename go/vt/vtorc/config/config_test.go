@@ -231,4 +231,19 @@ func TestUpdateConfigValuesFromFlags(t *testing.T) {
 		UpdateConfigValuesFromFlags()
 		require.Equal(t, testConfig, Config)
 	})
+
+	t.Run("override deadPrimaryRecoveryPeriodBlockDuration", func(t *testing.T) {
+		oldDeadPrimaryRecoveryPeriodBlockDuration := deadPrimaryRecoveryPeriodBlockDuration
+		deadPrimaryRecoveryPeriodBlockDuration = 10 * time.Minute
+		// Restore the changes we make
+		defer func() {
+			Config = newConfiguration()
+			deadPrimaryRecoveryPeriodBlockDuration = oldDeadPrimaryRecoveryPeriodBlockDuration
+		}()
+
+		testConfig := newConfiguration()
+		testConfig.DeadPrimaryRecoveryPeriodBlockSeconds = 600
+		UpdateConfigValuesFromFlags()
+		require.Equal(t, testConfig, Config)
+	})
 }

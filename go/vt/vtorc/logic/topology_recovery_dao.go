@@ -222,15 +222,24 @@ func AttemptRecoveryRegistration(analysisEntry *inst.ReplicationAnalysis, failIf
 
 // ClearActiveRecoveries clears the "in_active_period" flag for old-enough recoveries, thereby allowing for
 // further recoveries on cleared instances.
+// Special handling: DeadPrimary and DeadPrimaryAndSomeReplicas recoveries remain active for the configured duration.
 func ClearActiveRecoveries() error {
+	// Clear recoveries based on analysis type: DeadPrimary types use DeadPrimaryRecoveryPeriodBlockSeconds, others use RecoveryPeriodBlockSeconds
 	_, err := db.ExecVTOrc(`
 			update topology_recovery set
 				in_active_period = 0,
 				end_active_period_unixtime = strftime('%s', 'now')
 			where
 				in_active_period = 1
-				AND start_active_period < datetime('now', printf('-%d SECOND', ?))
+				AND start_active_period < datetime('now', printf('-%d SECOND', 
+					CASE 
+						WHEN analysis IN (?, ?) THEN ?
+						ELSE ?
+					END))
 			`,
+		string(inst.DeadPrimary),
+		string(inst.DeadPrimaryAndSomeReplicas),
+		config.Config.DeadPrimaryRecoveryPeriodBlockSeconds,
 		config.Config.RecoveryPeriodBlockSeconds,
 	)
 	if err != nil {

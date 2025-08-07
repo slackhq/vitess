@@ -47,23 +47,24 @@ const (
 )
 
 var (
-	discoveryWorkers               = 300
-	sqliteDataFile                 = "file::memory:?mode=memory&cache=shared"
-	instancePollTime               = 5 * time.Second
-	snapshotTopologyInterval       = 0 * time.Hour
-	reasonableReplicationLag       = 10 * time.Second
-	auditFileLocation              = ""
-	auditToBackend                 = false
-	auditToSyslog                  = false
-	auditPurgeDuration             = 7 * 24 * time.Hour // Equivalent of 7 days
-	recoveryPeriodBlockDuration    = 30 * time.Second
-	preventCrossCellFailover       = false
-	waitReplicasTimeout            = 30 * time.Second
-	tolerableReplicationLag        = 0 * time.Second
-	topoInformationRefreshDuration = 15 * time.Second
-	recoveryPollDuration           = 1 * time.Second
-	ersEnabled                     = true
-	convertTabletsWithErrantGTIDs  = false
+	discoveryWorkers                       = 300
+	sqliteDataFile                         = "file::memory:?mode=memory&cache=shared"
+	instancePollTime                       = 5 * time.Second
+	snapshotTopologyInterval               = 0 * time.Hour
+	reasonableReplicationLag               = 10 * time.Second
+	auditFileLocation                      = ""
+	auditToBackend                         = false
+	auditToSyslog                          = false
+	auditPurgeDuration                     = 7 * 24 * time.Hour // Equivalent of 7 days
+	recoveryPeriodBlockDuration            = 30 * time.Second
+	deadPrimaryRecoveryPeriodBlockDuration = 5 * time.Minute // Duration for which DeadPrimary and DeadPrimaryAndSomeReplicas recoveries remain active
+	preventCrossCellFailover               = false
+	waitReplicasTimeout                    = 30 * time.Second
+	tolerableReplicationLag                = 0 * time.Second
+	topoInformationRefreshDuration         = 15 * time.Second
+	recoveryPollDuration                   = 1 * time.Second
+	ersEnabled                             = true
+	convertTabletsWithErrantGTIDs          = false
 )
 
 // RegisterFlags registers the flags required by VTOrc
@@ -78,6 +79,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&auditToSyslog, "audit-to-syslog", auditToSyslog, "Whether to store the audit log in the syslog")
 	fs.DurationVar(&auditPurgeDuration, "audit-purge-duration", auditPurgeDuration, "Duration for which audit logs are held before being purged. Should be in multiples of days")
 	fs.DurationVar(&recoveryPeriodBlockDuration, "recovery-period-block-duration", recoveryPeriodBlockDuration, "Duration for which a new recovery is blocked on an instance after running a recovery")
+	fs.DurationVar(&deadPrimaryRecoveryPeriodBlockDuration, "dead-primary-recovery-period-block-duration", deadPrimaryRecoveryPeriodBlockDuration, "Duration for which DeadPrimary and DeadPrimaryAndSomeReplicas recoveries remain active")
 	fs.BoolVar(&preventCrossCellFailover, "prevent-cross-cell-failover", preventCrossCellFailover, "Prevent VTOrc from promoting a primary in a different cell than the current primary in case of a failover")
 	fs.DurationVar(&waitReplicasTimeout, "wait-replicas-timeout", waitReplicasTimeout, "Duration for which to wait for replica's to respond when issuing RPCs")
 	fs.DurationVar(&tolerableReplicationLag, "tolerable-replication-lag", tolerableReplicationLag, "Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS")
@@ -102,6 +104,7 @@ type Configuration struct {
 	AuditToBackendDB                      bool   // If true, audit messages are written to the backend DB's `audit` table (default: true)
 	AuditPurgeDays                        uint   // Days after which audit entries are purged from the database
 	RecoveryPeriodBlockSeconds            int    // (overrides `RecoveryPeriodBlockMinutes`) The time for which an instance's recovery is kept "active", so as to avoid concurrent recoveries on smae instance as well as flapping
+	DeadPrimaryRecoveryPeriodBlockSeconds int    // The time for which DeadPrimary and DeadPrimaryAndSomeReplicas recoveries are kept "active"
 	PreventCrossDataCenterPrimaryFailover bool   // When true (default: false), cross-DC primary failover are not allowed, vtorc will do all it can to only fail over within same DC, or else not fail over at all.
 	WaitReplicasTimeoutSeconds            int    // Timeout on amount of time to wait for the replicas in case of ERS. Should be a small value because we should fail-fast. Should not be larger than LockTimeout since that is the total time we use for an ERS.
 	TolerableReplicationLagSeconds        int    // Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS.
@@ -133,6 +136,7 @@ func UpdateConfigValuesFromFlags() {
 	Config.AuditToSyslog = auditToSyslog
 	Config.AuditPurgeDays = uint(auditPurgeDuration / (time.Hour * 24))
 	Config.RecoveryPeriodBlockSeconds = int(recoveryPeriodBlockDuration / time.Second)
+	Config.DeadPrimaryRecoveryPeriodBlockSeconds = int(deadPrimaryRecoveryPeriodBlockDuration / time.Second)
 	Config.PreventCrossDataCenterPrimaryFailover = preventCrossCellFailover
 	Config.WaitReplicasTimeoutSeconds = int(waitReplicasTimeout / time.Second)
 	Config.TolerableReplicationLagSeconds = int(tolerableReplicationLag / time.Second)
@@ -178,6 +182,7 @@ func newConfiguration() *Configuration {
 		AuditToBackendDB:                      false,
 		AuditPurgeDays:                        7,
 		RecoveryPeriodBlockSeconds:            30,
+		DeadPrimaryRecoveryPeriodBlockSeconds: 300, // 5 minutes
 		PreventCrossDataCenterPrimaryFailover: false,
 		WaitReplicasTimeoutSeconds:            30,
 		TopoInformationRefreshSeconds:         15,
