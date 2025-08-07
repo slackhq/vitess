@@ -42,10 +42,6 @@ import (
 
 // RelayLogPositions contains the positions of the relay log.
 type RelayLogPositions struct {
-	// SourceUUID contains the mysql server uuid of the
-	// current replication source (PRIMARY).
-	SourceUUID replication.SID
-
 	// Combined represents the entire range
 	// of the relaylog with the retrieved +
 	// executed GTID sets combined.
@@ -56,62 +52,17 @@ type RelayLogPositions struct {
 	Executed replication.Position
 }
 
-// atLeastSimple returns true when the combined set contains at least the provided set,
-// and if both are equal, the executed set is used to sort the two.
-func (rlp *RelayLogPositions) atLeastSimple(pos RelayLogPositions) bool {
-	atLeast := rlp.Combined.AtLeast(pos.Combined)
-	if rlp.Combined.Equal(pos.Combined) {
-		return atLeast && rlp.Executed.AtLeast(pos.Executed)
-	}
-	return atLeast
-}
-
 // AtLeast returns true if the RelayLogPositions object contains at
 // least the positions provided as pos.
 func (rlp *RelayLogPositions) AtLeast(pos RelayLogPositions) bool {
 	if rlp.Combined.IsZero() || pos.Combined.IsZero() {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
-
-	// do basic sort if SourceUUIDs are empty.
-	if rlp.SourceUUID.IsZero() && pos.SourceUUID.IsZero() {
-		return rlp.atLeastSimple(pos)
+	atLeast := rlp.Combined.AtLeast(pos.Combined)
+	if rlp.Combined.Equal(pos.Combined) {
+		return atLeast && rlp.Executed.AtLeast(pos.Executed)
 	}
-
-	// convert positions to replication.Mysql56GTIDSet objects.
-	sid := rlp.SourceUUID
-	rlpSet, rlpOk := rlp.Combined.GTIDSet.(replication.Mysql56GTIDSet)
-	posSet, posOk := pos.Combined.GTIDSet.(replication.Mysql56GTIDSet)
-
-	// do simple comparison if either combined set is not
-	// MySQL56GTIDSet or if the SID does not match.
-	if !rlpOk || !posOk || rlp.SourceUUID != pos.SourceUUID {
-		return rlp.atLeastSimple(pos)
-	}
-
-	if len(rlpSet[sid]) > 0 && len(posSet[sid]) > 0 {
-		rlpSIDSet := rlpSet.CloneSIDs(sid)
-		posSIDSet := posSet.CloneSIDs(sid)
-
-		// if combined SID + intervals are equal, sort by the SID executed GTID set.
-		if rlpSIDSet.Equal(posSIDSet) {
-			rlpSet, rlpOk = rlp.Executed.GTIDSet.(replication.Mysql56GTIDSet)
-			posSet, posOk = pos.Executed.GTIDSet.(replication.Mysql56GTIDSet)
-			if rlpOk && posOk {
-				rlpSIDSet := rlpSet.CloneSIDs(sid)
-				posSIDSet := posSet.CloneSIDs(sid)
-				if len(rlpSIDSet[sid]) == 0 || len(posSIDSet[sid]) == 0 {
-					return false
-				}
-				if rlpSIDSet.Equal(posSIDSet) {
-					return false
-				}
-				return rlpSIDSet.Contains(posSIDSet)
-			}
-		}
-	}
-
-	return rlp.Combined.AtLeast(pos.Combined)
+	return atLeast
 }
 
 // Equal returns true if the RelayLogPositions object is equal to
@@ -234,9 +185,8 @@ func FindValidEmergencyReparentCandidates(
 		}
 
 		positionMap[alias] = RelayLogPositions{
-			SourceUUID: status.SourceUUID,
-			Combined:   status.RelayLogPosition,
-			Executed:   status.Position,
+			Combined: status.RelayLogPosition,
+			Executed: status.Position,
 		}
 	}
 

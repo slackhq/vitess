@@ -1736,7 +1736,6 @@ func TestRelayLogPositions_Equal(t *testing.T) {
 }
 
 func TestSortRelayLogPositions(t *testing.T) {
-	sid, _ := replication.ParseSID("3e11fa47-71ca-11e1-9e33-c80aa9429562")
 	gtidSet1, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7")
 	gtidSet2, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6")
 	gtidSet3, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5")
@@ -1813,90 +1812,12 @@ func TestSortRelayLogPositions(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "with mysql gtid source UUID",
-			in: []RelayLogPositions{
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet3},
-					Executed:   replication.Position{GTIDSet: gtidSet4},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet3},
-					Executed:   replication.Position{GTIDSet: gtidSet4},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet2},
-					Executed:   replication.Position{GTIDSet: gtidSet3},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet4},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet1},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet2},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet6},
-					Executed:   replication.Position{GTIDSet: gtidSet7},
-				},
-			},
-			wanted: []RelayLogPositions{
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet1},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet2},
-					Executed:   replication.Position{GTIDSet: gtidSet3},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet2},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet3},
-					Executed:   replication.Position{GTIDSet: gtidSet4},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet3},
-					Executed:   replication.Position{GTIDSet: gtidSet4},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet4},
-					Executed:   replication.Position{GTIDSet: gtidSet5},
-				},
-				{
-					SourceUUID: sid,
-					Combined:   replication.Position{GTIDSet: gtidSet6},
-					Executed:   replication.Position{GTIDSet: gtidSet7},
-				},
-			},
-		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			positions := sortRelayLogPositions(testCase.in)
 			for i, wanted := range testCase.wanted {
-				require.Equal(t, wanted.SourceUUID, positions[i].SourceUUID)
 				require.Equal(t, wanted.Combined.String(), positions[i].Combined.String())
 				require.Equal(t, wanted.Executed.String(), positions[i].Executed.String())
 			}

@@ -163,16 +163,6 @@ func sortSIDs(sids []SID) {
 	})
 }
 
-// CloneSIDs returns a subset of a Mysql56GTIDSet containing only
-// the provided replication.SIDs.
-func (set Mysql56GTIDSet) CloneSIDs(sids ...SID) Mysql56GTIDSet {
-	newSet := Mysql56GTIDSet{}
-	for _, sid := range sids {
-		newSet[sid] = set[sid]
-	}
-	return newSet
-}
-
 // String implements GTIDSet.
 func (set Mysql56GTIDSet) String() string {
 	var buf strings.Builder
