@@ -40,11 +40,13 @@ COPY --chown=vitess:vitess . /vt/src/vitess.io/vitess
 # Allow checkout of github.com/slackhq/vitess-addons (private repo)
 ENV GOPRIVATE=github.com/slackhq/vitess-addons
 
-# Use SSH via forwarded agent
-RUN --mount=type=ssh,id=gitssh git config --system url."ssh://git@github.com/".insteadOf "https://github.com/"
-
 USER vitess
 
+# Use SSH via forwarded agent
+RUN git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
+RUN ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+RUN --mount=type=ssh,id=gitssh go mod download
+
 # Build Vitess
-RUN --mount=type=ssh,id=gitssh ssh-keyscan github.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh,id=gitssh make build
