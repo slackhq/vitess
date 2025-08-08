@@ -50,4 +50,4 @@ RUN id -u vitess && id -g vitess
 RUN --mount=type=ssh,id=gitssh,uid=999,gid=999 go mod download
 
 # Build Vitess
-RUN --mount=type=ssh,id=gitssh,uid=1000,gid=1000 make build
+RUN --mount=type=ssh,id=gitssh,uid=999,gid=999 make build
