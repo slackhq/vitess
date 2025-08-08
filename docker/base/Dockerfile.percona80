@@ -44,7 +44,7 @@ USER vitess
 
 # Use SSH via forwarded agent
 RUN git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
-RUN ssh-keyscan github.com >> ~/.ssh/known_hosts
+RUN mkdir -p -m 700 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
 
 RUN --mount=type=ssh,id=gitssh go mod download
 
