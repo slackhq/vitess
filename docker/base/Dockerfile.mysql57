@@ -46,7 +46,8 @@ USER vitess
 RUN git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 RUN mkdir -p -m 700 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
 
-RUN --mount=type=ssh,id=gitssh go mod download
+RUN id -u vitess && id -g vitess
+RUN --mount=type=ssh,id=gitssh,uid=999,gid=999 go mod download
 
 # Build Vitess
-RUN --mount=type=ssh,id=gitssh make build
+RUN --mount=type=ssh,id=gitssh,uid=999,gid=999 make build
