@@ -23,14 +23,24 @@ import (
 	"google.golang.org/grpc/channelz/service"
 
 	"vitess.io/vitess/go/exit"
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/stats/prometheusbackend"
+	"vitess.io/vitess/go/trace"
+	"vitess.io/vitess/go/vt/grpcclient"
+	"vitess.io/vitess/go/vt/grpccommon"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 	"vitess.io/vitess/go/vt/vtgateproxy"
 )
 
 func init() {
 	servenv.RegisterDefaultFlags()
 	servenv.RegisterGRPCServerFlags()
+	servenv.OnParseFor("vtgateproxy", trace.RegisterFlags)
+	servenv.OnParseFor("vtgateproxy", stats.RegisterFlags)
+	servenv.OnParseFor("vtgateproxy", grpccommon.RegisterFlags)
+	servenv.OnParseFor("vtgateproxy", grpcclient.RegisterFlags)
+	servenv.OnParseFor("vtgateproxy", grpcvtgateconn.RegisterFlags)
 }
 
 func main() {

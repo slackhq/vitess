@@ -438,7 +438,6 @@ func init() {
 		"vtctlclient",
 		"vtctld",
 		"vtgate",
-		"vtgateproxy",
 		"vttablet",
 	} {
 		OnParseFor(cmd, trace.RegisterFlags)
@@ -454,7 +453,6 @@ func init() {
 		"vtgate",
 		"vtgateclienttest",
 		"vtorc",
-		"vtgateproxy",
 		"vttablet",
 		"vttestserver",
 	} {
@@ -467,7 +465,6 @@ func init() {
 		"vtcombo",
 		"vtctld",
 		"vtgate",
-		"vtgateproxy",
 		"vttablet",
 		"vtorc",
 	} {
