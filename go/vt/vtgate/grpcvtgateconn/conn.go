@@ -57,11 +57,11 @@ func init() {
 		"vttestserver",
 		"vtgateproxy",
 	} {
-		servenv.OnParseFor(cmd, registerFlags)
+		servenv.OnParseFor(cmd, RegisterFlags)
 	}
 }
 
-func registerFlags(fs *pflag.FlagSet) {
+func RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&cert, "vtgate_grpc_cert", "", "the cert to use to connect")
 	fs.StringVar(&key, "vtgate_grpc_key", "", "the key to use to connect")
 	fs.StringVar(&ca, "vtgate_grpc_ca", "", "the server ca to use to validate servers when connecting")
