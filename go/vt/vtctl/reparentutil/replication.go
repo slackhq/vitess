@@ -54,20 +54,26 @@ type RelayLogPositions struct {
 
 // AtLeast returns true if the RelayLogPositions object contains at
 // least the positions provided as pos.
-func (rlp *RelayLogPositions) AtLeast(pos RelayLogPositions) bool {
-	if rlp.Combined.IsZero() || pos.Combined.IsZero() {
+func (rlp *RelayLogPositions) AtLeast(pos *RelayLogPositions) bool {
+	if pos == nil {
+		return false
+	}
+
+	// if two combined GTID sets are equal, sort by the executed GTID set
+	// so that we pick a position with the most advanced SQL thread.
+	if rlp.Combined.Equal(pos.Combined) {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
-	atLeast := rlp.Combined.AtLeast(pos.Combined)
-	if rlp.Combined.Equal(pos.Combined) {
-		return atLeast && rlp.Executed.AtLeast(pos.Executed)
-	}
-	return atLeast
+
+	return rlp.Combined.AtLeast(pos.Combined)
 }
 
 // Equal returns true if the RelayLogPositions object is equal to
 // the positions provided as pos.
-func (rlp *RelayLogPositions) Equal(pos RelayLogPositions) bool {
+func (rlp *RelayLogPositions) Equal(pos *RelayLogPositions) bool {
+	if pos == nil {
+		return false
+	}
 	return rlp.Combined.Equal(pos.Combined) && rlp.Executed.Equal(pos.Executed)
 }
 
@@ -77,7 +83,7 @@ func (rlp *RelayLogPositions) Equal(pos RelayLogPositions) bool {
 // -1 if a is < than b.
 // This can be used as a sort function via
 // slices.SortFunc and slices.SortFuncStable.
-func CompareRelayLogPositions(a, b RelayLogPositions) int {
+func CompareRelayLogPositions(a, b *RelayLogPositions) int {
 	if a.Equal(b) {
 		return 0
 	}
@@ -88,9 +94,9 @@ func CompareRelayLogPositions(a, b RelayLogPositions) int {
 }
 
 // sortRelayLogPositions sorts RelayLogPositions using replication positions.
-func sortRelayLogPositions(p []RelayLogPositions) []RelayLogPositions {
+func sortRelayLogPositions(p []*RelayLogPositions) []*RelayLogPositions {
 	positions := p
-	slices.SortFunc(positions, func(a, b RelayLogPositions) int {
+	slices.SortFunc(positions, func(a, b *RelayLogPositions) int {
 		return CompareRelayLogPositions(a, b)
 	})
 	return positions
@@ -102,9 +108,9 @@ func sortRelayLogPositions(p []RelayLogPositions) []RelayLogPositions {
 func FindValidEmergencyReparentCandidates(
 	statusMap map[string]*replicationdatapb.StopReplicationStatus,
 	primaryStatusMap map[string]*replicationdatapb.PrimaryStatus,
-) (map[string]RelayLogPositions, error) {
+) (map[string]*RelayLogPositions, error) {
 	replicationStatusMap := make(map[string]*replication.ReplicationStatus, len(statusMap))
-	positionMap := make(map[string]RelayLogPositions)
+	positionMap := make(map[string]*RelayLogPositions)
 
 	// Build out replication status list from proto types.
 	for alias, statuspb := range statusMap {
@@ -149,42 +155,11 @@ func FindValidEmergencyReparentCandidates(
 		// If we're not GTID-based, no need to search for errant GTIDs, so just
 		// add the position to the map and continue.
 		if !isGTIDBased {
-			positionMap[alias] = RelayLogPositions{Combined: status.Position}
+			positionMap[alias] = &RelayLogPositions{Combined: status.Position}
 
 			continue
 		}
-
-		// This condition should really never happen, since we did the same cast
-		// in the earlier loop, but let's be doubly sure.
-		relayLogGTIDSet, ok := status.RelayLogPosition.GTIDSet.(replication.Mysql56GTIDSet)
-		if !ok {
-			return nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "we got a filled-in relay log position, but it's not of type Mysql56GTIDSet, even though we've determined we need to use GTID based assesment")
-		}
-
-		// We need to remove this alias's status from the list, otherwise the
-		// GTID diff will always be empty.
-		statusList := make([]*replication.ReplicationStatus, 0, len(replicationStatusMap)-1)
-
-		for a, s := range replicationStatusMap {
-			if a != alias {
-				statusList = append(statusList, s)
-			}
-		}
-
-		errantGTIDs, err := status.FindErrantGTIDs(statusList)
-		switch {
-		case err != nil:
-			// Could not look up GTIDs to determine if we have any. It's not
-			// safe to continue.
-			return nil, err
-		case len(errantGTIDs) != 0:
-			// This tablet has errant GTIDs. It's not a valid candidate for
-			// reparent, so don't insert it into the final mapping.
-			log.Errorf("skipping %v with GTIDSet:%v because we detected errant GTIDs - %v", alias, relayLogGTIDSet, errantGTIDs)
-			continue
-		}
-
-		positionMap[alias] = RelayLogPositions{
+		positionMap[alias] = &RelayLogPositions{
 			Combined: status.RelayLogPosition,
 			Executed: status.Position,
 		}
@@ -196,7 +171,7 @@ func FindValidEmergencyReparentCandidates(
 			return nil, vterrors.Wrapf(err, "could not decode a primary status executed position for tablet %v: %v", alias, err)
 		}
 
-		positionMap[alias] = RelayLogPositions{Combined: executedPosition}
+		positionMap[alias] = &RelayLogPositions{Combined: executedPosition}
 	}
 
 	return positionMap, nil

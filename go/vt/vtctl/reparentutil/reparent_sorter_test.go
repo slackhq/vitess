@@ -80,7 +80,7 @@ func TestReparentSorter(t *testing.T) {
 		Sequence: 11,
 	}
 
-	positionMostAdvanced := RelayLogPositions{
+	positionMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -90,7 +90,7 @@ func TestReparentSorter(t *testing.T) {
 	positionMostAdvanced.Executed.GTIDSet = positionMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID1)
 	positionMostAdvanced.Executed.GTIDSet = positionMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID2)
 
-	positionAlmostMostAdvanced := RelayLogPositions{
+	positionAlmostMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -99,19 +99,19 @@ func TestReparentSorter(t *testing.T) {
 	positionAlmostMostAdvanced.Combined.GTIDSet = positionAlmostMostAdvanced.Combined.GTIDSet.AddGTID(mysqlGTID3)
 	positionAlmostMostAdvanced.Executed.GTIDSet = positionAlmostMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionEmpty := RelayLogPositions{
+	positionEmpty := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 
-	positionIntermediate1 := RelayLogPositions{
+	positionIntermediate1 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 	positionIntermediate1.Combined.GTIDSet = positionIntermediate1.Combined.GTIDSet.AddGTID(mysqlGTID1)
 	positionIntermediate1.Executed.GTIDSet = positionIntermediate1.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionIntermediate2 := RelayLogPositions{
+	positionIntermediate2 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -122,39 +122,39 @@ func TestReparentSorter(t *testing.T) {
 	testcases := []struct {
 		name          string
 		tablets       []*topodatapb.Tablet
-		positions     []RelayLogPositions
+		positions     []*RelayLogPositions
 		containsErr   string
 		sortedTablets []*topodatapb.Tablet
 	}{
 		{
 			name:          "all advanced, sort via promotion rules",
 			tablets:       []*topodatapb.Tablet{nil, tabletReplica1_100, tabletRdonly1_102},
-			positions:     []RelayLogPositions{positionMostAdvanced, positionMostAdvanced, positionMostAdvanced},
+			positions:     []*RelayLogPositions{positionMostAdvanced, positionMostAdvanced, positionMostAdvanced},
 			sortedTablets: []*topodatapb.Tablet{tabletReplica1_100, tabletRdonly1_102, nil},
 		}, {
 			name:          "ordering by position",
 			tablets:       []*topodatapb.Tablet{tabletReplica1_101, tabletReplica2_100, tabletReplica1_100, tabletRdonly1_102, tabletReplica3_103},
-			positions:     []RelayLogPositions{positionEmpty, positionIntermediate1, positionIntermediate2, positionMostAdvanced, positionAlmostMostAdvanced},
+			positions:     []*RelayLogPositions{positionEmpty, positionIntermediate1, positionIntermediate2, positionMostAdvanced, positionAlmostMostAdvanced},
 			sortedTablets: []*topodatapb.Tablet{tabletRdonly1_102, tabletReplica3_103, tabletReplica1_100, tabletReplica2_100, tabletReplica1_101},
 		}, {
 			name:        "tablets and positions count error",
 			tablets:     []*topodatapb.Tablet{tabletReplica1_101, tabletReplica2_100},
-			positions:   []RelayLogPositions{positionEmpty, positionIntermediate1, positionMostAdvanced},
+			positions:   []*RelayLogPositions{positionEmpty, positionIntermediate1, positionMostAdvanced},
 			containsErr: "unequal number of tablets and positions",
 		}, {
 			name:          "promotion rule check",
 			tablets:       []*topodatapb.Tablet{tabletReplica1_101, tabletRdonly1_102},
-			positions:     []RelayLogPositions{positionMostAdvanced, positionMostAdvanced},
+			positions:     []*RelayLogPositions{positionMostAdvanced, positionMostAdvanced},
 			sortedTablets: []*topodatapb.Tablet{tabletReplica1_101, tabletRdonly1_102},
 		}, {
 			name:          "mixed",
 			tablets:       []*topodatapb.Tablet{tabletReplica1_101, tabletReplica2_100, tabletReplica1_100, tabletRdonly1_102, tabletReplica3_103},
-			positions:     []RelayLogPositions{positionEmpty, positionIntermediate1, positionMostAdvanced, positionIntermediate1, positionAlmostMostAdvanced},
+			positions:     []*RelayLogPositions{positionEmpty, positionIntermediate1, positionMostAdvanced, positionIntermediate1, positionAlmostMostAdvanced},
 			sortedTablets: []*topodatapb.Tablet{tabletReplica1_100, tabletReplica3_103, tabletReplica2_100, tabletRdonly1_102, tabletReplica1_101},
 		}, {
 			name:          "mixed - another",
 			tablets:       []*topodatapb.Tablet{tabletReplica1_101, tabletReplica2_100, tabletReplica1_100, tabletRdonly1_102, tabletReplica3_103},
-			positions:     []RelayLogPositions{positionIntermediate1, positionIntermediate1, positionMostAdvanced, positionIntermediate1, positionAlmostMostAdvanced},
+			positions:     []*RelayLogPositions{positionIntermediate1, positionIntermediate1, positionMostAdvanced, positionIntermediate1, positionAlmostMostAdvanced},
 			sortedTablets: []*topodatapb.Tablet{tabletReplica1_100, tabletReplica3_103, tabletReplica2_100, tabletReplica1_101, tabletRdonly1_102},
 		},
 	}

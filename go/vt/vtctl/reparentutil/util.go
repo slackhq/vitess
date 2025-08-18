@@ -85,7 +85,7 @@ func ElectNewPrimary(
 		mu sync.Mutex
 		// tablets that are possible candidates to be the new primary and their positions
 		validTablets    []*topodatapb.Tablet
-		tabletPositions []RelayLogPositions
+		tabletPositions []*RelayLogPositions
 	)
 
 	// candidates are the list of tablets that can be potentially promoted after filtering out based on preliminary checks.
@@ -156,8 +156,8 @@ func ElectNewPrimary(
 
 // findTabletPositionLagBackupStatus processes the replication positions and lag for a single tablet and
 // returns it. It is safe to call from multiple goroutines.
-func findTabletPositionLagBackupStatus(ctx context.Context, tablet *topodatapb.Tablet, logger logutil.Logger, tmc tmclient.TabletManagerClient, waitTimeout time.Duration) (RelayLogPositions, time.Duration, bool, error) {
-	rlp := RelayLogPositions{}
+func findTabletPositionLagBackupStatus(ctx context.Context, tablet *topodatapb.Tablet, logger logutil.Logger, tmc tmclient.TabletManagerClient, waitTimeout time.Duration) (*RelayLogPositions, time.Duration, bool, error) {
+	rlp := &RelayLogPositions{}
 
 	ctx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
@@ -292,9 +292,9 @@ func ShardReplicationStatuses(ctx context.Context, ts *topo.Server, tmc tmclient
 }
 
 // getValidCandidatesAndPositionsAsList converts the valid candidates from a map to a list of tablets, making it easier to sort
-func getValidCandidatesAndPositionsAsList(validCandidates map[string]RelayLogPositions, tabletMap map[string]*topo.TabletInfo) ([]*topodatapb.Tablet, []RelayLogPositions, error) {
+func getValidCandidatesAndPositionsAsList(validCandidates map[string]*RelayLogPositions, tabletMap map[string]*topo.TabletInfo) ([]*topodatapb.Tablet, []*RelayLogPositions, error) {
 	var validTablets []*topodatapb.Tablet
-	var tabletPositions []RelayLogPositions
+	var tabletPositions []*RelayLogPositions
 	for tabletAlias, position := range validCandidates {
 		tablet, isFound := tabletMap[tabletAlias]
 		if !isFound {
@@ -308,7 +308,7 @@ func getValidCandidatesAndPositionsAsList(validCandidates map[string]RelayLogPos
 
 // getValidCandidatesMajorityCount returns a number equal to a majority of candidates. If
 // there are fewer than 3 candidates, all provided candidates are the majority.
-func getValidCandidatesMajorityCount(validCandidates map[string]RelayLogPositions) int {
+func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositions) int {
 	totalCandidates := len(validCandidates)
 	if totalCandidates < 3 {
 		return totalCandidates
@@ -317,9 +317,9 @@ func getValidCandidatesMajorityCount(validCandidates map[string]RelayLogPosition
 }
 
 // restrictValidCandidates is used to restrict some candidates from being considered eligible for becoming the intermediate source or the final promotion candidate
-func restrictValidCandidates(validCandidates map[string]RelayLogPositions, tabletMap map[string]*topo.TabletInfo, logger logutil.Logger) (map[string]RelayLogPositions, error) {
-	restrictedValidCandidates := make(map[string]RelayLogPositions)
-	validPositions := make([]RelayLogPositions, 0, len(validCandidates))
+func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabletMap map[string]*topo.TabletInfo, logger logutil.Logger) (map[string]*RelayLogPositions, error) {
+	restrictedValidCandidates := make(map[string]*RelayLogPositions)
+	validPositions := make([]*RelayLogPositions, 0, len(validCandidates))
 	for candidate, position := range validCandidates {
 		candidateInfo, ok := tabletMap[candidate]
 		if !ok {
@@ -339,7 +339,7 @@ func restrictValidCandidates(validCandidates map[string]RelayLogPositions, table
 	majorityCandidatesCount := getValidCandidatesMajorityCount(restrictedValidCandidates)
 	validPositions = validPositions[:majorityCandidatesCount]
 	for tabletAlias, position := range restrictedValidCandidates {
-		if !slices.ContainsFunc(validPositions, func(rlp RelayLogPositions) bool {
+		if !slices.ContainsFunc(validPositions, func(rlp *RelayLogPositions) bool {
 			return position.Equal(rlp)
 		}) {
 			logger.Infof("Ignoring least-advanced tablet as a candidate: %s", tabletAlias)

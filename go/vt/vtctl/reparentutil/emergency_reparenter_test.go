@@ -2545,7 +2545,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 	tests := []struct {
 		name       string
 		tmc        *testutil.TabletManagerClient
-		candidates map[string]RelayLogPositions
+		candidates map[string]*RelayLogPositions
 		tabletMap  map[string]*topo.TabletInfo
 		statusMap  map[string]*replicationdatapb.StopReplicationStatus
 		shouldErr  bool
@@ -2562,7 +2562,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 					},
 				},
 			},
-			candidates: map[string]RelayLogPositions{
+			candidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": {},
 				"zone1-0000000101": {},
 			},
@@ -2610,7 +2610,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 					},
 				},
 			},
-			candidates: map[string]RelayLogPositions{
+			candidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": {},
 				"zone1-0000000101": {},
 			},
@@ -2661,7 +2661,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 					},
 				},
 			},
-			candidates: map[string]RelayLogPositions{
+			candidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": {},
 				"zone1-0000000101": {},
 				"zone1-0000000102": {},
@@ -2726,7 +2726,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 					},
 				},
 			},
-			candidates: map[string]RelayLogPositions{
+			candidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": {},
 				"zone1-0000000101": {},
 			},
@@ -2960,7 +2960,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 	}
 
 	// most advanced gtid set
-	positionMostAdvanced := RelayLogPositions{
+	positionMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -2971,7 +2971,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 	positionMostAdvanced.Executed.GTIDSet = positionMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID2)
 
 	// same combined gtid set as positionMostAdvanced, but 1 position behind in gtid executed
-	positionAlmostMostAdvanced := RelayLogPositions{
+	positionAlmostMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -2980,14 +2980,14 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 	positionAlmostMostAdvanced.Combined.GTIDSet = positionAlmostMostAdvanced.Combined.GTIDSet.AddGTID(mysqlGTID3)
 	positionAlmostMostAdvanced.Executed.GTIDSet = positionAlmostMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionIntermediate1 := RelayLogPositions{
+	positionIntermediate1 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 	positionIntermediate1.Combined.GTIDSet = positionIntermediate1.Combined.GTIDSet.AddGTID(mysqlGTID1)
 	positionIntermediate1.Executed.GTIDSet = positionIntermediate1.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionIntermediate2 := RelayLogPositions{
+	positionIntermediate2 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -2995,21 +2995,21 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 	positionIntermediate2.Combined.GTIDSet = positionIntermediate2.Combined.GTIDSet.AddGTID(mysqlGTID2)
 	positionIntermediate2.Executed.GTIDSet = positionIntermediate2.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionOnly2 := RelayLogPositions{
+	positionOnly2 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 	positionOnly2.Combined.GTIDSet = positionOnly2.Combined.GTIDSet.AddGTID(mysqlGTID2)
 	positionOnly2.Executed.GTIDSet = positionOnly2.Executed.GTIDSet.AddGTID(mysqlGTID2)
 
-	positionEmpty := RelayLogPositions{
+	positionEmpty := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 
 	tests := []struct {
 		name                 string
-		validCandidates      map[string]RelayLogPositions
+		validCandidates      map[string]*RelayLogPositions
 		tabletMap            map[string]*topo.TabletInfo
 		emergencyReparentOps EmergencyReparentOptions
 		result               *topodatapb.Tablet
@@ -3017,7 +3017,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 	}{
 		{
 			name: "choose most advanced",
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": positionMostAdvanced,
 				"zone1-0000000101": positionIntermediate1,
 				"zone1-0000000102": positionIntermediate2,
@@ -3074,7 +3074,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 			},
 		}, {
 			name: "choose most advanced with the best promotion rule",
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": positionMostAdvanced,
 				"zone1-0000000101": positionIntermediate1,
 				"zone1-0000000102": positionMostAdvanced,
@@ -3137,7 +3137,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			}},
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": positionMostAdvanced,
 				"zone1-0000000101": positionIntermediate1,
 				"zone1-0000000102": positionMostAdvanced,
@@ -3200,7 +3200,7 @@ func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
 				Cell: "zone1",
 				Uid:  102,
 			}},
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": positionOnly2,
 				"zone1-0000000101": positionIntermediate1,
 				"zone1-0000000102": positionEmpty,

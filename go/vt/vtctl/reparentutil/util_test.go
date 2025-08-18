@@ -1223,7 +1223,7 @@ func TestGetValidCandidatesAndPositionsAsList(t *testing.T) {
 		Sequence: 11,
 	}
 
-	positionMostAdvanced := RelayLogPositions{
+	positionMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -1233,7 +1233,7 @@ func TestGetValidCandidatesAndPositionsAsList(t *testing.T) {
 	positionMostAdvanced.Executed.GTIDSet = positionMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID1)
 	positionMostAdvanced.Executed.GTIDSet = positionMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID2)
 
-	positionAlmostMostAdvanced := RelayLogPositions{
+	positionAlmostMostAdvanced := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -1242,14 +1242,14 @@ func TestGetValidCandidatesAndPositionsAsList(t *testing.T) {
 	positionAlmostMostAdvanced.Combined.GTIDSet = positionAlmostMostAdvanced.Combined.GTIDSet.AddGTID(mysqlGTID3)
 	positionAlmostMostAdvanced.Executed.GTIDSet = positionAlmostMostAdvanced.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionIntermediate1 := RelayLogPositions{
+	positionIntermediate1 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
 	positionIntermediate1.Combined.GTIDSet = positionIntermediate1.Combined.GTIDSet.AddGTID(mysqlGTID1)
 	positionIntermediate1.Executed.GTIDSet = positionIntermediate1.Executed.GTIDSet.AddGTID(mysqlGTID1)
 
-	positionIntermediate2 := RelayLogPositions{
+	positionIntermediate2 := &RelayLogPositions{
 		Combined: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 		Executed: replication.Position{GTIDSet: replication.Mysql56GTIDSet{}},
 	}
@@ -1259,13 +1259,13 @@ func TestGetValidCandidatesAndPositionsAsList(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		validCandidates map[string]RelayLogPositions
+		validCandidates map[string]*RelayLogPositions
 		tabletMap       map[string]*topo.TabletInfo
 		tabletRes       []*topodatapb.Tablet
 	}{
 		{
 			name: "test conversion",
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": positionMostAdvanced,
 				"zone1-0000000101": positionIntermediate1,
 				"zone1-0000000102": positionIntermediate2,
@@ -1483,13 +1483,13 @@ func TestRestrictValidCandidates(t *testing.T) {
 	gtidSet4, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2")
 	tests := []struct {
 		name            string
-		validCandidates map[string]RelayLogPositions
+		validCandidates map[string]*RelayLogPositions
 		tabletMap       map[string]*topo.TabletInfo
-		result          map[string]RelayLogPositions
+		result          map[string]*RelayLogPositions
 	}{
 		{
 			name: "remove invalid tablets",
-			validCandidates: map[string]RelayLogPositions{
+			validCandidates: map[string]*RelayLogPositions{
 				"zone1-0000000100": {
 					Combined: replication.Position{GTIDSet: gtidSet1},
 					Executed: replication.Position{GTIDSet: gtidSet2},
@@ -1584,7 +1584,7 @@ func TestRestrictValidCandidates(t *testing.T) {
 					},
 				},
 			},
-			result: map[string]RelayLogPositions{
+			result: map[string]*RelayLogPositions{
 				"zone1-0000000100": {
 					Combined: replication.Position{GTIDSet: gtidSet1},
 					Executed: replication.Position{GTIDSet: gtidSet2},
@@ -1876,10 +1876,10 @@ func TestGetBackupCandidates(t *testing.T) {
 }
 
 func TestGetValidCandidatesMajorityCount(t *testing.T) {
-	buildCandidatesFunc := func(length int) map[string]RelayLogPositions {
-		candidates := make(map[string]RelayLogPositions, length)
+	buildCandidatesFunc := func(length int) map[string]*RelayLogPositions {
+		candidates := make(map[string]*RelayLogPositions, length)
 		for i := 1; i <= length; i++ {
-			candidates[fmt.Sprintf("candidate-%d", i)] = RelayLogPositions{}
+			candidates[fmt.Sprintf("candidate-%d", i)] = &RelayLogPositions{}
 		}
 		return candidates
 	}
