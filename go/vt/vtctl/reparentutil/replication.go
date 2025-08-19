@@ -159,8 +159,40 @@ func FindValidEmergencyReparentCandidates(
 
 			continue
 		}
+
+		// This condition should really never happen, since we did the same cast
+		// in the earlier loop, but let's be doubly sure.
+		relayLogGTIDSet, ok := status.RelayLogPosition.GTIDSet.(replication.Mysql56GTIDSet)
+		if !ok {
+			return nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "we got a filled-in relay log position, but it's not of type Mysql56GTIDSet, even though we've determined we need to use GTID based assesment")
+		}
+
+		// We need to remove this alias's status from the list, otherwise the
+		// GTID diff will always be empty.
+		statusList := make([]*replication.ReplicationStatus, 0, len(replicationStatusMap)-1)
+
+		for a, s := range replicationStatusMap {
+			if a != alias {
+				statusList = append(statusList, s)
+			}
+		}
+
+		errantGTIDs, err := status.FindErrantGTIDs(statusList)
+		switch {
+		case err != nil:
+			// Could not look up GTIDs to determine if we have any. It's not
+			// safe to continue.
+			return nil, err
+		case len(errantGTIDs) != 0:
+			// This tablet has errant GTIDs. It's not a valid candidate for
+			// reparent, so don't insert it into the final mapping.
+			log.Errorf("skipping %v with GTIDSet:%v because we detected errant GTIDs - %v", alias, relayLogGTIDSet, errantGTIDs)
+			continue
+		}
+
+		pos := replication.Position{GTIDSet: relayLogGTIDSet}
 		positionMap[alias] = &RelayLogPositions{
-			Combined: status.RelayLogPosition,
+			Combined: pos,
 			Executed: status.Position,
 		}
 	}
