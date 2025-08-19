@@ -42,13 +42,13 @@ import (
 
 // RelayLogPositions contains the positions of the relay log.
 type RelayLogPositions struct {
-	// Combined represents the entire range
-	// of the relaylog with the retrieved +
-	// executed GTID sets combined.
+	// Combined represents the entire range of the relay
+	// log with the retrieved + executed GTID sets
+	// combined.
 	Combined replication.Position
 
-	// Executed represents the executed GTID
-	// set of the relaylog/SQL thread.
+	// Executed represents the executed GTID set of the
+	// relay log/SQL thread.
 	Executed replication.Position
 }
 
@@ -59,8 +59,8 @@ func (rlp *RelayLogPositions) AtLeast(pos *RelayLogPositions) bool {
 		return false
 	}
 
-	// if two combined GTID sets are equal, sort by the executed GTID set
-	// so that we pick a position with the most advanced SQL thread.
+	// if two combined GTID sets are equal, sort by the executed GTID
+	// set so we pick a position with the most advanced SQL thread.
 	if rlp.Combined.Equal(pos.Combined) {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
@@ -75,6 +75,11 @@ func (rlp *RelayLogPositions) Equal(pos *RelayLogPositions) bool {
 		return false
 	}
 	return rlp.Combined.Equal(pos.Combined) && rlp.Executed.Equal(pos.Executed)
+}
+
+// IsZero returns true if the RelayLogPositions is zero.
+func (rlp *RelayLogPositions) IsZero() bool {
+	return rlp.Combined.IsZero() && rlp.Executed.IsZero()
 }
 
 // CompareRelayLogPositions compares two RelayLogPositions, returning:

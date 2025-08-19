@@ -1734,6 +1734,16 @@ func TestRelayLogPositions_Equal(t *testing.T) {
 	}))
 }
 
+func TestRelayLogPositions_IsZero(t *testing.T) {
+	gtidSet, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6")
+	rlp := &RelayLogPositions{}
+	assert.True(t, rlp.IsZero())
+
+	rlp.Combined = replication.Position{GTIDSet: gtidSet}
+	rlp.Executed = replication.Position{GTIDSet: gtidSet}
+	assert.False(t, rlp.IsZero())
+}
+
 func TestSortRelayLogPositions(t *testing.T) {
 	gtidSet1, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7")
 	gtidSet2, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6")
