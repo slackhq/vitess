@@ -916,6 +916,7 @@ func TestFindPositionForTablet(t *testing.T) {
 					"zone1-0000000100": {
 						Position: &replicationdatapb.Status{
 							Position:              "MySQL56/3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+							RelayLogPosition:      "MySQL56/3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
 							ReplicationLagSeconds: 201,
 						},
 					},
@@ -939,6 +940,7 @@ func TestFindPositionForTablet(t *testing.T) {
 					"zone1-0000000100": {
 						Position: &replicationdatapb.Status{
 							Position:              "MySQL56/3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+							RelayLogPosition:      "MySQL56/3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
 							ReplicationLagSeconds: 201,
 						},
 					},

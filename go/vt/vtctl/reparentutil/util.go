@@ -179,15 +179,10 @@ func findTabletPositionLagBackupStatus(ctx context.Context, tablet *topodatapb.T
 		return rlp, 0, status.BackupRunning, err
 	}
 
-	// Use the relay log position if available, otherwise use the executed GTID set (binary log position) as the combined set.
-	if status.RelayLogPosition != "" {
-		rlp.Combined, err = replication.DecodePosition(status.RelayLogPosition)
-		if err != nil {
-			logger.Warningf("cannot decode replica position %v for tablet %v, ignoring tablet: %v", status.RelayLogPosition, topoproto.TabletAliasString(tablet.Alias), err)
-			return rlp, 0, status.BackupRunning, err
-		}
-	} else {
-		rlp.Combined = rlp.Executed
+	rlp.Combined, err = replication.DecodePosition(status.RelayLogPosition)
+	if err != nil {
+		logger.Warningf("cannot decode replica position %v for tablet %v, ignoring tablet: %v", status.RelayLogPosition, topoproto.TabletAliasString(tablet.Alias), err)
+		return rlp, 0, status.BackupRunning, err
 	}
 
 	return rlp, time.Second * time.Duration(status.ReplicationLagSeconds), status.BackupRunning, nil
