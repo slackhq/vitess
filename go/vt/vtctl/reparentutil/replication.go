@@ -79,7 +79,7 @@ func (rlp *RelayLogPositions) Equal(pos *RelayLogPositions) bool {
 
 // IsZero returns true if the RelayLogPositions is zero.
 func (rlp *RelayLogPositions) IsZero() bool {
-	return rlp.Combined.IsZero() && rlp.Executed.IsZero()
+	return rlp.Combined.IsZero()
 }
 
 // CompareRelayLogPositions compares two RelayLogPositions, returning:
