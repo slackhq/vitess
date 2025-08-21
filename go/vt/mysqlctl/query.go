@@ -229,6 +229,9 @@ func (mysqld *Mysqld) fetchStatuses(ctx context.Context, pattern string) (map[st
 
 // ExecuteSuperQuery allows the user to execute a query as a super user.
 func (mysqld *Mysqld) AcquireGlobalReadLock(ctx context.Context) error {
+	mysqld.lockConnMutex.Lock()
+	defer mysqld.lockConnMutex.Unlock()
+
 	if mysqld.lockConn != nil {
 		return errors.New("lock already acquired")
 	}
@@ -248,19 +251,20 @@ func (mysqld *Mysqld) AcquireGlobalReadLock(ctx context.Context) error {
 	return nil
 }
 
-func (mysqld *Mysqld) ReleaseGlobalReadLock(ctx context.Context) error {
+func (mysqld *Mysqld) ReleaseGlobalReadLock(ctx context.Context) {
+	mysqld.lockConnMutex.Lock()
+	defer mysqld.lockConnMutex.Unlock()
+
 	if mysqld.lockConn == nil {
-		return errors.New("no read locks acquired yet")
+		return
 	}
 
 	err := mysqld.executeSuperQueryListConn(ctx, mysqld.lockConn, []string{"UNLOCK TABLES"})
 	if err != nil {
-		return err
+		log.Errorf("release global read lock failed: %v", err)
 	}
-
 	mysqld.lockConn.Recycle()
 	mysqld.lockConn = nil
-	return nil
 }
 
 const (
