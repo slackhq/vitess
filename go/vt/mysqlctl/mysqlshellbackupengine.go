@@ -158,7 +158,7 @@ func (be *MySQLShellBackupEngine) ExecuteBackup(ctx context.Context, params Back
 	// we need to release the global read lock in case the backup fails to start and
 	// the lock wasn't released by releaseReadLock() yet. context might be expired,
 	// so we pass a new one.
-	defer func() { _ = params.Mysqld.ReleaseGlobalReadLock(context.Background()) }()
+	defer func() { params.Mysqld.ReleaseGlobalReadLock(context.Background()) }()
 
 	posBeforeBackup, err := params.Mysqld.PrimaryPosition(ctx)
 	if err != nil {
@@ -521,12 +521,7 @@ func releaseReadLock(ctx context.Context, reader io.Reader, params BackupParams,
 			released = true
 
 			params.Logger.Infof("mysql shell released its global read lock, doing the same")
-
-			err := params.Mysqld.ReleaseGlobalReadLock(ctx)
-			if err != nil {
-				params.Logger.Errorf("unable to release global read lock: %v", err)
-			}
-
+			params.Mysqld.ReleaseGlobalReadLock(ctx)
 			params.Logger.Infof("global read lock released after %v", time.Since(lockAcquired))
 		}
 	}
