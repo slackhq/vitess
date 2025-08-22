@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,6 +51,7 @@ import (
 )
 
 var (
+	cpuProfilePath               string
 	enforceTableACLConfig        bool
 	tableACLConfig               string
 	tableACLConfigReloadInterval time.Duration
@@ -280,9 +282,24 @@ func init() {
 	servenv.MoveFlagsToCobraCommand(Main)
 
 	acl.RegisterFlags(Main.Flags())
+	Main.Flags().StringVar(&cpuProfilePath, "cpu-profile-path", "", "when defined, the path where vttablet will write runtime pprof CPU profiles")
 	Main.Flags().BoolVar(&enforceTableACLConfig, "enforce-tableacl-config", enforceTableACLConfig, "if this flag is true, vttablet will fail to start if a valid tableacl config does not exist")
 	Main.Flags().StringVar(&tableACLConfig, "table-acl-config", tableACLConfig, "path to table access checker config file; send SIGHUP to reload this file")
 	Main.Flags().DurationVar(&tableACLConfigReloadInterval, "table-acl-config-reload-interval", tableACLConfigReloadInterval, "Ticker to reload ACLs. Duration flag, format e.g.: 30s. Default: do not reload")
 	Main.Flags().StringVar(&tabletPath, "tablet-path", tabletPath, "tablet alias")
 	Main.Flags().StringVar(&tabletConfig, "tablet_config", tabletConfig, "YAML file config for tablet")
+
+	if cpuProfilePath != "" {
+		f, err := os.Create(cpuProfilePath)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+
+		log.Infof("Writing pprof CPU profile to: %s", cpuProfilePath)
+	}
 }
