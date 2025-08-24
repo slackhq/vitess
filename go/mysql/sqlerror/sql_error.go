@@ -98,7 +98,7 @@ func (se *SQLError) VtRpcErrorCode() vtrpcpb.Code {
 		ERTooLongString, ERDelayedInsertTableLocked, ERDupUnique, ERRequiresPrimaryKey, ERCantDoThisDuringAnTransaction, ERReadOnlyTransaction,
 		ERCannotAddForeign, ERNoReferencedRow, ERRowIsReferenced, ERCantUpdateWithReadLock, ERNoDefault, EROperandColumns,
 		ERSubqueryNo1Row, ERNonUpdateableTable, ERFeatureDisabled, ERDuplicatedValueInType, ERRowIsReferenced2,
-		ErNoReferencedRow2, ERWarnDataOutOfRange, ERInnodbIndexCorrupt:
+		ErNoReferencedRow2, ERWarnDataOutOfRange:
 		return vtrpcpb.Code_FAILED_PRECONDITION
 	case EROptionPreventsStatement:
 		return vtrpcpb.Code_CLUSTER_EVENT
@@ -123,7 +123,7 @@ func (se *SQLError) VtRpcErrorCode() vtrpcpb.Code {
 		ERCantAggregate3Collations, ERCantAggregateNCollations, ERVariableIsNotStruct, ERUnknownCollation, ERWrongNameForIndex,
 		ERWrongNameForCatalog, ERBadFTColumn, ERTruncatedWrongValue, ERTooMuchAutoTimestampCols, ERInvalidOnUpdate, ERUnknownTimeZone,
 		ERInvalidCharacterString, ERIllegalReference, ERDerivedMustHaveAlias, ERTableNameNotAllowedHere, ERDataTooLong, ERDataOutOfRange,
-		ERTruncatedWrongValueForField, ERIllegalValueForType, ERWrongValue, ERWrongParamcountToNativeFct:
+		ERTruncatedWrongValueForField, ERIllegalValueForType, ERWrongValue:
 		return vtrpcpb.Code_INVALID_ARGUMENT
 	case ERSpecifiedAccessDenied:
 		if strings.Contains(se.Message, "failover in progress") {

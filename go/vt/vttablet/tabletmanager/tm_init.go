@@ -50,6 +50,7 @@ import (
 	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/flagutil"
 	"vitess.io/vitess/go/mysql/collations"
+	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/sets"
