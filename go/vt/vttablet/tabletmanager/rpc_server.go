@@ -70,8 +70,8 @@ func (tm *TabletManager) HandleRPCPanic(ctx context.Context, name string, args, 
 		// handle sqlerror
 		cause := vterrors.Cause(*err)
 		if sqlErr, ok := cause.(*sqlerror.SQLError); ok {
-			log.Infof("SLACKDEBUG[HandleRPCPanic]: caught error with code %v", vterrors.Code(*err))
 			*err = vterrors.Errorf(sqlErr.VtRpcErrorCode(), "%s (errno %d) (sqlstate %s)", sqlErr.Message, sqlErr.Number(), sqlErr.SQLState())
+			log.Infof("SLACKDEBUG[HandleRPCPanic]: caught sqlerror with vtrpcpb.Code = %v", vterrors.Code(*err))
 		}
 
 		// error case
