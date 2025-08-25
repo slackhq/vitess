@@ -1033,6 +1033,7 @@ func (tm *TabletManager) initializeReplication(ctx context.Context, tabletType t
 // error or returns the original error unchanged.
 func convertMysqlDaemonError(err error) error {
 	if sqlErr, ok := err.(*sqlerror.SQLError); ok {
+		log.Infof("SLACKDEBUG: got sqlerror: %v", sqlErr)
 		err = vterrors.Errorf(sqlErr.VtRpcErrorCode(), "%s (errno %d) (sqlstate %s)", sqlErr.Message, sqlErr.Number(), sqlErr.SQLState())
 	}
 	return err
