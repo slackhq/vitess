@@ -827,7 +827,8 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	// returns an error, so a user can optionally inspect the status before a stop was called.
 	rs, err := tm.MysqlDaemon.ReplicationStatus()
 	if err != nil {
-		return StopReplicationAndGetStatusResponse{}, wrapMysqlDaemonError(err, "before status failed")
+		return StopReplicationAndGetStatusResponse{}, convertMysqlDaemonError(err)
+		//return StopReplicationAndGetStatusResponse{}, wrapMysqlDaemonError(err, "before status failed")
 	}
 	before := replication.ReplicationStatusToProto(rs)
 	before.BackupRunning = tm.IsBackupRunning()
