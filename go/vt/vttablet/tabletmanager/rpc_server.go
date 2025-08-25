@@ -68,6 +68,8 @@ func (tm *TabletManager) HandleRPCPanic(ctx context.Context, name string, args, 
 	}
 
 	if *err != nil {
+		log.Infof("SLACKDEBUG[HandleRPCPanic]: caught error with code %v", vterrors.Code(*err))
+
 		// error case
 		log.Warningf("TabletManager.%v(%v)(on %v from %v) error: %v", name, args, topoproto.TabletAliasString(tm.tabletAlias), from, (*err).Error())
 		*err = vterrors.Wrapf(*err, "TabletManager.%v on %v", name, topoproto.TabletAliasString(tm.tabletAlias))
