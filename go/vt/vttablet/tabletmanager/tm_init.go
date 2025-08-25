@@ -50,7 +50,6 @@ import (
 	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/flagutil"
 	"vitess.io/vitess/go/mysql/collations"
-	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/sets"
@@ -1027,25 +1026,4 @@ func (tm *TabletManager) initializeReplication(ctx context.Context, tabletType t
 	}
 
 	return currentPrimary, nil
-}
-
-// convertMysqlDaemonError converts an *sqlerror.SQLError to a vterrors-style
-// error or returns the original error unchanged.
-func convertMysqlDaemonError(err error) error {
-	if sqlErr, ok := err.(*sqlerror.SQLError); ok {
-		log.Infof("SLACKDEBUG[convertMysqlDaemonError]: got sqlerror: %v", sqlErr)
-		log.Infof("SLACKDEBUG[convertMysqlDaemonError]: caught error with code %v", sqlErr.VtRpcErrorCode())
-		err = vterrors.Errorf(sqlErr.VtRpcErrorCode(), "%s (errno %d) (sqlstate %s)", sqlErr.Message, sqlErr.Number(), sqlErr.SQLState())
-	}
-	return err
-}
-
-// wrapMysqlDaemonError handles a MysqlDaemon error and wraps it with the
-// provided message.
-func wrapMysqlDaemonError(err error, format string, args ...any) error {
-	message := format
-	if len(args) > 0 {
-		message = fmt.Sprintf(format, args...)
-	}
-	return vterrors.Wrap(convertMysqlDaemonError(err), message)
 }

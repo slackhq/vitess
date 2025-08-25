@@ -17,16 +17,15 @@ limitations under the License.
 package tabletmanager
 
 import (
+	"context"
 	"fmt"
 
-	"vitess.io/vitess/go/vt/vterrors"
-
-	"context"
-
+	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/tb"
 	"vitess.io/vitess/go/vt/callinfo"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/topo/topoproto"
+	"vitess.io/vitess/go/vt/vterrors"
 )
 
 // This file contains the RPC method helpers for the tablet manager.
@@ -68,12 +67,16 @@ func (tm *TabletManager) HandleRPCPanic(ctx context.Context, name string, args, 
 	}
 
 	if *err != nil {
-		log.Infof("SLACKDEBUG[HandleRPCPanic]: caught error with code %v", vterrors.Code(*err))
+		// handle sqlerror
+		cause := vterrors.Cause(*err)
+		if sqlErr, ok := cause.(*sqlerror.SQLError); ok {
+			log.Infof("SLACKDEBUG[HandleRPCPanic]: caught error with code %v", vterrors.Code(*err))
+			*err = vterrors.Errorf(sqlErr.VtRpcErrorCode(), "%s (errno %d) (sqlstate %s)", sqlErr.Message, sqlErr.Number(), sqlErr.SQLState())
+		}
 
 		// error case
 		log.Warningf("TabletManager.%v(%v)(on %v from %v) error: %v", name, args, topoproto.TabletAliasString(tm.tabletAlias), from, (*err).Error())
-		wrapped := vterrors.Wrapf(*err, "TabletManager.%v on %v", name, topoproto.TabletAliasString(tm.tabletAlias))
-		*err = vterrors.New(vterrors.Code(*err), wrapped.Error())
+		*err = vterrors.Wrapf(*err, "TabletManager.%v on %v", name, topoproto.TabletAliasString(tm.tabletAlias))
 	} else {
 		// success case
 		log.Infof("TabletManager.%v(%v)(on %v from %v): %#v", name, args, topoproto.TabletAliasString(tm.tabletAlias), from, reply)
