@@ -21,6 +21,7 @@ linters:
     - govet
     - ineffassign
     - typecheck
+    - staticcheck
     - gosimple
 
     # Extras
