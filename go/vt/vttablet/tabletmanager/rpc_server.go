@@ -67,18 +67,14 @@ func (tm *TabletManager) HandleRPCPanic(ctx context.Context, name string, args, 
 	}
 
 	if *err != nil {
-		// handle sqlerror
+		// error case
 		rootCause := vterrors.RootCause(*err)
-		log.Infof("SLACKDEBUG[HandleRPCPanic]: caught error with root cause = %v", rootCause)
 		if sqlErr, ok := rootCause.(*sqlerror.SQLError); ok {
 			*err = vterrors.New(sqlErr.VtRpcErrorCode(), (*err).Error())
-			log.Infof("SLACKDEBUG[HandleRPCPanic]: mapped sqlerror to vtrpcpb.Code = %v", vterrors.Code(*err))
-			log.Infof("SLACKDEBUG[HandleRPCPanic]: err = %v", (*err).Error())
 		}
 
-		// error case
 		log.Warningf("TabletManager.%v(%v)(on %v from %v) error: %v", name, args, topoproto.TabletAliasString(tm.tabletAlias), from, (*err).Error())
-		*err = vterrors.Wrapf(*err, "TabletManager.%v on %v", name, topoproto.TabletAliasString(tm.tabletAlias))
+		*err = vterrors.ToGRPC(vterrors.Wrapf(*err, "TabletManager.%v on %v", name, topoproto.TabletAliasString(tm.tabletAlias)))
 	} else {
 		// success case
 		log.Infof("TabletManager.%v(%v)(on %v from %v): %#v", name, args, topoproto.TabletAliasString(tm.tabletAlias), from, reply)
