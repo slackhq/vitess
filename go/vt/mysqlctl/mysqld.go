@@ -159,7 +159,7 @@ func NewMysqld(dbcfgs *dbconfigs.DBConfigs) *Mysqld {
 	}
 
 	// Create and open the connection pool for dba access.
-	exporter := servenv.NewExporter("MySQLDaemon", "")
+	exporter := servenv.NewExporter("MysqlDaemon", "Mysqld")
 	result.dbaPool = dbconnpool.NewConnectionPool("DbaConnPool", exporter, dbaPoolSize, DbaIdleTimeout, 0, PoolDynamicHostnameResolution)
 	result.dbaPool.Open(dbcfgs.DbaWithDB())
 
