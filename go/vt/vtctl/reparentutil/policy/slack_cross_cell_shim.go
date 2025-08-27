@@ -1,4 +1,4 @@
-package reparentutil
+package policy
 
 import "github.com/slackhq/vitess-addons/go/durability"
 
