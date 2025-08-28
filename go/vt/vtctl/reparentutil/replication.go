@@ -18,6 +18,7 @@ package reparentutil
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -62,9 +63,12 @@ func (rlp *RelayLogPositions) AtLeast(pos *RelayLogPositions) bool {
 		return false
 	}
 
+	// if two combined GTID sets are equal, sort by the executed GTID
+	// set so we pick a position with the most advanced SQL thread.
 	if rlp.Combined.Equal(pos.Combined) {
 		return rlp.Executed.AtLeast(pos.Executed)
 	}
+
 	return rlp.Combined.AtLeast(pos.Combined)
 }
 
@@ -80,6 +84,31 @@ func (rlp *RelayLogPositions) Equal(pos *RelayLogPositions) bool {
 // IsZero returns true if the RelayLogPositions is zero.
 func (rlp *RelayLogPositions) IsZero() bool {
 	return rlp.Combined.IsZero()
+}
+
+// CompareRelayLogPositions compares two RelayLogPositions, returning:
+// 0 if both a anb b are equal positions.
+// 1 if a is > than b.
+// -1 if a is < than b.
+// This can be used as a sort function via
+// slices.SortFunc and slices.SortFuncStable.
+func CompareRelayLogPositions(a, b *RelayLogPositions) int {
+	if a.Equal(b) {
+		return 0
+	}
+	if a.AtLeast(b) && !b.AtLeast(a) {
+		return -1
+	}
+	return 1
+}
+
+// sortRelayLogPositions sorts RelayLogPositions using replication positions.
+func sortRelayLogPositions(p []*RelayLogPositions) []*RelayLogPositions {
+	positions := p
+	slices.SortFunc(positions, func(a, b *RelayLogPositions) int {
+		return CompareRelayLogPositions(a, b)
+	})
+	return positions
 }
 
 // FindPositionsOfAllCandidates will find candidates for an emergency
