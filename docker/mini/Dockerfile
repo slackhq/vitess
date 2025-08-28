@@ -44,6 +44,7 @@ ENV PATH $VTROOT/bin:$PATH
 ENV PATH="/vt/bin:${PATH}"
 ENV PATH="/var/opt/etcd:${PATH}"
 ENV TOPO="etcd"
+ENV GOPRIVATE=github.com/slackhq/vitess-addons
 
 # Create mount point for actual data (e.g. MySQL data dir)
 VOLUME /vt/vtdataroot

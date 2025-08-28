@@ -172,6 +172,7 @@ fi
 bashcmd=$(append_cmd "$bashcmd" "export VTROOT=/vt/src/vitess.io/vitess")
 bashcmd=$(append_cmd "$bashcmd" "export VTDATAROOT=/vt/vtdataroot")
 bashcmd=$(append_cmd "$bashcmd" "export EXTRA_BIN=/tmp/bin")
+bashcmd=$(append_cmd "$bashcmd" "export GOPRIVATE=$GOPRIVATE")
 
 bashcmd=$(append_cmd "$bashcmd" "mkdir -p dist; mkdir -p bin; mkdir -p lib; mkdir -p vthook")
 bashcmd=$(append_cmd "$bashcmd" "rm -rf /vt/dist; ln -s /vt/src/vitess.io/vitess/dist /vt/dist")
