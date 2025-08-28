@@ -45,6 +45,7 @@ RUN mkdir -p /vt/vtdataroot && chown -R vitess:vitess /vt
 ENV VTROOT /vt
 ENV VTDATAROOT /vt/vtdataroot
 ENV PATH $VTROOT/bin:$PATH
+ENV GOPRIVATE=github.com/slackhq/vitess-addons
 
 # Copy artifacts from builder layer.
 COPY --from=builder --chown=vitess:vitess /vt/install /vt

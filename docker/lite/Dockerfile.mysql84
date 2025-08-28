@@ -59,6 +59,7 @@ RUN mkdir -p /vt/vtdataroot /home/vitess && chown -R vitess:vitess /vt /home/vit
 ENV VTROOT /vt
 ENV VTDATAROOT /vt/vtdataroot
 ENV PATH $VTROOT/bin:$PATH
+ENV GOPRIVATE=github.com/slackhq/vitess-addons
 
 # Copy artifacts from builder layer.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
