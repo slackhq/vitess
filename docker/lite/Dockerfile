@@ -28,6 +28,10 @@ ARG BUILD_TIME
 
 WORKDIR /vt/src/vitess.io/vitess
 
+# Setup private repo
+ARG GH_ACCESS_TOKEN
+RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
 # Create vitess user
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 RUN mkdir -p /vt/vtdataroot /home/vitess
