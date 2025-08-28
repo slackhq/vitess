@@ -16,6 +16,10 @@ FROM vitess/lite
 
 USER root
 
+# Setup private repo
+ARG GH_ACCESS_TOKEN
+RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
 # Install dependencies
 COPY docker/utils/install_dependencies.sh /vt/dist/install_dependencies.sh
 RUN /vt/dist/install_dependencies.sh mysql80
