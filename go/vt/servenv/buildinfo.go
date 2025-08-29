@@ -28,14 +28,14 @@ import (
 )
 
 var (
-	buildHost             = ""
-	buildUser             = ""
-	buildTime             = ""
-	buildGitRev           = ""
-	buildGitBranch        = ""
-	statsBuildVersion     *stats.String
-	buildNumberStr        = ""
-	buildSystem           = ""
+	buildHost         = ""
+	buildUser         = ""
+	buildTime         = ""
+	buildGitRev       = ""
+	buildGitBranch    = ""
+	statsBuildVersion *stats.String
+	buildNumberStr    = ""
+	buildSystem       = ""
 
 	// version registers the command line flag to expose build info.
 	version bool
@@ -49,18 +49,18 @@ func registerVersionFlag(fs *pflag.FlagSet) {
 var AppVersion versionInfo
 
 type versionInfo struct {
-	buildHost          string
-	buildUser          string
-	buildTime          int64
-	buildTimePretty    string
-	buildGitRev        string
-	buildGitBranch     string
-	buildNumber        int64
-	buildSystem        string
-	goVersion          string
-	goOS               string
-	goArch             string
-	version            string
+	buildHost       string
+	buildUser       string
+	buildTime       int64
+	buildTimePretty string
+	buildGitRev     string
+	buildGitBranch  string
+	buildNumber     int64
+	buildSystem     string
+	goVersion       string
+	goOS            string
+	goArch          string
+	version         string
 }
 
 // ToStringMap returns the version info as a map[string]string, allowing version
@@ -113,18 +113,18 @@ func init() {
 	}
 
 	AppVersion = versionInfo{
-		buildHost:          buildHost,
-		buildUser:          buildUser,
-		buildTime:          t.Unix(),
-		buildTimePretty:    buildTime,
-		buildGitRev:        buildGitRev,
-		buildGitBranch:     buildGitBranch,
-		buildNumber:        buildNumber,
-		buildSystem:        buildSystem,
-		goVersion:          runtime.Version(),
-		goOS:               runtime.GOOS,
-		goArch:             runtime.GOARCH,
-		version:            versionName,
+		buildHost:       buildHost,
+		buildUser:       buildUser,
+		buildTime:       t.Unix(),
+		buildTimePretty: buildTime,
+		buildGitRev:     buildGitRev,
+		buildGitBranch:  buildGitBranch,
+		buildNumber:     buildNumber,
+		buildSystem:     buildSystem,
+		goVersion:       runtime.Version(),
+		goOS:            runtime.GOOS,
+		goArch:          runtime.GOARCH,
+		version:         versionName,
 	}
 	stats.NewString("BuildHost").Set(AppVersion.buildHost)
 	stats.NewString("BuildUser").Set(AppVersion.buildUser)

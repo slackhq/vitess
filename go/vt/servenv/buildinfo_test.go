@@ -45,7 +45,7 @@ func TestVersionString(t *testing.T) {
 	// Test case 2: With build number but no build system (defaults to Jenkins)
 	v.buildNumber = 422
 	assert.Equal(t, "Version: v1.2.3-SNAPSHOT (Jenkins build 422) (Git revision d54b87ca0be09b678bb4490060e8f23f890ddb92 branch 'gitBranch') built on time is now by user@host using 1.20.2 amiga/amd64", v.String())
-	
+
 	// Test case 3: With build number and custom build system
 	v.buildSystem = "GHA"
 	assert.Equal(t, "Version: v1.2.3-SNAPSHOT (GHA build 422) (Git revision d54b87ca0be09b678bb4490060e8f23f890ddb92 branch 'gitBranch') built on time is now by user@host using 1.20.2 amiga/amd64", v.String())
