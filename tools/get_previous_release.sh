@@ -20,6 +20,6 @@
 
 # github.base_ref $1
 
-target_release="slack-19.0"
+target_release=""
 
 echo "$target_release"
