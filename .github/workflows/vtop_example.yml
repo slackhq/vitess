@@ -29,6 +29,7 @@ jobs:
           fi
           echo Skip ${skip}
           echo "skip-workflow=${skip}" >> $GITHUB_OUTPUT
+<<<<<<< HEAD
           
           if [[ "${{github.event.pull_request}}" !=  "" ]]; then
             PR_DATA=$(curl -s\
@@ -38,6 +39,8 @@ jobs:
             draft=$(echo "$PR_DATA" | jq .draft -r)
             echo "is_draft=${draft}" >> $GITHUB_OUTPUT
           fi
+=======
+>>>>>>> dac0b75639 ([CI] Use the draft state from the event payload instead of calling `curl`. (#18650))
 
       - name: Check out code
         if: steps.skip-workflow.outputs.skip-workflow == 'false'
