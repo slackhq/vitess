@@ -1,4 +1,4 @@
-name: docker_test_cluster
+name: java_docker_test
 on:
   push:
     branches:
@@ -8,12 +8,10 @@ on:
   pull_request:
     branches: '**'
 permissions: read-all
-GOPRIVATE: github.com/slackhq/vitess-addons
-GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 jobs:
 
   build:
-    name: Docker Test Cluster
+    name: Java Docker Test
     runs-on: ubuntu-24.04
 
     steps:
@@ -48,7 +46,8 @@ jobs:
             - 'config/**'
             - 'bootstrap.sh'
             - 'docker/**'
-            - '.github/workflows/docker_test_cluster.yml'
+            - 'java/**'
+            - '.github/workflows/java_docker_test.yml'
 
     - name: Set up Go
       if: steps.changes.outputs.end_to_end == 'true'
@@ -56,15 +55,12 @@ jobs:
       with:
         go-version-file: go.mod
 
-    - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
-
     - name: Tune the OS
       if: steps.changes.outputs.end_to_end == 'true'
-      uses: ./.github/actions/tune-os
+      run: |
+        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
 
-    - name: Run tests which require docker - 2
+    - name: Run tests which require docker - 1
       if: steps.changes.outputs.end_to_end == 'true'
       run: |
-        go run test.go -docker=true --follow -shard docker_cluster
+        go run test.go -docker=true --follow -shard java
