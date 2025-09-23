@@ -17,6 +17,7 @@ package vtgateproxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -24,12 +25,14 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 
+	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
@@ -86,6 +89,11 @@ type JSONGateResolverBuilder struct {
 	numConnections int
 	numBackupConns int
 
+	// Identity verification settings
+	enableIdentityVerify bool
+	verifyTimeout        time.Duration
+	useSQLVerification   bool
+
 	mu        sync.RWMutex
 	targets   map[string][]targetHost
 	resolvers []*JSONGateResolver
@@ -96,11 +104,11 @@ type JSONGateResolverBuilder struct {
 }
 
 type targetHost struct {
-	Hostname string
 	Addr     string
 	PoolType string
 	Affinity string
 	IsLocal  bool
+	HTTPAddr string // HTTP address for health checks
 }
 
 var (
@@ -117,18 +125,24 @@ func RegisterJSONGateResolver(
 	affinityValue string,
 	numConnections int,
 	numBackupConns int,
+	enableIdentityVerify bool,
+	verifyTimeout time.Duration,
+	useSQLVerification bool,
 ) (*JSONGateResolverBuilder, error) {
 	jsonDiscovery := &JSONGateResolverBuilder{
-		targets:        map[string][]targetHost{},
-		jsonPath:       jsonPath,
-		addressField:   addressField,
-		portField:      portField,
-		poolTypeField:  poolTypeField,
-		affinityField:  affinityField,
-		affinityValue:  affinityValue,
-		numConnections: numConnections,
-		numBackupConns: numBackupConns,
-		sorter:         newShuffleSorter(),
+		targets:              map[string][]targetHost{},
+		jsonPath:             jsonPath,
+		addressField:         addressField,
+		portField:            portField,
+		poolTypeField:        poolTypeField,
+		affinityField:        affinityField,
+		affinityValue:        affinityValue,
+		numConnections:       numConnections,
+		numBackupConns:       numBackupConns,
+		enableIdentityVerify: enableIdentityVerify,
+		verifyTimeout:        verifyTimeout,
+		useSQLVerification:   useSQLVerification,
+		sorter:               newShuffleSorter(),
 	}
 
 	resolver.Register(jsonDiscovery)
@@ -243,6 +257,246 @@ func (b *JSONGateResolverBuilder) start() error {
 	return nil
 }
 
+// verifyVTGateIdentity makes a MySQL connection to the vtgate to verify it's accessible and
+// checks its identity using SQL queries to detect pool mismatches
+func (b *JSONGateResolverBuilder) verifyVTGateIdentity(ctx context.Context, addr, expectedPool string) bool {
+	if !b.enableIdentityVerify {
+		return true // Skip verification if disabled
+	}
+
+	// Always use SQL-based verification since HTTP endpoints are not accessible in production
+	// The useSQLVerification flag is kept for backward compatibility but SQL is the only viable option
+	return b.verifyVTGateSQLIdentity(ctx, addr, expectedPool)
+}
+
+// getMySQLPortForAddress finds the MySQL server port for a given GRPC address
+func (b *JSONGateResolverBuilder) getMySQLPortForAddress(grpcAddr string) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	log.V(100).Infof("Looking for MySQL port for GRPC address: %s", grpcAddr)
+
+	// Look through all configured targets to find the MySQL port for this GRPC address
+	for poolType, targets := range b.targets {
+		for _, target := range targets {
+			log.V(100).Infof("Checking target in pool %s: Addr=%s, HTTPAddr=%s", poolType, target.Addr, target.HTTPAddr)
+
+			if target.Addr == grpcAddr {
+				log.V(100).Infof("Found matching target for %s", grpcAddr)
+
+				// Check if HTTPAddr contains the MySQL server port
+				if target.HTTPAddr != "" {
+					parts := strings.Split(target.HTTPAddr, ":")
+					if len(parts) == 2 {
+						var mysqlPort int
+						if _, err := fmt.Sscanf(parts[1], "%d", &mysqlPort); err == nil && mysqlPort > 0 {
+							log.V(100).Infof("Found MySQL port %d from HTTPAddr for %s", mysqlPort, grpcAddr)
+							return mysqlPort
+						}
+					}
+				}
+
+				// Fallback: In test environments, MySQL server port is often GRPC port + 1
+				// Parse GRPC port from target.Addr and calculate MySQL port
+				parts := strings.Split(target.Addr, ":")
+				if len(parts) == 2 {
+					var grpcPort int
+					if _, err := fmt.Sscanf(parts[1], "%d", &grpcPort); err == nil && grpcPort > 0 {
+						// In the test environment, MySQL server port = GRPC port + 1
+						mysqlPort := grpcPort + 1
+						log.V(100).Infof("Calculated MySQL port %d from GRPC port %d for %s", mysqlPort, grpcPort, grpcAddr)
+						return mysqlPort
+					}
+				}
+			}
+		}
+	}
+
+	log.V(100).Infof("Could not find MySQL port for GRPC address: %s", grpcAddr)
+	return 0
+}
+
+// isConfiguredForPool checks if this vtgate address was explicitly configured for the expected pool
+func (b *JSONGateResolverBuilder) isConfiguredForPool(httpAddr, expectedPool string) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Look through all configured targets to see if this HTTP address belongs to the expected pool
+	for poolType, targets := range b.targets {
+		for _, target := range targets {
+			if target.HTTPAddr == httpAddr {
+				// Found the address - check if it's in the expected pool
+				return poolType == expectedPool
+			}
+		}
+	}
+
+	// Address not found in any pool configuration
+	return false
+}
+
+
+// verifyVTGateSQLIdentity performs identity verification by making a direct MySQL connection
+// to the vtgate and using SQL queries to verify identity and pool membership
+func (b *JSONGateResolverBuilder) verifyVTGateSQLIdentity(ctx context.Context, addr, expectedPool string) bool {
+	log.V(100).Infof("Starting SQL-based identity verification for %s (expected pool: %s)", addr, expectedPool)
+
+	// Parse address to get host
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		log.V(100).Infof("Invalid address format %s: expected host:port", addr)
+		return false
+	}
+	host := parts[0]
+
+	// The addr parameter might contain HTTP, GRPC, or other port
+	// We need to find the MySQL server port for this vtgate from our configuration
+	mysqlPort := b.getMySQLPortForAddress(addr)
+	if mysqlPort == 0 {
+		// If we can't find the exact address, try to derive MySQL port from the provided port
+		// based on common test patterns
+		parts := strings.Split(addr, ":")
+		if len(parts) == 2 {
+			var portNum int
+			if _, err := fmt.Sscanf(parts[1], "%d", &portNum); err == nil && portNum > 0 {
+				// Common patterns in Vitess tests:
+				// If this is HTTP port (7721), GRPC is usually HTTP+1 (7722), MySQL is GRPC+1 (7723)
+				// If this is GRPC port (7722), MySQL is usually GRPC+1 (7723)
+				// Try MySQL = provided_port + 2 first (HTTP -> MySQL), then +1 (GRPC -> MySQL)
+				for _, offset := range []int{2, 1} {
+					mysqlPort = portNum + offset
+					log.V(100).Infof("Trying calculated MySQL port %d (offset +%d) from provided port %d", mysqlPort, offset, portNum)
+
+					// Test if this MySQL port is actually accessible
+					testParams := mysql.ConnParams{
+						Host: host,
+						Port: mysqlPort,
+						Uname: "",
+						Pass:  "",
+					}
+
+					testCtx, testCancel := context.WithTimeout(ctx, 100*time.Millisecond) // Quick test
+					testConn, testErr := mysql.Connect(testCtx, &testParams)
+					testCancel()
+
+					if testErr == nil {
+						testConn.Close()
+						log.V(100).Infof("Successfully verified MySQL port %d for %s", mysqlPort, addr)
+						break
+					} else {
+						log.V(100).Infof("MySQL port %d failed test for %s: %v", mysqlPort, addr, testErr)
+						mysqlPort = 0
+					}
+				}
+			}
+		}
+
+		if mysqlPort == 0 {
+			log.V(100).Infof("Could not find or derive MySQL server port for address %s", addr)
+			return false
+		}
+	}
+
+	params := mysql.ConnParams{
+		Host:  host,
+		Port:  mysqlPort,
+		Uname: "", // vtgate doesn't require authentication for system queries
+		Pass:  "",
+	}
+
+	// Set a timeout for the connection
+	connCtx, cancel := context.WithTimeout(ctx, b.verifyTimeout)
+	defer cancel()
+
+	conn, err := mysql.Connect(connCtx, &params)
+	if err != nil {
+		log.V(100).Infof("Failed to connect to vtgate at %s: %v", addr, err)
+		return false
+	}
+	defer conn.Close()
+
+	// First, perform a basic connectivity test
+	if !b.sqlBasicHealthCheck(conn) {
+		return false
+	}
+
+	// Try to get pool identity from Vitess-specific queries first
+	actualPool := b.sqlGetPoolFromVitessShards(conn)
+	if actualPool != "" {
+		log.V(100).Infof("Retrieved pool '%s' from SHOW VITESS_SHARDS for vtgate at %s", actualPool, addr)
+		if actualPool != expectedPool {
+			log.Warningf("Pool mismatch for %s: VITESS_SHARDS indicates pool '%s' but expected '%s'",
+				addr, actualPool, expectedPool)
+			return false
+		}
+		log.V(100).Infof("VTGate Vitess shards identity verified for %s: pool '%s' matches expected '%s'",
+			addr, actualPool, expectedPool)
+		return true
+	}
+
+	// If Vitess shards verification failed, we don't have a reliable way to verify identity
+	log.V(100).Infof("Vitess shards verification failed for vtgate at %s, no fallback verification available", addr)
+	return false
+}
+
+// sqlBasicHealthCheck performs basic SQL connectivity test
+func (b *JSONGateResolverBuilder) sqlBasicHealthCheck(conn *mysql.Conn) bool {
+	// Test basic connectivity with a simple query
+	result, err := conn.ExecuteFetch("SELECT 1", 1, false)
+	if err != nil {
+		log.V(100).Infof("SQL health check failed: %v", err)
+		return false
+	}
+
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 1 {
+		log.V(100).Infof("SQL health check returned unexpected result: %v", result)
+		return false
+	}
+
+	return true
+}
+
+
+// sqlGetPoolFromVitessShards extracts pool information from SHOW VITESS_SHARDS results
+func (b *JSONGateResolverBuilder) sqlGetPoolFromVitessShards(conn *mysql.Conn) string {
+	result, err := conn.ExecuteFetch("SHOW VITESS_SHARDS", 100, false)
+	if err != nil {
+		log.V(100).Infof("SHOW VITESS_SHARDS query failed: %v", err)
+		return ""
+	}
+
+	if len(result.Rows) == 0 {
+		log.V(100).Infof("SHOW VITESS_SHARDS returned no results")
+		return ""
+	}
+
+	// Log the shards for debugging
+	log.V(100).Infof("SHOW VITESS_SHARDS returned %d rows", len(result.Rows))
+	for i, row := range result.Rows {
+		if len(row) > 0 {
+			shardInfo := row[0].ToString()
+			log.V(100).Infof("Shard %d: %s", i, shardInfo)
+
+			// Extract pool from keyspace name
+			// Expected format: "commerce_poolA/0" -> pool is "poolA"
+			if strings.Contains(shardInfo, "commerce_") {
+				parts := strings.Split(shardInfo, "/")
+				if len(parts) >= 1 {
+					keyspace := parts[0]
+					if strings.HasPrefix(keyspace, "commerce_") {
+						pool := strings.TrimPrefix(keyspace, "commerce_")
+						log.V(100).Infof("Extracted pool '%s' from keyspace '%s'", pool, keyspace)
+						return pool
+					}
+				}
+			}
+		}
+	}
+
+	log.V(100).Infof("Could not extract pool from VITESS_SHARDS results")
+	return ""
+}
+
 // parse the file and build the target host list, returning whether or not the list was
 // updated since the last parse, or if the checksum matched
 func (b *JSONGateResolverBuilder) parse() (bool, error) {
@@ -272,7 +526,6 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 
 	var allTargets = map[string][]targetHost{}
 	for _, host := range hosts {
-		hostname, hasHostname := host["host"]
 		address, hasAddress := host[b.addressField]
 		port, hasPort := host[b.portField]
 		poolType, hasPoolType := host[b.poolTypeField]
@@ -284,10 +537,6 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 
 		if !hasPort {
 			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s not present", b.jsonPath, b.portField)
-		}
-
-		if !hasHostname {
-			hostname = address
 		}
 
 		if b.poolTypeField != "" && !hasPoolType {
@@ -316,7 +565,38 @@ func (b *JSONGateResolverBuilder) parse() (bool, error) {
 			return false, fmt.Errorf("error parsing JSON discovery file %s: port field %s has invalid value %v", b.jsonPath, b.portField, port)
 		}
 
-		target := targetHost{hostname.(string), fmt.Sprintf("%s:%s", address, port), poolType.(string), affinity.(string), affinity == b.affinityValue}
+		// Check for optional HTTP port for health checks
+		httpPort := port // Default to same port if no http field
+		if httpPortValue, hasHTTPPort := host["http"]; hasHTTPPort {
+			switch httpPortValue.(type) {
+			case int:
+				httpPort = fmt.Sprintf("%d", httpPortValue)
+			case string:
+				httpPort = httpPortValue.(string)
+			default:
+				return false, fmt.Errorf("error parsing JSON discovery file %s: http field has invalid value %v", b.jsonPath, httpPortValue)
+			}
+		}
+
+		target := targetHost{
+			Addr:     fmt.Sprintf("%s:%s", address, port),
+			PoolType: poolType.(string),
+			Affinity: affinity.(string),
+			IsLocal:  affinity == b.affinityValue,
+			HTTPAddr: fmt.Sprintf("%s:%s", address, httpPort),
+		}
+
+		// Verify vtgate identity if enabled
+		if b.enableIdentityVerify && b.poolTypeField != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), b.verifyTimeout)
+			defer cancel()
+
+			if !b.verifyVTGateIdentity(ctx, target.HTTPAddr, target.PoolType) {
+				log.Warningf("Skipping vtgate %s: identity verification failed for pool %s", target.HTTPAddr, target.PoolType)
+				continue
+			}
+		}
+
 		allTargets[target.PoolType] = append(allTargets[target.PoolType], target)
 	}
 

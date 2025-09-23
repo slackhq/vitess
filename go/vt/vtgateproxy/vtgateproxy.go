@@ -51,16 +51,19 @@ const (
 )
 
 var (
-	vtgateHostsFile = flag.String("vtgate_hosts_file", "", "json file describing the host list to use for vtgate:// resolution")
-	numConnections  = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
-	numBackupConns  = flag.Int("num_backup_conns", 1, "number of backup remote-zone GPRC connections to maintain")
-	poolTypeField   = flag.String("pool_type_field", "", "Field name used to specify the target vtgate type and filter the hosts")
-	affinityField   = flag.String("affinity_field", "", "Attribute (JSON file) used to specify the routing affinity , e.g. 'az_id'")
-	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
-	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
-	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
-	balancerType    = flag.String("balancer", "round_robin", "load balancing algorithm to use")
-	warmupTime      = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
+	vtgateHostsFile      = flag.String("vtgate_hosts_file", "", "json file describing the host list to use for vtgate:// resolution")
+	numConnections       = flag.Int("num_connections", 4, "number of outbound GPRC connections to maintain")
+	numBackupConns       = flag.Int("num_backup_conns", 1, "number of backup remote-zone GPRC connections to maintain")
+	poolTypeField        = flag.String("pool_type_field", "", "Field name used to specify the target vtgate type and filter the hosts")
+	affinityField        = flag.String("affinity_field", "", "Attribute (JSON file) used to specify the routing affinity , e.g. 'az_id'")
+	affinityValue        = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
+	addressField         = flag.String("address_field", "address", "field name in the json file containing the address")
+	portField            = flag.String("port_field", "port", "field name in the json file containing the port")
+	balancerType         = flag.String("balancer", "round_robin", "load balancing algorithm to use")
+	warmupTime           = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
+	enableIdentityVerify = flag.Bool("enable_identity_verify", false, "enable identity verification of vtgate instances")
+	identityVerifyTimeout = flag.Duration("identity_verify_timeout", 5*time.Second, "timeout for vtgate identity verification requests")
+	useSQLVerification    = flag.Bool("use_sql_verification", false, "use SQL queries for vtgate identity verification instead of HTTP requests")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
@@ -238,6 +241,9 @@ func Init() {
 		*affinityValue,
 		*numConnections,
 		*numBackupConns,
+		*enableIdentityVerify,
+		*identityVerifyTimeout,
+		*useSQLVerification,
 	)
 
 	if err != nil {

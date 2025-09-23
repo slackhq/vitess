@@ -478,3 +478,140 @@ func insertStartValue(params mysql.ConnParams) {
 		panic(err)
 	}
 }
+
+// Pool-specific test infrastructure for identity verification tests
+
+// PoolVtgateInfo contains information about a pool-specific vtgate setup
+type PoolVtgateInfo struct {
+	PoolName    string
+	Keyspace    string
+	VtgateProc  *cluster.VtgateProcess
+}
+
+// startPoolSpecificVtgates creates separate keyspaces and vtgates for each pool
+// This simulates a production environment where different pools serve different keyspaces
+func startPoolSpecificVtgates(poolNames []string) ([]*PoolVtgateInfo, error) {
+	var pools []*PoolVtgateInfo
+	var err error
+	defer func() {
+		if err != nil {
+			teardownPoolSpecificVtgates(pools)
+		}
+	}()
+
+	for _, poolName := range poolNames {
+		poolInfo, setupErr := setupPoolKeyspaceAndVtgate(poolName)
+		if setupErr != nil {
+			err = setupErr
+			return nil, err
+		}
+		pools = append(pools, poolInfo)
+	}
+
+	return pools, nil
+}
+
+// setupPoolKeyspaceAndVtgate creates a keyspace and vtgate for a specific pool
+func setupPoolKeyspaceAndVtgate(poolName string) (*PoolVtgateInfo, error) {
+	// Create pool-specific keyspace name
+	keyspaceName := fmt.Sprintf("commerce_%s", poolName)
+
+	// Define the keyspace with pool-specific name
+	keyspace := &cluster.Keyspace{
+		Name:      keyspaceName,
+		SchemaSQL: sqlSchema,
+		VSchema:   vSchema,
+	}
+
+	log.Infof("Creating keyspace for pool %s: %s", poolName, keyspaceName)
+
+	// Create the keyspace with its own tablet set
+	err := clusterInstance.StartUnshardedKeyspace(*keyspace, 1, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start keyspace %s for pool %s: %v", keyspaceName, poolName, err)
+	}
+
+	// Create a pool-specific vtgate instance
+	vtgateInstance := newPoolSpecificVtgateInstance(poolName, keyspaceName)
+	log.Infof("Starting pool-specific vtgate for pool %s on port %d", poolName, vtgateInstance.Port)
+
+	if err = vtgateInstance.Setup(); err != nil {
+		return nil, fmt.Errorf("failed to setup vtgate for pool %s: %v", poolName, err)
+	}
+
+	return &PoolVtgateInfo{
+		PoolName:   poolName,
+		Keyspace:   keyspaceName,
+		VtgateProc: vtgateInstance,
+	}, nil
+}
+
+// newPoolSpecificVtgateInstance creates a vtgate configured to serve a specific pool's keyspace
+func newPoolSpecificVtgateInstance(poolName, keyspaceName string) *cluster.VtgateProcess {
+	vtgateProcInstance := cluster.VtgateProcessInstance(
+		clusterInstance.GetAndReservePort(), // HTTP port
+		clusterInstance.GetAndReservePort(), // GRPC port
+		clusterInstance.GetAndReservePort(), // MySQL server port
+		clusterInstance.Cell,                // Cell
+		clusterInstance.Cell,                // Cells to watch
+		clusterInstance.Hostname,            // Hostname
+		"PRIMARY,REPLICA",                   // Tablet types to wait
+		clusterInstance.TopoProcess.Port,    // Topo port
+		clusterInstance.TmpDirectory,        // Directory
+		clusterInstance.VtGateExtraArgs,     // Extra args
+		clusterInstance.VtGatePlannerVersion, // Planner version
+	)
+
+	// Set pool-specific socket path to avoid conflicts
+	vtgateProcInstance.MySQLServerSocketPath = path.Join(clusterInstance.TmpDirectory, fmt.Sprintf("mysql_%s.sock", poolName))
+
+	// Configure vtgate to only watch the specific keyspace for this pool
+	// This ensures that SHOW VITESS_SHARDS only returns shards for this pool's keyspace
+	vtgateProcInstance.ExtraArgs = append(vtgateProcInstance.ExtraArgs, fmt.Sprintf("--keyspaces_to_watch=%s", keyspaceName))
+
+	return vtgateProcInstance
+}
+
+// teardownPoolSpecificVtgates cleans up pool-specific vtgate processes
+func teardownPoolSpecificVtgates(pools []*PoolVtgateInfo) error {
+	var err error
+	for _, pool := range pools {
+		if pool.VtgateProc != nil {
+			if vErr := pool.VtgateProc.TearDown(); vErr != nil {
+				log.Errorf("Error tearing down vtgate for pool %s: %v", pool.PoolName, vErr)
+				err = vErr
+			}
+		}
+	}
+	return err
+}
+
+// insertPoolSpecificData inserts test data into a pool's keyspace
+func insertPoolSpecificData(poolInfo *PoolVtgateInfo) error {
+	// Connect to the pool's vtgate MySQL server
+	params := mysql.ConnParams{
+		Host: clusterInstance.Hostname,
+		Port: poolInfo.VtgateProc.MySQLServerPort,
+	}
+
+	conn, err := mysql.Connect(context.Background(), &params)
+	if err != nil {
+		return fmt.Errorf("failed to connect to pool %s vtgate: %v", poolInfo.PoolName, err)
+	}
+	defer conn.Close()
+
+	// Use the pool-specific keyspace
+	_, err = conn.ExecuteFetch(fmt.Sprintf("use %s", poolInfo.Keyspace), 1, false)
+	if err != nil {
+		return fmt.Errorf("failed to use keyspace %s: %v", poolInfo.Keyspace, err)
+	}
+
+	// Insert pool-specific test data
+	_, err = conn.ExecuteFetch(fmt.Sprintf("insert into customer(id, email) values(1, 'pool_%s_customer@example.com')", poolInfo.PoolName), 1000, true)
+	if err != nil {
+		return fmt.Errorf("failed to insert test data for pool %s: %v", poolInfo.PoolName, err)
+	}
+
+	log.Infof("Inserted test data for pool %s in keyspace %s", poolInfo.PoolName, poolInfo.Keyspace)
+	return nil
+}
