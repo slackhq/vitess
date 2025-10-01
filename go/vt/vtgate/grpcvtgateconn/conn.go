@@ -38,11 +38,12 @@ import (
 )
 
 var (
-	cert string
-	key  string
-	ca   string
-	crl  string
-	name string
+	cert     string
+	key      string
+	ca       string
+	crl      string
+	name     string
+	failFast bool
 )
 
 func init() {
@@ -55,16 +56,17 @@ func init() {
 		"vtctl",
 		"vttestserver",
 	} {
-		servenv.OnParseFor(cmd, registerFlags)
+		servenv.OnParseFor(cmd, RegisterFlags)
 	}
 }
 
-func registerFlags(fs *pflag.FlagSet) {
+func RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&cert, "vtgate_grpc_cert", "", "the cert to use to connect")
 	fs.StringVar(&key, "vtgate_grpc_key", "", "the key to use to connect")
 	fs.StringVar(&ca, "vtgate_grpc_ca", "", "the server ca to use to validate servers when connecting")
 	fs.StringVar(&crl, "vtgate_grpc_crl", "", "the server crl to use to validate server certificates when connecting")
 	fs.StringVar(&name, "vtgate_grpc_server_name", "", "the server name to use to validate server certificate")
+	fs.BoolVar(&failFast, "vtgate_grpc_fail_fast", false, "whether to enable grpc fail fast when communicating with vtgate")
 }
 
 type vtgateConn struct {
@@ -86,7 +88,7 @@ func Dial(opts ...grpc.DialOption) vtgateconn.DialerFunc {
 
 		opts = append(opts, opt)
 
-		cc, err := grpcclient.DialContext(ctx, address, grpcclient.FailFast(false), opts...)
+		cc, err := grpcclient.DialContext(ctx, address, grpcclient.FailFast(failFast), opts...)
 		if err != nil {
 			return nil, err
 		}
