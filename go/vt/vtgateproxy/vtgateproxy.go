@@ -33,11 +33,11 @@ import (
 	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/stats"
-	"vitess.io/vitess/go/vt/grpcclient"
 	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
 
 	// Imported for flags
@@ -59,8 +59,9 @@ var (
 	affinityValue   = flag.String("affinity_value", "", "Value to match for routing affinity , e.g. 'use-az1'")
 	addressField    = flag.String("address_field", "address", "field name in the json file containing the address")
 	portField       = flag.String("port_field", "port", "field name in the json file containing the port")
-	balancerType    = flag.String("balancer", "round_robin", "load balancing algorithm to use")
 	warmupTime      = flag.Duration("warmup_time", 30*time.Second, "time to maintain connections to previously selected hosts")
+
+	defaultBalancerType = flag.String("balancer", "round_robin", "default load balancing algorithm to use")
 
 	timings = stats.NewTimings("Timings", "proxy timings by operation", "operation")
 
@@ -129,9 +130,21 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, connectionAttribute
 		return existingConn, nil
 	}
 
-	// Otherwise create a new connection. TODO: confirm this doesn't actually make a TCP connection, and returns quickly,
+	// Grpc dial option needed to select the balancer type
+	balancerType, ok := connectionAttributes["balancer"]
+	if !ok {
+		balancerType = *defaultBalancerType
+	}
+
+	withBalancer := grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, balancerType))
+
+	// Otherwise create a new connection.
+	//
+	// TODO: confirm this doesn't actually make a TCP connection, and returns quickly,
 	// otherwise we're going to have to do this while not holding the lock.
-	conn, err := vtgateconn.DialProtocol(ctx, "grpc", target)
+	dialer := grpcvtgateconn.Dial(withBalancer)
+
+	conn, err := vtgateconn.DialWithFunc(ctx, dialer, target)
 	if err != nil {
 		return nil, err
 	}
@@ -215,22 +228,6 @@ func (proxy *VTGateProxy) StreamExecute(ctx context.Context, session *vtgateconn
 }
 
 func Init() {
-	log.Infof("registering GRPC dial options: balancer type %s", *balancerType)
-
-	switch *balancerType {
-	case "round_robin":
-	case "first_ready":
-	case "pick_first":
-	case "sticky_random":
-		break
-	default:
-		log.Fatalf("invalid balancer type %s", *balancerType)
-	}
-
-	grpcclient.RegisterGRPCDialOptions(func(opts []grpc.DialOption) ([]grpc.DialOption, error) {
-		return append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, *balancerType))), nil
-	})
-
 	_, err := RegisterJSONGateResolver(
 		*vtgateHostsFile,
 		*addressField,
