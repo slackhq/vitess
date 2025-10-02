@@ -75,7 +75,34 @@ type VTGateProxy struct {
 	mu          sync.RWMutex
 }
 
-func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vtgateconn.VTGateConn, error) {
+func (proxy *VTGateProxy) getConnection(ctx context.Context, connectionAttributes map[string]string) (*vtgateconn.VTGateConn, error) {
+
+	targetURL := url.URL{
+		Scheme: "vtgate",
+		Host:   "pool",
+	}
+
+	values := url.Values{}
+
+	if *poolTypeField != "" {
+		poolType, ok := connectionAttributes[*poolTypeField]
+		if ok {
+			values.Set(*poolTypeField, poolType)
+		} else {
+			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *poolTypeField)
+		}
+	}
+
+	if *affinityField != "" {
+		affinity, ok := connectionAttributes[*affinityField]
+		if ok {
+			values.Set(*affinityField, affinity)
+		}
+	}
+
+	targetURL.RawQuery = values.Encode()
+	target := targetURL.String()
+
 	log.V(100).Infof("Getting connection for %v\n", target)
 
 	// If the connection exists, return it
@@ -117,32 +144,7 @@ func (proxy *VTGateProxy) getConnection(ctx context.Context, target string) (*vt
 
 func (proxy *VTGateProxy) NewSession(ctx context.Context, options *querypb.ExecuteOptions, connectionAttributes map[string]string) (*vtgateconn.VTGateSession, error) {
 
-	targetURL := url.URL{
-		Scheme: "vtgate",
-		Host:   "pool",
-	}
-
-	values := url.Values{}
-
-	if *poolTypeField != "" {
-		poolType, ok := connectionAttributes[*poolTypeField]
-		if ok {
-			values.Set(*poolTypeField, poolType)
-		} else {
-			return nil, vterrors.Errorf(vtrpcpb.Code_UNAVAILABLE, "pool type attribute %s not supplied by client", *poolTypeField)
-		}
-	}
-
-	if *affinityField != "" {
-		affinity, ok := connectionAttributes[*affinityField]
-		if ok {
-			values.Set(*affinityField, affinity)
-		}
-	}
-
-	targetURL.RawQuery = values.Encode()
-
-	conn, err := proxy.getConnection(ctx, targetURL.String())
+	conn, err := proxy.getConnection(ctx, connectionAttributes)
 	if err != nil {
 		return nil, err
 	}
