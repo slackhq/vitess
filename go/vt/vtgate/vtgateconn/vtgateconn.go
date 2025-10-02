@@ -248,3 +248,14 @@ func DialProtocol(ctx context.Context, protocol string, address string) (*VTGate
 func Dial(ctx context.Context, address string) (*VTGateConn, error) {
 	return DialProtocol(ctx, vtgateProtocol, address)
 }
+
+// NewVTGateConn creates a new VTGateConn with the given implementation.
+func DialWithFunc(ctx context.Context, dialer DialerFunc, address string) (*VTGateConn, error) {
+	impl, err := dialer(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	return &VTGateConn{
+		impl: impl,
+	}, nil
+}
