@@ -100,7 +100,7 @@ func registerInitFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&tabletHostname, "tablet_hostname", tabletHostname, "if not empty, this hostname will be assumed instead of trying to resolve it")
 	fs.StringVar(&initKeyspace, "init_keyspace", initKeyspace, "(init parameter) keyspace to use for this tablet")
 	fs.StringVar(&initShard, "init_shard", initShard, "(init parameter) shard to use for this tablet")
-	fs.StringVar(&initTabletType, "init_tablet_type", initTabletType, "(init parameter) the tablet type to use for this tablet.")
+	fs.StringVar(&initTabletType, "init_tablet_type", initTabletType, "(init parameter) the tablet type to use for this tablet during initial creation only. On restart, the tablet type from the existing topology record will be used.")
 	fs.StringVar(&initDbNameOverride, "init_db_name_override", initDbNameOverride, "(init parameter) override the name of the db used by vttablet. Without this flag, the db name defaults to vt_<keyspacename>")
 	fs.StringVar(&skipBuildInfoTags, "vttablet_skip_buildinfo_tags", skipBuildInfoTags, "comma-separated list of buildinfo tags to skip from merging with --init_tags. each tag is either an exact match or a regular expression of the form '/regexp/'.")
 	fs.Var(&initTags, "init_tags", "(init parameter) comma separated list of key:value pairs used to tag the tablet")
@@ -239,6 +239,7 @@ func BuildTabletFromInput(alias *topodatapb.TabletAlias, port, grpcPort int32, d
 		return nil, vterrors.Wrapf(err, "cannot validate shard name %v", initShard)
 	}
 
+	// Default tablet type from flag for initial setup
 	tabletType, err := topoproto.ParseTabletType(initTabletType)
 	if err != nil {
 		return nil, err
@@ -363,14 +364,35 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	log.Infof("TabletManager Start")
 	tm.DBConfigs.DBName = topoproto.TabletDbName(tablet)
 	tm.tabletAlias = tablet.Alias
+
+	// Check if there's an existing tablet record in topology
+	ctx, cancel := context.WithTimeout(tm.BatchCtx, initTimeout)
+	defer cancel()
+	existingTablet, err := tm.TopoServer.GetTablet(ctx, tablet.Alias)
+	if err != nil && !topo.IsErrType(err, topo.NoNode) {
+		// Error other than "node doesn't exist" - return it
+		return vterrors.Wrap(err, "failed to check for existing tablet record")
+	}
+	
+	// If we found an existing tablet record, use its tablet type instead of the initial one
+	if err == nil {
+		log.Infof("Found existing tablet record, using tablet type %v from topology instead of init_tablet_type %v",
+			existingTablet.Type, tablet.Type)
+		tablet.Type = existingTablet.Type
+		// If it was a PRIMARY, preserve the start time
+		if existingTablet.Type == topodatapb.TabletType_PRIMARY {
+			tablet.PrimaryTermStartTime = existingTablet.PrimaryTermStartTime
+		}
+	} else {
+		log.Infof("No existing tablet record found, using init_tablet_type: %v", tablet.Type)
+	}
+	
 	tm.tmState = newTMState(tm, tablet)
 	tm.actionSema = semaphore.NewWeighted(1)
 	tm._waitForGrantsComplete = make(chan struct{})
 
 	tm.baseTabletType = tablet.Type
 
-	ctx, cancel := context.WithTimeout(tm.BatchCtx, initTimeout)
-	defer cancel()
 	si, err := tm.createKeyspaceShard(ctx)
 	if err != nil {
 		return err
