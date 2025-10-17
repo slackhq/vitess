@@ -495,11 +495,11 @@ func TestTransactionModeVar(t *testing.T) {
 
 // TestAliasesInOuterJoinQueries tests that aliases work in queries that have outer join clauses.
 func TestAliasesInOuterJoinQueries(t *testing.T) {
-	mcmp, closer := start(t)
-	defer closer()
-
 	// skip the test for v19 vtgates
 	utils.SkipIfBinaryIsBelowVersion(t, 20, "vtgate")
+
+	mcmp, closer := start(t)
+	defer closer()
 
 	// Insert data into the 2 tables
 	mcmp.Exec("insert into t1(id1, id2) values (1,2), (42,5), (5, 42)")
