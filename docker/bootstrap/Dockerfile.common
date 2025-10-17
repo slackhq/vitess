@@ -26,6 +26,12 @@ ENV VTDATAROOT /vt/vtdataroot
 ENV VTPORTSTART 15000
 ENV PATH $VTROOT/bin:$VTROOT/dist/maven/bin:$PATH
 ENV USER vitess
+ENV GOPRIVATE=github.com/slackhq/vitess-addons
+
+# Setup private repo
+ARG GH_ACCESS_TOKEN
+ENV GH_ACCESS_TOKEN=${GH_ACCESS_TOKEN}
+RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
 # Copy files needed for bootstrap
 COPY bootstrap.sh dev.env build.env go.mod go.sum /vt/src/vitess.io/vitess/
