@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Online DDL flow
     runs-on: vitess-ubuntu24-16cpu-1
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
     steps:
     - name: Skip CI
@@ -30,7 +33,7 @@ jobs:
     - name: Check if workflow needs to be skipped
       id: skip-workflow
       run: |
-        skip='false'
+        skip='true'
         if [[ "${{github.event.pull_request}}" ==  "" ]] && [[ "${{github.ref}}" != "refs/heads/main" ]] && [[ ! "${{github.ref}}" =~ ^refs/heads/slack-[0-9]+\.[0-9]$ ]] && [[ ! "${{github.ref}}" =~ "refs/tags/.*" ]]; then
           skip='true'
         fi
@@ -86,7 +89,7 @@ jobs:
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
       with:
-        go-version: 1.24.4
+        go-version: 1.22.8
 
     - name: Setup GitHub access token
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
@@ -161,7 +164,11 @@ jobs:
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
       with:
-        go-version: 1.23.8
+        go-version: 1.24.4
+
+    - name: Setup github.com/slackhq/vitess-addons access token
+      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to the next release of Vitess
     - name: Check out next version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})

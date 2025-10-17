@@ -44,12 +44,14 @@ jobs:
         echo Skip ${skip}
         echo "skip-workflow=${skip}" >> $GITHUB_OUTPUT
 
-        PR_DATA=$(curl \
-          -H "{{"Authorization: token ${{ secrets.GITHUB_TOKEN }}"}}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "{{"https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"}}")
-        draft=$(echo "$PR_DATA" | jq .draft -r)
-        echo "is_draft=${draft}" >> $GITHUB_OUTPUT
+        if [[ "{{"${{github.event.pull_request}}"}}" !=  "" ]]; then
+          PR_DATA=$(curl \
+            -H "{{"Authorization: token ${{ secrets.GITHUB_TOKEN }}"}}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "{{"https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"}}")
+          draft=$(echo "$PR_DATA" | jq .draft -r)
+          echo "is_draft=${draft}" >> $GITHUB_OUTPUT
+        fi
 
 >>>>>>> e0f7ec69a1 (`slack-22.0`: setup slackhq CI (#656))
     - name: Check out code

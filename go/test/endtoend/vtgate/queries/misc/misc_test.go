@@ -495,6 +495,9 @@ func TestTransactionModeVar(t *testing.T) {
 
 // TestAliasesInOuterJoinQueries tests that aliases work in queries that have outer join clauses.
 func TestAliasesInOuterJoinQueries(t *testing.T) {
+	// skip the test for v19 vtgates
+	utils.SkipIfBinaryIsBelowVersion(t, 20, "vtgate")
+
 	mcmp, closer := start(t)
 	defer closer()
 
