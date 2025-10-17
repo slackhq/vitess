@@ -57,11 +57,12 @@ jobs:
           sudo deluser mysql
           sudo rm -rf /var/lib/mysql
           sudo rm -rf /etc/mysql
-          # Install mysql80
-          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
-          wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-          echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-          sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+          # Get MySQL GPG key directly from Ubuntu keyserver
+          sudo gpg --homedir /tmp --no-default-keyring --keyring /etc/apt/trusted.gpg.d/mysql.gpg --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
+
+          # Add MySQL 8.0 repository
+          echo "deb http://repo.mysql.com/apt/ubuntu/ $(lsb_release -sc) mysql-8.0" | sudo tee /etc/apt/sources.list.d/mysql.list
+
           sudo apt-get update
           sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
           # Install everything else we need, and configure
