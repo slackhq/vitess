@@ -721,9 +721,13 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 				qre.tsv.stats.WaitTimings.Record("Consolidations", startTime)
 				q.AddWaiterCounter(-1)
 			} else {
-				// Waiter cap exceeded, fall back to independent query execution
-				waiterCapExceeded = true
+				// Waiter cap exceeded, handle based on configured method
 				q.AddWaiterCounter(-1)
+				if qre.tsv.config.ConsolidatorQueryWaiterCapMethod == "reject" {
+					return nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "consolidator waiter cap (%d) exceeded", waiterCap)
+				}
+				// Default to fallback to independent query execution
+				waiterCapExceeded = true
 			}
 		}
 
