@@ -111,10 +111,13 @@ jobs:
 
         {{else}}
 
-        # Setup MySQL APT repository
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-        sudo dpkg -i mysql-apt-config_0.8.33-1_all.deb
-        sudo apt-get -qq update
+        # Get key to latest MySQL repo
+        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
+        # Setup MySQL 8.0
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+        sudo apt-get -qq update --allow-unauthenticated
 
         # We have to install this old version of libaio1 in case we end up testing with MySQL 5.7. See also:
         # https://bugs.launchpad.net/ubuntu/+source/libaio/+bug/2067501

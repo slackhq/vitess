@@ -102,14 +102,15 @@ jobs:
         sudo rm -rf /etc/mysql
 
         {{if (eq .Platform "mysql57")}}
-        # Setup MySQL 5.7 APT repository
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        # Get key to latest MySQL repo
+        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
         # Bionic packages are still compatible for Jammy since there's no MySQL 5.7
         # packages for Jammy.
         echo mysql-apt-config mysql-apt-config/repo-codename select bionic | sudo debconf-set-selections
         echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.33-1_all.deb
-        sudo apt-get update
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+        sudo apt-get update --allow-unauthenticated
         # We have to install this old version of libaio1. See also:
         # https://bugs.launchpad.net/ubuntu/+source/libaio/+bug/2067501
         curl -L -O http://mirrors.kernel.org/ubuntu/pool/main/liba/libaio/libaio1_0.3.112-13build1_amd64.deb
@@ -121,10 +122,14 @@ jobs:
         {{end}}
 
         {{if (eq .Platform "mysql80")}}
-        # Setup MySQL 8.0 APT repository
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-        sudo dpkg -i mysql-apt-config_0.8.33-1_all.deb
-        sudo apt-get update
+        # Get key to latest MySQL repo
+        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
+
+        # mysql80
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+        sudo apt-get update --allow-unauthenticated
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
 
         {{end}}

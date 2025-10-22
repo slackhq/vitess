@@ -96,10 +96,13 @@ jobs:
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       run: |
-        # Setup MySQL APT repository
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-        sudo dpkg -i mysql-apt-config_0.8.33-1_all.deb
-        sudo apt-get -qq update
+        # Get key to latest MySQL repo
+        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
+        # Setup MySQL 8.0
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+        sudo apt-get -qq update --allow-unauthenticated
         # Install everything else we need, and configure
         sudo apt-get -qq install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils libncurses6
 
