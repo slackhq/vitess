@@ -114,7 +114,7 @@ jobs:
         sudo rm -rf /etc/mysql
 
         # Get key to latest MySQL repo
-        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
+        wget -O- http://repo.mysql.com/apt/ubuntu/dists/jammy/Release.gpg | sudo tee /etc/apt/trusted.gpg.d/mysql.gpg
 
         wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
         # Bionic packages are still compatible for Jammy since there's no MySQL 5.7
@@ -122,7 +122,7 @@ jobs:
         echo mysql-apt-config mysql-apt-config/repo-codename select bionic | sudo debconf-set-selections
         echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
-        sudo apt-get update --allow-unauthenticated
+        sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6 libaio1 libtinfo5
 
         sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget eatmydata
