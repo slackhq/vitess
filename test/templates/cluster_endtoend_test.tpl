@@ -116,9 +116,9 @@ jobs:
         sudo apt purge -y mysql-apt-config 2>/dev/null || true
 
         # Follow official MySQL APT repository setup
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.34-1_all.deb
         echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.33-1_all.deb
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.34-1_all.deb
         sudo apt-get -qq update
 
         # We have to install this old version of libaio1 in case we end up testing with MySQL 5.7. See also:
