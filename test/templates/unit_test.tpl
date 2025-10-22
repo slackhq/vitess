@@ -102,12 +102,14 @@ jobs:
         sudo rm -rf /etc/mysql
 
         {{if (eq .Platform "mysql57")}}
-        # Get key to latest MySQL repo (using modern method)
-        wget -O- https://repo.mysql.com/RPM-GPG-KEY-mysql-2022 | gpg --dearmor | sudo tee /usr/share/keyrings/mysql-keyring.gpg > /dev/null
-        # Setup MySQL 5.7 repository manually (avoiding deprecated apt-key)
+        # Get key to latest MySQL repo using alternative keyserver
+        sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys B7B3B788A8D3785C
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
         # Bionic packages are still compatible for Jammy since there's no MySQL 5.7
         # packages for Jammy.
-        echo "deb [signed-by=/usr/share/keyrings/mysql-keyring.gpg] http://repo.mysql.com/apt/ubuntu/ bionic mysql-5.7" | sudo tee /etc/apt/sources.list.d/mysql.list
+        echo mysql-apt-config mysql-apt-config/repo-codename select bionic | sudo debconf-set-selections
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get update
         # We have to install this old version of libaio1. See also:
         # https://bugs.launchpad.net/ubuntu/+source/libaio/+bug/2067501
@@ -120,11 +122,13 @@ jobs:
         {{end}}
 
         {{if (eq .Platform "mysql80")}}
-        # Get key to latest MySQL repo (using modern method)
-        wget -O- https://repo.mysql.com/RPM-GPG-KEY-mysql-2022 | gpg --dearmor | sudo tee /usr/share/keyrings/mysql-keyring.gpg > /dev/null
+        # Get key to latest MySQL repo using alternative keyserver
+        sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys B7B3B788A8D3785C
 
-        # Setup MySQL 8.0 repository manually (avoiding deprecated apt-key)
-        echo "deb [signed-by=/usr/share/keyrings/mysql-keyring.gpg] http://repo.mysql.com/apt/ubuntu/ $(lsb_release -cs) mysql-8.0" | sudo tee /etc/apt/sources.list.d/mysql.list
+        # mysql80
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
 
