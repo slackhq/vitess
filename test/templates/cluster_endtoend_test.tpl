@@ -111,12 +111,10 @@ jobs:
 
         {{else}}
 
-        # Get key to latest MySQL repo
-        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
-        # Setup MySQL 8.0
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
+        # Get key to latest MySQL repo (using modern method)
+        wget -O- https://repo.mysql.com/RPM-GPG-KEY-mysql-2022 | gpg --dearmor | sudo tee /usr/share/keyrings/mysql-keyring.gpg > /dev/null
+        # Setup MySQL 8.0 repository manually (avoiding deprecated apt-key)
+        echo "deb [signed-by=/usr/share/keyrings/mysql-keyring.gpg] http://repo.mysql.com/apt/ubuntu/ $(lsb_release -cs) mysql-8.0" | sudo tee /etc/apt/sources.list.d/mysql.list
         sudo apt-get -qq update
 
         # We have to install this old version of libaio1 in case we end up testing with MySQL 5.7. See also:
