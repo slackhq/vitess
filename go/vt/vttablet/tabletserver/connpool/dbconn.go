@@ -174,7 +174,7 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		err    error
 	}
 
-	ch := make(chan execResult)
+	ch := make(chan execResult, 1)
 	go func() {
 		result, err := dbc.conn.ExecuteFetch(query, maxrows, wantfields)
 		ch <- execResult{result, err}
@@ -274,7 +274,7 @@ func (dbc *Conn) streamOnce(ctx context.Context, query string, callback func(*sq
 	now := time.Now()
 	defer dbc.stats.MySQLTimings.Record("ExecStream", now)
 
-	ch := make(chan error)
+	ch := make(chan error, 1)
 	go func() {
 		ch <- dbc.conn.ExecuteStreamFetch(query, callback, alloc, streamBufferSize)
 	}()
@@ -419,7 +419,7 @@ func (dbc *Conn) KillWithContext(ctx context.Context, reason string, elapsed tim
 	}
 	defer killConn.Recycle()
 
-	ch := make(chan error)
+	ch := make(chan error, 1)
 	sql := fmt.Sprintf("kill %d", dbc.conn.ID())
 	go func() {
 		_, err := killConn.Conn.ExecuteFetch(sql, -1, false)
