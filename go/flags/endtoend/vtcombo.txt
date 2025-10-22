@@ -138,6 +138,7 @@ Flags:
       --gc_purge_check_interval duration                                 Interval between purge discovery checks (default 1m0s)
       --grpc-use-effective-groups                                        If set, and SSL is not used, will set the immediate caller's security groups from the effective caller id's groups.
       --grpc-use-static-authentication-callerid                          If set, will set the immediate caller id to the username authenticated by the static auth plugin.
+      --grpc-enable-orca-metrics                                         gRPC server option to enable sending ORCA metrics to clients for load balancing
       --grpc_auth_mode string                                            Which auth plugin implementation to use (eg: static)
       --grpc_auth_mtls_allowed_substrings string                         List of substrings of at least one of the client certificate names (separated by colon).
       --grpc_auth_static_password_file string                            JSON File to read the users/passwords from.
@@ -146,7 +147,6 @@ Flags:
       --grpc_cert string                                                 server certificate to use for gRPC connections, requires grpc_key, enables TLS
       --grpc_crl string                                                  path to a certificate revocation list in PEM format, client certificates will be further verified against this file during TLS handshake
       --grpc_enable_optional_tls                                         enable optional TLS mode when a server accepts both TLS and plain-text connections on the same port
-      --grpc-enable-orca-metrics                                         gRPC server option to enable sending ORCA metrics to clients for load balancing
       --grpc_enable_tracing                                              Enable gRPC tracing.
       --grpc_key string                                                  server private key to use for gRPC connections, requires grpc_cert, enables TLS
       --grpc_max_connection_age duration                                 Maximum age of a client connection before GoAway is sent. (default 2562047h47m16.854775807s)
