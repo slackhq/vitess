@@ -113,13 +113,17 @@ jobs:
         sudo rm -rf /var/lib/mysql
         sudo rm -rf /etc/mysql
 
-        # Get current MySQL GPG key directly from MySQL (avoiding expired keys)
-        wget -O- https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | sudo gpg --dearmor -o /usr/share/keyrings/mysql-keyring.gpg
+        # Clean up any previous MySQL repository attempts
+        sudo find /etc -iname '*mysql*' -delete 2>/dev/null || true
+        sudo apt purge -y mysql-apt-config 2>/dev/null || true
 
-        # Setup MySQL 5.7 repository with current keyring
+        # Follow official MySQL APT repository setup for MySQL 5.7
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb
         # Bionic packages are still compatible for Jammy since there's no MySQL 5.7
         # packages for Jammy.
-        echo "deb [signed-by=/usr/share/keyrings/mysql-keyring.gpg] http://repo.mysql.com/apt/ubuntu/ bionic mysql-5.7" | sudo tee /etc/apt/sources.list.d/mysql.list
+        echo mysql-apt-config mysql-apt-config/repo-codename select bionic | sudo debconf-set-selections
+        echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.29-1_all.deb
         sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6 libaio1 libtinfo5
 
