@@ -102,27 +102,13 @@ jobs:
         sudo rm -rf /etc/mysql
 
         {{if (eq .Platform "mysql57")}}
-        # Clean up any previous MySQL repository attempts
-        sudo find /etc -iname '*mysql*' -delete 2>/dev/null || true
-        sudo apt purge -y mysql-apt-config 2>/dev/null || true
-
-        # Remove old MySQL GPG key if present
-        sudo apt-key del B7B3B788A8D3785C 2>/dev/null || true
-
-        # Download & install updated MySQL GPG key
-        wget -O RPM-GPG-KEY-mysql-2023 https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
-        sudo gpg --dearmor -o /usr/share/keyrings/mysql.gpg RPM-GPG-KEY-mysql-2023
-
-        # Follow official MySQL APT repository setup for MySQL 5.7
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb
+        # Setup MySQL 5.7 APT repository
+        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
         # Bionic packages are still compatible for Jammy since there's no MySQL 5.7
         # packages for Jammy.
         echo mysql-apt-config mysql-apt-config/repo-codename select bionic | sudo debconf-set-selections
         echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.29-1_all.deb
-
-        # Update MySQL sources to use proper keyring
-        sudo sed -i 's|deb http://repo.mysql.com|deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com|g' /etc/apt/sources.list.d/mysql.list 2>/dev/null || true
+        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.33-1_all.deb
         sudo apt-get update
         # We have to install this old version of libaio1. See also:
         # https://bugs.launchpad.net/ubuntu/+source/libaio/+bug/2067501
@@ -135,24 +121,9 @@ jobs:
         {{end}}
 
         {{if (eq .Platform "mysql80")}}
-        # Clean up any previous MySQL repository attempts
-        sudo find /etc -iname '*mysql*' -delete 2>/dev/null || true
-        sudo apt purge -y mysql-apt-config 2>/dev/null || true
-
-        # Remove old MySQL GPG key if present
-        sudo apt-key del B7B3B788A8D3785C 2>/dev/null || true
-
-        # Download & install updated MySQL GPG key
-        wget -O RPM-GPG-KEY-mysql-2023 https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
-        sudo gpg --dearmor -o /usr/share/keyrings/mysql.gpg RPM-GPG-KEY-mysql-2023
-
-        # Follow official MySQL APT repository setup for MySQL 8.0
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.34-1_all.deb
-        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config_0.8.34-1_all.deb
-
-        # Update MySQL sources to use proper keyring
-        sudo sed -i 's|deb http://repo.mysql.com|deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com|g' /etc/apt/sources.list.d/mysql.list 2>/dev/null || true
+        # Setup MySQL 8.0 APT repository
+        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        sudo dpkg -i mysql-apt-config_0.8.33-1_all.deb
         sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
 
