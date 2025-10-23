@@ -123,7 +123,7 @@ jobs:
         echo mysql-apt-config mysql-apt-config/select-server select mysql-5.7 | sudo debconf-set-selections
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get --allow-insecure-repositories update
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6 libaio1 libtinfo5
+        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y --allow-unauthenticated mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6 libaio1 libtinfo5
 
         sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget eatmydata
         sudo service mysql stop

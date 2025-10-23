@@ -118,7 +118,7 @@ jobs:
         # libtinfo5 is also needed for older MySQL 5.7 builds.
         curl -L -O http://mirrors.kernel.org/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
         sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6
+        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y --allow-unauthenticated mysql-client=5.7* mysql-community-server=5.7* mysql-server=5.7* libncurses6
         {{end}}
 
         {{if (eq .Platform "mysql80")}}
@@ -130,7 +130,7 @@ jobs:
         echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get --allow-insecure-repositories update
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
+        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y --allow-unauthenticated mysql-server mysql-client
 
         {{end}}
 
