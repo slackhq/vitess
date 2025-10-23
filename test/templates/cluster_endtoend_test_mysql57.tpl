@@ -101,7 +101,6 @@ jobs:
       run: |
         sudo apt-get update
 
-        # Uninstall any previously installed MySQL first
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
         sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
 

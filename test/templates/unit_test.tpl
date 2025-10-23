@@ -92,7 +92,6 @@ jobs:
         export DEBIAN_FRONTEND="noninteractive"
         sudo apt-get update
 
-        # Uninstall any previously installed MySQL first
         sudo systemctl stop apparmor
         sudo DEBIAN_FRONTEND="noninteractive" apt-get remove -y --purge mysql-server mysql-client mysql-common
         sudo apt-get -y autoremove
