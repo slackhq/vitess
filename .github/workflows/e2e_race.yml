@@ -73,10 +73,10 @@ jobs:
         wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
         echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
-        sudo apt-get update
-        
+        sudo apt-get --allow-insecure-repositories update
+
         # Install everything else we need, and configure
-        sudo apt-get install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils
+        sudo apt-get install -y --allow-unauthenticated mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils
         sudo service mysql stop
         sudo service etcd stop
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
