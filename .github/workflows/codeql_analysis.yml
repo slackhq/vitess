@@ -57,10 +57,6 @@ jobs:
           sudo deluser mysql
           sudo rm -rf /var/lib/mysql
           sudo rm -rf /etc/mysql
-          # Remove any existing MySQL packages that might conflict
-          sudo DEBIAN_FRONTEND="noninteractive" apt-get remove -y --purge mysql-server mysql-client mysql-common mysql-server-core-* mysql-client-core-* || true
-          sudo apt-get -y autoremove || true
-
           # Get MySQL GPG key directly from Ubuntu keyserver and create binary keyring
           sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/mysql.gpg --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
           sudo chmod 644 /etc/apt/trusted.gpg.d/mysql.gpg
