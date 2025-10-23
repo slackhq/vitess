@@ -99,7 +99,7 @@ jobs:
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       run: |
-        sudo apt-get update
+        sudo apt-get --allow-insecure-repositories update
 
         # Uninstall any previously installed MySQL first
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/

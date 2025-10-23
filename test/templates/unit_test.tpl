@@ -90,7 +90,7 @@ jobs:
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
       run: |
         export DEBIAN_FRONTEND="noninteractive"
-        sudo apt-get update
+        sudo apt-get --allow-insecure-repositories update
 
         # Uninstall any previously installed MySQL first
         sudo systemctl stop apparmor
