@@ -66,6 +66,7 @@ jobs:
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       run: |
+        # temporarily disabling key authentication
         sudo apt-get --allow-insecure-repositories update
         sudo apt-get install -y --allow-unauthenticated mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget
         sudo service mysql stop
