@@ -101,6 +101,15 @@ jobs:
         export DEBIAN_FRONTEND="noninteractive"
         sudo apt-get update
 
+        # Uninstall any previously installed MySQL first
+        # sudo systemctl stop apparmor
+        sudo DEBIAN_FRONTEND="noninteractive" apt-get remove -y --purge mysql-server mysql-client mysql-common
+        sudo apt-get -y autoremove
+        sudo apt-get -y autoclean
+        # sudo deluser mysql
+        sudo rm -rf /var/lib/mysql
+        sudo rm -rf /etc/mysql
+
         # Get key to latest MySQL repo
         sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
         wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.35-1_all.deb
@@ -123,8 +132,6 @@ jobs:
         {{end}}
 
         {{if (eq .Platform "mysql80")}}
-        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get update
         sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
         {{end}}
