@@ -99,8 +99,9 @@ jobs:
         sudo rm -rf /etc/mysql
 
         # Install MySQL 8.0
-        # Get MySQL GPG key directly from Ubuntu keyserver
-        sudo gpg --homedir /tmp --no-default-keyring --keyring /etc/apt/trusted.gpg.d/mysql.gpg --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
+        # Get MySQL GPG key directly from Ubuntu keyserver and create binary keyring
+        sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/mysql.gpg --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
+        sudo chmod 644 /etc/apt/trusted.gpg.d/mysql.gpg
 
         # Add MySQL 8.0 repository
         echo "deb http://repo.mysql.com/apt/ubuntu/ $(lsb_release -sc) mysql-8.0" | sudo tee /etc/apt/sources.list.d/mysql.list
