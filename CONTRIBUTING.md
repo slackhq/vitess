@@ -19,3 +19,8 @@ to let everyone know what you're planning to work on, and to track progress and 
 ### Contributions Related to Spelling and Grammar
 
 At this time, we will not be accepting contributions that only fix spelling, naming or grammatical errors in documentation, code, comments or elsewhere, from accounts created in the last 365 days. We appreciate your interest in contributing to Vitess, and we encourage you to contribute in other ways.
+
+
+### Recommended Editors
+
+Emacs
