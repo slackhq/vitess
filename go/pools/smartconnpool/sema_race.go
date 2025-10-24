@@ -19,8 +19,8 @@ limitations under the License.
 package smartconnpool
 
 import (
-	"runtime"
 	"sync/atomic"
+	"time"
 )
 
 // semaphore is a slow implementation of a single-use synchronization primitive.
@@ -33,9 +33,8 @@ type semaphore struct {
 
 func (s *semaphore) wait() {
 	for !s.b.CompareAndSwap(true, false) {
-		runtime.Gosched()
+		time.Sleep(time.Millisecond)
 	}
-
 }
 
 func (s *semaphore) notify(_ bool) {
