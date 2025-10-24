@@ -649,6 +649,14 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 			}
 		}
 
+		if options != nil {
+			options.TablesToCopy = vs.flags.GetTablesToCopy()
+		} else {
+			options = &binlogdatapb.VStreamOptions{
+				TablesToCopy: vs.flags.GetTablesToCopy(),
+			}
+		}
+
 		// Safe to access sgtid.Gtid here (because it can't change until streaming begins).
 		req := &binlogdatapb.VStreamRequest{
 			Target:       target,
@@ -685,16 +693,10 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 			for i, event := range events {
 				switch event.Type {
 				case binlogdatapb.VEventType_FIELD:
-					// Update table names and send.
-					// If we're streaming from multiple keyspaces, this will disambiguate
-					// duplicate table names.
-					ev := event.CloneVT()
-					ev.FieldEvent.TableName = sgtid.Keyspace + "." + ev.FieldEvent.TableName
+					ev := maybeUpdateTableName(event, sgtid.Keyspace, vs.flags.GetExcludeKeyspaceFromTableName(), extractFieldTableName)
 					sendevents = append(sendevents, ev)
 				case binlogdatapb.VEventType_ROW:
-					// Update table names and send.
-					ev := event.CloneVT()
-					ev.RowEvent.TableName = sgtid.Keyspace + "." + ev.RowEvent.TableName
+					ev := maybeUpdateTableName(event, sgtid.Keyspace, vs.flags.GetExcludeKeyspaceFromTableName(), extractRowTableName)
 					sendevents = append(sendevents, ev)
 				case binlogdatapb.VEventType_COMMIT, binlogdatapb.VEventType_DDL, binlogdatapb.VEventType_OTHER:
 					sendevents = append(sendevents, event)
@@ -833,6 +835,29 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 
 }
 
+// maybeUpdateTableNames updates table names when the ExcludeKeyspaceFromTableName flag is disabled.
+// If we're streaming from multiple keyspaces, updating the table names by inserting the keyspace will disambiguate
+// duplicate table names. If we enable the ExcludeKeyspaceFromTableName flag to not update the table names, there is no need to
+// clone the entire event, whcih improves performance. This is typically safely used by clients only streaming one keyspace.
+func maybeUpdateTableName(event *binlogdatapb.VEvent, keyspace string, excludeKeyspaceFromTableName bool,
+	tableNameExtractor func(ev *binlogdatapb.VEvent) *string) *binlogdatapb.VEvent {
+	if excludeKeyspaceFromTableName {
+		return event
+	}
+	ev := event.CloneVT()
+	tableName := tableNameExtractor(ev)
+	*tableName = keyspace + "." + *tableName
+	return ev
+}
+
+func extractFieldTableName(ev *binlogdatapb.VEvent) *string {
+	return &ev.FieldEvent.TableName
+}
+
+func extractRowTableName(ev *binlogdatapb.VEvent) *string {
+	return &ev.RowEvent.TableName
+}
+
 // shouldRetry determines whether we should exit immediately or retry the vstream.
 // The first return value determines if the error can be retried, while the second
 // indicates whether the tablet with which the error occurred should be omitted
@@ -864,6 +889,20 @@ func (vs *vstream) shouldRetry(err error) (retry bool, ignoreTablet bool) {
 	// VStream.
 	if errCode == vtrpcpb.Code_INTERNAL {
 		return false, false
+	}
+	// Handle binary log purging errors by retrying with a different tablet.
+	// This occurs when a tablet doesn't have the requested GTID because the
+	// source purged the required binary logs. Another tablet might still have
+	// the logs, so we ignore this tablet and retry.
+	if errCode == vtrpcpb.Code_UNKNOWN {
+		sqlErr := sqlerror.NewSQLErrorFromError(err)
+		if sqlError, ok := sqlErr.(*sqlerror.SQLError); ok {
+			switch sqlError.Number() {
+			case sqlerror.ERMasterFatalReadingBinlog, // 1236
+				sqlerror.ERSourceHasPurgedRequiredGtids: // 1789
+				return true, true
+			}
+		}
 	}
 
 	// For anything else, if this is an ephemeral SQL error -- such as a
