@@ -81,14 +81,8 @@ jobs:
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
 
     - name: Tune the OS
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: |
-        # Limit local port range to not use ports that overlap with server side
-        # ports that we listen on.
-        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
-        # Increase the asynchronous non-blocking I/O. More information at https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_use_native_aio
-        echo "fs.aio-max-nr = 1048576" | sudo tee -a /etc/sysctl.conf
-        sudo sysctl -p /etc/sysctl.conf
+      if: steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/tune-os
 
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
@@ -101,7 +95,7 @@ jobs:
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get -qq update
         # Install everything else we need, and configure
-        sudo apt-get -qq install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils libncurses6
+        sudo apt-get -qq install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget xz-utils libncurses6
 
         sudo service mysql stop
         sudo service etcd stop

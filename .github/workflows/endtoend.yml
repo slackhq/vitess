@@ -61,9 +61,8 @@ jobs:
       run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: |
-        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
+      if: steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/tune-os
 
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
@@ -95,4 +94,4 @@ jobs:
         # which musn't be more than 107 characters long.
         export VTDATAROOT="/tmp/"
 
-        eatmydata -- tools/e2e_test_runner.sh
+        tools/e2e_test_runner.sh

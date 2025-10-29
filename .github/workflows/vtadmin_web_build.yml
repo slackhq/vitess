@@ -40,6 +40,9 @@ jobs:
         with:
           persist-credentials: 'false'
 
+      - name: Tune the OS
+        uses: ./.github/actions/tune-os
+
       - uses: actions/setup-node@v4
         if: steps.skip-workflow.outputs.skip-workflow == 'false'
         with:
