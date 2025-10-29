@@ -89,17 +89,29 @@ jobs:
         run: |
           sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
 
+      - name: Setup MySQL
+        if: steps.changes.outputs.end_to_end == 'true'
+        uses: ./.github/actions/setup-mysql
+        with:
+          flavor: mysql-8.0
+
       - name: Get base dependencies
         timeout-minutes: 10
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
         run: |
+<<<<<<< HEAD
           sudo apt-get update
           sudo apt-get install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata
           
           sudo service mysql stop
+=======
+          sudo DEBIAN_FRONTEND="noninteractive" apt-get update
+
+          # Install everything else we need, and configure
+          sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget grep
+
+>>>>>>> 25789f715a ([release-22.0] ci: DRY up MySQL Setup (#18815) (#18836))
           sudo service etcd stop
-          sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
-          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
           go mod download
           
           # install JUnit report formatter

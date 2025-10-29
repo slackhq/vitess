@@ -86,34 +86,17 @@ jobs:
         echo "fs.aio-max-nr = 1048576" | sudo tee -a /etc/sysctl.conf
         sudo sysctl -p /etc/sysctl.conf
 
+    - name: Setup MySQL
+      if: steps.changes.outputs.unit_tests == 'true'
+      uses: ./.github/actions/setup-mysql
+      with:
+        flavor: mysql-8.0
+        
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true'
       run: |
         export DEBIAN_FRONTEND="noninteractive"
-        sudo apt-get update
-
-        # Uninstall any previously installed MySQL first
-        # sudo systemctl stop apparmor
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get remove -y --purge mysql-server mysql-client mysql-common
-        sudo apt-get -y autoremove
-        sudo apt-get -y autoclean
-        # sudo deluser mysql
-        sudo rm -rf /var/lib/mysql
-        sudo rm -rf /etc/mysql
-
-        # Get key to latest MySQL repo
-        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.35-1_all.deb
-
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
-        
-        sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk eatmydata
-        
-        sudo service mysql stop
-        sudo bash -c "echo '/usr/sbin/mysqld { }' > /etc/apparmor.d/usr.sbin.mysqld" # https://bugs.launchpad.net/ubuntu/+source/mariadb-10.1/+bug/1806263
-        sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
-        sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld || echo "could not remove mysqld profile"
+        sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk
 
         mkdir -p dist bin
         curl -s -L https://github.com/coreos/etcd/releases/download/v3.5.17/etcd-v3.5.17-linux-amd64.tar.gz | tar -zxC dist
@@ -121,7 +104,7 @@ jobs:
 
         go mod download
         go install golang.org/x/tools/cmd/goimports@latest
-        
+
         # install JUnit report formatter
         go install github.com/vitessio/go-junit-report@HEAD
 
@@ -156,8 +139,13 @@ jobs:
         # We sometimes need to alter the behavior based on the platform we're
         # testing, e.g. MySQL 5.7 vs 8.0.
         export CI_DB_PLATFORM="mysql80"
+<<<<<<< HEAD
         
         eatmydata -- make unit_test | tee -a output.txt | go-junit-report -set-exit-code > report.xml
+=======
+
+        make unit_test | tee -a output.txt | go-junit-report -set-exit-code > report.xml
+>>>>>>> 25789f715a ([release-22.0] ci: DRY up MySQL Setup (#18815) (#18836))
 
     - name: Record test results in launchable if PR is not a draft
       if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true' && always()
