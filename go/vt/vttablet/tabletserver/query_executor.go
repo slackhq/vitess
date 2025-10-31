@@ -711,6 +711,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 	if qre.shouldConsolidate() {
 		q, original := qre.tsv.qe.consolidator.Create(sqlWithoutComments)
 		waiterCapExceeded := false
+
 		if original {
 			defer q.Broadcast()
 			conn, err := qre.getConn()
@@ -730,11 +731,16 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 				startTime := time.Now()
 				q.Wait()
 				qre.tsv.stats.WaitTimings.Record("Consolidations", startTime)
+				q.AddWaiterCounter(-1)
 			} else {
-				// Waiter cap exceeded, fall back to independent query execution
+				// Waiter cap exceeded, handle based on configured method
+				q.AddWaiterCounter(-1)
+				if qre.tsv.config.ConsolidatorQueryWaiterCapMethod == "reject" {
+					return nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "consolidator waiter cap (%d) exceeded", waiterCap)
+				}
+				// Default to fallback to independent query execution
 				waiterCapExceeded = true
 			}
-			q.AddWaiterCounter(-1)
 		}
 
 		// Return consolidation results unless waiter cap was exceeded
@@ -1295,21 +1301,11 @@ func (qre *QueryExecutor) recordUserQuery(queryType string, duration int64) {
 func (qre *QueryExecutor) GetSchemaDefinitions(tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
 	switch tableType {
 	case querypb.SchemaTableType_VIEWS:
-		// Only fetch view definitions if views are enabled in the configuration.
-		// When views are disabled, return nil (empty result).
-		if qre.tsv.config.EnableViews {
-			return qre.getViewDefinitions(tableNames, callback)
-		}
-		return nil
+		return qre.getViewDefinitions(tableNames, callback)
 	case querypb.SchemaTableType_TABLES:
 		return qre.getTableDefinitions(tableNames, callback)
 	case querypb.SchemaTableType_ALL:
-		// When requesting all schema definitions, only include views if they are enabled.
-		// If views are disabled, fall back to returning only table definitions.
-		if qre.tsv.config.EnableViews {
-			return qre.getAllDefinitions(tableNames, callback)
-		}
-		return qre.getTableDefinitions(tableNames, callback)
+		return qre.getAllDefinitions(tableNames, callback)
 	case querypb.SchemaTableType_UDFS:
 		return qre.getUDFs(callback)
 	}
