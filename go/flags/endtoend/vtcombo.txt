@@ -45,6 +45,7 @@ Flags:
       --config-persistence-min-interval duration                         minimum interval between persisting dynamic config changes back to disk (if no change has occurred, nothing is done). (default 1s)
       --config-type string                                               Config file type (omit to infer config type from file extension).
       --consolidator-query-waiter-cap int                                Configure the maximum number of clients allowed to wait on the consolidator.
+      --consolidator-query-waiter-cap-method string                      Configure the method when consolidator waiter cap is exceeded. Options: fallthrough, reject. (default "fallthrough")
       --consolidator-stream-query-size int                               Configure the stream consolidator query size in bytes. Setting to 0 disables the stream consolidator. (default 2097152)
       --consolidator-stream-total-size int                               Configure the stream consolidator total size in bytes. Setting to 0 disables the stream consolidator. (default 134217728)
       --consul_auth_static_file string                                   JSON File to read the topos/tokens from.
@@ -136,6 +137,7 @@ Flags:
       --gate_query_cache_memory int                                      gate server query cache size in bytes, maximum amount of memory to be cached. vtgate analyzes every incoming query and generate a query plan, these plans are being cached in a lru cache. This config controls the capacity of the lru cache. (default 33554432)
       --gc_check_interval duration                                       Interval between garbage collection checks (default 1h0m0s)
       --gc_purge_check_interval duration                                 Interval between purge discovery checks (default 1m0s)
+      --grpc-enable-orca-metrics                                         gRPC server option to enable sending ORCA metrics to clients for load balancing
       --grpc-use-effective-groups                                        If set, and SSL is not used, will set the immediate caller's security groups from the effective caller id's groups.
       --grpc-use-static-authentication-callerid                          If set, will set the immediate caller id to the username authenticated by the static auth plugin.
       --grpc_auth_mode string                                            Which auth plugin implementation to use (eg: static)
@@ -431,6 +433,7 @@ Flags:
       --vtgate_grpc_ca string                                            the server ca to use to validate servers when connecting
       --vtgate_grpc_cert string                                          the cert to use to connect
       --vtgate_grpc_crl string                                           the server crl to use to validate server certificates when connecting
+      --vtgate_grpc_fail_fast                                            whether to enable grpc fail fast when communicating with vtgate
       --vtgate_grpc_key string                                           the key to use to connect
       --vtgate_grpc_server_name string                                   the server name to use to validate server certificate
       --vttablet_skip_buildinfo_tags string                              comma-separated list of buildinfo tags to skip from merging with --init_tags. each tag is either an exact match or a regular expression of the form '/regexp/'. (default "/.*/")

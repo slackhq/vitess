@@ -28,6 +28,11 @@ ARG BUILD_TIME
 
 WORKDIR /vt/src/vitess.io/vitess
 
+# Setup private repo
+ARG GH_ACCESS_TOKEN
+ENV GH_ACCESS_TOKEN=${GH_ACCESS_TOKEN}
+RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
 # Create vitess user
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 RUN mkdir -p /vt/vtdataroot /home/vitess
@@ -59,6 +64,7 @@ RUN mkdir -p /vt/vtdataroot /home/vitess && chown -R vitess:vitess /vt /home/vit
 ENV VTROOT /vt
 ENV VTDATAROOT /vt/vtdataroot
 ENV PATH $VTROOT/bin:$PATH
+ENV GOPRIVATE=github.com/slackhq/vitess-addons
 
 # Copy artifacts from builder layer.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

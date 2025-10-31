@@ -36,12 +36,14 @@ jobs:
         echo Skip ${skip}
         echo "skip-workflow=${skip}" >> $GITHUB_OUTPUT
 
-        PR_DATA=$(curl -s\
-          -H "{{"Authorization: token ${{ secrets.GITHUB_TOKEN }}"}}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "{{"https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"}}")
-        draft=$(echo "$PR_DATA" | jq .draft -r)
-        echo "is_draft=${draft}" >> $GITHUB_OUTPUT
+        if [[ "{{"${{github.event.pull_request}}"}}" !=  "" ]]; then
+          PR_DATA=$(curl -s\
+            -H "{{"Authorization: token ${{ secrets.GITHUB_TOKEN }}"}}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "{{"https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"}}")
+          draft=$(echo "$PR_DATA" | jq .draft -r)
+          echo "is_draft=${draft}" >> $GITHUB_OUTPUT
+        fi
 
     {{if .MemoryCheck}}
 
@@ -136,7 +138,7 @@ jobs:
         # Get key to latest MySQL repo
         sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
         # Setup MySQL 8.0
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.35-1_all.deb
         echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get -qq update
