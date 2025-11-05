@@ -102,7 +102,7 @@ func registerInitFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&initKeyspace, "init_keyspace", initKeyspace, "(init parameter) keyspace to use for this tablet")
 	fs.StringVar(&initShard, "init_shard", initShard, "(init parameter) shard to use for this tablet")
 	fs.StringVar(&initTabletType, "init_tablet_type", initTabletType, "(init parameter) the tablet type to use for this tablet. Can be REPLICA, RDONLY, or SPARE.")
-	fs.BoolVar(&initTabletTypeLookup, "init_tablet_type_lookup", initTabletTypeLookup, "(optional, init parameter) if enabled, look up the tablet type from the existing topology record on restart and use that instead of init_tablet_type. This allows tablets to maintain their changed roles (e.g., RDONLY/DRAINED) across restarts. If disabled or if no topology record exists, init_tablet_type will be used.")
+	fs.BoolVar(&initTabletTypeLookup, "init_tablet_type_lookup", initTabletTypeLookup, "(Experimental, init parameter) if enabled, uses tablet alias to look up the tablet type from the existing topology record on restart and use that instead of init_tablet_type. This allows tablets to maintain their changed roles (e.g., RDONLY/DRAINED) across restarts. If disabled or if no topology record exists, init_tablet_type will be used.")
 	fs.StringVar(&initDbNameOverride, "init_db_name_override", initDbNameOverride, "(init parameter) override the name of the db used by vttablet. Without this flag, the db name defaults to vt_<keyspacename>")
 	fs.StringVar(&skipBuildInfoTags, "vttablet_skip_buildinfo_tags", skipBuildInfoTags, "comma-separated list of buildinfo tags to skip from merging with --init_tags. each tag is either an exact match or a regular expression of the form '/regexp/'.")
 	fs.Var(&initTags, "init_tags", "(init parameter) comma separated list of key:value pairs used to tag the tablet")
@@ -374,32 +374,35 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 		existingTablet, err := tm.TopoServer.GetTablet(ctx, tablet.Alias)
 		if err != nil && !topo.IsErrType(err, topo.NoNode) {
 			// Error other than "node doesn't exist" - return it
-			return vterrors.Wrap(err, "--init_tablet_type_lookup is enabled but failed to get existing tablet record from topology, unable to determine tablet type during startup")
+			return vterrors.Wrap(err, "failed to get existing tablet record from topology, unable to determine tablet type during startup")
 		}
 
-		// If we found an existing tablet record, check its type
-		if err == nil {
-			if existingTablet.Type == topodatapb.TabletType_PRIMARY {
-				// Don't set to PRIMARY yet - let checkPrimaryShip() validate and decide
-				// checkPrimaryShip() has the logic to verify shard records and determine if this tablet should really be PRIMARY
-				log.Infof("Found existing tablet record with PRIMARY type, setting to REPLICA and allowing checkPrimaryShip() to validate")
-				tablet.Type = topodatapb.TabletType_REPLICA
-			} else if existingTablet.Type == topodatapb.TabletType_BACKUP || existingTablet.Type == topodatapb.TabletType_RESTORE {
-				// Skip transient operational types (BACKUP, RESTORE)
-				// These are temporary states that should not be preserved across restarts
-				log.Infof("Found existing tablet record with transient type %v, using init_tablet_type %v instead",
-					existingTablet.Type, tablet.Type)
-			} else {
-				// Safe to restore the type for non-PRIMARY, non-transient types
-				log.Infof("Found existing tablet record with --init_tablet_type_lookup enabled, using tablet type %v from topology instead of init_tablet_type %v",
-					existingTablet.Type, tablet.Type)
-				tablet.Type = existingTablet.Type
-			}
-		} else {
+		// If we found an existing tablet record, determine which type to use
+		switch {
+		case err != nil:
+			// No existing tablet found, use init_tablet_type
 			log.Infof("No existing tablet record found, using init_tablet_type: %v", tablet.Type)
+
+		case existingTablet.Type == topodatapb.TabletType_PRIMARY:
+			// Don't set to PRIMARY yet - let checkPrimaryShip() validate and decide
+			// checkPrimaryShip() has the logic to verify shard records and determine if this tablet should really be PRIMARY
+			log.Infof("Found existing tablet record with PRIMARY type, setting to REPLICA and allowing checkPrimaryShip() to validate")
+			tablet.Type = topodatapb.TabletType_REPLICA
+
+		case existingTablet.Type == topodatapb.TabletType_BACKUP || existingTablet.Type == topodatapb.TabletType_RESTORE:
+			// Skip transient operational types (BACKUP, RESTORE)
+			// These are temporary states that should not be preserved across restarts
+			log.Infof("Found existing tablet record with transient type %v, using init_tablet_type %v instead",
+				existingTablet.Type, tablet.Type)
+
+		default:
+			// Safe to restore the type for non-PRIMARY, non-transient types
+			log.Infof("Found existing tablet record, using tablet type %v from topology instead of init_tablet_type %v",
+				existingTablet.Type, tablet.Type)
+			tablet.Type = existingTablet.Type
 		}
 	} else {
-		log.Infof("Using init_tablet_type %v (--init_tablet_type_lookup is not enabled)", tablet.Type)
+		log.Infof("Using init_tablet_type %v", tablet.Type)
 	}
 
 	tm.tmState = newTMState(tm, tablet)
