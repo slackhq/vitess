@@ -71,30 +71,7 @@ jobs:
         export DEBIAN_FRONTEND="noninteractive"
         sudo apt-get update
 
-<<<<<<< HEAD
-        # Uninstall any previously installed MySQL first
-        # sudo systemctl stop apparmor
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get remove -y --purge mysql-server mysql-client mysql-common
-        sudo apt-get -y autoremove
-        sudo apt-get -y autoclean
-        # sudo deluser mysql
-        # sudo rm -rf /var/lib/mysql
-        # sudo rm -rf /etc/mysql
-
-        # Get key to latest MySQL repo
-        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
-
-        # mysql80
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.35-1_all.deb
-        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND="noninteractive" apt-get install -y mysql-server mysql-client
-
-        sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk eatmydata
-=======
         sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk
->>>>>>> 25789f715a ([release-22.0] ci: DRY up MySQL Setup (#18815) (#18836))
 
         mkdir -p dist bin
         curl -s -L https://github.com/coreos/etcd/releases/download/v3.5.17/etcd-v3.5.17-linux-amd64.tar.gz | tar -zxC dist

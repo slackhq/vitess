@@ -99,18 +99,11 @@ jobs:
         timeout-minutes: 10
         if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
         run: |
-<<<<<<< HEAD
-          sudo apt-get update
-          sudo apt-get install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata
-          
-          sudo service mysql stop
-=======
           sudo DEBIAN_FRONTEND="noninteractive" apt-get update
 
           # Install everything else we need, and configure
           sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget grep
 
->>>>>>> 25789f715a ([release-22.0] ci: DRY up MySQL Setup (#18815) (#18836))
           sudo service etcd stop
           go mod download
           

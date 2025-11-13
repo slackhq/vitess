@@ -6,6 +6,7 @@ concurrency:
 
 permissions: read-all
 
+
 env:
   LAUNCHABLE_ORGANIZATION: "vitess"
   LAUNCHABLE_WORKSPACE: "vitess-app"
