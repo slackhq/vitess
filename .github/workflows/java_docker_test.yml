@@ -49,6 +49,10 @@ jobs:
             - 'java/**'
             - '.github/workflows/java_docker_test.yml'
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.changed_files == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Set up Go
       if: steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0

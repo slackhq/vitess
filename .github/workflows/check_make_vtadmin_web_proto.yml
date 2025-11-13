@@ -32,6 +32,7 @@ jobs:
         persist-credentials: 'false'
 
     - name: Tune the OS
+      if: steps.skip-workflow.outputs.skip-workflow == 'false'
       uses: ./.github/actions/tune-os
 
     - name: Check for changes in relevant files
