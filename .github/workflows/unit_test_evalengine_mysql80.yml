@@ -139,13 +139,8 @@ jobs:
         # We sometimes need to alter the behavior based on the platform we're
         # testing, e.g. MySQL 5.7 vs 8.0.
         export CI_DB_PLATFORM="mysql80"
-<<<<<<< HEAD
-        
-        eatmydata -- make unit_test | tee -a output.txt | go-junit-report -set-exit-code > report.xml
-=======
 
         make unit_test | tee -a output.txt | go-junit-report -set-exit-code > report.xml
->>>>>>> 25789f715a ([release-22.0] ci: DRY up MySQL Setup (#18815) (#18836))
 
     - name: Record test results in launchable if PR is not a draft
       if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.unit_tests == 'true' && always()
