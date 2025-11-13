@@ -35,15 +35,6 @@ jobs:
         echo Skip ${skip}
         echo "skip-workflow=${skip}" >> $GITHUB_OUTPUT
 
-        if [[ "{{"${{github.event.pull_request}}"}}" !=  "" ]]; then
-          PR_DATA=$(curl -s\
-            -H "{{"Authorization: token ${{ secrets.GITHUB_TOKEN }}"}}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "{{"https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"}}")
-          draft=$(echo "$PR_DATA" | jq .draft -r)
-          echo "is_draft=${draft}" >> $GITHUB_OUTPUT
-        fi
-
     - name: Check out code
       if: steps.skip-workflow.outputs.skip-workflow == 'false'
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -90,32 +81,25 @@ jobs:
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
 
     - name: Tune the OS
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: |
-        # Limit local port range to not use ports that overlap with server side
-        # ports that we listen on.
-        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
-        # Increase the asynchronous non-blocking I/O. More information at https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_use_native_aio
-        echo "fs.aio-max-nr = 1048576" | sudo tee -a /etc/sysctl.conf
-        sudo sysctl -p /etc/sysctl.conf
+      if: steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/tune-os
+
+    - name: Setup MySQL
+      if: steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/setup-mysql
+      with:
+        flavor: mysql-8.0
 
     - name: Get dependencies
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       run: |
-        # Get key to latest MySQL repo
-        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
-        # Setup MySQL 8.0
-        wget -c https://dev.mysql.com/get/mysql-apt-config_0.8.35-1_all.deb
-        echo mysql-apt-config mysql-apt-config/select-server select mysql-8.0 | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND="noninteractive" dpkg -i mysql-apt-config*
         sudo apt-get -qq update
-        # Install everything else we need, and configure
-        sudo apt-get -qq install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata xz-utils libncurses6
 
-        sudo service mysql stop
+        # Install everything else we need, and configure
+        sudo apt-get -qq install -y make unzip g++ etcd-client etcd-server curl git wget xz-utils libncurses6
+
         sudo service etcd stop
-        sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
-        sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
+
         go mod download
 
         # install JUnit report formatter
@@ -125,7 +109,7 @@ jobs:
         go install github.com/vitessio/vt/go/vt@e43009309f599378504905d4b804460f47822ac5
 
     - name: Setup launchable dependencies
-      if: steps.skip-workflow.outputs.is_draft == 'false' && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main'
+      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main'
       run: |
         # Get Launchable CLI installed. If you can, make it a part of the builder image to speed things up
         pip3 install --user launchable~=1.0 > /dev/null
@@ -163,14 +147,15 @@ jobs:
           i=$((i+1))
         done
 
-    - name: Print test output and Record test result in launchable if PR is not a draft
+    - name: Record test results in launchable if PR is not a draft
+      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && always()
+      run: |
+        # send recorded tests to launchable
+        launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
+
+    - name: Print test output
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true' && always()
       run: |
-        if [[ "{{"${{steps.skip-workflow.outputs.is_draft}}"}}" ==  "false" ]]; then
-          # send recorded tests to launchable
-          launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
-        fi
-
         # print test output
         cat report*.xml
 

@@ -87,21 +87,25 @@ jobs:
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
 
     - name: Tune the OS
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
-      run: |
-        sudo sysctl -w net.ipv4.ip_local_port_range="22768 65535"
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/tune-os
+
+    - name: Setup MySQL
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
+      uses: ./.github/actions/setup-mysql
+      with:
+        flavor: mysql-8.0
 
     - name: Get base dependencies
       timeout-minutes: 10
       if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y mysql-server mysql-client make unzip g++ etcd-client etcd-server curl git wget eatmydata
-        
-        sudo service mysql stop
+        sudo DEBIAN_FRONTEND="noninteractive" apt-get update
+
+        # Install everything else we need, and configure
+        sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget grep
+
         sudo service etcd stop
-        sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
-        sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
         go mod download
 
         # install JUnit report formatter
@@ -178,7 +182,7 @@ jobs:
         mkdir -p /tmp/vtdataroot
         set -x
         source build.env
-        eatmydata -- go run test.go -skip-build -docker=false -print-log -follow -tag upgrade_downgrade_backups
+        go run test.go -skip-build -docker=false -print-log -follow -tag upgrade_downgrade_backups
 
     # Swap binaries again, use current version's VTTablet, and next release's VTBackup
     - name: Use current version VTTablet, and other version VTBackup
@@ -202,4 +206,4 @@ jobs:
         mkdir -p /tmp/vtdataroot
         set -x
         source build.env
-        eatmydata -- go run test.go -skip-build -keep-data -docker=false -print-log -follow -tag upgrade_downgrade_backups
+        go run test.go -skip-build -keep-data -docker=false -print-log -follow -tag upgrade_downgrade_backups
