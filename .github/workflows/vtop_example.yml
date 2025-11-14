@@ -11,14 +11,14 @@ concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'vtop_example')
   cancel-in-progress: true
 
+env:
+  GOPRIVATE: github.com/slackhq/vitess-addons
+  GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
 jobs:
   build:
     name: VTop Example
     runs-on: vitess-ubuntu24-16cpu-1
-    env:
-      GOPRIVATE: github.com/slackhq/vitess-addons
-      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
-
     steps:
       - name: Skip CI
         run: |
