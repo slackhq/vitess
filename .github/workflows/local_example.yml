@@ -61,7 +61,7 @@ jobs:
         go-version-file: go.mod
 
     - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.examples == 'true'
+      if: steps.changes.outputs.examples == 'true'
       run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS

@@ -8,13 +8,14 @@ on:
   pull_request:
     branches: '**'
 permissions: read-all
-GOPRIVATE: github.com/slackhq/vitess-addons
-GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 jobs:
 
   build:
     name: Docker Test Cluster
     runs-on: ubuntu-24.04
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 
     steps:
     - name: Skip CI
@@ -57,7 +58,7 @@ jobs:
         go-version-file: go.mod
 
     - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
+      if:  steps.changes.outputs.end_to_end == 'true'
       run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS
