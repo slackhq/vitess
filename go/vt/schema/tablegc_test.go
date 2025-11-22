@@ -29,17 +29,19 @@ func TestGCStates(t *testing.T) {
 	// These are all hard coded
 	require.Equal(t, HoldTableGCState, gcStates["hld"])
 	require.Equal(t, HoldTableGCState, gcStates["HOLD"])
+	require.Equal(t, HoldTableGCState, gcStates["hold"])
 	require.Equal(t, PurgeTableGCState, gcStates["prg"])
 	require.Equal(t, PurgeTableGCState, gcStates["PURGE"])
+	require.Equal(t, PurgeTableGCState, gcStates["purge"])
 	require.Equal(t, EvacTableGCState, gcStates["evc"])
 	require.Equal(t, EvacTableGCState, gcStates["EVAC"])
+	require.Equal(t, EvacTableGCState, gcStates["evac"])
 	require.Equal(t, DropTableGCState, gcStates["drp"])
 	require.Equal(t, DropTableGCState, gcStates["DROP"])
-	_, ok := gcStates["purge"]
+	require.Equal(t, DropTableGCState, gcStates["drop"])
+	_, ok := gcStates["vrp"]
 	require.False(t, ok)
-	_, ok = gcStates["vrp"]
-	require.False(t, ok)
-	require.Equal(t, 2*4, len(gcStates)) // 4 states, 2 forms each
+	require.Equal(t, 3*4, len(gcStates)) // 4 states, 3 forms each (uppercase, lowercase, abbreviated)
 }
 
 func TestIsGCTableName(t *testing.T) {
@@ -65,6 +67,11 @@ func TestIsGCTableName(t *testing.T) {
 			"_vt_DROP_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
 			"_vt_HOLD_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
 			"_vt_drp_6ace8bcef73211ea87e9f875a4d24e90_20200915120410_",
+			// Test lowercase variants for lower_case_table_names=1 compatibility
+			"_vt_drop_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			"_vt_hold_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			"_vt_purge_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			"_vt_evac_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
 		}
 		for _, tableName := range names {
 			t.Run(tableName, func(t *testing.T) {
@@ -182,6 +189,31 @@ func TestAnalyzeGCTableName(t *testing.T) {
 		{
 			tableName: "_vt_xyz_6ace8bcef73211ea87e9f875a4d24e90_20200915120410_",
 			isGC:      false,
+		},
+		// Test lowercase variants for lower_case_table_names=1 compatibility
+		{
+			tableName: "_vt_drop_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			state:     DropTableGCState,
+			t:         baseTime,
+			isGC:      true,
+		},
+		{
+			tableName: "_vt_hold_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			state:     HoldTableGCState,
+			t:         baseTime,
+			isGC:      true,
+		},
+		{
+			tableName: "_vt_purge_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			state:     PurgeTableGCState,
+			t:         baseTime,
+			isGC:      true,
+		},
+		{
+			tableName: "_vt_evac_6ace8bcef73211ea87e9f875a4d24e90_20200915120410",
+			state:     EvacTableGCState,
+			t:         baseTime,
+			isGC:      true,
 		},
 	}
 	for _, ts := range tt {
