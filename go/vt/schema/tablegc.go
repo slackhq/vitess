@@ -55,18 +55,18 @@ var (
 	gcTableNameRegexp = regexp.MustCompile(GCTableNameExpression)
 
 	gcStates = map[string]TableGCState{
-		string(HoldTableGCState):                   HoldTableGCState,
-		strings.ToLower(string(HoldTableGCState)):  HoldTableGCState,
-		"hld":                                      HoldTableGCState,
-		string(PurgeTableGCState):                  PurgeTableGCState,
+		string(HoldTableGCState):                  HoldTableGCState,
+		strings.ToLower(string(HoldTableGCState)): HoldTableGCState,
+		"hld":                     HoldTableGCState,
+		string(PurgeTableGCState): PurgeTableGCState,
 		strings.ToLower(string(PurgeTableGCState)): PurgeTableGCState,
-		"prg":                                      PurgeTableGCState,
-		string(EvacTableGCState):                   EvacTableGCState,
-		strings.ToLower(string(EvacTableGCState)):  EvacTableGCState,
-		"evc":                                      EvacTableGCState,
-		string(DropTableGCState):                   DropTableGCState,
-		strings.ToLower(string(DropTableGCState)):  DropTableGCState,
-		"drp":                                      DropTableGCState,
+		"prg":                    PurgeTableGCState,
+		string(EvacTableGCState): EvacTableGCState,
+		strings.ToLower(string(EvacTableGCState)): EvacTableGCState,
+		"evc":                    EvacTableGCState,
+		string(DropTableGCState): DropTableGCState,
+		strings.ToLower(string(DropTableGCState)): DropTableGCState,
+		"drp": DropTableGCState,
 	}
 )
 
