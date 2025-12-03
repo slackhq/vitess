@@ -1257,9 +1257,10 @@ func TestCloseDuringWaitForConn(t *testing.T) {
 		hung := make(chan (struct{}), goRoutineCnt)
 		var state TestState
 		p := NewPool(&Config[*TestConn]{
-			Capacity:    1,
-			IdleTimeout: time.Second,
-			LogWait:     state.LogWait,
+			Capacity:     1,
+			MaxIdleCount: 1,
+			IdleTimeout:  time.Second,
+			LogWait:      state.LogWait,
 		}).Open(newConnector(&state), nil)
 
 		closed := atomic.Bool{}
