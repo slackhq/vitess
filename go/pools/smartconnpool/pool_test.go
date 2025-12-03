@@ -1340,7 +1340,10 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 		LogWait:     state.LogWait,
 	}).Open(newConnector(&state), nil)
 
-	getCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	base, baseCancel := context.WithCancel(context.Background())
+	t.Cleanup(baseCancel)
+
+	getCtx, cancel := context.WithTimeout(base, 500*time.Millisecond)
 	defer cancel()
 
 	// Get and return two connections
@@ -1372,7 +1375,7 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 	// Try to get connections while they're being reopened
 	// This should trigger the bug where connections get discarded
 	for i := 0; i < 2; i++ {
-		getCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		getCtx, cancel := context.WithTimeout(base, 50*time.Millisecond)
 		defer cancel()
 
 		conn, err := p.Get(getCtx, nil)
@@ -1396,7 +1399,7 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 	assert.Equal(t, int64(2), p.Metrics.IdleClosed())
 
 	// Try to close the pool - if there are leaked connections, this will timeout
-	closeCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	closeCtx, cancel := context.WithTimeout(base, 500*time.Millisecond)
 	defer cancel()
 
 	err = p.CloseWithContext(closeCtx)
