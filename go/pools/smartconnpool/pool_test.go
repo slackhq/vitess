@@ -1376,12 +1376,12 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 	// This should trigger the bug where connections get discarded
 	for i := 0; i < 2; i++ {
 		getCtx, cancel := context.WithTimeout(base, 50*time.Millisecond)
-		defer cancel()
 
 		conn, err := p.Get(getCtx, nil)
 		require.NoError(t, err)
 
 		p.put(conn)
+		cancel()
 	}
 
 	// Wait a moment for all reopening to complete
