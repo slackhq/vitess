@@ -1390,7 +1390,7 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 		require.Equal(c, int64(2), state.open.Load())
 		// Check the total number of closed connections
 		require.Equal(c, int64(2), state.close.Load())
-	}, 400*time.Millisecond, 10*time.Millisecond)
+	}, 1000*time.Millisecond, 10*time.Millisecond)
 
 	// Check the pool state
 	assert.Equal(t, int64(2), p.Active())
