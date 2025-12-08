@@ -1325,15 +1325,23 @@ func TestIdleTimeoutConnectionLeak(t *testing.T) {
 
 	// Try to get connections while they're being reopened
 	// This should trigger the bug where connections get discarded
+	wg := sync.WaitGroup{}
+
 	for i := 0; i < 2; i++ {
-		getCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			getCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
 
-		conn, err := p.Get(getCtx, nil)
-		require.NoError(t, err)
+			conn, err := p.Get(getCtx, nil)
+			require.NoError(t, err)
 
-		p.put(conn)
+			p.put(conn)
+		}()
 	}
+
+	wg.Wait()
 
 	// Wait a moment for all reopening to complete
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
