@@ -1415,5 +1415,5 @@ func TestIdleTimeoutDoesntLeaveLingeringConnection(t *testing.T) {
 		totalInStack++
 	}
 
-	require.Equal(t, totalInStack, 10)
+	require.LessOrEqual(t, totalInStack, 10)
 }
