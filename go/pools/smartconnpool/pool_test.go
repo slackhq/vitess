@@ -1448,7 +1448,7 @@ func BenchmarkPoolCleanupIdleConnectionsPerformanceNoIdleConnections(b *testing.
 
 	b.ResetTimer()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		p.closeIdleResources(time.Now())
 	}
 }
