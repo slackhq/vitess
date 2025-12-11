@@ -1126,7 +1126,7 @@ func TestVStreamStopOnReshardFalse(t *testing.T) {
 
 func TestVStreamWithKeyspacesToWatch(t *testing.T) {
 	extraVTGateArgs = append(extraVTGateArgs, []string{
-		"--keyspaces-to-watch", defaultSourceKs,
+		"--keyspaces_to_watch", defaultSourceKs,
 	}...)
 
 	testVStreamWithFailover(t, false)
