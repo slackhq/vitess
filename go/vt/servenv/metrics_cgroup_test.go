@@ -59,4 +59,3 @@ func TestErrHandlingWithCgroups(t *testing.T) {
 	require.ErrorContains(t, err, errCgroupMetricsNotAvailable.Error())
 	require.Equal(t, int(mem), -1)
 }
-

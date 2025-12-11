@@ -147,4 +147,3 @@ func computeMemoryUsage(usage uint64, limit uint64) (float64, error) {
 	}
 	return float64(usage) / float64(limit), nil
 }
-

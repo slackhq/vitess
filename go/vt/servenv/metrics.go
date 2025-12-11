@@ -35,4 +35,3 @@ func getMemoryUsage() float64 {
 	}
 	return -1
 }
-

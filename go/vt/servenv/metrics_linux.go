@@ -26,4 +26,3 @@ func getCgroupCpu() (float64, error) {
 func getCgroupMemory() (float64, error) {
 	return getCgroupMemoryUsage()
 }
-

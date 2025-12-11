@@ -35,4 +35,3 @@ func TestGetMemoryMetrics(t *testing.T) {
 	validateMem(t, memoryUsage, err)
 	t.Logf("Memory Utilization is %.2f", memoryUsage)
 }
-

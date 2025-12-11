@@ -38,4 +38,3 @@ func getHostMemoryUsage() (float64, error) {
 	}
 	return vmStat.UsedPercent / 100.0, nil
 }
-
