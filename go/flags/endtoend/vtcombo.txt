@@ -155,6 +155,7 @@ Flags:
       --grpc_cert string                                                 server certificate to use for gRPC connections, requires grpc_key, enables TLS
       --grpc_crl string                                                  path to a certificate revocation list in PEM format, client certificates will be further verified against this file during TLS handshake
       --grpc_enable_optional_tls                                         enable optional TLS mode when a server accepts both TLS and plain-text connections on the same port
+      --grpc_enable_orca_metrics                                         gRPC server option to enable sending ORCA metrics to clients for load balancing
       --grpc_enable_tracing                                              Enable gRPC tracing.
       --grpc_key string                                                  server private key to use for gRPC connections, requires grpc_cert, enables TLS
       --grpc_max_connection_age duration                                 Maximum age of a client connection before GoAway is sent. (default 2562047h47m16.854775807s)
