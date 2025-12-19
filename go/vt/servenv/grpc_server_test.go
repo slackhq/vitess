@@ -17,11 +17,12 @@ limitations under the License.
 package servenv
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"testing"
-
-	"context"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/orca"
@@ -104,6 +105,42 @@ func TestReportedOrca(t *testing.T) {
 		t.Errorf("Mem Utilization is not set %.2f", memUsage)
 	}
 	t.Logf("Memory utilization is %.2f", memUsage)
+}
+
+func TestOrcaGoroutineLeak(t *testing.T) {
+	if orcaStopChan != nil {
+		close(orcaStopChan)
+		orcaStopChan = nil
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	withTempVar(&gRPCPort, getFreePort())
+	withTempVar(&gRPCEnableOrcaMetrics, true)
+	withTempVar(&GRPCServerMetricsRecorder, nil)
+	createGRPCServer()
+
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	before := runtime.NumGoroutine()
+	registerOrca()
+	time.Sleep(50 * time.Millisecond)
+
+	stopOrca()
+
+	if GRPCServer != nil {
+		GRPCServer.Stop()
+		GRPCServer = nil
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	after := runtime.NumGoroutine()
+	if after > before {
+		t.Errorf("goroutine leak: %d goroutines leaked", after-before)
+	}
 }
 
 func getFreePort() int {

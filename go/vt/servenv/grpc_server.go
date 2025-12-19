@@ -74,6 +74,7 @@ var (
 // Injectable behavior for testing.
 var (
 	orcaRegisterFunc = orca.Register
+	orcaStopChan     chan struct{}
 )
 
 // Misc. server variables.
@@ -333,6 +334,8 @@ func serveGRPC() {
 	OnTermSync(func() {
 		log.Info("Initiated graceful stop of gRPC server")
 		GRPCServer.GracefulStop()
+		log.Info("Stopping ORCA metrics publisher")
+		stopOrca()
 		log.Info("gRPC server stopped")
 	})
 }
@@ -350,14 +353,34 @@ func registerOrca() {
 	GRPCServerMetricsRecorder.SetCPUUtilization(getCpuUsage())
 	GRPCServerMetricsRecorder.SetMemoryUtilization(getMemoryUsage())
 
+	// Initialize stop channel only if not already created
+	if orcaStopChan == nil {
+		orcaStopChan = make(chan struct{})
+	} else {
+		// Already registered, don't start another goroutine
+		return
+	}
+
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			GRPCServerMetricsRecorder.SetCPUUtilization(getCpuUsage())
-			GRPCServerMetricsRecorder.SetMemoryUtilization(getMemoryUsage())
+		for {
+			select {
+			case <-ticker.C:
+				GRPCServerMetricsRecorder.SetCPUUtilization(getCpuUsage())
+				GRPCServerMetricsRecorder.SetMemoryUtilization(getMemoryUsage())
+			case <-orcaStopChan:
+				return
+			}
 		}
 	}()
+}
+
+func stopOrca() {
+	if orcaStopChan != nil {
+		close(orcaStopChan)
+		orcaStopChan = nil
+	}
 }
 
 // GRPCCheckServiceMap returns if we should register a gRPC service
