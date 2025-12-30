@@ -67,6 +67,7 @@ func NewSrvKeyspaceWatcher(ctx context.Context, topoServer *topo.Server, counts 
 		counts:               counts,
 		cacheRefreshInterval: cacheRefresh,
 		cacheTTL:             cacheTTL,
+		topoServer:           topoServer,
 		entries:              make(map[string]*watchEntry),
 	}
 

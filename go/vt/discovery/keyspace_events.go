@@ -498,7 +498,7 @@ func (kss *keyspaceState) getMoveTablesStatus(vs *vschemapb.SrvVSchema) (*MoveTa
 		// if a rule exists for the table and points to the target keyspace, writes have been switched
 		if ok && len(r) > 0 && r[0] != fmt.Sprintf("%s.%s", kss.keyspace, oneDeniedTable) {
 			mtState.State = MoveTablesSwitched
-			log.Infof("onSrvKeyspace::  keyspace %s writes have been switched for table %s, rule %v", kss.keyspace, oneDeniedTable, r[0])
+			log.Infof("getMoveTablesStatus:  keyspace %s writes have been switched for table %s, rule %v", kss.keyspace, oneDeniedTable, r[0])
 		}
 	}
 	log.Infof("getMoveTablesStatus: keyspace %s declaring regular move tables %v", kss.keyspace, mtState)
@@ -527,7 +527,10 @@ func (kss *keyspaceState) onSrvKeyspace(newKeyspace *topodatapb.SrvKeyspace, new
 	// to the topology server, not to the keyspace itself. we'll keep waiting for more topology events.
 	if newError != nil {
 		kss.lastError = newError
-		log.Errorf("error while watching keyspace %q: %v", kss.keyspace, newError)
+		ts, _ := kss.kew.ts.GetTopoServer()
+		kvPath := fmt.Sprintf("/vitess/%s/keyspaces/%s/SrvKeyspace", kss.kew.localCell, kss.keyspace)
+		log.Errorf("error while watching keyspace %q (cell: %s, topo: %v, k/v path: %s): %v",
+			kss.keyspace, kss.kew.localCell, ts, kvPath, newError)
 		return true
 	}
 

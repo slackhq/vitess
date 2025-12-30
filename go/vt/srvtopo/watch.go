@@ -63,6 +63,8 @@ type resilientWatcher struct {
 	cacheRefreshInterval time.Duration
 	cacheTTL             time.Duration
 
+	topoServer *topo.Server
+
 	mutex   sync.Mutex
 	entries map[string]*watchEntry
 }
@@ -208,7 +210,11 @@ func (entry *watchEntry) onErrorLocked(ctx context.Context, err error, init bool
 		if !topo.IsErrType(err, topo.Interrupted) {
 			// No need to log if we're explicitly interrupted.
 			entry.lastError = fmt.Errorf("ResilientWatch stream failed for %v: %w", entry.key, err)
-			log.Errorf("%v", entry.lastError)
+
+			// Log with additional topo server and path details for better diagnostics
+			kvPath := entry.key.String()
+			log.Errorf("ResilientWatch stream failed for %v (topo: %v, k/v path: %s): %v",
+				entry.key, entry.rw.topoServer, kvPath, err)
 		}
 
 		// Even though we didn't get a new value, update the lastValueTime
