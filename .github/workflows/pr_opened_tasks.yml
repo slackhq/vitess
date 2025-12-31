@@ -5,6 +5,8 @@ name: PR opened tasks
 on:
   pull_request_target:
     types: [opened]
+    branches-ignore:
+      - '*'  # Disabled in Slack fork - GitHub App not configured
 
 jobs:
   # Skip PRs with "Backport" or "Forwardport" labels since those are automated.
