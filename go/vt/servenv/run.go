@@ -55,6 +55,10 @@ func Run(bindAddress string, port int) {
 		}
 	}()
 
+	if err := NotifyReady(); err != nil {
+		log.Warningf("Failed to notify init system: %v", err.Error())
+	}
+
 	ExitChan = make(chan os.Signal, 1)
 	signal.Notify(ExitChan, syscall.SIGTERM, syscall.SIGINT)
 	// Wait for signal
