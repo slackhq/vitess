@@ -272,16 +272,25 @@ func (ts *trafficSwitcher) updateSequenceValue(ctx context.Context, seq *sequenc
 	if sequenceTablet.DbNameOverride != "" {
 		seq.backingTableDBName = sequenceTablet.DbNameOverride
 	}
+	backingTableDBNameEscaped, err := sqlescape.EnsureEscaped(seq.backingTableDBName)
+	if err != nil {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid database name %s specified for sequence backing table: %v",
+			seq.backingTableDBName, err)
+	}
+	backingTableNameEscaped, err := sqlescape.EnsureEscaped(seq.backingTableName)
+	if err != nil {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid table name %s specified for sequence backing table: %v",
+			seq.backingTableName, err)
+	}
 	initQuery := sqlparser.BuildParsedQuery(sqlInitSequenceTable,
-		seq.backingTableDBName,
-		seq.backingTableName,
+		backingTableDBNameEscaped,
+		backingTableNameEscaped,
 		nextVal,
 		nextVal,
 		nextVal,
 	)
 
 	const maxTries = 2
-	var err error
 
 	for i := 0; i < maxTries; i++ {
 		// Attempt to initialize the sequence.
@@ -290,6 +299,13 @@ func (ts *trafficSwitcher) updateSequenceValue(ctx context.Context, seq *sequenc
 			MaxRows: 1,
 		})
 		if err == nil {
+			// It is important to reset in-memory sequence counters on the table,
+			// since it is possible for it to be outdated, this will prevent duplicate
+			// key errors.
+			err := ts.TabletManagerClient().ResetSequences(ctx, sequenceTablet.Tablet, []string{seq.backingTableName})
+			if err != nil {
+				return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "failed to reset sequences on %q: %v", seq.backingTableKeyspace, err)
+			}
 			return nil
 		}
 

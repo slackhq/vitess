@@ -5,9 +5,10 @@
   <parent>
     <groupId>io.vitess</groupId>
     <artifactId>vitess-parent</artifactId>
-    <version>22.0.1</version>
+    <version>22.0.2</version>
   </parent>
   <artifactId>vitess-jdbc</artifactId>
+  <name>Vitess JDBC Driver</name>
 
   <dependencies>
     <dependency>
@@ -34,9 +35,9 @@
     </dependency>
 
     <dependency>
-      <groupId>commons-lang</groupId>
-      <artifactId>commons-lang</artifactId>
-      <version>2.6</version>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <version>3.19.0</version>
     </dependency>
 
     <dependency>
