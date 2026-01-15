@@ -96,7 +96,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.78.2
 	github.com/aws/smithy-go v1.22.3
 	github.com/bndr/gotabulate v1.1.2
-	github.com/containerd/cgroups v1.1.0
 	github.com/containerd/cgroups/v3 v3.1.2
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gammazero/deque v1.0.0
