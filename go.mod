@@ -1,6 +1,6 @@
 module vitess.io/vitess
 
-go 1.24.9
+go 1.24.10
 
 require (
 	cloud.google.com/go/storage v1.51.0
@@ -54,7 +54,7 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.19.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.10.0
 	github.com/tchap/go-patricia v2.3.0+incompatible
 	github.com/tidwall/gjson v1.18.0
 	github.com/tinylib/msgp v1.2.5 // indirect
@@ -70,7 +70,7 @@ require (
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.38.0
 	golang.org/x/oauth2 v0.28.0
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.31.0
 	golang.org/x/term v0.30.0
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.11.0
@@ -105,7 +105,7 @@ require (
 	github.com/kr/text v0.2.0
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c
 	github.com/nsf/jsondiff v0.0.0-20210926074059-1e845ec5d249
-	github.com/shirou/gopsutil/v4 v4.25.12
+	github.com/shirou/gopsutil/v4 v4.25.6
 	github.com/slackhq/vitess-addons v0.22.1
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/jwalterweatherman v1.1.0
@@ -217,8 +217,8 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tklauser/go-sysconf v0.3.16 // indirect
-	github.com/tklauser/numcpus v0.11.0 // indirect
+	github.com/tklauser/go-sysconf v0.3.15 // indirect
+	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.35.0 // indirect
