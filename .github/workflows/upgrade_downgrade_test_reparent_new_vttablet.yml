@@ -23,6 +23,9 @@ jobs:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Reparent New VTTablet
     runs-on: vitess-ubuntu24-16cpu-1
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
     steps:
     - name: Skip CI
