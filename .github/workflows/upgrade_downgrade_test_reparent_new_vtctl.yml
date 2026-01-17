@@ -7,6 +7,8 @@ on:
     tags: '**'
   pull_request:
     branches: '**'
+    branches-ignore:
+      - 'slack-[0-9]+.[0-9]'
 
 concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'Upgrade Downgrade Testing Reparent New Vtctl')
