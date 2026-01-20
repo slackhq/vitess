@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=linux/amd64 golang:1.24.4-bookworm AS builder
+FROM --platform=linux/amd64 golang:1.24.10-bookworm AS builder
 
 # Allows docker builds to set the BUILD_NUMBER
 ARG BUILD_NUMBER
@@ -28,15 +28,16 @@ ARG BUILD_TIME
 
 WORKDIR /vt/src/vitess.io/vitess
 
+# Create vitess user
+RUN groupadd -r vitess && useradd -r -g vitess vitess
+RUN mkdir -p /vt/vtdataroot /home/vitess
+RUN chown -R vitess:vitess /vt /home/vitess
+
 # Setup private repo
 ARG GH_ACCESS_TOKEN
 ENV GH_ACCESS_TOKEN=${GH_ACCESS_TOKEN}
 RUN git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
-# Create vitess user
-RUN groupadd -r vitess && useradd -r -g vitess vitess
-RUN mkdir -p /vt/vtdataroot /home/vitess
-RUN chown -R vitess:vitess /vt /home/vitess
 USER vitess
 
 # Re-copy sources from working tree.

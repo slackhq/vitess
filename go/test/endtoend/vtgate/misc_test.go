@@ -528,6 +528,13 @@ func TestSQLSelectLimit(t *testing.T) {
 		utils.AssertMatches(t, conn, "select uid, msg from t7_xxhash order by uid", `[[VARCHAR("1") VARCHAR("a")] [VARCHAR("2") VARCHAR("b")]]`)
 		utils.AssertMatches(t, conn, "(select uid, msg from t7_xxhash order by uid)", `[[VARCHAR("1") VARCHAR("a")] [VARCHAR("2") VARCHAR("b")]]`)
 		utils.AssertMatches(t, conn, "select uid, msg from t7_xxhash order by uid limit 4", `[[VARCHAR("1") VARCHAR("a")] [VARCHAR("2") VARCHAR("b")] [VARCHAR("3") NULL] [VARCHAR("4") VARCHAR("a")]]`)
+
+		// Don't LIMIT subqueries
+		utils.AssertMatches(t, conn, "select count(*) from (select uid, msg from t7_xxhash order by uid) as subquery", `[[INT64(6)]]`)
+		utils.AssertMatches(t, conn, "select count(*) from (select 1 union all select 2 union all select 3) as subquery", `[[INT64(3)]]`)
+
+		utils.AssertMatches(t, conn, "select 1 union all select 2 union all select 3", `[[INT64(1)] [INT64(2)]]`)
+
 		/*
 			planner does not support query with order by in union query. without order by the results are not deterministic for testing purpose
 			utils.AssertMatches(t, conn, "select uid, msg from t7_xxhash union all select uid, msg from t7_xxhash order by uid", ``)
@@ -744,6 +751,27 @@ func TestFilterAfterLeftJoin(t *testing.T) {
 
 	query := "select /*vt+ PLANNER=gen4 */ A.id1, A.id2 from t1 as A left join t1 as B on A.id1 = B.id2 WHERE B.id1 IS NULL"
 	utils.AssertMatches(t, conn, query, `[[INT64(1) INT64(10)]]`)
+}
+
+func TestFilterWithINAfterLeftJoin(t *testing.T) {
+	conn, closer := start(t)
+	defer closer()
+
+	utils.Exec(t, conn, "insert into t1 (id1,id2) values (1, 10)")
+	utils.Exec(t, conn, "insert into t1 (id1,id2) values (2, 3)")
+	utils.Exec(t, conn, "insert into t1 (id1,id2) values (3, 2)")
+	utils.Exec(t, conn, "insert into t1 (id1,id2) values (4, 5)")
+
+	query := "select a.id1, b.id3 from t1 as a left outer join t2 as b on a.id2 = b.id4 WHERE a.id2 = 10 AND (b.id3 IS NULL OR b.id3 IN (1))"
+	utils.AssertMatches(t, conn, query, `[[INT64(1) NULL]]`)
+
+	utils.Exec(t, conn, "insert into t2 (id3,id4) values (1, 10)")
+
+	query = "select a.id1, b.id3 from t1 as a left outer join t2 as b on a.id2 = b.id4 WHERE a.id2 = 10 AND (b.id3 IS NULL OR b.id3 IN (1))"
+	utils.AssertMatches(t, conn, query, `[[INT64(1) INT64(1)]]`)
+
+	query = "select a.id1, b.id3 from t1 as a left outer join t2 as b on a.id2 = b.id4 WHERE a.id2 = 10 AND (b.id3 IS NULL OR (b.id3, b.id4) IN ((1, 10)))"
+	utils.AssertMatches(t, conn, query, `[[INT64(1) INT64(1)]]`)
 }
 
 func TestDescribeVindex(t *testing.T) {
