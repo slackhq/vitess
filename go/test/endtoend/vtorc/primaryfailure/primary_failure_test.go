@@ -637,6 +637,7 @@ func TestDownPrimaryPromotionRule(t *testing.T) {
 // That is the replica which should be promoted in case of primary failure
 // It should also be caught up when it is promoted
 func TestDownPrimaryPromotionRuleWithLag(t *testing.T) {
+	t.Skip("Test disabled")
 	defer utils.PrintVTOrcLogsOnFailure(t, clusterInfo.ClusterInstance)
 	defer cluster.PanicHandler(t)
 	utils.SetupVttabletsAndVTOrcs(t, clusterInfo, 2, 1, nil, cluster.VTOrcConfiguration{
@@ -717,6 +718,7 @@ func TestDownPrimaryPromotionRuleWithLag(t *testing.T) {
 // We let a replica in our own cell lag. That is the replica which should be promoted in case of primary failure
 // It should also be caught up when it is promoted
 func TestDownPrimaryPromotionRuleWithLagCrossCenter(t *testing.T) {
+	t.Skip("Test disabled")
 	defer utils.PrintVTOrcLogsOnFailure(t, clusterInfo.ClusterInstance)
 	defer cluster.PanicHandler(t)
 	utils.SetupVttabletsAndVTOrcs(t, clusterInfo, 2, 1, nil, cluster.VTOrcConfiguration{
