@@ -17,7 +17,14 @@ limitations under the License.
 package mysqlctl
 
 import (
+	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"vitess.io/vitess/go/mysql/fakesqldb"
+	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/vt/dbconfigs"
 )
 
 func testRedacted(t *testing.T, source, expected string) {
@@ -79,4 +86,30 @@ func TestRedactPassword(t *testing.T) {
   MASTER_PASSWORD = '****',
   PASSWORD = '****'
 `)
+}
+
+func TestPrimaryStatus(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+
+	params := db.ConnParams()
+	cp := *params
+	dbc := dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
+
+	db.AddQuery("SELECT 1", &sqltypes.Result{})
+	db.AddQuery("SHOW MASTER STATUS", sqltypes.MakeTestResult(sqltypes.MakeTestFields("test_field", "varchar"), "test_status"))
+	db.AddQuery("SELECT @@global.server_uuid", sqltypes.MakeTestResult(sqltypes.MakeTestFields("test_field", "varchar"), "test_uuid"))
+
+	testMysqld := NewMysqld(dbc)
+	defer testMysqld.Close()
+
+	ctx := context.Background()
+	res, err := testMysqld.PrimaryStatus(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, res)
+	assert.EqualValues(t, "test_uuid", res.ServerUUID)
+
+	db.AddQuery("SHOW MASTER STATUS", &sqltypes.Result{})
+	_, err = testMysqld.PrimaryStatus(ctx)
+	assert.ErrorContains(t, err, "no master status")
 }
