@@ -667,9 +667,12 @@ func TestServerStats(t *testing.T) {
 	assert.Contains(t, output, "ERROR 1047 (08S01)")
 	assert.Contains(t, output, "forced query error", "Unexpected output for 'error': %v", output)
 
-	assert.EqualValues(t, 0, connCount.Get(), "connCount")
+	// Wait for connection cleanup to complete
+	assert.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.EqualValues(t, 0, connCount.Get(), "connCount")
+		assert.EqualValues(t, 1, connSlow.Get(), "connSlow")
+	}, 1*time.Second, 10*time.Millisecond)
 	assert.EqualValues(t, 1, connAccept.Get(), "connAccept")
-	assert.EqualValues(t, 1, connSlow.Get(), "connSlow")
 	assert.EqualValues(t, 0, connRefuse.Get(), "connRefuse")
 
 	expectedTimingDeltas := map[string]int64{
@@ -694,9 +697,12 @@ func TestServerStats(t *testing.T) {
 	// MariaDB might not print the MySQL bit here
 	assert.Regexp(t, `Lost connection to( MySQL)? server during query`, output, "Unexpected output for 'panic': %v", output)
 
-	assert.EqualValues(t, 0, connCount.Get(), "connCount")
+	// Wait for connection cleanup to complete
+	assert.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.EqualValues(t, 0, connCount.Get(), "connCount")
+		assert.EqualValues(t, 1, connSlow.Get(), "connSlow")
+	}, 1*time.Second, 10*time.Millisecond)
 	assert.EqualValues(t, 2, connAccept.Get(), "connAccept")
-	assert.EqualValues(t, 1, connSlow.Get(), "connSlow")
 	assert.EqualValues(t, 0, connRefuse.Get(), "connRefuse")
 }
 
