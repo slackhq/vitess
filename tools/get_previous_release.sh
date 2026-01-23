@@ -20,7 +20,7 @@
 
 # github.base_ref $1
 
-# force previous release to v15
-target_release="slack-15.0"
+# force previous release to v18
+target_release="release-18.0"
 
 echo "$target_release"
