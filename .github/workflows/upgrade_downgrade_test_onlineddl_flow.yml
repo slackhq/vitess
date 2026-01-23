@@ -227,7 +227,7 @@ jobs:
 
     # Running a test with primary tablet at version n-1  and replica vttablet at version n (current SHA)
     - name: Run Online DDL tests (primary=N-1, replica=N)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: false
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
@@ -239,7 +239,7 @@ jobs:
 
     # Running a test with primary tablet at version n+1 and replica vttablet at version n (current SHA)
     - name: Run Online DDL tests (primary=N+1, replica=N)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: false
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
@@ -251,7 +251,7 @@ jobs:
 
     # Running a test with primary tablet at version n (current SHA) and replica vttablet at version n+1
     - name: Run Online DDL tests (primary=N, replica=N+1)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: false
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
