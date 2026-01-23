@@ -20,7 +20,7 @@
 
 # github.base_ref $1
 
-# force previous release to v18
-target_release="release-18.0"
+# force previous release to v19 train 1
+target_release="v19.0.7-slack-t1"
 
 echo "$target_release"
