@@ -18,11 +18,11 @@ package smartconnpool
 
 import (
 	"context"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"vitess.io/vitess/go/hack"
 	"vitess.io/vitess/go/vt/log"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
@@ -466,8 +466,7 @@ func (pool *ConnPool[D]) extendedMaxLifetime() time.Duration {
 	if maxLifetime == 0 {
 		return 0
 	}
-	extended := hack.FastRand() % uint32(maxLifetime)
-	return time.Duration(maxLifetime) + time.Duration(extended)
+	return time.Duration(maxLifetime) + time.Duration(rand.Uint32N(uint32(maxLifetime)))
 }
 
 func (pool *ConnPool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Duration) (err error) {
