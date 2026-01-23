@@ -127,7 +127,14 @@ type keyspaceState struct {
 	moveTablesState *MoveTablesState
 }
 
-// Format prints the internal state for this keyspace for debug purposes
+// isConsistent returns whether the keyspace is currently consistent or not.
+func (kss *keyspaceState) isConsistent() bool {
+	kss.mu.Lock()
+	defer kss.mu.Unlock()
+	return kss.consistent
+}
+
+// Format prints the internal state for this keyspace for debug purposes.
 func (kss *keyspaceState) Format(f fmt.State, verb rune) {
 	kss.mu.Lock()
 	defer kss.mu.Unlock()
@@ -255,10 +262,12 @@ func (kew *KeyspaceEventWatcher) run(ctx context.Context) {
 func (kss *keyspaceState) ensureConsistentLocked() {
 	// if this keyspace is consistent, there's no ongoing availability event
 	if kss.consistent {
+		log.V(2).Infof("keyspace %s: already consistent, skipping ensureConsistentLocked", kss.keyspace)
 		return
 	}
 
 	if kss.moveTablesState != nil && kss.moveTablesState.Typ != MoveTablesNone && kss.moveTablesState.State != MoveTablesSwitched {
+		log.Infof("keyspace %s: MoveTables operation in progress, not marking consistent yet", kss.keyspace)
 		return
 	}
 
@@ -270,6 +279,12 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 	// if there are ShardTabletControls active, the keyspace is undergoing a topology change;
 	// either way, the availability event is still ongoing
 	if primary == nil || len(primary.ShardTabletControls) > 0 {
+		if primary == nil {
+			log.Infof("keyspace %s: primary partition is nil, not marking consistent yet", kss.keyspace)
+		} else {
+			log.Infof("keyspace %s: ShardTabletControls still active (%d controls), not marking consistent yet",
+				kss.keyspace, len(primary.ShardTabletControls))
+		}
 		return
 	}
 
@@ -282,6 +297,8 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 	for _, shard := range primary.ShardReferences {
 		sstate := kss.shards[shard.Name]
 		if sstate == nil || !sstate.serving {
+			log.Infof("keyspace %s, shard %s: shard state not ready (nil: %v, serving: %v), not marking consistent yet",
+				kss.keyspace, shard.Name, sstate == nil, sstate != nil && sstate.serving)
 			return
 		}
 		activeShardsInPartition[shard.Name] = true
@@ -292,6 +309,8 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 	// watcher, it means the keyspace is not fully consistent yet
 	for shard, sstate := range kss.shards {
 		if sstate.serving && !activeShardsInPartition[shard] {
+			log.Infof("keyspace %s, shard %s: shard is serving in healthcheck but not in topology partition, not marking consistent yet",
+				kss.keyspace, shard)
 			return
 		}
 	}
@@ -313,6 +332,7 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 	// watcher. this means the ongoing availability event has been resolved, so we can broadcast
 	// a resolution event to all listeners
 	kss.consistent = true
+	log.Infof("keyspace %s is now consistent", kss.keyspace)
 
 	kss.moveTablesState = nil
 
@@ -323,12 +343,10 @@ func (kss *keyspaceState) ensureConsistentLocked() {
 			Serving: sstate.serving,
 		})
 
-		// Disable it due to log storm in production
-		// thread https://slack-pde.slack.com/archives/C06CPL4HMED/p1729896804879749
-		// log.Infof("keyspace event resolved: %s/%s is now consistent (serving: %v)",
-		//	sstate.target.Keyspace, sstate.target.Keyspace,
-		//	sstate.serving,
-		// )
+		log.V(2).Infof("keyspace event resolved: %s is now consistent (serving: %t)",
+			topoproto.KeyspaceShardString(sstate.target.Keyspace, sstate.target.Shard),
+			sstate.serving,
+		)
 
 		if !sstate.serving {
 			delete(kss.shards, shard)
@@ -766,7 +784,7 @@ func (kew *KeyspaceEventWatcher) WaitForConsistentKeyspaces(ctx context.Context,
 			kss := kew.getKeyspaceStatus(ctx, ks)
 			// If kss is nil, then it must be deleted. In that case too it is fine for us to consider
 			// it consistent since the keyspace has been deleted.
-			if kss == nil || kss.consistent {
+			if kss == nil || kss.isConsistent() {
 				keyspaces[i] = ""
 			} else {
 				allConsistent = false
