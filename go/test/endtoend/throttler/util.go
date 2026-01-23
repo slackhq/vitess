@@ -176,6 +176,7 @@ func CheckThrottler(vtctldProcess *cluster.VtctldClientProcess, tablet *cluster.
 // GetThrottlerStatus runs vtctldclient CheckThrottler.
 func GetThrottlerStatus(vtctldProcess *cluster.VtctldClientProcess, tablet *cluster.Vttablet) (*tabletmanagerdatapb.GetThrottlerStatusResponse, error) {
 	output, err := GetThrottlerStatusRaw(vtctldProcess, tablet)
+	log.Infof("release binary: %s; err: %v", tablet.VttabletProcess.Binary, err)
 	if err != nil && strings.HasSuffix(tablet.VttabletProcess.Binary, "-last") {
 		// TODO(shlomi): Remove in v22!
 		// GetThrottlerStatus gRPC was added in v21. Upgrade-downgrade tests which run a
