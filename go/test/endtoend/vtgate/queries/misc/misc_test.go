@@ -346,7 +346,7 @@ func TestAliasesInOuterJoinQueries(t *testing.T) {
 }
 
 func TestAlterTableWithView(t *testing.T) {
-	utils.SkipIfBinaryIsBelowVersion(t, 19, "vtgate")
+	utils.SkipIfBinaryIsBelowVersion(t, 20, "vtgate")
 	mcmp, closer := start(t)
 	defer closer()
 
