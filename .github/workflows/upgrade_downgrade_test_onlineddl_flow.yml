@@ -226,6 +226,7 @@ jobs:
         go run test.go -skip-build -keep-data=false -docker=false -print-log -follow -tag upgrade_downgrade_onlineddl_flow
 
     # Running a test with primary tablet at version n-1  and replica vttablet at version n (current SHA)
+    # v19 online ddl (single-metric throttler) is not compatible with v22 online ddl (multi-metric throttler)
     - name: Run Online DDL tests (primary=N-1, replica=N)
       if: false
       run: |
@@ -239,7 +240,7 @@ jobs:
 
     # Running a test with primary tablet at version n+1 and replica vttablet at version n (current SHA)
     - name: Run Online DDL tests (primary=N+1, replica=N)
-      if: false
+      if: steps.changes.outputs.end_to_end == 'true'
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
@@ -251,7 +252,7 @@ jobs:
 
     # Running a test with primary tablet at version n (current SHA) and replica vttablet at version n+1
     - name: Run Online DDL tests (primary=N, replica=N+1)
-      if: false
+      if: steps.changes.outputs.end_to_end == 'true'
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
