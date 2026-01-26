@@ -98,6 +98,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y percona-xtrabackup-80
 
+    - name: Setup github.com/slackhq/vitess-addons access token
+      if: steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
     # Checkout to the last release of Vitess
     - name: Check out other version's code (${{ steps.output-previous-release-ref.outputs.previous_release_ref }})
       if: steps.changes.outputs.end_to_end == 'true'
@@ -134,10 +138,6 @@ jobs:
       with:
         go-version-file: go.mod
         cache: false
-
-    - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to this build's commit
     - name: Check out commit's code

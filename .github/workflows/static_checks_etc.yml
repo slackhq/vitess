@@ -15,6 +15,9 @@ jobs:
   build:
     name: Static Code Checks Etc
     runs-on: ubuntu-24.04
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
     steps:
       - name: Skip CI
@@ -24,26 +27,14 @@ jobs:
             exit 1
           fi
 
-<<<<<<< HEAD
-=======
-      - name: Check if workflow needs to be skipped
-        id: skip-workflow
-        run: |
-          skip='false'
-          if [[ "${{github.event.pull_request}}" ==  "" ]] && [[ "${{github.ref}}" != "refs/heads/main" ]] && [[ ! "${{github.ref}}" =~ ^refs/heads/slack-[0-9]+\.[0-9]$ ]] && [[ ! "${{github.ref}}" =~ "refs/tags/.*" ]]; then
-            skip='true'
-          fi
-          echo Skip ${skip}
-          echo "skip-workflow=${skip}" >> $GITHUB_OUTPUT  
 
->>>>>>> e0f7ec69a1 (`slack-22.0`: setup slackhq CI (#656))
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: 'false'
 
       - name: Run FOSSA scan and upload build data
-        uses: fossa-contrib/fossa-action@3d2ef181b1820d6dcd1972f86a767d18167fa19b # v3.0.1
+        uses: fossa-contrib/fossa-action@v3
         with:
           # This is a push-only API token: https://github.com/fossa-contrib/fossa-action#push-only-api-token
           fossa-api-key: f62c11ef0c249fef239947f01279aa0f
@@ -131,13 +122,13 @@ jobs:
 
       - name: Set up Go
         if: (steps.changes.outputs.go_files == 'true' || steps.changes.outputs.parser_changes == 'true' || steps.changes.outputs.proto_changes == 'true')
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
         with:
           go-version-file: go.mod
 
       - name: Setup GitHub access token
-        if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.go_files == 'true'
-        run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+        if: steps.changes.outputs.go_files == 'true'
+        run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
       - name: Tune the OS
         if: steps.changes.outputs.go_files == 'true'
@@ -235,7 +226,7 @@ jobs:
 
       - name: Setup Node
         if: steps.changes.outputs.proto_changes == 'true'
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
         with:
           # make proto requires newer node than the pre-installed one
           node-version: '22.13.1'
