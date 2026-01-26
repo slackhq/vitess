@@ -597,6 +597,21 @@ func (exec *TabletExecutor) executeOneTablet(
 		}
 		results, err = exec.tmc.ExecuteMultiFetchAsDba(ctx, tablet, false, request)
 
+		// Fallback to ExecuteFetchAsDba for v19.0 compatibility
+		if err != nil && (vterrors.Code(err) == vtrpcpb.Code_UNIMPLEMENTED || strings.Contains(err.Error(), "unknown method ExecuteMultiFetchAsDba")) {
+			fallbackRequest := &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
+				Query:   []byte(sql),
+				MaxRows: 10,
+			}
+			if exec.ddlStrategySetting != nil && exec.ddlStrategySetting.IsAllowForeignKeysFlag() {
+				fallbackRequest.DisableForeignKeyChecks = true
+			}
+			var result *querypb.QueryResult
+			result, err = exec.tmc.ExecuteFetchAsDba(ctx, tablet, false, fallbackRequest)
+			if err == nil {
+				results = []*querypb.QueryResult{result}
+			}
+		}
 	}
 	if err != nil {
 		errChan <- ShardWithError{Shard: tablet.Shard, Err: err.Error()}

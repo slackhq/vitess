@@ -35,7 +35,6 @@ jobs:
           exit 1
         fi
 
-
     - name: Check out commit's code
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
@@ -103,6 +102,10 @@ jobs:
         
         sudo service etcd stop
 
+    - name: Setup github.com/slackhq/vitess-addons access token
+      if: steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
     # Checkout to the last release of Vitess
     - name: Check out last version's code (${{ steps.output-previous-release-ref.outputs.previous_release_ref }})
       if: steps.changes.outputs.end_to_end == 'true'
@@ -133,10 +136,6 @@ jobs:
         mkdir -p /tmp/vitess-build-last/
         cp -R bin /tmp/vitess-build-last/
         rm -Rf bin/*
-
-    - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to the next release of Vitess
     - name: Check out next version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})
@@ -227,8 +226,9 @@ jobs:
         go run test.go -skip-build -keep-data=false -docker=false -print-log -follow -tag upgrade_downgrade_onlineddl_flow
 
     # Running a test with primary tablet at version n-1  and replica vttablet at version n (current SHA)
+    # v19 online ddl (single-metric throttler) is not compatible with v22 online ddl (multi-metric throttler)
     - name: Run Online DDL tests (primary=N-1, replica=N)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: false
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
