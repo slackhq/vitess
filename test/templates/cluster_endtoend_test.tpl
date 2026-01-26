@@ -103,7 +103,9 @@ jobs:
         sudo apt-get install -y lsb-release gnupg2 curl
         wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
-        sudo percona-release setup ps80
+        # Enable tools repository first, then ps-80
+        sudo percona-release enable-only tools release
+        sudo percona-release enable ps-80 release
         sudo apt-get update
 
         # Install everything else we need, and configure
