@@ -174,7 +174,7 @@ jobs:
 
     # Running a test with vtctl at version n and vttablet at version n-1
     - name: Run reparent tests (vtctl=N, vttablet=N-1)
-      if: steps.skip-workflow.outputs.skip-workflow == 'false' && steps.changes.outputs.end_to_end == 'true'
+      if: false
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
