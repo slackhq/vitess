@@ -753,10 +753,15 @@ func (pr *PlannedReparenter) verifyAllTabletsReachable(ctx context.Context, tabl
 	errorGroup, groupCtx := errgroup.WithContext(verifyCtx)
 	for tblStr, info := range tabletMap {
 		tablet := info.Tablet
+		tabletAlias := tblStr
 		errorGroup.Go(func() error {
 			statusValues, err := pr.tmc.GetGlobalStatusVars(groupCtx, tablet, []string{InnodbBufferPoolsDataVar})
 			if err != nil {
-				return err
+				if groupCtx.Err() == context.DeadlineExceeded {
+					return vterrors.Wrapf(err, "timed out verifying tablet %v is reachable (timeout: %v); all tablets must be reachable for PlannedReparent",
+						tabletAlias, topo.RemoteOperationTimeout)
+				}
+				return vterrors.Wrapf(err, "failed to verify tablet %v is reachable", tabletAlias)
 			}
 			// We are ignoring the error in conversion because some MySQL variants might not have this
 			// status variable like MariaDB.
