@@ -18,6 +18,7 @@ package vtgate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime/pprof"
