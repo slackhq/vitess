@@ -25,7 +25,6 @@ import (
 
 	"vitess.io/vitess/go/cmd/vtctldclient/cli"
 	"vitess.io/vitess/go/internal/flag"
-	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/vtctl/vtctlclient"
 
@@ -94,7 +93,7 @@ func runLegacyCommand(ctx context.Context, args []string) error {
 
 		errStr := strings.ReplaceAll(err.Error(), "remote error: ", "")
 		fmt.Printf("%s Error: %s\n", flag.Arg(0), errStr)
-		log.Error(err)
+		// Don't log here - error will be logged by main.go to avoid duplicate logging
 	}
 
 	return err
