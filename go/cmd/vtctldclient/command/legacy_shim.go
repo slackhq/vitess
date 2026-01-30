@@ -24,8 +24,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/cmd/vtctldclient/cli"
-	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/internal/flag"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/vtctl/vtctlclient"
 
@@ -94,12 +94,10 @@ func runLegacyCommand(ctx context.Context, args []string) error {
 
 		errStr := strings.ReplaceAll(err.Error(), "remote error: ", "")
 		fmt.Printf("%s Error: %s\n", flag.Arg(0), errStr)
-		// Exit with error code 1, but return nil to prevent duplicate logging in main.go
-		exit.Return(1)
-		return nil
+		log.Error(err)
 	}
 
-	return nil
+	return err
 }
 
 func init() {
