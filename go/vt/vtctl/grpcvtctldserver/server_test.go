@@ -9029,7 +9029,7 @@ func TestPlannedReparentShard(t *testing.T) {
 				WaitReplicasTimeout: protoutil.DurationToProto(time.Millisecond * 10),
 			},
 			expectEventsToOccur: true,
-			expectedErr:         "global status vars failed",
+			expectedErr:         "failed to verify tablet zone1-0000000200 is reachable: global status vars failed",
 		},
 	}
 
