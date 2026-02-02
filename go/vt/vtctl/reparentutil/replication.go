@@ -247,7 +247,7 @@ func stopReplicationAndBuildStatusMaps(
 			errChan <- concurrencyErr
 		}()
 
-		logger.Infof("getting replication position from %v", alias)
+		log.Infof("getting replication position from %v", alias)
 
 		stopReplicationStatus, err := tmc.StopReplicationAndGetStatus(groupCtx, tabletInfo.Tablet, replicationdatapb.StopReplicationMode_IOTHREADONLY)
 		if err != nil {
@@ -260,7 +260,7 @@ func stopReplicationAndBuildStatusMaps(
 					msg := "replica %v thinks it's primary but we failed to demote it: %v"
 					err = vterrors.Wrapf(err, msg, alias, err)
 
-					logger.Warningf(msg, alias, err)
+					log.Warningf(msg, alias, err)
 					return
 				}
 
