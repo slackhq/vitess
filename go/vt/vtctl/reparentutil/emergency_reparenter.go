@@ -146,7 +146,7 @@ func (erp *EmergencyReparenter) getLockAction(newPrimaryAlias *topodatapb.Tablet
 // reparentShardLocked performs Emergency Reparent Shard operation assuming that the shard is already locked
 func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *events.Reparent, keyspace, shard string, opts EmergencyReparentOptions) (err error) {
 	// log the starting of the operation and increment the counter
-	erp.logger.Infof("will initiate emergency reparent shard in keyspace - %s, shard - %s", keyspace, shard)
+	log.Infof("will initiate emergency reparent shard in keyspace - %s, shard - %s", keyspace, shard)
 
 	var (
 		stoppedReplicationSnapshot *replicationSnapshot
@@ -180,7 +180,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 		return err
 	}
 
-	erp.logger.Infof("Getting a new durability policy for %v", keyspaceDurability)
+	log.Infof("Getting a new durability policy for %v", keyspaceDurability)
 	opts.durability, err = policy.GetDurabilityPolicy(keyspaceDurability)
 	if err != nil {
 		return err
@@ -251,7 +251,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	if err != nil {
 		return err
 	}
-	erp.logger.Infof("intermediate source selected - %v", intermediateSource.Alias)
+	log.Infof("intermediate source selected - %v", intermediateSource.Alias)
 
 	// After finding the intermediate source, we want to filter the valid candidate list by the following criteria -
 	// 1. Only keep the tablets which can make progress after being promoted (have sufficient reachable semi-sync ackers)
@@ -269,7 +269,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	if err != nil {
 		return err
 	}
-	erp.logger.Infof("intermediate source is ideal candidate- %v", isIdeal)
+	log.Infof("intermediate source is ideal candidate- %v", isIdeal)
 
 	// Check (again) we still have the topology lock.
 	if err := topo.CheckShardLocked(ctx, keyspace, shard); err != nil {
@@ -399,7 +399,7 @@ func (erp *EmergencyReparenter) findMostAdvanced(
 	tabletMap map[string]*topo.TabletInfo,
 	opts EmergencyReparentOptions,
 ) (*topodatapb.Tablet, []*topodatapb.Tablet, error) {
-	erp.logger.Infof("started finding the intermediate source")
+	log.Infof("started finding the intermediate source")
 	// convert the valid candidates into a list so that we can use it for sorting
 	validTablets, tabletPositions, err := getValidCandidatesAndPositionsAsList(validCandidates, tabletMap)
 	if err != nil {
@@ -412,7 +412,7 @@ func (erp *EmergencyReparenter) findMostAdvanced(
 		return nil, nil, err
 	}
 	for _, tablet := range validTablets {
-		erp.logger.Infof("finding intermediate source - sorted replica: %v", tablet.Alias)
+		log.Infof("finding intermediate source - sorted replica: %v", tablet.Alias)
 	}
 
 	// The first tablet in the sorted list will be the most eligible candidate unless explicitly asked for some other tablet
@@ -537,18 +537,18 @@ func (erp *EmergencyReparenter) reparentReplicas(
 			var position string
 			var err error
 			if ev.ShardInfo.PrimaryAlias == nil {
-				erp.logger.Infof("setting up %v as new primary for an uninitialized cluster", alias)
+				log.Infof("setting up %v as new primary for an uninitialized cluster", alias)
 				// we call InitPrimary when the PrimaryAlias in the ShardInfo is empty. This happens when we have an uninitialized cluster.
 				position, err = erp.tmc.InitPrimary(primaryCtx, tablet, policy.SemiSyncAckers(opts.durability, tablet) > 0)
 			} else {
-				erp.logger.Infof("starting promotion for the new primary - %v", alias)
+				log.Infof("starting promotion for the new primary - %v", alias)
 				// we call PromoteReplica which changes the tablet type, fixes the semi-sync, set the primary to read-write and flushes the binlogs
 				position, err = erp.tmc.PromoteReplica(primaryCtx, tablet, policy.SemiSyncAckers(opts.durability, tablet) > 0)
 			}
 			if err != nil {
 				return vterrors.Wrapf(err, "primary-elect tablet %v failed to be upgraded to primary: %v", alias, err)
 			}
-			erp.logger.Infof("populating reparent journal on new primary %v", alias)
+			log.Infof("populating reparent journal on new primary %v", alias)
 			err = erp.tmc.PopulateReparentJournal(primaryCtx, tablet, now, opts.lockAction, tablet.Alias, position)
 			if err != nil {
 				return vterrors.Wrapf(err, "failed to PopulateReparentJournal on primary: %v", err)
@@ -559,7 +559,7 @@ func (erp *EmergencyReparenter) reparentReplicas(
 
 	handleReplica := func(alias string, ti *topo.TabletInfo) {
 		defer replWg.Done()
-		erp.logger.Infof("setting new primary on replica %v", alias)
+		log.Infof("setting new primary on replica %v", alias)
 
 		forceStart := false
 		if status, ok := statusMap[alias]; ok {
@@ -694,7 +694,7 @@ func (erp *EmergencyReparenter) identifyPrimaryCandidate(
 ) (candidate *topodatapb.Tablet, err error) {
 	defer func() {
 		if candidate != nil {
-			erp.logger.Infof("found better candidate - %v", candidate.Alias)
+			log.Infof("found better candidate - %v", candidate.Alias)
 		}
 	}()
 
@@ -747,7 +747,7 @@ func (erp *EmergencyReparenter) filterValidCandidates(validTablets []*topodatapb
 		tabletAliasStr := topoproto.TabletAliasString(tablet.Alias)
 		// Remove tablets which have MustNot promote rule since they must never be promoted
 		if policy.PromotionRule(opts.durability, tablet) == promotionrule.MustNot {
-			erp.logger.Infof("Removing %s from list of valid candidates for promotion because it has the Must Not promote rule", tabletAliasStr)
+			log.Infof("Removing %s from list of valid candidates for promotion because it has the Must Not promote rule", tabletAliasStr)
 			if opts.NewPrimaryAlias != nil && topoproto.TabletAliasEqual(opts.NewPrimaryAlias, tablet.Alias) {
 				return nil, vterrors.Errorf(vtrpc.Code_ABORTED, "proposed primary %s has a must not promotion rule", topoproto.TabletAliasString(opts.NewPrimaryAlias))
 			}
@@ -755,7 +755,7 @@ func (erp *EmergencyReparenter) filterValidCandidates(validTablets []*topodatapb
 		}
 		// If ERS is configured to prevent cross cell promotions, remove any tablet not from the same cell as the previous primary
 		if opts.PreventCrossCellPromotion && prevPrimary != nil && tablet.Alias.Cell != prevPrimary.Alias.Cell {
-			erp.logger.Infof("Removing %s from list of valid candidates for promotion because it isn't in the same cell as the previous primary", tabletAliasStr)
+			log.Infof("Removing %s from list of valid candidates for promotion because it isn't in the same cell as the previous primary", tabletAliasStr)
 			if opts.NewPrimaryAlias != nil && topoproto.TabletAliasEqual(opts.NewPrimaryAlias, tablet.Alias) {
 				return nil, vterrors.Errorf(vtrpc.Code_ABORTED, "proposed primary %s is is a different cell as the previous primary", topoproto.TabletAliasString(opts.NewPrimaryAlias))
 			}
@@ -763,7 +763,7 @@ func (erp *EmergencyReparenter) filterValidCandidates(validTablets []*topodatapb
 		}
 		// Remove any tablet which cannot make forward progress using the list of tablets we have reached
 		if !canEstablishForTablet(opts.durability, tablet, tabletsReachable) {
-			erp.logger.Infof("Removing %s from list of valid candidates for promotion because it will not be able to make forward progress on promotion with the tablets currently reachable", tabletAliasStr)
+			log.Infof("Removing %s from list of valid candidates for promotion because it will not be able to make forward progress on promotion with the tablets currently reachable", tabletAliasStr)
 			if opts.NewPrimaryAlias != nil && topoproto.TabletAliasEqual(opts.NewPrimaryAlias, tablet.Alias) {
 				return nil, vterrors.Errorf(vtrpc.Code_ABORTED, "proposed primary %s will not be able to make forward progress on being promoted", topoproto.TabletAliasString(opts.NewPrimaryAlias))
 			}
@@ -772,7 +772,7 @@ func (erp *EmergencyReparenter) filterValidCandidates(validTablets []*topodatapb
 		// Put candidates that are running a backup in a separate list
 		backingUp, ok := tabletsBackupState[tabletAliasStr]
 		if ok && backingUp {
-			erp.logger.Infof("Setting %s in list of valid candidates taking a backup", tabletAliasStr)
+			log.Infof("Setting %s in list of valid candidates taking a backup", tabletAliasStr)
 			notPreferredValidTablets = append(notPreferredValidTablets, tablet)
 		} else {
 			restrictedValidTablets = append(restrictedValidTablets, tablet)
