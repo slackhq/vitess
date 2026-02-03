@@ -128,6 +128,10 @@ func RegisterFlagsWithTimeouts(tf *TimeoutFlags) {
 		// pid_file.go
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
+		// Logging
+		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "Enable json-based structured logging")
+		fs.Var((*logutil.ZapLogLevelFlag)(&logutil.StructuredLoggingLevel), "structured-log-level", "The minimum log level, options: debug, info, warn, error.")
+
 		timeouts = tf
 	})
 }
