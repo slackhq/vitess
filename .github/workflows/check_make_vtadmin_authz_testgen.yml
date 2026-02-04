@@ -53,6 +53,10 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.vtadmin_changes == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Get dependencies
       if: steps.changes.outputs.vtadmin_changes == 'true'
       run: |

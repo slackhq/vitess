@@ -54,6 +54,10 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.proto_changes == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Setup Node
       if: steps.changes.outputs.proto_changes == 'true'
       uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
