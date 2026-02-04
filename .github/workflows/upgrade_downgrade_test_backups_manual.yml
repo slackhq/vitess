@@ -20,10 +20,7 @@ jobs:
   upgrade_downgrade_test_manual:
     timeout-minutes: 40
     name: Run Upgrade Downgrade Test - Backups - Manual
-    runs-on: vitess-ubuntu24-16cpu-1
-    env:
-      GOPRIVATE: github.com/slackhq/vitess-addons
-      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+    runs-on: gh-hosted-runners-16cores-1-24.04
 
     steps:
     - name: Skip CI
@@ -32,7 +29,6 @@ jobs:
           echo "skipping CI due to the 'Skip CI' label"
           exit 1
         fi
-
 
     # Checkout to this build's commit
     - name: Checkout to commit's code
@@ -102,10 +98,6 @@ jobs:
         sudo percona-release enable-only tools
         sudo apt-get update
         sudo apt-get install -y percona-xtrabackup-80
-
-    - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to the last release of Vitess
     - name: Checkout to the other version's code (${{ steps.output-previous-release-ref.outputs.previous_release_ref }})

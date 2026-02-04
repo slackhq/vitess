@@ -64,7 +64,7 @@ jobs:
 
     - name: Set up Go
       if: steps.changes.outputs.end_to_end == 'true'
-      uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version-file: go.mod
 
@@ -90,9 +90,7 @@ jobs:
         sudo apt-get -qq install -y lsb-release gnupg2
         wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
-        # Enable tools repository first, then ps-80
-        sudo percona-release enable-only tools release
-        sudo percona-release enable ps-80 release
+        sudo percona-release setup pdps8.0
         sudo apt-get -qq update
 
         sudo apt-get -qq install -y percona-server-server percona-server-client
@@ -143,20 +141,20 @@ jobs:
         go run test.go -docker=false -follow -shard xb_backup | tee -a output.txt | go-junit-report -set-exit-code > report.xml
 
     - name: Record test results in launchable if PR is not a draft
-      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && always()
+      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && !cancelled()
       run: |
         # send recorded tests to launchable
         launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
 
     - name: Print test output
-      if: steps.changes.outputs.end_to_end == 'true' && always()
+      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
       run: |
         # print test output
         cat output.txt
 
     - name: Test Summary
-      if: steps.changes.outputs.end_to_end == 'true' && always()
+      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
       uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86 # v2.4
       with:
-        paths: "report.xml"
+        paths: "_test/junit/*.xml"
         show: "fail"

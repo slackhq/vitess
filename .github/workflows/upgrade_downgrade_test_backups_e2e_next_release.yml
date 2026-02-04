@@ -7,8 +7,6 @@ on:
     tags: '**'
   pull_request:
     branches: '**'
-    branches-ignore:
-      - 'slack-[0-9]+.[0-9]'
 
 concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'Upgrade Downgrade Testing - Backups - E2E - Next Release')
@@ -21,7 +19,7 @@ jobs:
   upgrade_downgrade_test_e2e:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Backups - E2E - Next Release
-    runs-on: vitess-ubuntu24-16cpu-1
+    runs-on: gh-hosted-runners-16cores-1-24.04
 
     steps:
     - name: Skip CI
@@ -44,8 +42,8 @@ jobs:
         echo $next_release_ref
         echo "next_release_ref=${next_release_ref}" >> $GITHUB_OUTPUT
 
-
     - name: Check for changes in relevant files
+      if: steps.output-next-release-ref.outputs.next_release_ref != ''
       uses: dorny/paths-filter@ebc4d7e9ebcb0b1eb21480bb8f43113e996ac77a # v3.0.1
       id: changes
       with:
@@ -70,12 +68,8 @@ jobs:
       if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: ./.github/actions/tune-os
 
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
-
     - name: Set up python
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
 
     - name: Setup MySQL
@@ -86,7 +80,7 @@ jobs:
 
     - name: Get base dependencies
       timeout-minutes: 10
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         sudo DEBIAN_FRONTEND="noninteractive" apt-get update
 
@@ -104,7 +98,7 @@ jobs:
 
     # Checkout to the next release of Vitess
     - name: Check out other version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         ref: ${{ steps.output-next-release-ref.outputs.next_release_ref }}
@@ -118,12 +112,12 @@ jobs:
         cache: false
 
     - name: Get dependencies for the next release
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         go mod download
 
     - name: Building next release's binaries
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env
@@ -134,7 +128,7 @@ jobs:
 
     # Checkout to this build's commit
     - name: Check out commit's code
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         persist-credentials: 'false'
@@ -147,12 +141,12 @@ jobs:
         cache: false
 
     - name: Get dependencies for this commit
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         go mod download
 
     - name: Building the binaries for this commit
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env
@@ -162,7 +156,7 @@ jobs:
 
     # Swap binaries, use next release's VTTablet
     - name: Use next release's VTTablet
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env
 
@@ -174,7 +168,7 @@ jobs:
 
     # Run test with VTTablet at version N+1 and VTBackup at version N
     - name: Run backups tests (vttablet=N+1, vtbackup=N)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot
@@ -184,7 +178,7 @@ jobs:
 
     # Swap binaries again, use current version's VTTablet, and next release's VTBackup
     - name: Use current version VTTablet, and other version VTBackup
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env
 
@@ -198,7 +192,7 @@ jobs:
 
     # Run test again with VTTablet at version N, and VTBackup at version N+1
     - name: Run backups tests (vttablet=N, vtbackup=N+1)
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         rm -rf /tmp/vtdataroot
         mkdir -p /tmp/vtdataroot

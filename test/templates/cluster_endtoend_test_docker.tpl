@@ -55,7 +55,7 @@ jobs:
 
     - name: Set up Go
       if: steps.changes.outputs.end_to_end == 'true'
-      uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version-file: go.mod
 
@@ -79,3 +79,10 @@ jobs:
         export VTDATAROOT="/tmp/"
 
         go run test.go -docker=true --follow -shard {{.Shard}}
+
+    - name: Test Summary
+      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
+      uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86 # v2.4
+      with:
+        paths: "_test/junit/*.xml"
+        show: "fail"

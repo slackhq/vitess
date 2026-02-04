@@ -61,7 +61,7 @@ jobs:
 
     - name: Set up Go
       if: steps.changes.outputs.end_to_end == 'true'
-      uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version-file: go.mod
 
@@ -143,19 +143,19 @@ jobs:
         done
 
     - name: Record test results in launchable if PR is not a draft
-      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && always()
+      if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && !cancelled()
       run: |
         # send recorded tests to launchable
         launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
 
     - name: Print test output
-      if: steps.changes.outputs.end_to_end == 'true' && always()
+      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
       run: |
         # print test output
         cat report*.xml
 
     - name: Test Summary
-      if: steps.changes.outputs.end_to_end == 'true' && always()
+      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
       uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86 # v2.4
       with:
         paths: "report*.xml"

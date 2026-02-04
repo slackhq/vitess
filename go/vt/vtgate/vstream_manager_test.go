@@ -18,10 +18,7 @@ package vtgate
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"testing"
@@ -29,7 +26,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/test/utils"
@@ -138,97 +134,6 @@ func TestVStreamSkew(t *testing.T) {
 	}
 }
 
-func TestVStreamEventsExcludeKeyspaceFromTableName(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cell := "aa"
-	ks := "TestVStream"
-	_ = createSandbox(ks)
-	hc := discovery.NewFakeHealthCheck(nil)
-	st := getSandboxTopo(ctx, cell, ks, []string{"-20"})
-
-	vsm := newTestVStreamManager(ctx, hc, st, cell)
-	sbc0 := hc.AddTestTablet(cell, "1.1.1.1", 1001, ks, "-20", topodatapb.TabletType_PRIMARY, true, 1, nil)
-	addTabletToSandboxTopo(t, ctx, st, ks, "-20", sbc0.Tablet())
-
-	send1 := []*binlogdatapb.VEvent{
-		{Type: binlogdatapb.VEventType_GTID, Gtid: "gtid01"},
-		{Type: binlogdatapb.VEventType_FIELD, FieldEvent: &binlogdatapb.FieldEvent{TableName: "f0"}},
-		{Type: binlogdatapb.VEventType_ROW, RowEvent: &binlogdatapb.RowEvent{TableName: "t0"}},
-		{Type: binlogdatapb.VEventType_COMMIT},
-	}
-	want1 := &binlogdatapb.VStreamResponse{Events: []*binlogdatapb.VEvent{
-		{Type: binlogdatapb.VEventType_VGTID, Vgtid: &binlogdatapb.VGtid{
-			ShardGtids: []*binlogdatapb.ShardGtid{{
-				Keyspace: ks,
-				Shard:    "-20",
-				Gtid:     "gtid01",
-			}},
-		}},
-		// Verify that the table names lack the keyspace
-		{Type: binlogdatapb.VEventType_FIELD, FieldEvent: &binlogdatapb.FieldEvent{TableName: "f0"}},
-		{Type: binlogdatapb.VEventType_ROW, RowEvent: &binlogdatapb.RowEvent{TableName: "t0"}},
-		{Type: binlogdatapb.VEventType_COMMIT},
-	}}
-	sbc0.AddVStreamEvents(send1, nil)
-
-	send2 := []*binlogdatapb.VEvent{
-		{Type: binlogdatapb.VEventType_GTID, Gtid: "gtid02"},
-		{Type: binlogdatapb.VEventType_DDL},
-	}
-	want2 := &binlogdatapb.VStreamResponse{Events: []*binlogdatapb.VEvent{
-		{Type: binlogdatapb.VEventType_VGTID, Vgtid: &binlogdatapb.VGtid{
-			ShardGtids: []*binlogdatapb.ShardGtid{{
-				Keyspace: ks,
-				Shard:    "-20",
-				Gtid:     "gtid02",
-			}},
-		}},
-		{Type: binlogdatapb.VEventType_DDL},
-	}}
-	sbc0.AddVStreamEvents(send2, nil)
-
-	vgtid := &binlogdatapb.VGtid{
-		ShardGtids: []*binlogdatapb.ShardGtid{{
-			Keyspace: ks,
-			Shard:    "-20",
-			Gtid:     "pos",
-		}},
-	}
-	ch := make(chan *binlogdatapb.VStreamResponse)
-	go func() {
-		err := vsm.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, nil, &vtgatepb.VStreamFlags{ExcludeKeyspaceFromTableName: true}, func(events []*binlogdatapb.VEvent) error {
-			ch <- &binlogdatapb.VStreamResponse{Events: events}
-			return nil
-		})
-		wantErr := "context canceled"
-		if err == nil || !strings.Contains(err.Error(), wantErr) {
-			t.Errorf("vstream end: %v, must contain %v", err.Error(), wantErr)
-		}
-		ch <- nil
-	}()
-	verifyEvents(t, ch, want1, want2)
-
-	// Ensure the go func error return was verified.
-	cancel()
-	<-ch
-}
-
-func verifyEvents(t *testing.T, ch <-chan *binlogdatapb.VStreamResponse, wants ...*binlogdatapb.VStreamResponse) {
-	t.Helper()
-	for i, want := range wants {
-		val := <-ch
-		got := val.CloneVT()
-		require.NotNil(t, got)
-		for _, event := range got.Events {
-			event.Timestamp = 0
-		}
-		if !proto.Equal(got, want) {
-			t.Errorf("vstream(%d):\n%v, want\n%v", i, got, want)
-		}
-	}
-}
-
 func TestVStreamEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -305,115 +210,6 @@ func TestVStreamEvents(t *testing.T) {
 	require.ErrorIs(t, vterrors.UnwrapAll(err), context.Canceled)
 
 	require.ElementsMatch(t, []*binlogdatapb.VStreamResponse{want1, want2}, receivedEvents)
-}
-
-func BenchmarkVStreamEvents(b *testing.B) {
-	tests := []struct {
-		name                         string
-		excludeKeyspaceFromTableName bool
-	}{
-		{"ExcludeKeyspaceFromTableName=true", true},
-		{"ExcludeKeyspaceFromTableName=false", false},
-	}
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			var f *os.File
-			var err error
-			if os.Getenv("PROFILE_CPU") == "true" {
-				f, err = os.Create("cpu.prof")
-				if err != nil {
-					b.Fatal(err)
-				}
-				defer f.Close()
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			cell := "aa"
-			ks := "TestVStream"
-			_ = createSandbox(ks)
-			hc := discovery.NewFakeHealthCheck(nil)
-			st := getSandboxTopo(ctx, cell, ks, []string{"-20"})
-
-			vsm := newTestVStreamManager(ctx, hc, st, cell)
-			sbc0 := hc.AddTestTablet(cell, "1.1.1.1", 1001, ks, "-20", topodatapb.TabletType_PRIMARY, true, 1, nil)
-			addTabletToSandboxTopo(b, ctx, st, ks, "-20", sbc0.Tablet())
-
-			const totalEvents = 100_000
-			batchSize := 10_000
-			for i := 0; i < totalEvents; i += batchSize {
-				var events []*binlogdatapb.VEvent
-				events = append(events, &binlogdatapb.VEvent{
-					Type: binlogdatapb.VEventType_GTID,
-					Gtid: fmt.Sprintf("gtid-%d", i),
-				})
-				for j := 0; j < batchSize-2; j++ {
-					events = append(events, &binlogdatapb.VEvent{
-						Type: binlogdatapb.VEventType_ROW,
-						RowEvent: &binlogdatapb.RowEvent{
-							TableName: fmt.Sprintf("t%d", j),
-						},
-					})
-				}
-				events = append(events, &binlogdatapb.VEvent{Type: binlogdatapb.VEventType_COMMIT})
-				sbc0.AddVStreamEvents(events, nil)
-			}
-
-			vgtid := &binlogdatapb.VGtid{
-				ShardGtids: []*binlogdatapb.ShardGtid{{
-					Keyspace: ks,
-					Shard:    "-20",
-					Gtid:     "pos",
-				}},
-			}
-			start := make(chan struct{})
-			ch := make(chan *binlogdatapb.VStreamResponse)
-			go func() {
-				close(start)
-				err := vsm.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, nil,
-					&vtgatepb.VStreamFlags{ExcludeKeyspaceFromTableName: tt.excludeKeyspaceFromTableName}, func(events []*binlogdatapb.VEvent) error {
-						ch <- &binlogdatapb.VStreamResponse{Events: events}
-						return nil
-					})
-				wantErr := "context canceled"
-				if err == nil || !strings.Contains(err.Error(), wantErr) {
-					b.Errorf("vstream end: %v, must contain %v", err.Error(), wantErr)
-				}
-				ch <- nil
-			}()
-
-			// Start the timer when the VStream begins
-			<-start
-			b.ResetTimer()
-			if os.Getenv("PROFILE_CPU") == "true" {
-				pprof.StartCPUProfile(f)
-			}
-
-			received := 0
-			for {
-				resp := <-ch
-				if resp == nil {
-					close(ch)
-					break
-				}
-				received += len(resp.Events)
-				if received >= totalEvents {
-					b.Logf("Received events %d, expected total %d", received, totalEvents)
-					b.StopTimer()
-					if os.Getenv("PROFILE_CPU") == "true" {
-						pprof.StopCPUProfile()
-					}
-					cancel()
-				}
-			}
-
-			if received < totalEvents {
-				b.Errorf("expected at least %d events, got %d", totalEvents, received)
-			}
-
-			cancel()
-			<-ch
-		})
-	}
 }
 
 // TestVStreamChunks ensures that a transaction that's broken
@@ -498,162 +294,6 @@ func TestVStreamChunks(t *testing.T) {
 
 	require.Equal(t, 100, rowCount)
 	require.Equal(t, 100, ddlCount)
-}
-
-// Verifies that large chunked transactions from one shard
-// are not interleaved with events from other shards.
-func TestVStreamChunksOverSizeThreshold(t *testing.T) {
-	ctx := t.Context()
-	ks := "TestVStream"
-	cell := "aa"
-	_ = createSandbox(ks)
-	hc := discovery.NewFakeHealthCheck(nil)
-	st := getSandboxTopo(ctx, cell, ks, []string{"-20", "20-40"})
-	vsm := newTestVStreamManager(ctx, hc, st, cell)
-	vsm.vstreamsTransactionsChunked.ResetAll()
-	sbc0 := hc.AddTestTablet("aa", "1.1.1.1", 1001, ks, "-20", topodatapb.TabletType_PRIMARY, true, 1, nil)
-	addTabletToSandboxTopo(t, ctx, st, ks, "-20", sbc0.Tablet())
-	sbc1 := hc.AddTestTablet("aa", "1.1.1.1", 1002, ks, "20-40", topodatapb.TabletType_PRIMARY, true, 1, nil)
-	addTabletToSandboxTopo(t, ctx, st, ks, "20-40", sbc1.Tablet())
-
-	rowData := make([]byte, 100)
-	for i := range rowData {
-		rowData[i] = byte(i % 256)
-	}
-
-	sbc0.AddVStreamEvents([]*binlogdatapb.VEvent{{Type: binlogdatapb.VEventType_BEGIN}}, nil)
-	for range 50 {
-		sbc0.AddVStreamEvents([]*binlogdatapb.VEvent{{
-			Type: binlogdatapb.VEventType_ROW,
-			RowEvent: &binlogdatapb.RowEvent{
-				TableName: "shard0_table",
-				RowChanges: []*binlogdatapb.RowChange{{
-					After: &querypb.Row{
-						Lengths: []int64{int64(len(rowData))},
-						Values:  rowData,
-					},
-				}},
-			},
-		}}, nil)
-	}
-
-	sbc1.AddVStreamEvents([]*binlogdatapb.VEvent{{Type: binlogdatapb.VEventType_BEGIN}}, nil)
-	sbc1.AddVStreamEvents([]*binlogdatapb.VEvent{{
-		Type: binlogdatapb.VEventType_ROW,
-		RowEvent: &binlogdatapb.RowEvent{
-			TableName: "shard0_table",
-			RowChanges: []*binlogdatapb.RowChange{{
-				After: &querypb.Row{
-					Lengths: []int64{8},
-					Values:  rowData[:8],
-				},
-			}},
-		},
-	}}, nil)
-	sbc1.AddVStreamEvents([]*binlogdatapb.VEvent{{Type: binlogdatapb.VEventType_COMMIT}}, nil)
-
-	for range 50 {
-		sbc0.AddVStreamEvents([]*binlogdatapb.VEvent{{
-			Type: binlogdatapb.VEventType_ROW,
-			RowEvent: &binlogdatapb.RowEvent{
-				TableName: "shard0_table",
-				RowChanges: []*binlogdatapb.RowChange{{
-					After: &querypb.Row{
-						Lengths: []int64{int64(len(rowData))},
-						Values:  rowData,
-					},
-				}},
-			},
-		}}, nil)
-	}
-	sbc0.AddVStreamEvents([]*binlogdatapb.VEvent{{Type: binlogdatapb.VEventType_COMMIT}}, nil)
-
-	vgtid := &binlogdatapb.VGtid{
-		ShardGtids: []*binlogdatapb.ShardGtid{{
-			Keyspace: ks,
-			Shard:    "-20",
-			Gtid:     "pos",
-		}, {
-			Keyspace: ks,
-			Shard:    "20-40",
-			Gtid:     "pos",
-		}},
-	}
-
-	vstreamCtx, vstreamCancel := context.WithCancel(ctx)
-	defer vstreamCancel()
-
-	// Track transaction states
-	type txState struct {
-		shard     string
-		hasBegin  bool
-		hasCommit bool
-		rowCount  int
-	}
-	var currentTx *txState
-	var completedTxs []*txState
-
-	flags := &vtgatepb.VStreamFlags{
-		TransactionChunkSize: 1024,
-	}
-
-	err := vsm.VStream(vstreamCtx, topodatapb.TabletType_PRIMARY, vgtid, nil, flags, func(events []*binlogdatapb.VEvent) error {
-		for _, event := range events {
-			switch event.Type {
-			case binlogdatapb.VEventType_VGTID:
-				if event.Keyspace != "" && event.Shard != "" {
-					shard := event.Keyspace + "/" + event.Shard
-					if currentTx != nil && currentTx.shard != "" && currentTx.shard != shard {
-						return fmt.Errorf("VGTID from shard %s while transaction from shard %s is in progress (interleaving detected)", shard, currentTx.shard)
-					}
-					if currentTx != nil && currentTx.shard == "" {
-						currentTx.shard = shard
-					}
-				}
-			case binlogdatapb.VEventType_BEGIN:
-				if currentTx != nil && !currentTx.hasCommit {
-					return fmt.Errorf("BEGIN received while transaction %s is still open (interleaving detected)", currentTx.shard)
-				}
-				currentTx = &txState{hasBegin: true}
-			case binlogdatapb.VEventType_ROW:
-				if currentTx == nil {
-					return errors.New("ROW event outside transaction")
-				}
-				currentTx.rowCount++
-			case binlogdatapb.VEventType_COMMIT:
-				if currentTx == nil {
-					return errors.New("COMMIT without BEGIN")
-				}
-				currentTx.hasCommit = true
-				completedTxs = append(completedTxs, currentTx)
-				t.Logf("COMMIT transaction for shard %s (rows=%d, completed_txs=%d)", currentTx.shard, currentTx.rowCount, len(completedTxs))
-				currentTx = nil
-			default:
-			}
-		}
-
-		if len(completedTxs) == 2 {
-			vstreamCancel()
-		}
-
-		return nil
-	})
-
-	require.Error(t, err)
-	require.ErrorIs(t, vterrors.UnwrapAll(err), context.Canceled)
-	require.Equal(t, 2, len(completedTxs), "Should receive both transactions")
-
-	var rowCounts []int
-	for _, tx := range completedTxs {
-		require.True(t, tx.hasBegin, "Transaction should have BEGIN")
-		require.True(t, tx.hasCommit, "Transaction should have COMMIT")
-		rowCounts = append(rowCounts, tx.rowCount)
-	}
-	require.ElementsMatch(t, []int{1, 100}, rowCounts, "Should have one transaction with 1 row and one with 100 rows")
-
-	chunkedCounts := vsm.vstreamsTransactionsChunked.Counts()
-	require.Contains(t, chunkedCounts, "TestVStream.-20.PRIMARY", "Should have chunked transaction metric for -20 shard")
-	require.GreaterOrEqual(t, chunkedCounts["TestVStream.-20.PRIMARY"], int64(1), "Should have at least one chunked transaction")
 }
 
 func TestVStreamMulti(t *testing.T) {
@@ -790,7 +430,14 @@ func TestVStreamsMetrics(t *testing.T) {
 	err := vsm.VStream(vstreamCtx, topodatapb.TabletType_PRIMARY, vgtid, nil, &vtgatepb.VStreamFlags{}, func(events []*binlogdatapb.VEvent) error {
 		receivedResponses = append(receivedResponses, &binlogdatapb.VStreamResponse{Events: events})
 
+		// While the VStream is running, we should see one active stream per shard.
+		require.Equal(t, map[string]int64{
+			expectedLabels1: 1,
+			expectedLabels2: 1,
+		}, vsm.vstreamsCount.Counts())
+
 		if len(receivedResponses) == 2 {
+			// Stop streaming after receiving both expected responses.
 			vstreamCancel()
 		}
 
@@ -799,44 +446,40 @@ func TestVStreamsMetrics(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, vterrors.UnwrapAll(err), context.Canceled)
+
 	require.Equal(t, 2, len(receivedResponses))
 
-	counts := vsm.vstreamsCount.Counts()
-	require.Contains(t, counts, expectedLabels1, "Should have count for shard -20")
-	require.Contains(t, counts, expectedLabels2, "Should have count for shard 20-40")
-	require.Equal(t, int64(0), counts[expectedLabels1], "Shard -20 should have 0 active streams after completion")
-	require.Equal(t, int64(0), counts[expectedLabels2], "Shard 20-40 should have 0 active streams after completion")
+	// After the streams end, the count should go back to zero.
+	require.Equal(t, map[string]int64{
+		expectedLabels1: 0,
+		expectedLabels2: 0,
+	}, vsm.vstreamsCount.Counts())
 
-	created := vsm.vstreamsCreated.Counts()
-	require.Contains(t, created, expectedLabels1, "Should have created count for shard -20")
-	require.Contains(t, created, expectedLabels2, "Should have created count for shard 20-40")
-	require.Equal(t, int64(1), created[expectedLabels1], "Shard -20 should have created 1 stream")
-	require.Equal(t, int64(1), created[expectedLabels2], "Shard 20-40 should have created 1 stream")
+	require.Equal(t, map[string]int64{
+		expectedLabels1: 1,
+		expectedLabels2: 1,
+	}, vsm.vstreamsCreated.Counts())
 
-	lag := vsm.vstreamsLag.Counts()
-	require.Contains(t, lag, expectedLabels1, "Should have lag for shard -20")
-	require.Contains(t, lag, expectedLabels2, "Should have lag for shard 20-40")
-	require.Equal(t, int64(5), lag[expectedLabels1], "Shard -20 should have lag of 5")
-	require.Equal(t, int64(7), lag[expectedLabels2], "Shard 20-40 should have lag of 7")
+	require.Equal(t, map[string]int64{
+		expectedLabels1: 5,
+		expectedLabels2: 7,
+	}, vsm.vstreamsLag.Counts())
 
-	streamed := vsm.vstreamsEventsStreamed.Counts()
-	require.Contains(t, streamed, expectedLabels1, "Should have events streamed for shard -20")
-	require.Contains(t, streamed, expectedLabels2, "Should have events streamed for shard 20-40")
-	require.Equal(t, int64(2), streamed[expectedLabels1], "Shard -20 should have streamed 2 events")
-	require.Equal(t, int64(2), streamed[expectedLabels2], "Shard 20-40 should have streamed 2 events")
+	require.Equal(t, map[string]int64{
+		expectedLabels1: 2,
+		expectedLabels2: 2,
+	}, vsm.vstreamsEventsStreamed.Counts())
 
-	errors := vsm.vstreamsEndedWithErrors.Counts()
-	require.Contains(t, errors, expectedLabels1, "Should have error count for shard -20")
-	require.Contains(t, errors, expectedLabels2, "Should have error count for shard 20-40")
-	require.Equal(t, int64(0), errors[expectedLabels1], "Shard -20 should have 0 errors")
-	require.Equal(t, int64(0), errors[expectedLabels2], "Shard 20-40 should have 0 errors")
+	require.Equal(t, map[string]int64{
+		expectedLabels1: 0,
+		expectedLabels2: 0,
+	}, vsm.vstreamsEndedWithErrors.Counts())
 }
 
 func TestVStreamsMetricsErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// Use a unique cell to avoid parallel tests interfering with each other's metrics
-	cell := "ac"
+	cell := "aa"
 	ks := "TestVStream"
 	_ = createSandbox(ks)
 	hc := discovery.NewFakeHealthCheck(nil)
@@ -1000,20 +643,6 @@ func TestVStreamRetriableErrors(t *testing.T) {
 			msg:          "vttablet: rpc error: code = Unknown desc = Query execution was interrupted, maximum statement execution time exceeded (errno 3024) (sqlstate HY000)",
 			shouldRetry:  true,
 			ignoreTablet: false,
-		},
-		{
-			name:         "binary log purged",
-			code:         vtrpcpb.Code_UNKNOWN,
-			msg:          "vttablet: rpc error: code = Unknown desc = stream (at source tablet) error @ 013c5ddc-dd89-11ed-b3a1-125a006436b9:1-305627274,fe50e15a-0213-11ee-bfbe-0a048e8090b5:1-340389717: Cannot replicate because the source purged required binary logs. Replicate the missing transactions from elsewhere, or provision a new replica from backup. Consider increasing the source's binary log expiration period. The GTID sets and the missing purged transactions are too long to print in this message. For more information, please see the source's error log or the manual for GTID_SUBTRACT (errno 1236) (sqlstate HY000)",
-			shouldRetry:  true,
-			ignoreTablet: true,
-		},
-		{
-			name:         "source purged required gtids",
-			code:         vtrpcpb.Code_UNKNOWN,
-			msg:          "vttablet: rpc error: code = Unknown desc = Cannot replicate because the source purged required binary logs. Replicate the missing transactions from elsewhere, or provision a new replica from backup. Consider increasing the source's binary log expiration period. Missing transactions are: 013c5ddc-dd89-11ed-b3a1-125a006436b9:305627275-305627280 (errno 1789) (sqlstate HY000)",
-			shouldRetry:  true,
-			ignoreTablet: true,
 		},
 	}
 
@@ -2379,12 +2008,12 @@ func getSandboxTopoMultiCell(ctx context.Context, cells []string, keyspace strin
 	return st
 }
 
-func addTabletToSandboxTopo(tb testing.TB, ctx context.Context, st *sandboxTopo, ks, shard string, tablet *topodatapb.Tablet) {
+func addTabletToSandboxTopo(t *testing.T, ctx context.Context, st *sandboxTopo, ks, shard string, tablet *topodatapb.Tablet) {
 	_, err := st.topoServer.UpdateShardFields(ctx, ks, shard, func(si *topo.ShardInfo) error {
 		si.PrimaryAlias = tablet.Alias
 		return nil
 	})
-	require.NoError(tb, err)
+	require.NoError(t, err)
 	err = st.topoServer.CreateTablet(ctx, tablet)
-	require.NoError(tb, err)
+	require.NoError(t, err)
 }

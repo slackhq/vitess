@@ -18,7 +18,6 @@ package smartconnpool
 
 import (
 	"context"
-	"runtime"
 	"sync"
 
 	"vitess.io/vitess/go/list"
@@ -29,8 +28,13 @@ type waiter[C Connection] struct {
 	// setting is the connection Setting that we'd like, or nil if we'd like a
 	// a connection with no Setting applied
 	setting *Setting
-	// conn is a channel that will receive the connection when it's ready
-	conn chan *Pooled[C]
+	// conn will be set by another client to hand over the connection to use
+	conn *Pooled[C]
+	// ctx is the context of the waiting client to check for expiration
+	ctx context.Context
+	// sema is a synchronization primitive that allows us to block until our request
+	// has been fulfilled
+	sema semaphore
 	// age is the amount of cycles this client has been on the waitlist
 	age uint32
 }
@@ -49,13 +53,19 @@ type waitlist[C Connection] struct {
 func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
-
-	elem.Value = waiter[C]{conn: elem.Value.conn, setting: setting}
+	elem.Value = waiter[C]{setting: setting, conn: nil, ctx: ctx}
 
 	wl.mu.Lock()
 	// add ourselves as a waiter at the end of the waitlist
 	wl.list.PushBackValue(elem)
 	wl.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		// Block on our waiter's semaphore until somebody can hand over a connection to us.
+		elem.Value.sema.wait()
+		close(done)
+	}()
 
 	select {
 	case <-closeChan:
@@ -73,13 +83,19 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		}
 		wl.mu.Unlock()
 
+		// If we removed ourselves from the waitlist, we need to notify our semaphore
+		if removed {
+			elem.Value.sema.notify(false)
+		}
+
+		// Wait for the semaphore to have been notified, either by us or by someone else
+		<-done
+
 		if removed {
 			return nil, ErrConnPoolClosed
 		}
 
-		// if we weren't able to remove ourselves from the waitlist, it means
-		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, nil
+		return elem.Value.conn, nil
 
 	case <-ctx.Done():
 		// Context expired. We need to try to remove ourselves from the waitlist to
@@ -97,16 +113,22 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		}
 		wl.mu.Unlock()
 
+		// If we removed ourselves from the waitlist, we need to notify our semaphore
+		if removed {
+			elem.Value.sema.notify(false)
+		}
+
+		// Wait for the semaphore to have been notified, either by us or by someone else
+		<-done
+
 		if removed {
 			return nil, context.Cause(ctx)
 		}
 
-		// if we weren't able to remove ourselves from the waitlist, it means
-		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, nil
+		return elem.Value.conn, nil
 
-	case conn := <-elem.Value.conn:
-		return conn, nil
+	case <-done:
+		return elem.Value.conn, nil
 	}
 }
 
@@ -175,19 +197,16 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	}
 
 	// if we have a target to return the connection to, simply write the connection
-	// into the waiter's channel.
-	target.Value.conn <- conn
-	// Allow the goroutine waiting on the channel to start running _now_.
-	runtime.Gosched()
-
+	// into the waiter and signal their semaphore. they'll wake up to pick up the
+	// connection.
+	target.Value.conn = conn
+	target.Value.sema.notify(true)
 	return true
 }
 
 func (wl *waitlist[C]) init() {
 	wl.nodes.New = func() any {
-		return &list.Element[waiter[C]]{
-			Value: waiter[C]{conn: make(chan *Pooled[C])},
-		}
+		return &list.Element[waiter[C]]{}
 	}
 	wl.list.Init()
 }

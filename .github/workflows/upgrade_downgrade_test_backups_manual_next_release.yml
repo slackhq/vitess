@@ -7,8 +7,6 @@ on:
     tags: '**'
   pull_request:
     branches: '**'
-    branches-ignore:
-      - 'slack-[0-9]+.[0-9]'
 
 concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'Upgrade Downgrade Testing - Backups - Manual - Next Release')
@@ -22,10 +20,7 @@ jobs:
   upgrade_downgrade_test_manual:
     timeout-minutes: 40
     name: Run Upgrade Downgrade Test - Backups - Manual - Next Release
-    runs-on: vitess-ubuntu24-16cpu-1
-    env:
-      GOPRIVATE: github.com/slackhq/vitess-addons
-      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+    runs-on: gh-hosted-runners-16cores-1-24.04
 
     steps:
     - name: Skip CI
@@ -43,6 +38,7 @@ jobs:
         persist-credentials: 'false'
 
     - name: Check for changes in relevant files
+      if: steps.output-next-release-ref.outputs.next_release_ref != ''
       uses: dorny/paths-filter@ebc4d7e9ebcb0b1eb21480bb8f43113e996ac77a # v3.0.1
       id: changes
       with:
@@ -76,10 +72,6 @@ jobs:
       if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: ./.github/actions/tune-os
 
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
-
     - name: Set up python
       if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
@@ -92,7 +84,7 @@ jobs:
 
     - name: Get base dependencies
       timeout-minutes: 10
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         sudo DEBIAN_FRONTEND="noninteractive" apt-get update
 
@@ -110,7 +102,7 @@ jobs:
 
     # Checkout to the next release of Vitess
     - name: Checkout to the other version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         ref: ${{ steps.output-next-release-ref.outputs.next_release_ref }}
@@ -124,12 +116,12 @@ jobs:
         cache: false
 
     - name: Get dependencies for the next release
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         go mod download
 
     - name: Building next release's binaries
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 5
       run: |
         source build.env
@@ -140,7 +132,7 @@ jobs:
 
     # Checkout to this build's commit
     - name: Checkout to commit's code
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         persist-credentials: 'false'
@@ -153,17 +145,17 @@ jobs:
         cache: false
 
     - name: Get dependencies for this commit
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         go mod download
 
     - name: Run make minimaltools
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         make minimaltools
 
     - name: Building the binaries for this commit
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 5
       run: |
         source build.env
@@ -174,7 +166,7 @@ jobs:
     # We create a sharded Vitess cluster following the local example.
     # We also insert a few rows in our three tables.
     - name: Create the example Vitess cluster with all components using version N
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env ; cd examples/backups
@@ -182,7 +174,7 @@ jobs:
 
     # Taking a backup
     - name: Take a backup of all the shards
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 5
       run: |
         source build.env ; cd examples/backups
@@ -196,7 +188,7 @@ jobs:
     #     - corder:   5
     # We shall see the same number of rows after restoring the backup.
     - name: Insert more data after the backup
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env ; cd examples ; source ./common/env.sh
 
@@ -206,7 +198,7 @@ jobs:
 
     # Stop all the tablets and remove their data
     - name: Stop tablets
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env ; cd examples/backups
@@ -214,7 +206,7 @@ jobs:
 
     # We downgrade: we use the version N+1 of vttablet
     - name: Downgrade - Swap binaries, use VTTablet N+1
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env
 
@@ -226,7 +218,7 @@ jobs:
 
     # Starting the tablets again, they will automatically start restoring the last backup.
     - name: Start new tablets and restore
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env ; cd examples/backups
@@ -236,7 +228,7 @@ jobs:
 
     # Count the number of rows in each table to make sure the restoration is successful.
     - name: Assert the number of rows in every table
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env ; cd examples ; source ./common/env.sh
 
@@ -246,7 +238,7 @@ jobs:
 
     # We insert one more row in every table.
     - name: Insert more rows in the tables
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env ; cd examples ; source ./common/env.sh
 
@@ -256,7 +248,7 @@ jobs:
 
     # Taking a second backup of the cluster.
     - name: Take a second backup of all the shards
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env ; cd examples/backups
@@ -264,7 +256,7 @@ jobs:
 
     # We upgrade: we swap binaries and use the version N of the tablet.
     - name: Upgrade - Swap binaries, use VTTablet N
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env
 
@@ -276,7 +268,7 @@ jobs:
 
     # Starting the tablets again and restoring the next backup.
     - name: Start new tablets and restore
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       timeout-minutes: 10
       run: |
         source build.env ; cd examples/backups
@@ -284,7 +276,7 @@ jobs:
 
     # We count the number of rows in every table to check that the restore step was successful.
     - name: Assert the number of rows in every table
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       run: |
         source build.env ; cd examples ; source ./common/env.sh
 
