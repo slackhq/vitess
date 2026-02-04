@@ -17,8 +17,17 @@ limitations under the License.
 package logutil
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/url"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
+	vtlog "vitess.io/vitess/go/vt/log"
 
 	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/race"
@@ -150,5 +159,108 @@ func TestTeeLogger(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// MemorySink implements zap.Sink by writing all messages to a buffer.
+// It's used to capture the logs.
+type MemorySink struct {
+	*bytes.Buffer
+}
+
+// Implement Close and Sync as no-ops to satisfy the interface. The Write
+// method is provided by the embedded buffer.
+func (s *MemorySink) Close() error { return nil }
+func (s *MemorySink) Sync() error  { return nil }
+
+func SetupLoggerWithMemSink() (sink *MemorySink, err error) {
+	// Create a sink instance, and register it with zap for the "memory" protocol.
+	sink = &MemorySink{new(bytes.Buffer)}
+	err = zap.RegisterSink("memory", func(*url.URL) (zap.Sink, error) {
+		return sink, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	testLoggerConf := NewTestMemorySinkConfig()
+	err = SetStructuredLogger(&testLoggerConf)
+	return sink, err
+}
+
+func NewTestMemorySinkConfig() zap.Config {
+	conf := newZapLoggerConfig()
+	conf.OutputPaths = []string{"memory://"}
+	conf.ErrorOutputPaths = []string{"memory://"}
+	return conf
+}
+
+func TestStructuredLogger_Replacing_glog(t *testing.T) {
+	type logMsg struct {
+		Level      string `json:"level"`
+		Msg        string `json:"msg"`
+		Caller     string `json:"caller"`
+		Stacktrace string `json:"stacktrace"`
+		Timestamp  string `json:"ts"`
+	}
+
+	type testCase struct {
+		name     string
+		logLevel zapcore.Level
+	}
+
+	dummyLogMessage := "testing log"
+	testCases := []testCase{
+		{"log debug", zap.DebugLevel},
+		{"log info", zap.InfoLevel},
+		{"log warn", zap.WarnLevel},
+		{"log error", zap.ErrorLevel},
+	}
+
+	sink, err := SetupLoggerWithMemSink()
+	assert.NoError(t, err)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var loggingFunc func(format string, args ...interface{})
+			var expectedLevel string
+			var expectStacktrace bool
+
+			switch tc.logLevel {
+			case zapcore.InfoLevel, zapcore.DebugLevel:
+				loggingFunc = vtlog.Infof
+				expectedLevel = "info"
+			case zapcore.WarnLevel:
+				loggingFunc = vtlog.Warningf
+				expectedLevel = "warn"
+			case zapcore.ErrorLevel:
+				loggingFunc = vtlog.Errorf
+				expectedLevel = "error"
+				expectStacktrace = true
+			}
+
+			loggingFunc(dummyLogMessage)
+
+			// Unmarshal the captured log. This means we're getting a struct log.
+			actualLog := logMsg{}
+			err = json.Unmarshal(sink.Bytes(), &actualLog)
+			assert.NoError(t, err)
+			// Reset the sink so that it'll contain one log per test case.
+			sink.Reset()
+
+			assert.Equal(t, expectedLevel, actualLog.Level)
+			assert.Equal(t, dummyLogMessage, actualLog.Msg)
+			if expectStacktrace {
+				assert.NotEmpty(t, actualLog.Stacktrace)
+			}
+
+			// confirm RFC3339 timestamp
+			assert.NotEmpty(t, actualLog.Timestamp)
+			_, err = time.Parse(time.RFC3339, actualLog.Timestamp)
+			assert.NoError(t, err)
+
+			// confirm caller
+			assert.Contains(t, actualLog.Caller, "logutil/logger_test.go")
+		})
 	}
 }
