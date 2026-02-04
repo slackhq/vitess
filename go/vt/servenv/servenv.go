@@ -79,6 +79,7 @@ var (
 	maxStackSize         = 64 * 1024 * 1024
 	initStartTime        time.Time // time when tablet init started: for debug purposes to time how long a tablet init takes
 	tableRefreshInterval int
+	useStructuredLogger  bool
 )
 
 type TimeoutFlags struct {
@@ -107,7 +108,11 @@ func RegisterFlags() {
 		fs.IntVar(&tableRefreshInterval, "table-refresh-interval", tableRefreshInterval, "interval in milliseconds to refresh tables in status page with refreshRequired class")
 
 		// pid_file.go
-		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.") // Logging
+
+		// Logging
+		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "Enable json-based structured logging")
+		fs.Var((*logutil.ZapLogLevelFlag)(&logutil.StructuredLoggingLevel), "structured-log-level", "The minimum log level, options: debug, info, warn, error.")
 	})
 }
 
@@ -122,6 +127,10 @@ func RegisterFlagsWithTimeouts(tf *TimeoutFlags) {
 
 		// pid_file.go
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+
+		// Logging
+		fs.BoolVar(&useStructuredLogger, "structured-logging", useStructuredLogger, "Enable json-based structured logging")
+		fs.Var((*logutil.ZapLogLevelFlag)(&logutil.StructuredLoggingLevel), "structured-log-level", "The minimum log level, options: debug, info, warn, error.")
 
 		timeouts = tf
 	})
@@ -310,6 +319,13 @@ func ParseFlags(cmd string) {
 		os.Exit(0)
 	}
 
+	if useStructuredLogger {
+		// Replace glog logger with zap logger
+		if err := logutil.SetStructuredLogger(nil); err != nil {
+			log.Exitf("error while setting the structured logger: %s", err)
+		}
+	}
+
 	args := fs.Args()
 	if len(args) > 0 {
 		_flag.Usage()
@@ -418,6 +434,13 @@ func ParseFlagsWithArgs(cmd string) []string {
 	if version {
 		AppVersion.Print()
 		os.Exit(0)
+	}
+
+	if useStructuredLogger {
+		// Replace glog logger with zap logger
+		if err := logutil.SetStructuredLogger(nil); err != nil {
+			log.Exitf("error while setting the structured logger: %s", err)
+		}
 	}
 
 	args := fs.Args()
