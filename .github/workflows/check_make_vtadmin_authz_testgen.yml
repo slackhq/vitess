@@ -43,6 +43,10 @@ jobs:
             - 'go/vt/vtadmin/**'
             - '.github/workflows/check_make_vtadmin_authz_testgen.yml'
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.vtadmin_changes == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Tune the OS
       if: steps.changes.outputs.vtadmin_changes == 'true'
       uses: ./.github/actions/tune-os
@@ -52,10 +56,6 @@ jobs:
       if: steps.changes.outputs.vtadmin_changes == 'true'
       with:
         go-version-file: go.mod
-
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.vtadmin_changes == 'true'
-      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
     - name: Get dependencies
       if: steps.changes.outputs.vtadmin_changes == 'true'
