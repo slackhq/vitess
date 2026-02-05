@@ -2074,7 +2074,6 @@
         "user.user"
       ]
     }
-<<<<<<< HEAD
   },
   {
     "comment": "join with derived table containing UNION with aliased columns across different keyspaces",
@@ -2149,7 +2148,5 @@
         "user.user"
       ]
     }
-=======
->>>>>>> 85f4346ebb (`slack-22.0`: merge `v22.0.1` patch release (#672))
   }
 ]
