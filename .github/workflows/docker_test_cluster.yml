@@ -8,8 +8,9 @@ on:
   pull_request:
     branches: '**'
 permissions: read-all
-GOPRIVATE: github.com/slackhq/vitess-addons
-GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
+env:
+  GOPRIVATE: github.com/slackhq/vitess-addons
+  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 
 jobs:
 
