@@ -61,7 +61,7 @@ jobs:
         go-version-file: go.mod
 
     - name: Setup GitHub access token
-      if: steps.changes.outputs.end_to_end == 'true'
+      if: steps.changes.outputs.examples == 'true'
       run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     - name: Tune the OS
