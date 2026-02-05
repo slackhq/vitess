@@ -31,6 +31,7 @@ jobs:
           exit 1
         fi
 
+
     - name: Check out commit's code
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
@@ -69,10 +70,6 @@ jobs:
       if: steps.changes.outputs.end_to_end == 'true'
       uses: ./.github/actions/tune-os
 
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
-
     - name: Set up python
       if: steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
@@ -100,6 +97,10 @@ jobs:
         sudo percona-release enable-only tools
         sudo apt-get update
         sudo apt-get install -y percona-xtrabackup-80
+
+    - name: Setup github.com/slackhq/vitess-addons access token
+      if: steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to the last release of Vitess
     - name: Check out other version's code (${{ steps.output-previous-release-ref.outputs.previous_release_ref }})
@@ -130,6 +131,13 @@ jobs:
         mkdir -p /tmp/vitess-build-other/
         cp -R bin /tmp/vitess-build-other/
         rm -Rf bin/*
+
+    - name: Set up Go
+      if: steps.changes.outputs.end_to_end == 'true'
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      with:
+        go-version-file: go.mod
+        cache: false
 
     # Checkout to this build's commit
     - name: Check out commit's code
