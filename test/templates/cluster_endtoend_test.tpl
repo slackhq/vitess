@@ -141,9 +141,6 @@ jobs:
 
         go mod download
 
-        # install JUnit report formatter
-        go install github.com/vitessio/go-junit-report@HEAD
-
     {{if .NeedsMinio }}
     - name: Install Minio
       run: |
@@ -219,19 +216,13 @@ jobs:
         # Some of these tests require specific locales to be installed.
         # See https://github.com/cncf/automation/commit/49f2ad7a791a62ff7d038002bbb2b1f074eed5d5
         # run the tests however you normally do, then produce a JUnit XML file
-        go run test.go -docker={{if .Docker}}true -flavor={{.Platform}}{{else}}false{{end}} -follow -shard {{.Shard}}{{if .PartialKeyspace}} -partial-keyspace=true {{end}}{{if .BuildTag}} -build-tag={{.BuildTag}} {{end}} | tee -a output.txt | go-junit-report -set-exit-code > report.xml
+        go run test.go -docker={{if .Docker}}true -flavor={{.Platform}}{{else}}false{{end}} -follow -shard {{.Shard}}{{if .PartialKeyspace}} -partial-keyspace=true {{end}}{{if .BuildTag}} -build-tag={{.BuildTag}} {{end}}
 
     - name: Record test results in launchable if PR is not a draft
       if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && steps.changes.outputs.end_to_end == 'true' && github.base_ref == 'main' && !cancelled()
       run: |
         # send recorded tests to launchable
         launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
-
-    - name: Print test output
-      if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
-      run: |
-        # print test output
-        cat output.txt
 
     - name: Test Summary
       if: steps.changes.outputs.end_to_end == 'true' && !cancelled()
