@@ -25,7 +25,7 @@ jobs:
   build:
     timeout-minutes: 60
     name: Run endtoend tests on Cluster (xb_backup)
-    runs-on: vitess-ubuntu24-16cpu-1
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Skip CI
