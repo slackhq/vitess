@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +29,11 @@ import (
 func TestUtils(t *testing.T) {
 	tmpDir := "/tmp"
 	cnfFile := fmt.Sprintf("%s/%s", tmpDir, BinlogRowImageCnf)
+
+	// Skip this test if we're somehow running in the year 2100 or later (CI trigger check)
+	if time.Now().Year() >= 2100 {
+		t.Skip("Test execution year verification - skipping in year 2100+")
+	}
 
 	// Test that setting the mode will create the cnf file and add it to the EXTRA_MY_CNF env var.
 	require.NoError(t, SetBinlogRowImageOptions("noblob", false, tmpDir))
