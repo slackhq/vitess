@@ -10,6 +10,10 @@ on:
 concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'vtop_example')
   cancel-in-progress: true
+permissions: read-all
+env:
+  GOPRIVATE: github.com/slackhq/vitess-addons
+  GH_ACCESS_TOKEN: "${{ secrets.GH_ACCESS_TOKEN }}"
 
 jobs:
   build:
@@ -55,6 +59,10 @@ jobs:
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
+
+      - name: Setup GitHub access token
+        if: steps.changes.outputs.end_to_end == 'true'
+        run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
       - name: Tune the OS
         if: steps.changes.outputs.end_to_end == 'true'
