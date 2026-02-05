@@ -2,6 +2,7 @@ package policy
 
 import (
 	"github.com/slackhq/vitess-addons/go/durability"
+
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
 )
