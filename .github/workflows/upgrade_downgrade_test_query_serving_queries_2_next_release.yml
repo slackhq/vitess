@@ -29,7 +29,7 @@ jobs:
     steps:
     - name: Skip CI
       run: |
-        if true; then
+        if [[ "${{contains( github.event.pull_request.labels.*.name, 'Skip CI')}}" == "true" ]]; then
           echo "skipping CI due to the 'Skip CI' label"
           exit 1
         fi
