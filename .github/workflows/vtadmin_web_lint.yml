@@ -4,10 +4,15 @@ name: vtadmin-web linting + formatting
 # See https://github.community/t/trigger-a-workflow-on-change-to-the-yml-file-itself/17792/4)
 on:
   push:
+    branches:
+      - "main"
+      - "release-[0-9]+.[0-9]"
+    tags: '**'
     paths:
       - '.github/workflows/vtadmin_web_lint.yml'
       - 'web/vtadmin/**'
   pull_request:
+    branches: '**'
     paths:
       - '.github/workflows/vtadmin_web_lint.yml'
       - 'web/vtadmin/**'
@@ -25,7 +30,6 @@ jobs:
             exit 1
           fi
 
-
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: 'false'
@@ -33,7 +37,7 @@ jobs:
       - name: Tune the OS
         uses: ./.github/actions/tune-os
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           # node-version should match package.json
           node-version: '22.13.1'

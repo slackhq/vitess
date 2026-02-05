@@ -82,6 +82,10 @@ jobs:
       if: steps.changes.outputs.end_to_end == 'true'
       uses: ./.github/actions/tune-os
 
+    - name: Setup GitHub access token
+      if: steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
+
     - name: Set up python
       if: steps.changes.outputs.end_to_end == 'true'
       uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
@@ -101,10 +105,6 @@ jobs:
         sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget
         
         sudo service etcd stop
-
-    - name: Setup github.com/slackhq/vitess-addons access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
 
     # Checkout to the last release of Vitess
     - name: Check out last version's code (${{ steps.output-previous-release-ref.outputs.previous_release_ref }})
@@ -226,7 +226,6 @@ jobs:
         go run test.go -skip-build -keep-data=false -docker=false -print-log -follow -tag upgrade_downgrade_onlineddl_flow
 
     # Running a test with primary tablet at version n-1  and replica vttablet at version n (current SHA)
-    # v19 online ddl (single-metric throttler) is not compatible with v22 online ddl (multi-metric throttler)
     - name: Run Online DDL tests (primary=N-1, replica=N)
       if: false
       run: |

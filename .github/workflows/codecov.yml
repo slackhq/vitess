@@ -16,7 +16,7 @@ permissions: read-all
 jobs:
   test:
     name: Code Coverage
-    runs-on: ubuntu-24.04
+    runs-on: vitess-ubuntu24-16cpu-1
 
     steps:
     - name: Check out code
