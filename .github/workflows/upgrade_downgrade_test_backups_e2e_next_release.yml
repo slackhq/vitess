@@ -19,7 +19,10 @@ jobs:
   upgrade_downgrade_test_e2e:
     timeout-minutes: 60
     name: Run Upgrade Downgrade Test - Backups - E2E - Next Release
-    runs-on: gh-hosted-runners-16cores-1-24.04
+    runs-on: vitess-ubuntu24-16cpu-1
+    env:
+      GOPRIVATE: github.com/slackhq/vitess-addons
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
     steps:
     - name: Skip CI
@@ -67,6 +70,10 @@ jobs:
     - name: Tune the OS
       if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
       uses: ./.github/actions/tune-os
+
+    - name: Setup GitHub access token
+      if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
+      run: git config --global url.https://${{ secrets.GH_ACCESS_TOKEN }}@github.com/.insteadOf https://github.com/
 
     - name: Set up python
       if: steps.output-next-release-ref.outputs.next_release_ref != '' && steps.changes.outputs.end_to_end == 'true'
