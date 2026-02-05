@@ -19,6 +19,8 @@ package srvtopo
 import (
 	"context"
 	"fmt"
+        "path/filepath"
+        "strings"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vschemapb "vitess.io/vitess/go/vt/proto/vschema"
@@ -37,14 +39,21 @@ var (
 //
 // A filtering server will only allow read-only access to the topo.Server to prevent
 // updates that may corrupt the global VSchema keyspace.
+// Supports glob patterns with asterisks (e.g., "prod_*", "*_test").
 func NewKeyspaceFilteringServer(underlying Server, selectedKeyspaces []string) (Server, error) {
 	if underlying == nil {
 		return nil, ErrNilUnderlyingServer
 	}
 
-	keyspaces := map[string]bool{}
+	exactKeyspaces := map[string]bool{}
+	var patterns []string
+
 	for _, ks := range selectedKeyspaces {
-		keyspaces[ks] = true
+		if strings.Contains(ks, "*") {
+			patterns = append(patterns, ks)
+		} else {
+			exactKeyspaces[ks] = true
+		}
 	}
 
 	readOnlyServer, err := NewReadOnlyServer(underlying)
@@ -54,18 +63,37 @@ func NewKeyspaceFilteringServer(underlying Server, selectedKeyspaces []string) (
 
 	return keyspaceFilteringServer{
 		server:          readOnlyServer,
-		selectKeyspaces: keyspaces,
+		selectKeyspaces: exactKeyspaces,
+		patterns:        patterns,
 	}, nil
 }
 
 type keyspaceFilteringServer struct {
 	server          Server
 	selectKeyspaces map[string]bool
+	patterns        []string
 }
 
 // GetTopoServer returns a read-only topo server
 func (ksf keyspaceFilteringServer) GetTopoServer() (*topo.Server, error) {
 	return ksf.server.GetTopoServer()
+}
+
+// matchesKeyspace checks if a keyspace name matches the filter (exact or pattern).
+func (ksf keyspaceFilteringServer) matchesKeyspace(keyspace string) bool {
+	// Fast path: exact match
+	if ksf.selectKeyspaces[keyspace] {
+		return true
+	}
+
+	// Pattern matching path
+	for _, pattern := range ksf.patterns {
+		if matched, _ := filepath.Match(pattern, keyspace); matched {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (ksf keyspaceFilteringServer) GetSrvKeyspaceNames(
@@ -76,7 +104,7 @@ func (ksf keyspaceFilteringServer) GetSrvKeyspaceNames(
 	keyspaces, err := ksf.server.GetSrvKeyspaceNames(ctx, cell, staleOK)
 	ret := make([]string, 0, len(keyspaces))
 	for _, ks := range keyspaces {
-		if ksf.selectKeyspaces[ks] {
+		if ksf.matchesKeyspace(ks) {
 			ret = append(ret, ks)
 		}
 	}
@@ -88,7 +116,7 @@ func (ksf keyspaceFilteringServer) GetSrvKeyspace(
 	cell,
 	keyspace string,
 ) (*topodatapb.SrvKeyspace, error) {
-	if !ksf.selectKeyspaces[keyspace] {
+	if !ksf.matchesKeyspace(keyspace) {
 		return nil, topo.NewError(topo.NoNode, keyspace)
 	}
 
@@ -102,7 +130,7 @@ func (ksf keyspaceFilteringServer) WatchSrvKeyspace(
 ) {
 	filteringCallback := func(ks *topodatapb.SrvKeyspace, err error) bool {
 		if ks != nil {
-			if !ksf.selectKeyspaces[keyspace] {
+			if !ksf.matchesKeyspace(keyspace) {
 				return callback(nil, topo.NewError(topo.NoNode, keyspace))
 			}
 		}
@@ -120,7 +148,7 @@ func (ksf keyspaceFilteringServer) WatchSrvVSchema(
 	filteringCallback := func(schema *vschemapb.SrvVSchema, err error) bool {
 		if schema != nil {
 			for ks := range schema.Keyspaces {
-				if !ksf.selectKeyspaces[ks] {
+				if !ksf.matchesKeyspace(ks) {
 					delete(schema.Keyspaces, ks)
 				}
 			}

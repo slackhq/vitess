@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"hash/crc32"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -396,28 +397,49 @@ func (fbs *FilterByShard) IsIncluded(tablet *topodatapb.Tablet) bool {
 }
 
 // FilterByKeyspace is a filter that filters tablets by keyspace.
+// Supports glob patterns with asterisks (e.g., "prod_*", "*_test").
 type FilterByKeyspace struct {
-	keyspaces map[string]bool
+	exactKeyspaces map[string]bool
+	patterns       []string
 }
 
 // NewFilterByKeyspace creates a new FilterByKeyspace.
-// Each filter is a keyspace entry. All tablets that match
-// a keyspace will be forwarded to the TopologyWatcher's consumer.
+// Each filter is a keyspace entry or glob pattern. All tablets that match
+// a keyspace or pattern will be forwarded to the TopologyWatcher's consumer.
+// Glob patterns support asterisks (*) for wildcard matching.
 func NewFilterByKeyspace(selectedKeyspaces []string) *FilterByKeyspace {
-	m := make(map[string]bool)
+	exactKeyspaces := make(map[string]bool)
+	var patterns []string
+
 	for _, keyspace := range selectedKeyspaces {
-		m[keyspace] = true
+		if strings.Contains(keyspace, "*") {
+			patterns = append(patterns, keyspace)
+		} else {
+			exactKeyspaces[keyspace] = true
+		}
 	}
 
 	return &FilterByKeyspace{
-		keyspaces: m,
+		exactKeyspaces: exactKeyspaces,
+		patterns:       patterns,
 	}
 }
 
 // IsIncluded returns true if the tablet's keyspace matches what we have.
 func (fbk *FilterByKeyspace) IsIncluded(tablet *topodatapb.Tablet) bool {
-	_, exist := fbk.keyspaces[tablet.Keyspace]
-	return exist
+	// Fast path: exact match
+	if _, exist := fbk.exactKeyspaces[tablet.Keyspace]; exist {
+		return true
+	}
+
+	// Pattern matching path
+	for _, pattern := range fbk.patterns {
+		if matched, _ := filepath.Match(pattern, tablet.Keyspace); matched {
+			return true
+		}
+	}
+
+	return false
 }
 
 // FilterByTabletTags is a filter that filters tablets by tablet tag key/values.

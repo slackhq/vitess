@@ -238,3 +238,38 @@ func TestFilteringServerWatchSrvVSchemaHandlesNilSchema(t *testing.T) {
 	f.WatchSrvVSchema(stockCtx, "other-cell", cb)
 	wg.Wait()
 }
+
+func TestFilteringServerGlobPatterns(t *testing.T) {
+	ctx := t.Context()
+	testServer := srvtopotest.NewPassthroughSrvTopoServer()
+	testServer.TopoServer = memorytopo.NewServer(ctx, stockCell)
+	testServer.SrvKeyspaceNames = []string{"prod_main", "prod_backup", "staging_db", "dev_db"}
+	testServer.SrvKeyspace = &topodatapb.SrvKeyspace{}
+
+	patterns := []string{"prod_*", "staging_*"}
+	filtering, err := NewKeyspaceFilteringServer(testServer, patterns)
+	if err != nil {
+		t.Fatalf("Failed to create filtering server: %v", err)
+	}
+
+	got, gotErr := filtering.GetSrvKeyspaceNames(stockCtx, stockCell, false)
+	if gotErr != nil {
+		t.Errorf("GetSrvKeyspaceNames returned error: %v", gotErr)
+	}
+
+	want := []string{"prod_main", "prod_backup", "staging_db"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetSrvKeyspaceNames with glob patterns failed: want %v, got %v", want, got)
+	}
+
+	_, err = filtering.GetSrvKeyspace(stockCtx, stockCell, "prod_main")
+	if err != nil {
+		t.Errorf("GetSrvKeyspace for prod_main should succeed with pattern prod_*: %v", err)
+	}
+
+	_, err = filtering.GetSrvKeyspace(stockCtx, stockCell, "dev_db")
+	wantErr := topo.NewError(topo.NoNode, "dev_db")
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Errorf("GetSrvKeyspace for dev_db should be filtered out: want %v, got %v", wantErr, err)
+	}
+}

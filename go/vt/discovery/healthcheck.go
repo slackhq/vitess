@@ -177,7 +177,8 @@ func registerDiscoveryFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&tabletFilters, "tablet_filters", []string{}, "Specifies a comma-separated list of 'keyspace|shard_name or keyrange' values to filter the tablets to watch.")
 	fs.Var(&tabletFilterTags, "tablet-filter-tags", "Specifies a comma-separated list of tablet tags (as key:value pairs) to filter the tablets to watch.")
 	fs.Var((*topoproto.TabletTypeListFlag)(&AllowedTabletTypes), "allowed_tablet_types", "Specifies the tablet types this vtgate is allowed to route queries to. Should be provided as a comma-separated set of tablet types.")
-	fs.StringSliceVar(&KeyspacesToWatch, "keyspaces_to_watch", []string{}, "Specifies which keyspaces this vtgate should have access to while routing queries or accessing the vschema.")
+        fs.SetFlagStringSliceVar(fs, &KeyspacesToWatch, "keyspaces-to-watch", []string{}, "CSV string which specifies keyspaces this vtgate should have access to while routing queries or accessing the vschema (NOTE: they can contain * for glob-like matching)")
+
 }
 
 func registerWebUIFlags(fs *pflag.FlagSet) {

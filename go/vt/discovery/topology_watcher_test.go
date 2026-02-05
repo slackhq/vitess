@@ -839,3 +839,33 @@ func TestDeadlockBetweenTopologyWatcherAndHealthCheck(t *testing.T) {
 		hc.updateHealth(th, prevTarget, false, false)
 	}
 }
+
+func TestFilterByKeyspaceGlobPatterns(t *testing.T) {
+	testCases := []struct {
+		patterns []string
+		keyspace string
+		expected bool
+	}{
+		{[]string{"prod_*"}, "prod_main", true},
+		{[]string{"prod_*"}, "prod_backup", true},
+		{[]string{"prod_*"}, "staging_main", false},
+		{[]string{"*_test"}, "app_test", true},
+		{[]string{"*_test"}, "service_test", true},
+		{[]string{"*_test"}, "prod_main", false},
+		{[]string{"prod_*", "staging_*"}, "prod_db", true},
+		{[]string{"prod_*", "staging_*"}, "staging_db", true},
+		{[]string{"prod_*", "staging_*"}, "dev_db", false},
+		{[]string{"exact_match"}, "exact_match", true},
+		{[]string{"exact_match"}, "exact_match_not", false},
+		{[]string{"exact", "prefix_*"}, "exact", true},
+		{[]string{"exact", "prefix_*"}, "prefix_test", true},
+		{[]string{"exact", "prefix_*"}, "other", false},
+	}
+
+	for _, tc := range testCases {
+		filter := NewFilterByKeyspace(tc.patterns)
+		tablet := &topodatapb.Tablet{Keyspace: tc.keyspace}
+		result := filter.IsIncluded(tablet)
+		assert.Equal(t, tc.expected, result, "pattern=%v, keyspace=%s", tc.patterns, tc.keyspace)
+	}
+}
