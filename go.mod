@@ -109,7 +109,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c
 	github.com/nsf/jsondiff v0.0.0-20210926074059-1e845ec5d249
 	github.com/shirou/gopsutil/v4 v4.26.1
-	github.com/slackhq/vitess-addons v0.22.1
+	github.com/slackhq/vitess-addons v0.22.3
 	github.com/slok/noglog v0.2.0
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/jwalterweatherman v1.1.0
