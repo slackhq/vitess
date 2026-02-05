@@ -55,3 +55,4 @@ func TestUtils(t *testing.T) {
 	_, err = os.Stat(cnfFile)
 	require.True(t, os.IsNotExist(err))
 }
+
