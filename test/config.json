@@ -1041,19 +1041,6 @@
 			"Packages": [
 				"vitess.io/vitess/go/test/endtoend/vtgate/schematracker/viewsdisabled"
 			],
-			"Args": [
-				"-timeout",
-				"20m"
-			],
-			"Command": [],
-			"Manual": false,
-			"Shard": "vtgate_schema_tracker",
-			"Tags": [
-				"upgrade_downgrade_query_serving_schema"
-			]
-		},
-		"vtgate_schematracker_viewsdisabled": {
-			"File": "unused.go",
 			"Args": ["vitess.io/vitess/go/test/endtoend/vtgate/schematracker/viewsdisabled", "-timeout", "20m"],
 			"Command": [],
 			"Manual": false,
@@ -1328,14 +1315,6 @@
 			"Packages": [
 				"vitess.io/vitess/go/test/endtoend/vtgate/foreignkey/routing"
 			],
-			"Args": [],
-			"Command": [],
-			"Manual": false,
-			"Shard": "vtgate_foreignkey_stress",
-			"Tags": []
-		},
-		"vtgate_foreignkey_routing": {
-			"File": "unused.go",
 			"Args": ["vitess.io/vitess/go/test/endtoend/vtgate/foreignkey/routing"],
 			"Command": [],
 			"Manual": false,
@@ -1720,17 +1699,6 @@
 			"Packages": [
 				"vitess.io/vitess/go/test/endtoend/vreplication"
 			],
-			"Args": [
-				"-run",
-				"TestSequenceResetOnSwitchTraffic"
-			],
-			"Command": [],
-			"Manual": false,
-			"Shard": "vreplication_partial_movetables_and_materialize",
-			"Tags": []
-		},
-		"vreplication_sequence_reset_on_switch_traffic": {
-			"File": "unused.go",
 			"Args": ["vitess.io/vitess/go/test/endtoend/vreplication", "-run", "TestSequenceResetOnSwitchTraffic"],
 			"Command": [],
 			"Manual": false,
