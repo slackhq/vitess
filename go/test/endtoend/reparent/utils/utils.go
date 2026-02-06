@@ -693,7 +693,7 @@ func CheckReparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProces
 			assert.Len(t, result[cell1].Nodes, 2)
 		}
 	} else {
-		result, err := clusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("GetShardReplication", cell1, KeyspaceShard)
+		result, err := clusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("GetShardReplication", KeyspaceShard, cell1)
 		if err != nil {
 			t.Logf("GetShardReplication failed with error: %v", err)
 			t.Logf("Command output was: %s", result)
