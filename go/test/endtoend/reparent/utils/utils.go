@@ -681,6 +681,10 @@ func CheckReplicaStatus(ctx context.Context, t *testing.T, tablet *cluster.Vttab
 func CheckReparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProcessCluster, tablet *cluster.Vttablet, downPrimary bool, baseTime int64) {
 	if clusterInstance.VtctlMajorVersion > 19 { // TODO: (ajm188) remove else clause after next release
 		result, err := clusterInstance.VtctldClientProcess.GetShardReplication(KeyspaceName, ShardName, cell1)
+		if err != nil {
+			t.Logf("GetShardReplication error: %v", err)
+			t.Logf("GetShardReplication result: %+v", result)
+		}
 		require.Nil(t, err, "error should be Nil")
 		require.NotNil(t, result[cell1], "result should not be nil")
 		if !downPrimary {
@@ -690,6 +694,10 @@ func CheckReparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProces
 		}
 	} else {
 		result, err := clusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("GetShardReplication", cell1, KeyspaceShard)
+		if err != nil {
+			t.Logf("GetShardReplication failed with error: %v", err)
+			t.Logf("Command output was: %s", result)
+		}
 		require.Nil(t, err, "error should be Nil")
 		if !downPrimary {
 			assertNodeCount(t, result, int(3))
