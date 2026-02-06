@@ -111,6 +111,11 @@ func TestPRSWithDrainedLaggingTablet(t *testing.T) {
 func TestReparentReplicaOffline(t *testing.T) {
 	clusterInstance := utils.SetupReparentCluster(t, policy.DurabilitySemiSync)
 	defer utils.TeardownCluster(clusterInstance)
+
+	if clusterInstance.VtctlMajorVersion <= 19 {
+		t.Skip("TestReparentReplicaOffline has different behavior in v19 and below")
+	}
+
 	tablets := clusterInstance.Keyspaces[0].Shards[0].Vttablets
 
 	// Kill one tablet so we seem offline
