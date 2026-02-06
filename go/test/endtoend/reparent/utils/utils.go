@@ -728,8 +728,22 @@ func assertNodeCount(t *testing.T, result string, want int) {
 	err := json.Unmarshal([]byte(result), &resultMap)
 	require.NoError(t, err)
 
-	nodes := reflect.ValueOf(resultMap["nodes"])
-	got := nodes.Len()
+	// The response structure is: {"shard_replication_by_cell": {"zone1": {"nodes": [...]}}}
+	shardRepByCell, ok := resultMap["shard_replication_by_cell"].(map[string]any)
+	require.True(t, ok, "shard_replication_by_cell not found in response")
+
+	// Get the first cell's replication info (should only be one cell)
+	var nodes any
+	for _, cellData := range shardRepByCell {
+		cellMap, ok := cellData.(map[string]any)
+		require.True(t, ok, "cell data is not a map")
+		nodes = cellMap["nodes"]
+		break
+	}
+
+	require.NotNil(t, nodes, "nodes field not found")
+	nodesValue := reflect.ValueOf(nodes)
+	got := nodesValue.Len()
 	assert.Equal(t, want, got)
 }
 
