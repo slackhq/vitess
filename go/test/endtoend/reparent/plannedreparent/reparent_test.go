@@ -285,6 +285,11 @@ func reparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProcessClus
 func TestReparentWithDownReplica(t *testing.T) {
 	clusterInstance := utils.SetupReparentCluster(t, policy.DurabilitySemiSync)
 	defer utils.TeardownCluster(clusterInstance)
+
+	if clusterInstance.VtctlMajorVersion <= 19 {
+		t.Skip("TestReparentWithDownReplica has different behavior in v19 and below")
+	}
+
 	tablets := clusterInstance.Keyspaces[0].Shards[0].Vttablets
 
 	ctx := context.Background()
