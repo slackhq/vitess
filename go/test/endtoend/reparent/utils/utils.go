@@ -681,6 +681,10 @@ func CheckReplicaStatus(ctx context.Context, t *testing.T, tablet *cluster.Vttab
 func CheckReparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProcessCluster, tablet *cluster.Vttablet, downPrimary bool, baseTime int64) {
 	if clusterInstance.VtctlMajorVersion > 19 { // TODO: (ajm188) remove else clause after next release
 		result, err := clusterInstance.VtctldClientProcess.GetShardReplication(KeyspaceName, ShardName, cell1)
+		if err != nil {
+			t.Logf("GetShardReplication error: %v", err)
+			t.Logf("GetShardReplication result: %+v", result)
+		}
 		require.Nil(t, err, "error should be Nil")
 		require.NotNil(t, result[cell1], "result should not be nil")
 		if !downPrimary {
@@ -689,7 +693,11 @@ func CheckReparentFromOutside(t *testing.T, clusterInstance *cluster.LocalProces
 			assert.Len(t, result[cell1].Nodes, 2)
 		}
 	} else {
-		result, err := clusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("GetShardReplication", cell1, KeyspaceShard)
+		result, err := clusterInstance.VtctldClientProcess.ExecuteCommandWithOutput("GetShardReplication", KeyspaceShard, cell1)
+		if err != nil {
+			t.Logf("GetShardReplication failed with error: %v", err)
+			t.Logf("Command output was: %s", result)
+		}
 		require.Nil(t, err, "error should be Nil")
 		if !downPrimary {
 			assertNodeCount(t, result, int(3))
@@ -720,8 +728,22 @@ func assertNodeCount(t *testing.T, result string, want int) {
 	err := json.Unmarshal([]byte(result), &resultMap)
 	require.NoError(t, err)
 
-	nodes := reflect.ValueOf(resultMap["nodes"])
-	got := nodes.Len()
+	// The response structure is: {"shard_replication_by_cell": {"zone1": {"nodes": [...]}}}
+	shardRepByCell, ok := resultMap["shard_replication_by_cell"].(map[string]any)
+	require.True(t, ok, "shard_replication_by_cell not found in response")
+
+	// Get the first cell's replication info (should only be one cell)
+	var nodes any
+	for _, cellData := range shardRepByCell {
+		cellMap, ok := cellData.(map[string]any)
+		require.True(t, ok, "cell data is not a map")
+		nodes = cellMap["nodes"]
+		break
+	}
+
+	require.NotNil(t, nodes, "nodes field not found")
+	nodesValue := reflect.ValueOf(nodes)
+	got := nodesValue.Len()
 	assert.Equal(t, want, got)
 }
 
