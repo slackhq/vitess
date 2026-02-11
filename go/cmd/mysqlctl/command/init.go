@@ -43,6 +43,7 @@ var Init = &cobra.Command{
 var initArgs = struct {
 	WaitTime      time.Duration
 	InitDbSQLFile string
+	ServerID      uint32
 }{
 	WaitTime: 5 * time.Minute,
 }
@@ -55,6 +56,11 @@ func commandInit(cmd *cobra.Command, args []string) error {
 	}
 	defer mysqld.Close()
 
+	// Override server_id if explicitly provided via flag.
+	if initArgs.ServerID != 0 {
+		cnf.ServerID = initArgs.ServerID
+	}
+
 	ctx, cancel := context.WithTimeout(cmd.Context(), initArgs.WaitTime)
 	defer cancel()
 	if err := mysqld.Init(ctx, cnf, initArgs.InitDbSQLFile); err != nil {
@@ -66,6 +72,7 @@ func commandInit(cmd *cobra.Command, args []string) error {
 func init() {
 	Init.Flags().DurationVar(&initArgs.WaitTime, "wait_time", initArgs.WaitTime, "How long to wait for mysqld startup.")
 	Init.Flags().StringVar(&initArgs.InitDbSQLFile, "init_db_sql_file", initArgs.InitDbSQLFile, "Path to .sql file to run after mysqld initiliaztion.")
+	Init.Flags().Uint32Var(&initArgs.ServerID, "server_id", initArgs.ServerID, "Specify the MySQL server_id to use. If not provided, a random server_id will be generated.")
 
 	Root.AddCommand(Init)
 }
