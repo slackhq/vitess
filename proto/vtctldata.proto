@@ -742,6 +742,8 @@ message EmergencyReparentShardRequest {
   // ExpectedPrimary is the optional alias we expect to be the current primary in order for
   // the reparent operation to succeed.
   topodata.TabletAlias expected_primary = 8;
+  replicationdata.WaitForRelayLogsMode wait_for_relaylogs_mode = 9;
+  uint32 wait_for_relaylogs_tablet_count = 10;
 }
 
 message EmergencyReparentShardResponse {

@@ -58,10 +58,12 @@ type EmergencyReparentOptions struct {
 	IgnoreReplicas  sets.Set[string]
 	// WaitAllTablets is used to specify whether ERS should wait for all the tablets to return and not proceed
 	// further after n-1 tablets have returned.
-	WaitAllTablets            bool
-	WaitReplicasTimeout       time.Duration
-	PreventCrossCellPromotion bool
-	ExpectedPrimaryAlias      *topodatapb.TabletAlias
+	WaitAllTablets              bool
+	WaitReplicasTimeout         time.Duration
+	PreventCrossCellPromotion   bool
+	ExpectedPrimaryAlias        *topodatapb.TabletAlias
+	WaitForRelayLogsMode        replicationdatapb.WaitForRelayLogsMode
+	WaitForRelayLogsTabletCount uint32
 
 	// Private options managed internally. We use value passing to avoid leaking
 	// these details back out.
@@ -221,7 +223,12 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 		return err
 	}
 	// Restrict the valid candidates list. We remove any tablet which is of the type DRAINED, RESTORE or BACKUP.
-	validCandidates, err = restrictValidCandidates(validCandidates, tabletMap)
+	validCandidates, err = restrictValidCandidates(
+		validCandidates,
+		tabletMap,
+		opts.WaitForRelayLogsMode,
+		opts.WaitForRelayLogsTabletCount,
+	)
 	if err != nil {
 		return err
 	} else if len(validCandidates) == 0 {

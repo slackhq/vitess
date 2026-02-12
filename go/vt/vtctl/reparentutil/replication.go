@@ -18,6 +18,7 @@ package reparentutil
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -357,5 +358,121 @@ func WaitForRelayLogsToApply(ctx context.Context, tmc tmclient.TabletManagerClie
 		return tmc.WaitForPosition(ctx, tabletInfo.Tablet, status.After.RelayLogSourceBinlogEquivalentPosition)
 	default:
 		return tmc.WaitForPosition(ctx, tabletInfo.Tablet, status.After.RelayLogPosition)
+	}
+}
+
+// compareRelayLogPositions compares two RelayLogPositions
+func compareRelayLogPositions(a, b *RelayLogPositions) int {
+	if a.AtLeast(b) && b.AtLeast(a) {
+		return 0
+	}
+	if a.AtLeast(b) {
+		return 1
+	}
+	return -1
+}
+
+// sortRelayLogPositions sorts positions in descending order (most advanced first)
+func sortRelayLogPositions(candidates map[string]*RelayLogPositions) ([]string, []*RelayLogPositions) {
+	type candidatePair struct {
+		alias string
+		pos   *RelayLogPositions
+	}
+
+	var pairs []candidatePair
+	for alias, pos := range candidates {
+		pairs = append(pairs, candidatePair{alias: alias, pos: pos})
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareRelayLogPositions(pairs[i].pos, pairs[j].pos) > 0
+	})
+
+	aliases := make([]string, len(pairs))
+	positions := make([]*RelayLogPositions, len(pairs))
+	for i, pair := range pairs {
+		aliases[i] = pair.alias
+		positions[i] = pair.pos
+	}
+
+	return aliases, positions
+}
+
+// getValidCandidatesMajorityCount calculates majority count
+func getValidCandidatesMajorityCount(sortedPositions []*RelayLogPositions) int {
+	if len(sortedPositions) == 0 {
+		return 0
+	}
+
+	mostAdvanced := sortedPositions[0]
+	countAtMostAdvanced := 0
+	for _, pos := range sortedPositions {
+		if pos.Equal(mostAdvanced) {
+			countAtMostAdvanced++
+		} else {
+			break
+		}
+	}
+
+	majorityCount := (len(sortedPositions) + 1) / 2
+	if countAtMostAdvanced >= majorityCount {
+		return countAtMostAdvanced
+	}
+
+	return majorityCount
+}
+
+// reduceValidCandidates filters candidates based on mode and count
+func reduceValidCandidates(
+	validCandidates map[string]*RelayLogPositions,
+	mode replicationdatapb.WaitForRelayLogsMode,
+	tabletCount uint32,
+) (map[string]*RelayLogPositions, error) {
+	switch mode {
+	case replicationdatapb.WaitForRelayLogsMode_DEFAULT:
+		fallthrough
+	case replicationdatapb.WaitForRelayLogsMode_ALL:
+		return validCandidates, nil
+
+	case replicationdatapb.WaitForRelayLogsMode_MAJORITY:
+		if len(validCandidates) == 0 {
+			return validCandidates, nil
+		}
+
+		aliases, sortedPositions := sortRelayLogPositions(validCandidates)
+		majorityCount := getValidCandidatesMajorityCount(sortedPositions)
+
+		reducedCandidates := make(map[string]*RelayLogPositions, majorityCount)
+		for i := 0; i < majorityCount && i < len(aliases); i++ {
+			alias := aliases[i]
+			reducedCandidates[alias] = validCandidates[alias]
+		}
+
+		return reducedCandidates, nil
+
+	case replicationdatapb.WaitForRelayLogsMode_COUNT:
+		if tabletCount == 0 {
+			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+				"wait_for_relaylogs_tablet_count must be positive when mode is COUNT")
+		}
+
+		if int(tabletCount) > len(validCandidates) {
+			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+				"wait_for_relaylogs_tablet_count (%d) exceeds number of valid candidates (%d)",
+				tabletCount, len(validCandidates))
+		}
+
+		aliases, _ := sortRelayLogPositions(validCandidates)
+		reducedCandidates := make(map[string]*RelayLogPositions, tabletCount)
+		for i := 0; i < int(tabletCount) && i < len(aliases); i++ {
+			alias := aliases[i]
+			reducedCandidates[alias] = validCandidates[alias]
+		}
+
+		return reducedCandidates, nil
+
+	default:
+		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+			"unknown WaitForRelayLogsMode: %v", mode)
 	}
 }

@@ -59,6 +59,10 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	config.MarkConfigurationLoaded()
 
+	if err := config.ValidateWaitForRelayLogsConfig(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
 	// Log final config values to debug if something goes wrong.
 	log.Infof("Running with Configuration - %v", debug.AllSettings())
 	server.StartVTOrcDiscovery()

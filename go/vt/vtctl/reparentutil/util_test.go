@@ -1846,7 +1846,7 @@ func TestRestrictValidCandidates(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap)
+			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap, replicationdatapb.WaitForRelayLogsMode_ALL, 0)
 			assert.NoError(t, err)
 			assert.Equal(t, res, test.result)
 		})

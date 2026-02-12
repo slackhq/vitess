@@ -48645,6 +48645,14 @@ export namespace replicationdata {
         IOTHREADONLY = 1
     }
 
+    /** WaitForRelayLogsMode enum. */
+    enum WaitForRelayLogsMode {
+        DEFAULT = 0,
+        ALL = 1,
+        MAJORITY = 2,
+        COUNT = 3
+    }
+
     /** Properties of a PrimaryStatus. */
     interface IPrimaryStatus {
 
@@ -58118,6 +58126,12 @@ export namespace vtctldata {
 
         /** EmergencyReparentShardRequest expected_primary */
         expected_primary?: (topodata.ITabletAlias|null);
+
+        /** EmergencyReparentShardRequest wait_for_relaylogs_mode */
+        wait_for_relaylogs_mode?: (replicationdata.WaitForRelayLogsMode|null);
+
+        /** EmergencyReparentShardRequest wait_for_relaylogs_tablet_count */
+        wait_for_relaylogs_tablet_count?: (number|null);
     }
 
     /** Represents an EmergencyReparentShardRequest. */
@@ -58152,6 +58166,12 @@ export namespace vtctldata {
 
         /** EmergencyReparentShardRequest expected_primary. */
         public expected_primary?: (topodata.ITabletAlias|null);
+
+        /** EmergencyReparentShardRequest wait_for_relaylogs_mode. */
+        public wait_for_relaylogs_mode: replicationdata.WaitForRelayLogsMode;
+
+        /** EmergencyReparentShardRequest wait_for_relaylogs_tablet_count. */
+        public wait_for_relaylogs_tablet_count: number;
 
         /**
          * Creates a new EmergencyReparentShardRequest instance using the specified properties.

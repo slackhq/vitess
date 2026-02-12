@@ -317,7 +317,13 @@ func getValidCandidatesAndPositionsAsList(validCandidates map[string]*RelayLogPo
 }
 
 // restrictValidCandidates is used to restrict some candidates from being considered eligible for becoming the intermediate source or the final promotion candidate
-func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabletMap map[string]*topo.TabletInfo) (map[string]*RelayLogPositions, error) {
+func restrictValidCandidates(
+	validCandidates map[string]*RelayLogPositions,
+	tabletMap map[string]*topo.TabletInfo,
+	mode replicationdatapb.WaitForRelayLogsMode,
+	tabletCount uint32,
+) (map[string]*RelayLogPositions, error) {
+	// First, filter by tablet type (existing logic)
 	restrictedValidCandidates := make(map[string]*RelayLogPositions)
 	for candidate, position := range validCandidates {
 		candidateInfo, ok := tabletMap[candidate]
@@ -330,7 +336,9 @@ func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabl
 		}
 		restrictedValidCandidates[candidate] = position
 	}
-	return restrictedValidCandidates, nil
+
+	// Then apply mode-based filtering
+	return reduceValidCandidates(restrictedValidCandidates, mode, tabletCount)
 }
 
 func findCandidate(

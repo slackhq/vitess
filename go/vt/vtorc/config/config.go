@@ -17,6 +17,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -152,6 +153,24 @@ var (
 		viperutil.Options[time.Duration]{
 			FlagName: "wait-replicas-timeout",
 			Default:  30 * time.Second,
+			Dynamic:  true,
+		},
+	)
+
+	waitForRelayLogsMode = viperutil.Configure(
+		"wait-for-relaylogs-mode",
+		viperutil.Options[string]{
+			FlagName: "wait-for-relaylogs-mode",
+			Default:  "ALL",
+			Dynamic:  true,
+		},
+	)
+
+	waitForRelayLogsTabletCount = viperutil.Configure(
+		"wait-for-relaylogs-tablet-count",
+		viperutil.Options[uint32]{
+			FlagName: "wait-for-relaylogs-tablet-count",
+			Default:  0,
 			Dynamic:  true,
 		},
 	)
@@ -366,6 +385,16 @@ func GetWaitReplicasTimeout() time.Duration {
 	return waitReplicasTimeout.Get()
 }
 
+// GetWaitForRelayLogsMode is a getter function.
+func GetWaitForRelayLogsMode() string {
+	return waitForRelayLogsMode.Get()
+}
+
+// GetWaitForRelayLogsTabletCount is a getter function.
+func GetWaitForRelayLogsTabletCount() uint32 {
+	return waitForRelayLogsTabletCount.Get()
+}
+
 // GetTolerableReplicationLag is a getter function.
 func GetTolerableReplicationLag() time.Duration {
 	return tolerableReplicationLag.Get()
@@ -427,4 +456,24 @@ func MarkConfigurationLoaded() {
 // the configuration file has been read off disk.
 func WaitForConfigurationToBeLoaded() {
 	<-configurationLoaded
+}
+
+// ValidateWaitForRelayLogsConfig validates the wait-for-relaylogs configuration
+func ValidateWaitForRelayLogsConfig() error {
+	mode := GetWaitForRelayLogsMode()
+	count := GetWaitForRelayLogsTabletCount()
+
+	validModes := map[string]bool{
+		"DEFAULT": true, "ALL": true, "MAJORITY": true, "COUNT": true,
+	}
+
+	if !validModes[mode] {
+		return fmt.Errorf("invalid wait-for-relaylogs-mode: %s", mode)
+	}
+
+	if mode == "COUNT" && count == 0 {
+		return fmt.Errorf("wait-for-relaylogs-tablet-count must be positive when mode is COUNT")
+	}
+
+	return nil
 }

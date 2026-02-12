@@ -76,6 +76,14 @@ enum StopReplicationMode {
   IOTHREADONLY = 1;
 }
 
+// WaitForRelayLogsMode specifies how to handle waiting for relay logs during emergency reparent
+enum WaitForRelayLogsMode {
+  DEFAULT = 0;
+  ALL = 1;
+  MAJORITY = 2;
+  COUNT = 3;
+}
+
 // PrimaryStatus is the replication status for a MySQL primary (returned by 'show binary log status').
 message PrimaryStatus {
   string position = 1;

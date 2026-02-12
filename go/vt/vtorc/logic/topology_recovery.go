@@ -29,6 +29,7 @@ import (
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	logutilpb "vitess.io/vitess/go/vt/proto/logutil"
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil"
@@ -168,6 +169,21 @@ func initializeTopologyRecoveryPostConfiguration() {
 	config.WaitForConfigurationToBeLoaded()
 }
 
+func parseWaitForRelayLogsMode(mode string) replicationdatapb.WaitForRelayLogsMode {
+	switch mode {
+	case "DEFAULT":
+		return replicationdatapb.WaitForRelayLogsMode_DEFAULT
+	case "ALL":
+		return replicationdatapb.WaitForRelayLogsMode_ALL
+	case "MAJORITY":
+		return replicationdatapb.WaitForRelayLogsMode_MAJORITY
+	case "COUNT":
+		return replicationdatapb.WaitForRelayLogsMode_COUNT
+	default:
+		return replicationdatapb.WaitForRelayLogsMode_ALL
+	}
+}
+
 func getLockAction(analysedInstance string, code inst.AnalysisCode) string {
 	return fmt.Sprintf("VTOrc Recovery for %v on %v", code, analysedInstance)
 }
@@ -296,10 +312,12 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 		tablet.Keyspace,
 		tablet.Shard,
 		reparentutil.EmergencyReparentOptions{
-			IgnoreReplicas:            nil,
-			WaitReplicasTimeout:       config.GetWaitReplicasTimeout(),
-			PreventCrossCellPromotion: config.GetPreventCrossCellFailover(),
-			WaitAllTablets:            waitForAllTablets,
+			IgnoreReplicas:              nil,
+			WaitReplicasTimeout:         config.GetWaitReplicasTimeout(),
+			PreventCrossCellPromotion:   config.GetPreventCrossCellFailover(),
+			WaitAllTablets:              waitForAllTablets,
+			WaitForRelayLogsMode:        parseWaitForRelayLogsMode(config.GetWaitForRelayLogsMode()),
+			WaitForRelayLogsTabletCount: config.GetWaitForRelayLogsTabletCount(),
 		},
 	)
 	if err != nil {
