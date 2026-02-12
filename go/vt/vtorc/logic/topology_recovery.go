@@ -180,7 +180,7 @@ func parseWaitForRelayLogsMode(mode string) replicationdatapb.WaitForRelayLogsMo
 	case "COUNT":
 		return replicationdatapb.WaitForRelayLogsMode_COUNT
 	default:
-		return replicationdatapb.WaitForRelayLogsMode_ALL
+		return replicationdatapb.WaitForRelayLogsMode_MAJORITY
 	}
 }
 

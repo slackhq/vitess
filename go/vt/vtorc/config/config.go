@@ -161,7 +161,7 @@ var (
 		"wait-for-relaylogs-mode",
 		viperutil.Options[string]{
 			FlagName: "wait-for-relaylogs-mode",
-			Default:  "ALL",
+			Default:  "MAJORITY",
 			Dynamic:  true,
 		},
 	)

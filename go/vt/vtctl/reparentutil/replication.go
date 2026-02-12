@@ -429,11 +429,11 @@ func reduceValidCandidates(
 	tabletCount uint32,
 ) (map[string]*RelayLogPositions, error) {
 	switch mode {
-	case replicationdatapb.WaitForRelayLogsMode_DEFAULT:
-		fallthrough
 	case replicationdatapb.WaitForRelayLogsMode_ALL:
 		return validCandidates, nil
 
+	case replicationdatapb.WaitForRelayLogsMode_DEFAULT:
+		fallthrough
 	case replicationdatapb.WaitForRelayLogsMode_MAJORITY:
 		if len(validCandidates) == 0 {
 			return validCandidates, nil
