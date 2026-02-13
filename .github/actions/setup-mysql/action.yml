@@ -26,8 +26,7 @@ runs:
         # https://bugs.launchpad.net/ubuntu/+source/libaio/+bug/2067501
         wget http://mirrors.kernel.org/ubuntu/pool/main/liba/libaio/libaio1_0.3.112-13build1_amd64.deb && \
           sudo dpkg -i libaio1_0.3.112-13build1_amd64.deb && \
-          rm libaio1_0.3.112-13build1_amd64.deb && \
-          sudo apt-mark hold libaio1
+          rm libaio1_0.3.112-13build1_amd64.deb
 
         # Get key to latest MySQL repo
         sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys A8D3785C
