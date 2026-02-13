@@ -112,30 +112,30 @@ jobs:
 
         # Setup Percona Server for MySQL 8.0
         sudo apt-get -qq update
-        sudo apt-get -qq install -y --no-install-recommends lsb-release gnupg2 libdbd-mysql-perl
+        sudo apt-get -qq install -y lsb-release gnupg2 libdbd-mysql-perl
         wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
         sudo percona-release setup pdps8.0
         sudo apt-get -qq update
 
-        sudo apt-get -qq install -y --no-install-recommends percona-server-server percona-server-client
+        sudo apt-get -qq install -y percona-server-server percona-server-client
 
         sudo service mysql stop
 
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
         sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
 
-        sudo apt-get -qq install -y --no-install-recommends percona-xtrabackup-80 lz4
+        sudo apt-get -qq install -y percona-xtrabackup-80 lz4
 
         {{else}}
 
-        sudo apt-get -qq install -y --no-install-recommends mysql-shell
+        sudo apt-get -qq install -y mysql-shell
 
         {{end}}
 
 
         # Install everything else we need, and configure
-        sudo apt-get -qq install -y --no-install-recommends make unzip g++ etcd-client etcd-server curl git wget xz-utils libncurses6
+        sudo apt-get -qq install -y make unzip g++ etcd-client etcd-server curl git wget xz-utils libncurses6
 
         sudo service etcd stop
 
