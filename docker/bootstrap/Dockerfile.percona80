@@ -19,7 +19,6 @@ RUN for i in $(seq 1 10); do apt-key adv --no-tty --keyserver keyserver.ubuntu.c
 	libperconaserverclient21 \
 	percona-server-rocksdb \
 	bzip2 \
-	libdbd-mysql-perl \
 	rsync \
 	libev4 \
 #    && rm -f /etc/apt/sources.list.d/percona.list \
