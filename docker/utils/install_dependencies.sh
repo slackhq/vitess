@@ -56,6 +56,7 @@ BASE_PACKAGES=(
     libev4
     libjemalloc2
     libtcmalloc-minimal4
+    percona-toolkit
     procps
     rsync
     strace
