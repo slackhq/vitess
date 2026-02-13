@@ -100,7 +100,9 @@ jobs:
         sudo dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
         sudo percona-release enable-only tools
         sudo apt-get update
-        sudo apt-get install -y percona-xtrabackup-80
+        echo -e "Package: libdbd-mysql-perl\nPin: release *\nPin-Priority: -1" | sudo tee /etc/apt/preferences.d/block-problematic-packages > /dev/null
+        echo -e "Package: percona-toolkit\nPin: release *\nPin-Priority: -1" | sudo tee -a /etc/apt/preferences.d/block-problematic-packages > /dev/null
+        sudo apt-get install -y --no-install-recommends percona-xtrabackup-80
 
     # Checkout to the next release of Vitess
     - name: Check out other version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})

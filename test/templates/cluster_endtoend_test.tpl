@@ -125,7 +125,9 @@ jobs:
         sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
         sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
 
-        sudo apt-get -qq install -y percona-xtrabackup-80 lz4
+        echo -e "Package: libdbd-mysql-perl\nPin: release *\nPin-Priority: -1" | sudo tee /etc/apt/preferences.d/block-problematic-packages > /dev/null
+        echo -e "Package: percona-toolkit\nPin: release *\nPin-Priority: -1" | sudo tee -a /etc/apt/preferences.d/block-problematic-packages > /dev/null
+        sudo apt-get -qq install -y --no-install-recommends percona-xtrabackup-80 lz4
 
         {{else}}
 
