@@ -51,6 +51,7 @@ BASE_PACKAGES=(
     libaio1
     libatomic1
     libcurl4
+    libdbd-mysql-perl
     libwww-perl
     libev4
     libjemalloc2

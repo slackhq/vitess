@@ -97,8 +97,8 @@ jobs:
         sudo DEBIAN_FRONTEND="noninteractive" apt-get update
 
         # Install everything else we need, and configure
-        sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget grep
-        
+        sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget grep libdbd-mysql-perl
+
         sudo service etcd stop
 
         wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
@@ -106,9 +106,7 @@ jobs:
         sudo dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
         sudo percona-release enable-only tools
         sudo apt-get update
-        echo -e "Package: libdbd-mysql-perl\nPin: release *\nPin-Priority: -1" | sudo tee /etc/apt/preferences.d/block-problematic-packages > /dev/null
-        echo -e "Package: percona-toolkit\nPin: release *\nPin-Priority: -1" | sudo tee -a /etc/apt/preferences.d/block-problematic-packages > /dev/null
-        sudo apt-get install -y --no-install-recommends percona-xtrabackup-80
+        sudo apt-get install -y percona-xtrabackup-80
 
     # Checkout to the next release of Vitess
     - name: Checkout to the other version's code (${{ steps.output-next-release-ref.outputs.next_release_ref }})
