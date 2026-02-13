@@ -1,7 +1,7 @@
 FROM --platform=linux/amd64 golang:1.24.12-bookworm@sha256:8972893fa12177951b8bd4118470f338eaecea133c323be84066cd64f844fc03
 
 # Install Vitess build dependencies
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     # TODO(mberlin): Group these to make it easier to understand which library actually requires them.
     ant \
     ca-certificates \
