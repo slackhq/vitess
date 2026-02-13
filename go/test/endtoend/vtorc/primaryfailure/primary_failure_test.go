@@ -715,6 +715,8 @@ func TestDownPrimaryPromotionRuleWithLag(t *testing.T) {
 // We let a replica in our own cell lag. That is the replica which should be promoted in case of primary failure
 // It should also be caught up when it is promoted
 func TestDownPrimaryPromotionRuleWithLagCrossCenter(t *testing.T) {
+	// Slack does not use PreventCrossCellFailover configuration
+	t.Skip()
 	defer utils.PrintVTOrcLogsOnFailure(t, clusterInfo.ClusterInstance)
 	utils.SetupVttabletsAndVTOrcs(t, clusterInfo, 2, 1, nil, cluster.VTOrcConfiguration{
 		LockShardTimeoutSeconds:  5,
