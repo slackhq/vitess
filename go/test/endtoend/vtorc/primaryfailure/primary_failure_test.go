@@ -636,6 +636,12 @@ func TestDownPrimaryPromotionRule(t *testing.T) {
 // That is the replica which should be promoted in case of primary failure
 // It should also be caught up when it is promoted
 func TestDownPrimaryPromotionRuleWithLag(t *testing.T) {
+	// Slack prioritizes data safety over promotion preferences. PR #677 changed ERS
+	// to only consider the majority of most-advanced replicas for promotion, which
+	// excludes lagging replicas even if they have Prefer promotion rules. This test
+	// expects a lagging replica with a Prefer rule to be promoted after catching up,
+	// but the new behavior removes it from consideration before the catch-up phase.
+	t.Skip()
 	defer utils.PrintVTOrcLogsOnFailure(t, clusterInfo.ClusterInstance)
 	utils.SetupVttabletsAndVTOrcs(t, clusterInfo, 2, 1, nil, cluster.VTOrcConfiguration{
 		LockShardTimeoutSeconds: 5,
