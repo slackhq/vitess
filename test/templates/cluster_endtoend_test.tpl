@@ -112,7 +112,7 @@ jobs:
 
         # Setup Percona Server for MySQL 8.0
         sudo apt-get -qq update
-        sudo apt-get -qq install -y lsb-release gnupg2
+        sudo apt-get -qq install -y lsb-release gnupg2 libdbd-mysql-perl
         wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
         sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
         sudo percona-release setup pdps8.0

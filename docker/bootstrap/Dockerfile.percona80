@@ -6,7 +6,9 @@ FROM --platform=linux/amd64 "${image}"
 USER root
 
 # Install Percona 8.0
-RUN for i in $(seq 1 10); do apt-key adv --no-tty --keyserver keyserver.ubuntu.com --recv-keys 9334A25F8507EFA5 && break; done \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libdbd-mysql-perl \
+    && for i in $(seq 1 10); do apt-key adv --no-tty --keyserver keyserver.ubuntu.com --recv-keys 9334A25F8507EFA5 && break; done \
     && echo 'deb http://repo.percona.com/ps-80/apt bookworm main' > /etc/apt/sources.list.d/percona.list && \
     { \
         echo debconf debconf/frontend select Noninteractive; \
@@ -19,7 +21,6 @@ RUN for i in $(seq 1 10); do apt-key adv --no-tty --keyserver keyserver.ubuntu.c
 	libperconaserverclient21 \
 	percona-server-rocksdb \
 	bzip2 \
-	libdbd-mysql-perl \
 	rsync \
 	libev4 \
 #    && rm -f /etc/apt/sources.list.d/percona.list \

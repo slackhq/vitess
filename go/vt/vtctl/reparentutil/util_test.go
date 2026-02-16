@@ -1764,6 +1764,10 @@ func TestWaitForCatchUp(t *testing.T) {
 }
 
 func TestRestrictValidCandidates(t *testing.T) {
+	gtidSet1, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6")
+	gtidSet2, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5")
+	gtidSet3, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3")
+	gtidSet4, _ := replication.ParseMysql56GTIDSet("3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2")
 	tests := []struct {
 		name            string
 		validCandidates map[string]*RelayLogPositions
@@ -1773,12 +1777,34 @@ func TestRestrictValidCandidates(t *testing.T) {
 		{
 			name: "remove invalid tablets",
 			validCandidates: map[string]*RelayLogPositions{
-				"zone1-0000000100": {},
-				"zone1-0000000101": {},
-				"zone1-0000000102": {},
-				"zone1-0000000103": {},
-				"zone1-0000000104": {},
-				"zone1-0000000105": {},
+				"zone1-0000000100": {
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet2},
+				},
+				"zone1-0000000101": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000102": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000103": {
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000104": {
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000105": {
+					Combined: replication.Position{GTIDSet: gtidSet4},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000106": {
+					Combined: replication.Position{GTIDSet: gtidSet2}, // == to zone1-0000000101
+					Executed: replication.Position{GTIDSet: gtidSet4}, // == to zone1-0000000101 + 1
+				},
 			},
 			tabletMap: map[string]*topo.TabletInfo{
 				"zone1-0000000100": {
@@ -1830,23 +1856,42 @@ func TestRestrictValidCandidates(t *testing.T) {
 					Tablet: &topodatapb.Tablet{
 						Alias: &topodatapb.TabletAlias{
 							Cell: "zone1",
-							Uid:  103,
+							Uid:  105,
 						},
 						Type: topodatapb.TabletType_BACKUP,
 					},
 				},
+				"zone1-0000000106": {
+					Tablet: &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  106,
+						},
+						Type: topodatapb.TabletType_REPLICA,
+					},
+				},
 			},
 			result: map[string]*RelayLogPositions{
-				"zone1-0000000100": {},
-				"zone1-0000000101": {},
-				"zone1-0000000104": {},
+				"zone1-0000000100": {
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet2},
+				},
+				"zone1-0000000101": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000106": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap)
+			logger := logutil.NewMemoryLogger()
+			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap, logger)
 			assert.NoError(t, err)
 			assert.Equal(t, res, test.result)
 		})
@@ -2115,4 +2160,19 @@ func TestGetBackupCandidates(t *testing.T) {
 			require.EqualValues(t, tt.expected, res)
 		})
 	}
+}
+
+func TestGetValidCandidatesMajorityCount(t *testing.T) {
+	buildCandidatesFunc := func(length int) map[string]*RelayLogPositions {
+		candidates := make(map[string]*RelayLogPositions, length)
+		for i := 1; i <= length; i++ {
+			candidates[fmt.Sprintf("candidate-%d", i)] = &RelayLogPositions{}
+		}
+		return candidates
+	}
+	require.Equal(t, 1, getValidCandidatesMajorityCount(buildCandidatesFunc(1)))
+	require.Equal(t, 2, getValidCandidatesMajorityCount(buildCandidatesFunc(2)))
+	require.Equal(t, 2, getValidCandidatesMajorityCount(buildCandidatesFunc(3)))
+	require.Equal(t, 3, getValidCandidatesMajorityCount(buildCandidatesFunc(5)))
+	require.Equal(t, 5, getValidCandidatesMajorityCount(buildCandidatesFunc(9)))
 }
