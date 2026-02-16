@@ -78,6 +78,16 @@ export const Schemas = () => {
         }));
 
         const filtered = filterNouns(filter, mapped);
+
+        if (filter) {
+            const sorted = orderBy(filtered, ['cluster', 'keyspace', 'table']);
+            return sorted.sort((a, b) => {
+                const aDistance = Math.abs(filter.length - (a.table?.length || 0));
+                const bDistance = Math.abs(filter.length - (b.table?.length || 0));
+                return aDistance - bDistance;
+            });
+        }
+
         return orderBy(filtered, ['cluster', 'keyspace', 'table']);
     }, [schemasQuery.data, filter]);
 
