@@ -99,6 +99,11 @@ var (
 
 	initTimeout          = 1 * time.Minute
 	mysqlShutdownTimeout = mysqlctl.DefaultShutdownTimeout
+
+	// disableSuperReadOnly controls whether to turn off super_read_only after PRIMARY demotion.
+	// When false (default), super_read_only remains enabled after demotion.
+	// When true, super_read_only is turned off to match normal replica behavior.
+	disableSuperReadOnly bool
 )
 
 func registerInitFlags(fs *pflag.FlagSet) {
@@ -112,6 +117,7 @@ func registerInitFlags(fs *pflag.FlagSet) {
 	fs.Var(&initTags, "init_tags", "(init parameter) comma separated list of key:value pairs used to tag the tablet")
 	fs.DurationVar(&initTimeout, "init_timeout", initTimeout, "(init parameter) timeout to use for the init phase.")
 	fs.DurationVar(&mysqlShutdownTimeout, "mysql-shutdown-timeout", mysqlShutdownTimeout, "Timeout to use when MySQL is being shut down.")
+	fs.BoolVar(&disableSuperReadOnly, "disable_super_read_only", disableSuperReadOnly, "When enabled, super_read_only is turned off after a PRIMARY is demoted to REPLICA. This makes demoted primaries behave consistently with normal replicas (which don't have super_read_only enabled by default).")
 }
 
 var (

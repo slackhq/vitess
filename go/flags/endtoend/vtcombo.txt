@@ -51,6 +51,7 @@ Flags:
       --consul_auth_static_file string                                   JSON File to read the topos/tokens from.
       --datadog-agent-host string                                        host to send spans to. if empty, no tracing will be done
       --datadog-agent-port string                                        port to send spans to. if empty, no tracing will be done
+      --disable_super_read_only                                          When enabled, super_read_only is turned off after a PRIMARY is demoted to REPLICA. This makes demoted primaries behave consistently with normal replicas (which don't have super_read_only enabled by default).
       --db-credentials-file string                                       db credentials file; send SIGHUP to reload this file
       --db-credentials-server string                                     db credentials server type ('file' - file implementation; 'vault' - HashiCorp Vault implementation) (default "file")
       --db-credentials-vault-addr string                                 URL to Vault server

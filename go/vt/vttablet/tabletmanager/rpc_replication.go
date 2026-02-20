@@ -829,7 +829,8 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 	// Note it is important to check for PRIMARY here so that we don't
 	// unintentionally change the type of RDONLY tablets
 	tablet := tm.Tablet()
-	if tablet.Type == topodatapb.TabletType_PRIMARY {
+	wasPrimary := tablet.Type == topodatapb.TabletType_PRIMARY
+	if wasPrimary {
 		if err := tm.tmState.ChangeTabletType(ctx, topodatapb.TabletType_REPLICA, DBActionNone); err != nil {
 			return err
 		}
@@ -959,6 +960,21 @@ func (tm *TabletManager) setReplicationSourceLocked(ctx context.Context, parentA
 		if timeCreatedNS != 0 {
 			if err := tm.MysqlDaemon.WaitForReparentJournal(ctx, timeCreatedNS); err != nil {
 				return err
+			}
+		}
+	}
+
+	// If this tablet was a PRIMARY and is now a REPLICA, optionally turn off super_read_only.
+	// DemotePrimary sets super_read_only=ON for safety during the critical demotion phase.
+	// If --disable_super_read_only is enabled, we turn it OFF to match the behavior of
+	// normal replicas (which don't have super_read_only enabled by default).
+	if wasPrimary && disableSuperReadOnly {
+		log.Infof("Tablet transitioned from PRIMARY to REPLICA; turning off super_read_only (--disable_super_read_only is enabled)")
+		if _, err := tm.MysqlDaemon.SetSuperReadOnly(ctx, false); err != nil {
+			if sqlErr, ok := err.(*sqlerror.SQLError); ok && sqlErr.Number() == sqlerror.ERUnknownSystemVariable {
+				log.Warningf("server does not know about super_read_only, continuing anyway...")
+			} else {
+				log.Warningf("Failed to turn off super_read_only: %v", err)
 			}
 		}
 	}
