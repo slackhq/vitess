@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS vreplication
       The options column is used to store any applicable additional attributes for a vreplication workflow.
       Currently used for optional flag(s):
         - `tenant-id`: used to specify the tenant id for a multi-tenant migration. (MoveTables only)
+      <temp> test ci
      */
     `options`               json             NOT NULL,
     PRIMARY KEY (`id`),
