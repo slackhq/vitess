@@ -17,9 +17,12 @@ limitations under the License.
 package sync2
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"vitess.io/vitess/go/sqltypes"
 )
@@ -114,4 +117,71 @@ func TestConsolidator(t *testing.T) {
 		t.Fatalf("expected consolidator to have two items %v", con.Items())
 	}
 
+}
+
+func TestConsolidatorMemoryTracking(t *testing.T) {
+	con := NewConsolidator()
+
+	assert.Equal(t, int64(0), con.Memory(), "memory should start at 0")
+
+	q, created := con.Create("select 1")
+	assert.True(t, created)
+
+	result := &sqltypes.Result{
+		Rows: [][]sqltypes.Value{
+			{sqltypes.NewVarBinary("hello world")},
+		},
+	}
+	q.SetResult(result)
+
+	assert.Greater(t, con.Memory(), int64(0), "memory should increase after SetResult")
+
+	q.Broadcast()
+
+	assert.Equal(t, int64(0), con.Memory(), "memory should return to 0 after Broadcast")
+}
+
+func TestConsolidatorMemoryTrackingNilResult(t *testing.T) {
+	con := NewConsolidator()
+
+	q, created := con.Create("select 1")
+	assert.True(t, created)
+
+	q.SetResult(nil)
+
+	assert.Equal(t, int64(0), con.Memory(), "memory should remain 0 for nil result")
+
+	q.Broadcast()
+
+	assert.Equal(t, int64(0), con.Memory(), "memory should still be 0 after Broadcast with nil result")
+}
+
+func TestConsolidatorMemoryTrackingConcurrent(t *testing.T) {
+	con := NewConsolidator()
+	const numQueries = 100
+
+	result := &sqltypes.Result{
+		Rows: [][]sqltypes.Value{
+			{sqltypes.NewVarBinary("test data")},
+		},
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < numQueries; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sql := fmt.Sprintf("select %d", i)
+			q, created := con.Create(sql)
+			if !created {
+				return
+			}
+			q.SetResult(result)
+			q.Broadcast()
+		}(i)
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, int64(0), con.Memory(), "memory should be 0 after all queries complete")
 }

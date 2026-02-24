@@ -201,6 +201,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.Int64Var(&currentConfig.ConsolidatorQueryWaiterCap, "consolidator-query-waiter-cap", 0, "Configure the maximum number of clients allowed to wait on the consolidator.")
 	fs.StringVar(&currentConfig.ConsolidatorQueryWaiterCapMethod, "consolidator-query-waiter-cap-method", "fallthrough", "Configure the method when consolidator waiter cap is exceeded. Options: fallthrough, reject.")
+	fs.Int64Var(&currentConfig.ConsolidatorMemoryCap, "consolidator-memory-cap", 0, "Configure the memory cap for the query consolidator in bytes. When exceeded, new queries bypass consolidation. Setting to 0 disables the memory cap.")
 	fs.DurationVar(&healthCheckInterval, "health_check_interval", defaultConfig.Healthcheck.Interval, "Interval between health checks")
 	fs.DurationVar(&degradedThreshold, "degraded_threshold", defaultConfig.Healthcheck.DegradedThreshold, "replication lag after which a replica is considered degraded")
 	fs.DurationVar(&unhealthyThreshold, "unhealthy_threshold", defaultConfig.Healthcheck.UnhealthyThreshold, "replication lag after which a replica is considered unhealthy")
@@ -341,6 +342,7 @@ type TabletConfig struct {
 	ConsolidatorStreamQuerySize      int64         `json:"consolidatorStreamQuerySize,omitempty"`
 	ConsolidatorQueryWaiterCap       int64         `json:"consolidatorMaxQueryWait,omitempty"`
 	ConsolidatorQueryWaiterCapMethod string        `json:"consolidatorQueryWaiterCapMethod,omitempty"`
+	ConsolidatorMemoryCap            int64         `json:"consolidatorMemoryCap,omitempty"`
 	QueryCacheMemory                 int64         `json:"queryCacheMemory,omitempty"`
 	QueryCacheDoorkeeper             bool          `json:"queryCacheDoorkeeper,omitempty"`
 	SchemaReloadInterval             time.Duration `json:"schemaReloadIntervalSeconds,omitempty"`

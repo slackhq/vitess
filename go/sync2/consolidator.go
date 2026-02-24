@@ -30,6 +30,7 @@ type Consolidator interface {
 	Create(string) (PendingResult, bool)
 	Items() []ConsolidatorCacheItem
 	Record(query string)
+	Memory() int64
 }
 
 // PendingResult is a wrapper for result of a query.
@@ -48,6 +49,7 @@ type consolidator struct {
 
 	mu      sync.Mutex
 	queries map[string]*pendingResult
+	memory  int64
 }
 
 // NewConsolidator creates a new Consolidator
@@ -68,6 +70,7 @@ type pendingResult struct {
 	query        string
 	result       *sqltypes.Result
 	err          error
+	resultSize   int64
 }
 
 // Create adds a query to currently executing queries and acquires a
@@ -95,6 +98,9 @@ func (rs *pendingResult) Broadcast() {
 	defer rs.consolidator.mu.Unlock()
 	delete(rs.consolidator.queries, rs.query)
 	rs.executing.Unlock()
+	if rs.resultSize > 0 {
+		atomic.AddInt64(&rs.consolidator.memory, -rs.resultSize)
+	}
 }
 
 // Err returns any error returned by the query.
@@ -112,9 +118,13 @@ func (rs *pendingResult) SetErr(err error) {
 	rs.err = err
 }
 
-// SetResult sets any result returned by the query.
+// SetResult sets any result returned by the query and tracks its memory usage.
 func (rs *pendingResult) SetResult(res *sqltypes.Result) {
 	rs.result = res
+	if res != nil {
+		rs.resultSize = res.CachedSize(true)
+		atomic.AddInt64(&rs.consolidator.memory, rs.resultSize)
+	}
 }
 
 // Wait waits for the original query to complete execution. Wait should
@@ -127,6 +137,11 @@ func (rs *pendingResult) Wait() {
 func (rs *pendingResult) AddWaiterCounter(c int64) *int64 {
 	atomic.AddInt64(rs.consolidator.totalWaiterCount, c)
 	return rs.consolidator.totalWaiterCount
+}
+
+// Memory returns the current memory usage of all pending results in the consolidator.
+func (co *consolidator) Memory() int64 {
+	return atomic.LoadInt64(&co.memory)
 }
 
 // ConsolidatorCache is a thread-safe object used for counting how often recent

@@ -271,6 +271,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	env.Exporter().NewGaugeFunc("WarnResultSize", "Query engine warn result size", qe.warnResultSize.Load)
 	env.Exporter().NewGaugeFunc("StreamBufferSize", "Query engine stream buffer size", qe.streamBufferSize.Load)
 	env.Exporter().NewCounterFunc("TableACLExemptCount", "Query engine table ACL exempt count", qe.tableaclExemptCount.Load)
+	env.Exporter().NewGaugeFunc("ConsolidatorMemoryUsage", "Consolidator pending result memory usage in bytes", qe.consolidator.Memory)
 
 	env.Exporter().NewGaugeFunc("QueryEnginePlanCacheLength", "Query engine query plan cache length", func() int64 {
 		return int64(qe.plans.Len())
