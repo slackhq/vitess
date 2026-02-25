@@ -1,14 +1,17 @@
 package s3backupstorage
 
 import (
+	"bytes"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -360,4 +363,159 @@ func TestCalculateUploadPartSize(t *testing.T) {
 			require.Equal(t, tt.want, partSize)
 		})
 	}
+}
+
+func TestSequentialWriterAt_InOrder(t *testing.T) {
+	sw := newSequentialWriterAt()
+
+	// Write three sequential chunks in order.
+	go func() {
+		sw.WriteAt([]byte("hello"), 0)
+		sw.WriteAt([]byte(" "), 5)
+		sw.WriteAt([]byte("world"), 6)
+		sw.CloseWriter(nil)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	require.NoError(t, err)
+	assert.Equal(t, "hello world", string(got))
+}
+
+func TestSequentialWriterAt_OutOfOrder(t *testing.T) {
+	sw := newSequentialWriterAt()
+
+	// Write chunks out of order: chunk at offset 5 arrives before offset 0.
+	go func() {
+		// Second chunk arrives first.
+		sw.WriteAt([]byte("world"), 5)
+		// First chunk arrives — should trigger flush of both.
+		sw.WriteAt([]byte("hello"), 0)
+		sw.CloseWriter(nil)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	require.NoError(t, err)
+	assert.Equal(t, "helloworld", string(got))
+}
+
+func TestSequentialWriterAt_ConcurrentWriters(t *testing.T) {
+	sw := newSequentialWriterAt()
+	chunkSize := 1024
+	numChunks := 100
+	expected := make([]byte, chunkSize*numChunks)
+
+	// Fill expected with deterministic data.
+	for i := range expected {
+		expected[i] = byte(i % 256)
+	}
+
+	// Launch concurrent writers, each responsible for one chunk.
+	var wg sync.WaitGroup
+	wg.Add(numChunks)
+	for i := 0; i < numChunks; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			off := int64(idx * chunkSize)
+			data := expected[off : off+int64(chunkSize)]
+			_, err := sw.WriteAt(data, off)
+			if err != nil {
+				return // consumer may have closed
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		sw.CloseWriter(nil)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
+func TestSequentialWriterAt_DownloadError(t *testing.T) {
+	sw := newSequentialWriterAt()
+	downloadErr := errors.New("S3 download failed")
+
+	go func() {
+		sw.WriteAt([]byte("partial"), 0)
+		sw.CloseWriter(downloadErr)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	// We should get the partial data that was flushed before the error.
+	assert.Equal(t, "partial", string(got))
+	assert.ErrorIs(t, err, downloadErr)
+}
+
+func TestSequentialWriterAt_ConsumerCloses(t *testing.T) {
+	sw := newSequentialWriterAt()
+
+	// Write first chunk so there's data, then close the reader.
+	done := make(chan error, 1)
+	go func() {
+		_, err := sw.WriteAt([]byte("first"), 0)
+		if err != nil {
+			done <- err
+			return
+		}
+		// By now the reader is closed, so the next WriteAt should fail.
+		_, err = sw.WriteAt([]byte("second"), 5)
+		done <- err
+	}()
+
+	// Read the first chunk, then close the reader.
+	buf := make([]byte, 5)
+	_, err := io.ReadFull(sw.pr, buf)
+	require.NoError(t, err)
+	assert.Equal(t, "first", string(buf))
+	sw.pr.Close()
+
+	// The writer goroutine should get an error.
+	err = <-done
+	assert.Error(t, err)
+}
+
+func TestSequentialWriterAt_BufferCopy(t *testing.T) {
+	// Verify that WriteAt copies the data, so reusing the input buffer
+	// doesn't corrupt the output (simulating Download Manager buffer reuse).
+	sw := newSequentialWriterAt()
+
+	go func() {
+		buf := make([]byte, 5)
+		copy(buf, "aaaaa")
+		sw.WriteAt(buf, 0)
+		// Reuse the same buffer with different data.
+		copy(buf, "bbbbb")
+		sw.WriteAt(buf, 5)
+		sw.CloseWriter(nil)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	require.NoError(t, err)
+	assert.Equal(t, "aaaaabbbbb", string(got))
+}
+
+func TestSequentialWriterAt_LargeData(t *testing.T) {
+	sw := newSequentialWriterAt()
+	partSize := 5 * 1024 * 1024 // 5MB, matching S3 default part size
+	numParts := 3
+	totalSize := partSize * numParts
+
+	expected := make([]byte, totalSize)
+	rand.Read(expected)
+
+	go func() {
+		// Write parts in reverse order.
+		for i := numParts - 1; i >= 0; i-- {
+			off := int64(i * partSize)
+			sw.WriteAt(expected[off:off+int64(partSize)], off)
+		}
+		sw.CloseWriter(nil)
+	}()
+
+	got, err := io.ReadAll(sw.pr)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(expected, got), "large data mismatch")
 }

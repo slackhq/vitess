@@ -209,7 +209,7 @@ func newBuiltinDecompressor(engine string, reader io.Reader, logger logutil.Logg
 	case Lz4Compressor:
 		decompressor = io.NopCloser(lz4.NewReader(reader))
 	case ZstdCompressor:
-		d, err := zstd.NewReader(reader)
+		d, err := zstd.NewReader(reader, zstd.WithDecoderConcurrency(2))
 		if err != nil {
 			return nil, err
 		}

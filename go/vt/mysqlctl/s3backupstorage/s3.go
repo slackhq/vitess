@@ -247,28 +247,129 @@ func (bh *S3BackupHandle) AbortBackup(ctx context.Context) error {
 	return bh.bs.RemoveBackup(ctx, bh.dir, bh.name)
 }
 
+// sequentialWriterAt bridges the S3 Download Manager's io.WriterAt interface
+// (concurrent random-offset writes) to an io.ReadCloser (sequential reads)
+// via an io.Pipe. It buffers out-of-order WriteAt calls and flushes data to
+// the pipe as soon as bytes become sequentially available.
+//
+// Memory bound: at most (Concurrency-1) × PartSize bytes buffered per download.
+// With defaults (5 workers, 5MB parts): ~20MB per download.
+type sequentialWriterAt struct {
+	pr      *io.PipeReader
+	pw      *io.PipeWriter
+	mu      sync.Mutex
+	pending map[int64][]byte // offset → data for out-of-order writes
+	nextOff int64            // next sequential offset to emit
+	err     error            // sticky error from pipe write failure
+}
+
+func newSequentialWriterAt() *sequentialWriterAt {
+	pr, pw := io.Pipe()
+	return &sequentialWriterAt{
+		pr:      pr,
+		pw:      pw,
+		pending: make(map[int64][]byte),
+	}
+}
+
+// WriteAt implements io.WriterAt. The S3 Download Manager calls this from
+// multiple goroutines concurrently. We copy p (the Download Manager reuses
+// its read buffer after Write returns), store the chunk, and flush any
+// sequential data to the pipe.
+func (sw *sequentialWriterAt) WriteAt(p []byte, off int64) (int, error) {
+	n := len(p)
+
+	sw.mu.Lock()
+	if sw.err != nil {
+		err := sw.err
+		sw.mu.Unlock()
+		return 0, err
+	}
+
+	// Copy p because the Download Manager reuses its buffer after WriteAt returns.
+	buf := make([]byte, n)
+	copy(buf, p)
+	sw.pending[off] = buf
+
+	// Flush sequential chunks to the pipe.
+	for {
+		chunk, ok := sw.pending[sw.nextOff]
+		if !ok {
+			break
+		}
+		delete(sw.pending, sw.nextOff)
+		nextOff := sw.nextOff + int64(len(chunk))
+
+		// Release lock during pw.Write to allow back-pressure without
+		// blocking other WriteAt callers from storing their chunks.
+		sw.mu.Unlock()
+		_, werr := sw.pw.Write(chunk)
+		sw.mu.Lock()
+
+		if werr != nil {
+			sw.err = werr
+			sw.mu.Unlock()
+			return 0, werr
+		}
+		sw.nextOff = nextOff
+	}
+	sw.mu.Unlock()
+
+	return n, nil
+}
+
+// CloseWriter is called by the background goroutine after DownloadWithContext
+// returns. It flushes any remaining buffered data and closes the pipe writer,
+// signaling EOF (or an error) to the consumer reading from pr.
+func (sw *sequentialWriterAt) CloseWriter(err error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	if err != nil {
+		sw.pw.CloseWithError(err)
+		return
+	}
+	if sw.err != nil {
+		sw.pw.CloseWithError(sw.err)
+		return
+	}
+	sw.pw.Close()
+}
+
 // ReadFile is part of the backupstorage.BackupHandle interface.
+// It uses the S3 Download Manager to download a single object using multiple
+// concurrent byte-range GET requests, increasing per-object throughput.
 func (bh *S3BackupHandle) ReadFile(ctx context.Context, filename string) (io.ReadCloser, error) {
 	if !bh.readOnly {
 		return nil, fmt.Errorf("ReadFile cannot be called on read-write backup")
 	}
 	object := objName(bh.dir, bh.name, filename)
 	sendStats := bh.bs.params.Stats.Scope(stats.Operation("AWS:Request:Send"))
-	out, err := bh.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
-		Bucket:               &bucket,
-		Key:                  object,
-		SSECustomerAlgorithm: bh.bs.s3SSE.customerAlg,
-		SSECustomerKey:       bh.bs.s3SSE.customerKey,
-		SSECustomerKeyMD5:    bh.bs.s3SSE.customerMd5,
-	}, func(r *request.Request) {
-		r.Handlers.CompleteAttempt.PushBack(func(r *request.Request) {
-			sendStats.TimedIncrement(time.Since(r.AttemptTime))
+
+	sw := newSequentialWriterAt()
+
+	downloader := s3manager.NewDownloaderWithClient(bh.client, func(d *s3manager.Downloader) {
+		d.RequestOptions = append(d.RequestOptions, func(r *request.Request) {
+			r.Handlers.CompleteAttempt.PushBack(func(r *request.Request) {
+				sendStats.TimedIncrement(time.Since(r.AttemptTime))
+			})
 		})
+		d.Concurrency = 4
+		d.PartSize = 1024 * 1024 * 20 // 20MB
 	})
-	if err != nil {
-		return nil, err
-	}
-	return out.Body, nil
+
+	go func() {
+		_, err := downloader.DownloadWithContext(ctx, sw, &s3.GetObjectInput{
+			Bucket:               &bucket,
+			Key:                  object,
+			SSECustomerAlgorithm: bh.bs.s3SSE.customerAlg,
+			SSECustomerKey:       bh.bs.s3SSE.customerKey,
+			SSECustomerKeyMD5:    bh.bs.s3SSE.customerMd5,
+		})
+		sw.CloseWriter(err)
+	}()
+
+	return sw.pr, nil
 }
 
 var _ backupstorage.BackupHandle = (*S3BackupHandle)(nil)

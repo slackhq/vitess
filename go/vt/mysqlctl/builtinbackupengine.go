@@ -29,9 +29,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	rtrace "runtime/trace"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/semaphore"
@@ -87,6 +90,14 @@ var (
 	// The path should exist.
 	// When empty, the default OS temp dir is assumed.
 	builtinIncrementalRestorePath = ""
+
+	// backupFileChunkThreshold is the file size above which a file is split into chunks
+	// for parallel backup/restore. Files smaller than this are backed up as a single unit.
+	backupFileChunkThreshold int64 = 1024 * 1024 * 1024 * 5 // 5GB
+
+	// backupFileChunkSize is the size of each chunk when a file exceeds the threshold.
+	backupFileChunkSize int64 = 1024 * 1024 * 1024 * 1 // 1GB
+
 )
 
 // BuiltinBackupEngine encapsulates the logic of the builtin engine
@@ -151,6 +162,22 @@ type FileEntry struct {
 	// ParentPath is an optional prefix to the Base path. If empty, it is ignored. Useful
 	// for writing files in a temporary directory
 	ParentPath string
+
+	// Chunks, when non-empty, indicates this file was split into chunks for
+	// parallel backup/restore. Each chunk is independently compressed and hashed.
+	Chunks []FileChunk `json:",omitempty"`
+}
+
+// FileChunk describes one chunk of a large file that has been split for parallel backup/restore.
+type FileChunk struct {
+	// StorageName is the backup storage key, e.g. "5-0" for file index 5, chunk 0
+	StorageName string
+	// Offset is the byte offset in the original file where this chunk starts
+	Offset int64
+	// Size is the uncompressed chunk size in bytes
+	Size int64
+	// Hash is the CRC32 hash of the data as stored (post-compression)
+	Hash string
 }
 
 func init() {
@@ -165,6 +192,8 @@ func registerBuiltinBackupEngineFlags(fs *pflag.FlagSet) {
 	fs.UintVar(&builtinBackupFileReadBufferSize, "builtinbackup-file-read-buffer-size", builtinBackupFileReadBufferSize, "read files using an IO buffer of this many bytes. Golang defaults are used when set to 0.")
 	fs.UintVar(&builtinBackupFileWriteBufferSize, "builtinbackup-file-write-buffer-size", builtinBackupFileWriteBufferSize, "write files using an IO buffer of this many bytes. Golang defaults are used when set to 0.")
 	fs.StringVar(&builtinIncrementalRestorePath, "builtinbackup-incremental-restore-path", builtinIncrementalRestorePath, "the directory where incremental restore files, namely binlog files, are extracted to. In k8s environments, this should be set to a directory that is shared between the vttablet and mysqld pods. The path should exist. When empty, the default OS temp dir is assumed.")
+	fs.Int64Var(&backupFileChunkThreshold, "builtinbackup-file-chunk-threshold", backupFileChunkThreshold, "the file size above which a file is split into chunks for parallel backup/restore. Files smaller than this are backed up as a single unit.")
+	fs.Int64Var(&backupFileChunkSize, "builtinbackup-file-chunk-size", backupFileChunkSize, "the size of each chunk when a file exceeds the threshold.")
 }
 
 // fullPath returns the full path of the entry, based on its type
@@ -609,18 +638,74 @@ func (be *BuiltinBackupEngine) backupFiles(
 	}
 	params.Logger.Infof("found %v files to backup", len(fes))
 
+	// Build a flat work list. For large files that exceed the chunk threshold,
+	// we split them into chunks that participate as individual work items in the
+	// shared concurrency pool. This avoids having a single large file occupy one
+	// goroutine for the entire transfer.
+	type backupWorkItem struct {
+		feIndex    int    // index into fes
+		chunkIndex int    // -1 means whole-file (non-chunked)
+		name       string // storage name, e.g. "5" or "5-0"
+	}
+
+	var workItems []backupWorkItem
+	for i := range fes {
+		fe := &fes[i]
+		fullPath, pathErr := fe.fullPath(params.Cnf)
+		if pathErr != nil {
+			return vterrors.Wrapf(pathErr, "cannot get full path for %v", fe.Name)
+		}
+		fi, statErr := os.Stat(fullPath)
+		if statErr != nil {
+			return vterrors.Wrapf(statErr, "cannot stat file %v", fullPath)
+		}
+		fileSize := fi.Size()
+
+		if fileSize > backupFileChunkThreshold {
+			// Split into chunks.
+			numChunks := (fileSize + backupFileChunkSize - 1) / backupFileChunkSize
+			fe.Chunks = make([]FileChunk, numChunks)
+			for j := int64(0); j < numChunks; j++ {
+				offset := j * backupFileChunkSize
+				size := backupFileChunkSize
+				if offset+size > fileSize {
+					size = fileSize - offset
+				}
+				storageName := fmt.Sprintf("%d-%d", i, j)
+				fe.Chunks[j] = FileChunk{
+					StorageName: storageName,
+					Offset:      offset,
+					Size:        size,
+				}
+				workItems = append(workItems, backupWorkItem{
+					feIndex:    i,
+					chunkIndex: int(j),
+					name:       storageName,
+				})
+			}
+		} else {
+			// Single work item for the whole file.
+			workItems = append(workItems, backupWorkItem{
+				feIndex:    i,
+				chunkIndex: -1,
+				name:       fmt.Sprintf("%d", i),
+			})
+		}
+	}
+
 	// Backup with the provided concurrency.
+	params.Logger.Infof("backup files with concurrency: %d", params.Concurrency)
 	sema := semaphore.NewWeighted(int64(params.Concurrency))
 	wg := sync.WaitGroup{}
 
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	for i := range fes {
+	for _, wi := range workItems {
 		wg.Add(1)
-		go func(i int) {
+		go func(wi backupWorkItem) {
 			defer wg.Done()
-			fe := &fes[i]
+			fe := &fes[wi.feIndex]
 			// Wait until we are ready to go, return if we encounter an error
 			acqErr := sema.Acquire(ctxCancel, 1)
 			if acqErr != nil {
@@ -635,7 +720,7 @@ func (be *BuiltinBackupEngine) backupFiles(
 			// We check for errors before checking if the context is canceled on purpose, if there was an
 			// error, the context would have been canceled already.
 			if bh.HasErrors() {
-				params.Logger.Errorf("Failed to restore files due to error: %v", bh.Error())
+				params.Logger.Errorf("Failed to backup files due to error: %v", bh.Error())
 				return
 			}
 
@@ -651,13 +736,12 @@ func (be *BuiltinBackupEngine) backupFiles(
 			default:
 			}
 
-			// Backup the individual file.
-			name := fmt.Sprintf("%v", i)
-			if err := be.backupFile(ctxCancel, params, bh, fe, name); err != nil {
+			// Backup the individual file or chunk.
+			if err := be.backupFile(ctxCancel, params, bh, fe, wi.name, wi.chunkIndex); err != nil {
 				bh.RecordError(err)
 				cancel()
 			}
-		}(i)
+		}(wi)
 	}
 
 	wg.Wait()
@@ -818,10 +902,13 @@ func (bp *backupPipe) ReportProgress(ctx context.Context, period time.Duration, 
 	}
 }
 
-// backupFile backs up an individual file.
-func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupParams, bh backupstorage.BackupHandle, fe *FileEntry, name string) (finalErr error) {
+// backupFile backs up an individual file or a single chunk of a large file.
+// When chunkIndex is -1, the entire file is backed up as a single unit.
+// When chunkIndex >= 0, only the specified chunk (from fe.Chunks) is backed up.
+func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupParams, bh backupstorage.BackupHandle, fe *FileEntry, name string, chunkIndex int) (finalErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	// Open the source file for reading.
 	openSourceAt := time.Now()
 	source, err := fe.open(params.Cnf, true)
@@ -836,27 +923,53 @@ func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupPara
 		params.Stats.Scope(stats.Operation("Source:Close")).TimedIncrement(time.Since(closeSourceAt))
 	}()
 
-	readStats := params.Stats.Scope(stats.Operation("Source:Read"))
-	timedSource := ioutil.NewMeteredReadCloser(source, readStats.TimedIncrementBytes)
+	// Set up the source reader and metadata depending on whether this is a
+	// whole-file backup or a single chunk.
+	var sourceReader io.Reader
+	var dataSize int64
+	var label string
 
-	fi, err := source.Stat()
-	if err != nil {
-		return err
+	if chunkIndex >= 0 {
+		chunk := &fe.Chunks[chunkIndex]
+		name = chunk.StorageName
+		label = fmt.Sprintf("%s[%d]", fe.Name, chunkIndex)
+
+		// Seek to the chunk offset and limit reads to this chunk's bytes.
+		if _, err := source.Seek(chunk.Offset, io.SeekStart); err != nil {
+			return vterrors.Wrapf(err, "cannot seek to offset %d in %v", chunk.Offset, fe.Name)
+		}
+		readStats := params.Stats.Scope(stats.Operation("Source:Read"))
+		limitedSource := io.LimitReader(source, chunk.Size)
+		sourceReader = ioutil.NewMeteredReader(limitedSource, readStats.TimedIncrementBytes)
+		dataSize = chunk.Size
+	} else {
+		label = fe.Name
+		fi, err := source.Stat()
+		if err != nil {
+			return err
+		}
+		readStats := params.Stats.Scope(stats.Operation("Source:Read"))
+		sourceReader = ioutil.NewMeteredReadCloser(source, readStats.TimedIncrementBytes)
+		dataSize = fi.Size()
 	}
 
-	br := newBackupReader(fe.Name, fi.Size(), timedSource)
+	br := newBackupReader(label, dataSize, sourceReader)
 	go br.ReportProgress(ctx, builtinBackupProgress, params.Logger)
 
 	// Open the destination file for writing, and a buffer.
-	params.Logger.Infof("Backing up file: %v", fe.Name)
+	if chunkIndex >= 0 {
+		params.Logger.Infof("Backing up chunk %v of file: %v (offset=%d, size=%d)", chunkIndex, fe.Name, fe.Chunks[chunkIndex].Offset, fe.Chunks[chunkIndex].Size)
+	} else {
+		params.Logger.Infof("Backing up file: %v", fe.Name)
+	}
 	openDestAt := time.Now()
-	dest, err := bh.AddFile(ctx, name, fi.Size())
+	dest, err := bh.AddFile(ctx, name, dataSize)
 	if err != nil {
 		return vterrors.Wrapf(err, "cannot add file: %v,%v", name, fe.Name)
 	}
 	params.Stats.Scope(stats.Operation("Destination:Open")).TimedIncrement(time.Since(openDestAt))
 
-	defer func(name, fileName string) {
+	defer func() {
 		closeDestAt := time.Now()
 		if rerr := dest.Close(); rerr != nil {
 			rerr = vterrors.Wrapf(rerr, "failed to close file %v,%v", name, fe.Name)
@@ -864,12 +977,12 @@ func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupPara
 			finalErr = errors.Join(finalErr, rerr)
 		}
 		params.Stats.Scope(stats.Operation("Destination:Close")).TimedIncrement(time.Since(closeDestAt))
-	}(name, fe.Name)
+	}()
 
 	destStats := params.Stats.Scope(stats.Operation("Destination:Write"))
 	timedDest := ioutil.NewMeteredWriteCloser(dest, destStats.TimedIncrementBytes)
 
-	bw := newBackupWriter(fe.Name, builtinBackupStorageWriteBufferSize, fi.Size(), timedDest)
+	bw := newBackupWriter(label, builtinBackupStorageWriteBufferSize, dataSize, timedDest)
 
 	// We create the following inner function because:
 	// - we must `defer` the compressor's Close() function
@@ -895,7 +1008,6 @@ func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupPara
 
 			closer := ioutil.NewTimeoutCloser(ctx, compressor, closeTimeout)
 			defer func() {
-				// Close gzip to flush it, after that all data is sent to writer.
 				closeCompressorAt := time.Now()
 				params.Logger.Infof("closing compressor")
 				if cerr := closer.Close(); err != nil {
@@ -933,8 +1045,13 @@ func (be *BuiltinBackupEngine) backupFile(ctx context.Context, params BackupPara
 		return vterrors.Wrap(err, "failed to close the source reader")
 	}
 
-	// Save the hash.
-	fe.Hash = bw.HashString()
+	// Save the hash. For chunks, each goroutine writes to a distinct
+	// chunk index — no race.
+	if chunkIndex >= 0 {
+		fe.Chunks[chunkIndex].Hash = bw.HashString()
+	} else {
+		fe.Hash = bw.HashString()
+	}
 	return nil
 }
 
@@ -1042,60 +1159,222 @@ func (be *BuiltinBackupEngine) restoreFiles(ctx context.Context, params RestoreP
 	}
 	fes := bm.FileEntries
 	sema := semaphore.NewWeighted(int64(params.Concurrency))
+	params.Logger.Infof("restore concurrency: %d", params.Concurrency)
 	rec := concurrency.AllErrorRecorder{}
 	wg := sync.WaitGroup{}
 
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	for i := range fes {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			fe := &fes[i]
-			// Wait until we are ready to go, return if we encounter an error
-			acqErr := sema.Acquire(ctxCancel, 1)
-			if acqErr != nil {
-				log.Errorf("Unable to acquire semaphore needed to restore file: %s, err: %s", fe.Name, acqErr.Error())
-				rec.RecordError(acqErr)
-				cancel()
-				return
-			}
-			defer sema.Release(1)
-
-			// First check if we have any error, if we have, there is no point trying to restore this file.
-			// We check for errors before checking if the context is canceled on purpose, if there was an
-			// error, the context would have been canceled already.
-			if rec.HasErrors() {
-				params.Logger.Errorf("Failed to restore files due to error: %v", bh.Error())
-				return
-			}
-
-			// Check for context cancellation explicitly because, the way semaphore code is written, theoretically we might
-			// end up not throwing an error even after cancellation. Please see https://cs.opensource.google/go/x/sync/+/refs/tags/v0.1.0:semaphore/semaphore.go;l=66,
-			// which suggests that if the context is already done, `Acquire()` may still succeed without blocking. This introduces
-			// unpredictability in my test cases, so in order to avoid that, I am adding this cancellation check.
+	var activeWorkers atomic.Int64
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
 			select {
+			case <-ticker.C:
+				params.Logger.Infof("Restore: %d active workers out of %d max", activeWorkers.Load(), params.Concurrency)
 			case <-ctxCancel.Done():
-				log.Errorf("Context canceled or timed out during %q restore", fe.Name)
-				rec.RecordError(vterrors.Errorf(vtrpc.Code_CANCELED, "context canceled"))
 				return
-			default:
+			}
+		}
+	}()
+
+	for i := range fes {
+		fe := &fes[i]
+		fe.ParentPath = createdDir
+
+		if len(fe.Chunks) > 0 {
+			// Chunked file: open the destination once, pre-size it, then
+			// restore each chunk in parallel through the shared semaphore.
+			dest, openErr := fe.open(params.Cnf, false)
+			if openErr != nil {
+				rec.RecordError(vterrors.Wrapf(openErr, "can't open destination for chunked file %v", fe.Name))
+				cancel()
+				break
+			}
+			// Calculate total size from chunks and pre-size the file.
+			var totalSize int64
+			for _, c := range fe.Chunks {
+				if c.Offset+c.Size > totalSize {
+					totalSize = c.Offset + c.Size
+				}
+			}
+			if truncErr := dest.Truncate(totalSize); truncErr != nil {
+				dest.Close()
+				rec.RecordError(vterrors.Wrapf(truncErr, "can't pre-size destination for chunked file %v", fe.Name))
+				cancel()
+				break
 			}
 
-			fe.ParentPath = createdDir
-			// And restore the file.
-			name := fmt.Sprintf("%v", i)
-			params.Logger.Infof("Copying file %v: %v", name, fe.Name)
-			err := be.restoreFile(ctxCancel, params, bh, fe, bm, name)
-			if err != nil {
-				rec.RecordError(vterrors.Wrapf(err, "can't restore file %v to %v", name, fe.Name))
-				cancel()
+			// Open a second fd with O_DIRECT to bypass the page cache for
+			// large sequential writes. Falls back gracefully if unsupported.
+			var directDest *os.File
+			if totalSize > 0 {
+				var directErr error
+				directDest, directErr = os.OpenFile(dest.Name(), os.O_WRONLY|syscall.O_DIRECT, 0)
+				if directErr != nil {
+					params.Logger.Warningf("O_DIRECT open failed for %v: %v; using buffered pwrite", fe.Name, directErr)
+				}
 			}
-		}(i)
+
+			// Launch one goroutine per chunk.
+			chunkWg := sync.WaitGroup{}
+			for j := range fe.Chunks {
+				chunkWg.Add(1)
+				wg.Add(1)
+				go func(fe *FileEntry, j int, dest *os.File, directDest *os.File) {
+					defer wg.Done()
+					defer chunkWg.Done()
+
+					chunk := &fe.Chunks[j]
+					acqErr := sema.Acquire(ctxCancel, 1)
+					if acqErr != nil {
+						log.Errorf("Unable to acquire semaphore needed to restore chunk %v of file: %s, err: %s", j, fe.Name, acqErr.Error())
+						rec.RecordError(acqErr)
+						cancel()
+						return
+					}
+					activeWorkers.Add(1)
+					defer func() {
+						activeWorkers.Add(-1)
+						sema.Release(1)
+					}()
+
+					if rec.HasErrors() {
+						params.Logger.Errorf("Failed to restore files due to error: %v", rec.Error())
+						return
+					}
+
+					select {
+					case <-ctxCancel.Done():
+						log.Errorf("Context canceled or timed out during %q chunk %d restore", fe.Name, j)
+						rec.RecordError(vterrors.Errorf(vtrpc.Code_CANCELED, "context canceled"))
+						return
+					default:
+					}
+
+					params.Logger.Infof("Restoring chunk %v of file: %v (offset=%d, size=%d)", j, fe.Name, chunk.Offset, chunk.Size)
+					if restoreErr := be.restoreFileChunk(ctxCancel, params, bh, chunk, bm, dest, directDest); restoreErr != nil {
+						rec.RecordError(vterrors.Wrapf(restoreErr, "can't restore chunk %v of file %v", j, fe.Name))
+						cancel()
+					}
+				}(fe, j, dest, directDest)
+			}
+
+			// Close the file after all its chunks are done, in a separate goroutine
+			// so we don't block the outer loop.
+			wg.Add(1)
+			go func(fe *FileEntry, dest *os.File, directDest *os.File) {
+				defer wg.Done()
+				chunkWg.Wait()
+				if directDest != nil {
+					if closeErr := directDest.Close(); closeErr != nil {
+						rec.RecordError(vterrors.Wrapf(closeErr, "failed to close O_DIRECT fd for %v", fe.Name))
+					}
+				}
+				if closeErr := dest.Close(); closeErr != nil {
+					rec.RecordError(vterrors.Wrapf(closeErr, "failed to close chunked destination file %v", fe.Name))
+				}
+			}(fe, dest, directDest)
+		} else {
+			// Non-chunked file: restore exactly as before.
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				fe := &fes[i]
+				acqErr := sema.Acquire(ctxCancel, 1)
+				if acqErr != nil {
+					log.Errorf("Unable to acquire semaphore needed to restore file: %s, err: %s", fe.Name, acqErr.Error())
+					rec.RecordError(acqErr)
+					cancel()
+					return
+				}
+				activeWorkers.Add(1)
+				defer func() {
+					activeWorkers.Add(-1)
+					sema.Release(1)
+				}()
+
+				if rec.HasErrors() {
+					params.Logger.Errorf("Failed to restore files due to error: %v", rec.Error())
+					return
+				}
+
+				select {
+				case <-ctxCancel.Done():
+					log.Errorf("Context canceled or timed out during %q restore", fe.Name)
+					rec.RecordError(vterrors.Errorf(vtrpc.Code_CANCELED, "context canceled"))
+					return
+				default:
+				}
+
+				name := fmt.Sprintf("%v", i)
+				params.Logger.Infof("Copying file %v: %v", name, fe.Name)
+				restoreErr := be.restoreFile(ctxCancel, params, bh, fe, bm, name)
+				if restoreErr != nil {
+					rec.RecordError(vterrors.Wrapf(restoreErr, "can't restore file %v to %v", name, fe.Name))
+					cancel()
+				}
+			}(i)
+		}
 	}
 	wg.Wait()
 	return createdDir, rec.Error()
+}
+
+// createDecompressor sets up a decompression reader based on the backup manifest settings.
+// It returns the wrapped reader, a cleanup function to defer, and an error.
+// The cleanup function closes the decompressor and records stats; it must be deferred by the caller.
+func createDecompressor(ctx context.Context, bm builtinBackupManifest, reader io.Reader, params RestoreParams, name string) (io.Reader, func() error, error) {
+	var deCompressionEngine = bm.CompressionEngine
+
+	if deCompressionEngine == "" {
+		// for backward compatibility
+		deCompressionEngine = PgzipCompressor
+	}
+	externalDecompressorCmd := ExternalDecompressorCmd
+	if externalDecompressorCmd == "" && bm.ExternalDecompressor != "" {
+		externalDecompressorCmd = bm.ExternalDecompressor
+	}
+
+	var decompressor io.ReadCloser
+	var err error
+	if externalDecompressorCmd != "" {
+		if deCompressionEngine == ExternalCompressor {
+			deCompressionEngine = externalDecompressorCmd
+			decompressor, err = newExternalDecompressor(ctx, deCompressionEngine, reader, params.Logger)
+		} else {
+			decompressor, err = newBuiltinDecompressor(deCompressionEngine, reader, params.Logger)
+		}
+	} else {
+		if deCompressionEngine == ExternalCompressor {
+			return nil, nil, fmt.Errorf("%w value: %q", errUnsupportedDeCompressionEngine, ExternalCompressor)
+		}
+		decompressor, err = newBuiltinDecompressor(deCompressionEngine, reader, params.Logger)
+	}
+	if err != nil {
+		return nil, nil, vterrors.Wrap(err, "can't create decompressor")
+	}
+
+	closer := ioutil.NewTimeoutCloser(ctx, decompressor, closeTimeout)
+
+	decompressStats := params.Stats.Scope(stats.Operation("Decompressor:Read"))
+	wrappedReader := ioutil.NewMeteredReader(decompressor, decompressStats.TimedIncrementBytes)
+
+	cleanup := func() error {
+		closeDecompressorAt := time.Now()
+		params.Logger.Infof("closing decompressor")
+		cerr := closer.Close()
+		if cerr != nil {
+			cerr = vterrors.Wrapf(cerr, "failed to close decompressor %v", name)
+			params.Logger.Error(cerr)
+		}
+		params.Stats.Scope(stats.Operation("Decompressor:Close")).TimedIncrement(time.Since(closeDecompressorAt))
+		return cerr
+	}
+
+	return wrappedReader, cleanup, nil
 }
 
 // restoreFile restores an individual file.
@@ -1144,49 +1423,17 @@ func (be *BuiltinBackupEngine) restoreFile(ctx context.Context, params RestorePa
 
 	bufferedDest := bufio.NewWriterSize(timedDest, int(builtinBackupFileWriteBufferSize))
 
-	// Create the uncompresser if needed.
+	// Create the decompressor if needed.
 	if !bm.SkipCompress {
-		var decompressor io.ReadCloser
-		var deCompressionEngine = bm.CompressionEngine
-
-		if deCompressionEngine == "" {
-			// for backward compatibility
-			deCompressionEngine = PgzipCompressor
-		}
-		externalDecompressorCmd := ExternalDecompressorCmd
-		if externalDecompressorCmd == "" && bm.ExternalDecompressor != "" {
-			externalDecompressorCmd = bm.ExternalDecompressor
-		}
-		if externalDecompressorCmd != "" {
-			if deCompressionEngine == ExternalCompressor {
-				deCompressionEngine = externalDecompressorCmd
-				decompressor, err = newExternalDecompressor(ctx, deCompressionEngine, reader, params.Logger)
-			} else {
-				decompressor, err = newBuiltinDecompressor(deCompressionEngine, reader, params.Logger)
-			}
-		} else {
-			if deCompressionEngine == ExternalCompressor {
-				return fmt.Errorf("%w value: %q", errUnsupportedDeCompressionEngine, ExternalCompressor)
-			}
-			decompressor, err = newBuiltinDecompressor(deCompressionEngine, reader, params.Logger)
-		}
+		var decompressCleanup func() error
+		reader, decompressCleanup, err = createDecompressor(ctx, bm, reader, params, name)
 		if err != nil {
-			return vterrors.Wrap(err, "can't create decompressor")
+			return err
 		}
-		closer := ioutil.NewTimeoutCloser(ctx, decompressor, closeTimeout)
-
-		decompressStats := params.Stats.Scope(stats.Operation("Decompressor:Read"))
-		reader = ioutil.NewMeteredReader(decompressor, decompressStats.TimedIncrementBytes)
-
 		defer func() {
-			closeDecompressorAt := time.Now()
-			params.Logger.Infof("closing decompressor")
-			if cerr := closer.Close(); err != nil {
-				cerr = vterrors.Wrapf(cerr, "failed to close decompressor %v", name)
-				params.Logger.Error(cerr)
+			if cerr := decompressCleanup(); cerr != nil {
 				finalErr = errors.Join(finalErr, cerr)
 			}
-			params.Stats.Scope(stats.Operation("Decompressor:Close")).TimedIncrement(time.Since(closeDecompressorAt))
 		}()
 	}
 
@@ -1204,6 +1451,301 @@ func (be *BuiltinBackupEngine) restoreFile(ctx context.Context, params RestorePa
 	// Flush the buffer.
 	if err := bufferedDest.Flush(); err != nil {
 		return vterrors.Wrap(err, "failed to flush destination buffer")
+	}
+
+	if err := br.Close(); err != nil {
+		return vterrors.Wrap(err, "failed to close the source reader")
+	}
+
+	return nil
+}
+
+// asyncReader reads from src in a background goroutine, buffering up to
+// (asyncReaderChunkSize * asyncReaderSlots) bytes in a channel. This lets the
+// network read get ahead of the decompressor so they overlap instead of
+// ping-ponging on a synchronous read.
+//
+// Buffers are recycled via a sync.Pool to avoid per-read allocations and the
+// associated zeroing cost (memclrNoHeapPointers).
+type asyncReader struct {
+	ch      chan asyncChunk
+	pool    *sync.Pool
+	curBuf  []byte // pool buffer being consumed; returned when fully drained
+	current []byte // unconsumed sub-slice of curBuf
+	err     error
+}
+
+type asyncChunk struct {
+	data []byte // valid bytes, sub-slice of a pool buffer
+	err  error
+}
+
+const (
+	asyncReaderChunkSize = 64 * 1024 // 64KB per read — matches typical TLS record size
+	asyncReaderSlots     = 1024      // 64MB total buffering
+)
+
+func newAsyncReader(ctx context.Context, src io.Reader) *asyncReader {
+	return newAsyncReaderSize(ctx, src, asyncReaderChunkSize, asyncReaderSlots)
+}
+
+func newAsyncReaderSize(ctx context.Context, src io.Reader, chunkSize, slots int) *asyncReader {
+	pool := &sync.Pool{
+		New: func() any { return make([]byte, chunkSize) },
+	}
+	r := &asyncReader{
+		ch:   make(chan asyncChunk, slots),
+		pool: pool,
+	}
+	go func() {
+		defer close(r.ch)
+		for {
+			buf := pool.Get().([]byte)
+			n, err := src.Read(buf)
+			if n > 0 {
+				select {
+				case r.ch <- asyncChunk{data: buf[:n]}:
+				case <-ctx.Done():
+					pool.Put(buf)
+					return
+				}
+			} else {
+				pool.Put(buf)
+			}
+			if err != nil {
+				select {
+				case r.ch <- asyncChunk{err: err}:
+				case <-ctx.Done():
+				}
+				return
+			}
+		}
+	}()
+	return r
+}
+
+func (r *asyncReader) Read(p []byte) (int, error) {
+	if len(r.current) > 0 {
+		n := copy(p, r.current)
+		r.current = r.current[n:]
+		if len(r.current) == 0 {
+			r.pool.Put(r.curBuf)
+			r.curBuf = nil
+		}
+		return n, nil
+	}
+	if r.err != nil {
+		return 0, r.err
+	}
+	c, ok := <-r.ch
+	if !ok {
+		r.err = io.EOF
+		return 0, io.EOF
+	}
+	if c.err != nil {
+		r.err = c.err
+		return 0, c.err
+	}
+	r.curBuf = c.data[:cap(c.data)]
+	n := copy(p, c.data)
+	r.current = c.data[n:]
+	if len(r.current) == 0 {
+		r.pool.Put(r.curBuf)
+		r.curBuf = nil
+	}
+	return n, nil
+}
+
+// Close drains the channel in the background to unblock the producer goroutine,
+// returning all in-flight buffers to the pool.
+func (r *asyncReader) Close() error {
+	r.err = io.ErrClosedPipe
+	if r.curBuf != nil {
+		r.pool.Put(r.curBuf)
+		r.curBuf = nil
+		r.current = nil
+	}
+	go func() {
+		for c := range r.ch {
+			if c.data != nil {
+				r.pool.Put(c.data[:cap(c.data)])
+			}
+		}
+	}()
+	return nil
+}
+
+const directAlign = 4096
+
+// directWriter buffers writes into a page-aligned buffer and flushes via pwrite.
+// When an O_DIRECT fd is provided, full-buffer flushes bypass the page cache.
+// The final partial flush (if not aligned) uses the fallback fd (regular pwrite)
+// since O_DIRECT requires aligned sizes.
+type directWriter struct {
+	direct   *os.File // O_DIRECT fd (nil to use fallback for everything)
+	fallback *os.File // regular fd for unaligned tail writes
+	buf      []byte   // page-aligned buffer
+	off      int64    // file offset for next pwrite
+	n        int      // bytes buffered
+}
+
+func newDirectWriter(direct, fallback *os.File, offset int64, bufSize int) *directWriter {
+	// Allocate a page-aligned buffer. Go's GC does not relocate heap objects,
+	// so the alignment is stable for the lifetime of the slice.
+	raw := make([]byte, bufSize+directAlign)
+	a := int(uintptr(unsafe.Pointer(&raw[0])) & uintptr(directAlign-1))
+	if a != 0 {
+		raw = raw[directAlign-a:]
+	}
+	return &directWriter{
+		direct:   direct,
+		fallback: fallback,
+		buf:      raw[:bufSize],
+		off:      offset,
+	}
+}
+
+func (w *directWriter) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		n := copy(w.buf[w.n:], p)
+		w.n += n
+		p = p[n:]
+		written += n
+		if w.n == len(w.buf) {
+			// Full buffer — always aligned, use O_DIRECT fd.
+			fd := w.direct
+			if fd == nil {
+				fd = w.fallback
+			}
+			if _, err := fd.WriteAt(w.buf, w.off); err != nil {
+				return written, err
+			}
+			w.off += int64(w.n)
+			w.n = 0
+		}
+	}
+	return written, nil
+}
+
+// Flush writes any remaining buffered data. The aligned prefix goes through
+// the O_DIRECT fd; the unaligned tail (if any) goes through the fallback fd.
+func (w *directWriter) Flush() error {
+	if w.n == 0 {
+		return nil
+	}
+	aligned := (w.n / directAlign) * directAlign
+	if aligned > 0 {
+		fd := w.direct
+		if fd == nil {
+			fd = w.fallback
+		}
+		if _, err := fd.WriteAt(w.buf[:aligned], w.off); err != nil {
+			return err
+		}
+		w.off += int64(aligned)
+	}
+	tail := w.n - aligned
+	if tail > 0 {
+		if _, err := w.fallback.WriteAt(w.buf[aligned:w.n], w.off); err != nil {
+			return err
+		}
+	}
+	w.n = 0
+	return nil
+}
+
+// restoreFileChunk restores a single chunk of a large file. The dest *os.File
+// has already been opened and pre-sized by the caller. directDest is an optional
+// O_DIRECT fd for the same file; when non-nil, aligned writes bypass the page cache.
+func (be *BuiltinBackupEngine) restoreFileChunk(ctx context.Context, params RestoreParams, bh backupstorage.BackupHandle, chunk *FileChunk, bm builtinBackupManifest, dest *os.File, directDest *os.File) (finalErr error) {
+	defer rtrace.StartRegion(ctx, "BuiltinBackupEngine.restoreFileChunk").End()
+	rtrace.Log(ctx, "chunk", chunk.StorageName)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Open the chunk from backup storage.
+	openSourceAt := time.Now()
+	source, err := bh.ReadFile(ctx, chunk.StorageName)
+	if err != nil {
+		return vterrors.Wrapf(err, "can't open source chunk %v for reading", chunk.StorageName)
+	}
+	params.Stats.Scope(stats.Operation("Source:Open")).TimedIncrement(time.Since(openSourceAt))
+
+	readStats := params.Stats.Scope(stats.Operation("Source:Read"))
+	timedSource := ioutil.NewMeteredReader(source, readStats.TimedIncrementBytes)
+
+	defer func() {
+		closeSourceAt := time.Now()
+		source.Close()
+		params.Stats.Scope(stats.Operation("Source:Close")).TimedIncrement(time.Since(closeSourceAt))
+	}()
+
+	br := newBackupReader(chunk.StorageName, 0, timedSource)
+	go br.ReportProgress(ctx, builtinBackupProgress, params.Logger)
+
+	// Write to dest at the correct offset. When an O_DIRECT fd is available,
+	// aligned writes bypass the page cache; the final unaligned tail uses the
+	// regular fd.
+	var writeErr error
+	if bm.SkipCompress {
+		rtrace.WithRegion(ctx, "restoreFileChunk.write", func() {
+			dw := newDirectWriter(directDest, dest, chunk.Offset, int(builtinBackupFileWriteBufferSize))
+			if _, err := io.Copy(dw, br); err != nil {
+				writeErr = vterrors.Wrapf(err, "failed to copy chunk %v", chunk.StorageName)
+				return
+			}
+			if err := dw.Flush(); err != nil {
+				writeErr = vterrors.Wrapf(err, "failed to flush chunk %v", chunk.StorageName)
+				return
+			}
+		})
+	} else {
+		ar := newAsyncReader(ctx, br)
+		defer ar.Close()
+
+		var decompReader io.Reader = ar
+		var decompressCleanup func() error
+		decompReader, decompressCleanup, err = createDecompressor(ctx, bm, ar, params, chunk.StorageName)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if cerr := decompressCleanup(); cerr != nil {
+				finalErr = errors.Join(finalErr, cerr)
+			}
+		}()
+
+		decompBuf := newAsyncReaderSize(ctx, decompReader, asyncReaderChunkSize, 1024) // 64MB
+		defer decompBuf.Close()
+
+		rtrace.WithRegion(ctx, "restoreFileChunk.write", func() {
+			dw := newDirectWriter(directDest, dest, chunk.Offset, int(builtinBackupFileWriteBufferSize))
+			if _, err := io.Copy(dw, decompBuf); err != nil {
+				writeErr = vterrors.Wrapf(err, "failed to copy chunk %v", chunk.StorageName)
+				return
+			}
+			if err := dw.Flush(); err != nil {
+				writeErr = vterrors.Wrapf(err, "failed to flush chunk %v", chunk.StorageName)
+				return
+			}
+		})
+	}
+	if writeErr != nil {
+		return writeErr
+	}
+
+	// Verify the hash.
+	var hashErr error
+	rtrace.WithRegion(ctx, "restoreFileChunk.hashVerify", func() {
+		hash := br.HashString()
+		if hash != chunk.Hash {
+			hashErr = vterrors.Errorf(vtrpc.Code_INTERNAL, "hash mismatch for chunk %v, got %v expected %v", chunk.StorageName, hash, chunk.Hash)
+		}
+	})
+	if hashErr != nil {
+		return hashErr
 	}
 
 	if err := br.Close(); err != nil {
