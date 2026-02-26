@@ -153,6 +153,10 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		return nil, err
 	}
 
+	if err = qre.checkWarnResultSizeRejection(); err != nil {
+		return nil, err
+	}
+
 	if qre.plan.PlanID == p.PlanNextval {
 		return qre.execNextval()
 	}
@@ -767,6 +771,19 @@ func (qre *QueryExecutor) execDMLLimit(conn *StatefulConnection) (*sqltypes.Resu
 	return result, nil
 }
 
+func (qre *QueryExecutor) checkWarnResultSizeRejection() error {
+	if qre.plan.FullQuery == nil {
+		return nil
+	}
+	fingerprint := qre.plan.FullQuery.Query
+	if qre.tsv.qe.IsQueryBlocked(fingerprint) {
+		qre.tsv.Stats().Warnings.Add("ResultsExceededRejection", 1)
+		callerID := callerid.ImmediateCallerIDFromContext(qre.ctx)
+		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "caller id: %s: query rejected: result size warning threshold exceeded recently for this query fingerprint", callerID.Username)
+	}
+	return nil
+}
+
 func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 	if count > maxrows {
 		callerID := callerid.ImmediateCallerIDFromContext(qre.ctx)
@@ -777,6 +794,9 @@ func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 		callerID := callerid.ImmediateCallerIDFromContext(qre.ctx)
 		qre.tsv.Stats().Warnings.Add("ResultsExceeded", 1)
 		log.Warningf("caller id: %s row count %v exceeds warning threshold %v: %q", callerID.Username, count, warnThreshold, queryAsString(qre.plan.FullQuery.Query, qre.bindVars, qre.tsv.Config().SanitizeLogMessages, true, qre.tsv.env.Parser()))
+		if rejectSeconds := qre.tsv.qe.warnResultSizeRejectTime.Load(); rejectSeconds > 0 && qre.plan.FullQuery != nil {
+			qre.tsv.qe.BlockQuery(qre.plan.FullQuery.Query, rejectSeconds)
+		}
 	}
 	return nil
 }

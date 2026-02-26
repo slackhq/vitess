@@ -2783,3 +2783,22 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 		}},
 	})
 }
+
+func TestWarnResultSizeRejectTimeSeconds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	db, tsv := setupTabletServerTest(t, ctx, "")
+	defer db.Close()
+	defer tsv.StopService()
+
+	// Default should be 0
+	assert.Equal(t, 0, tsv.WarnResultSizeRejectTimeSeconds())
+
+	// Set and verify
+	tsv.SetWarnResultSizeRejectTimeSeconds(30)
+	assert.Equal(t, 30, tsv.WarnResultSizeRejectTimeSeconds())
+
+	// Set back to 0
+	tsv.SetWarnResultSizeRejectTimeSeconds(0)
+	assert.Equal(t, 0, tsv.WarnResultSizeRejectTimeSeconds())
+}

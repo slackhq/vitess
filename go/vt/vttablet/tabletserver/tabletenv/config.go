@@ -126,6 +126,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.GracePeriods.Shutdown, "shutdown_grace_period", defaultConfig.GracePeriods.Shutdown, "how long to wait for queries and transactions to complete during graceful shutdown.")
 	fs.IntVar(&currentConfig.Oltp.MaxRows, "queryserver-config-max-result-size", defaultConfig.Oltp.MaxRows, "query server max result size, maximum number of rows allowed to return from vttablet for non-streaming queries.")
 	fs.IntVar(&currentConfig.Oltp.WarnRows, "queryserver-config-warn-result-size", defaultConfig.Oltp.WarnRows, "query server result size warning threshold, warn if number of rows returned from vttablet for non-streaming queries exceeds this")
+	fs.IntVar(&currentConfig.Oltp.WarnRowsRejectTimeSeconds, "queryserver-config-warn-result-size-reject-time-seconds", defaultConfig.Oltp.WarnRowsRejectTimeSeconds, "query server result size rejection duration in seconds: after a query fingerprint exceeds the warn threshold, subsequent instances are rejected for this many seconds. 0 means disabled.")
 	fs.BoolVar(&currentConfig.PassthroughDML, "queryserver-config-passthrough-dmls", defaultConfig.PassthroughDML, "query server pass through all dml statements without rewriting")
 
 	fs.IntVar(&currentConfig.StreamBufferSize, "queryserver-config-stream-buffer-size", defaultConfig.StreamBufferSize, "query server stream buffer size, the maximum number of bytes sent from vttablet for each stream call. It's recommended to keep this value in sync with vtgate's stream_buffer_size.")
@@ -568,10 +569,11 @@ func (cfg *OlapConfig) UnmarshalJSON(data []byte) (err error) {
 
 // OltpConfig contains the config for oltp settings.
 type OltpConfig struct {
-	QueryTimeout time.Duration `json:"queryTimeoutSeconds,omitempty"`
-	TxTimeout    time.Duration `json:"txTimeoutSeconds,omitempty"`
-	MaxRows      int           `json:"maxRows,omitempty"`
-	WarnRows     int           `json:"warnRows,omitempty"`
+	QueryTimeout           time.Duration `json:"queryTimeoutSeconds,omitempty"`
+	TxTimeout              time.Duration `json:"txTimeoutSeconds,omitempty"`
+	MaxRows                int           `json:"maxRows,omitempty"`
+	WarnRows               int           `json:"warnRows,omitempty"`
+	WarnRowsRejectTimeSeconds int        `json:"warnRowsRejectTimeSeconds,omitempty"`
 }
 
 func (cfg *OltpConfig) MarshalJSON() ([]byte, error) {
