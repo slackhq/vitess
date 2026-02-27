@@ -91,7 +91,7 @@ type controller struct {
 
 func processWorkflowOptions(params map[string]string) (*vttablet.VReplicationConfig, error) {
 	options, ok := params["options"]
-	if !ok {
+	if !ok || options == "" {
 		options = "{}"
 	}
 	var workflowOptions vtctldata.WorkflowOptions

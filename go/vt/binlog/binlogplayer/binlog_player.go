@@ -613,6 +613,9 @@ func ReadVRSettings(dbClient DBClient, uid int32) (VRSettings, error) {
 		return VRSettings{}, fmt.Errorf("failed to parse defer_secondary_keys column: %v", err)
 	}
 	options := vrRow.AsString("options", "{}")
+	if options == "" {
+		options = "{}"
+	}
 	var workflowOptions vtctldata.WorkflowOptions
 	if err := json.Unmarshal([]byte(options), &workflowOptions); err != nil {
 		return VRSettings{}, fmt.Errorf("failed to parse options column: %v", err)

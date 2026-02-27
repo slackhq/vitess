@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS vreplication
       Currently used for optional flag(s):
         - `tenant-id`: used to specify the tenant id for a multi-tenant migration. (MoveTables only)
      */
-    `options`               json             NOT NULL,
+    `options`               json                      DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `workflow_idx` (`workflow`(64))
 ) ENGINE = InnoDB CHARSET = utf8mb4
