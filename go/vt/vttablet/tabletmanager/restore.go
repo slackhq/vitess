@@ -145,36 +145,13 @@ func (tm *TabletManager) RestoreData(
 	}
 
 	var (
-		err       error
-		startTime time.Time
+		err          error
+		startTime    time.Time
+		backupEngine string
 	)
 
 	defer func() {
-		stopTime := time.Now()
-
-		h := hook.NewSimpleHook("vttablet_restore_done")
-		h.ExtraEnv = tm.hookExtraEnv()
-		h.ExtraEnv["TM_RESTORE_DATA_START_TS"] = startTime.UTC().Format(time.RFC3339)
-		h.ExtraEnv["TM_RESTORE_DATA_STOP_TS"] = stopTime.UTC().Format(time.RFC3339)
-		h.ExtraEnv["TM_RESTORE_DATA_DURATION"] = stopTime.Sub(startTime).String()
-
-		if err != nil {
-			h.ExtraEnv["TM_RESTORE_DATA_ERROR"] = err.Error()
-		}
-
-		// vttablet_restore_done is best-effort (for now?).
-		go func() {
-			// Package vthook already logs the stdout/stderr of hooks when they
-			// are run, so we don't duplicate that here.
-			hr := h.Execute()
-			switch hr.ExitStatus {
-			case hook.HOOK_SUCCESS:
-			case hook.HOOK_DOES_NOT_EXIST:
-				log.Info("No vttablet_restore_done hook.")
-			default:
-				log.Warning("vttablet_restore_done hook failed")
-			}
-		}()
+		tm.invokeRestoreDoneHook(startTime, err, backupEngine)
 	}()
 
 	startTime = time.Now()
@@ -185,14 +162,14 @@ func (tm *TabletManager) RestoreData(
 		RestoreToTimestamp:   protoutil.TimeToProto(restoreToTimetamp),
 		AllowedBackupEngines: allowedBackupEngines,
 	}
-	err = tm.restoreDataLocked(ctx, logger, waitForBackupInterval, deleteBeforeRestore, req, mysqlShutdownTimeout)
+	backupEngine, err = tm.restoreDataLocked(ctx, logger, waitForBackupInterval, deleteBeforeRestore, req, mysqlShutdownTimeout)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.Logger, waitForBackupInterval time.Duration, deleteBeforeRestore bool, request *tabletmanagerdatapb.RestoreFromBackupRequest, mysqlShutdownTimeout time.Duration) error {
+func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.Logger, waitForBackupInterval time.Duration, deleteBeforeRestore bool, request *tabletmanagerdatapb.RestoreFromBackupRequest, mysqlShutdownTimeout time.Duration) (string, error) {
 
 	tablet := tm.Tablet()
 	originalType := tablet.Type
@@ -203,14 +180,14 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 	keyspace := tablet.Keyspace
 	keyspaceInfo, err := tm.TopoServer.GetKeyspace(ctx, keyspace)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// For a SNAPSHOT keyspace, we have to look for backups of BaseKeyspace
 	// so we will pass the BaseKeyspace in RestoreParams instead of tablet.Keyspace
 	if keyspaceInfo.KeyspaceType == topodatapb.KeyspaceType_SNAPSHOT {
 		if keyspaceInfo.BaseKeyspace == "" {
-			return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, fmt.Sprintf("snapshot keyspace %v has no base_keyspace set", tablet.Keyspace))
+			return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, fmt.Sprintf("snapshot keyspace %v has no base_keyspace set", tablet.Keyspace))
 		}
 		keyspace = keyspaceInfo.BaseKeyspace
 		log.Infof("Using base_keyspace %v to restore keyspace %v using a backup time of %v", keyspace, tablet.Keyspace, protoutil.TimeFromProto(request.BackupTime).UTC())
@@ -239,12 +216,12 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 	}
 	restoreToTimestamp := protoutil.TimeFromProto(request.RestoreToTimestamp).UTC()
 	if request.RestoreToPos != "" && !restoreToTimestamp.IsZero() {
-		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--restore-to-pos and --restore-to-timestamp are mutually exclusive")
+		return "", vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--restore-to-pos and --restore-to-timestamp are mutually exclusive")
 	}
 	if request.RestoreToPos != "" {
 		pos, err := replication.DecodePosition(request.RestoreToPos)
 		if err != nil {
-			return vterrors.Wrapf(err, "restore failed: unable to decode --restore-to-pos: %s", request.RestoreToPos)
+			return "", vterrors.Wrapf(err, "restore failed: unable to decode --restore-to-pos: %s", request.RestoreToPos)
 		}
 		params.RestoreToPos = pos
 	}
@@ -258,11 +235,11 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 	// so we keep our PrimaryTermStartTime (if any) if we aren't actually restoring.
 	ok, err := mysqlctl.ShouldRestore(ctx, params)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !ok {
 		params.Logger.Infof("Attempting to restore, but mysqld already contains data. Assuming vttablet was just restarted.")
-		return nil
+		return "", nil
 	}
 	// We should not become primary after restore, because that would incorrectly
 	// start a new primary term, and it's likely our data dir will be out of date.
@@ -270,7 +247,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		originalType = tm.baseTabletType
 	}
 	if err := tm.tmState.ChangeTabletType(ctx, topodatapb.TabletType_RESTORE, DBActionNone); err != nil {
-		return err
+		return "", err
 	}
 	// Loop until a backup exists, unless we were told to give up immediately.
 	var backupManifest *mysqlctl.BackupManifest
@@ -292,7 +269,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		log.Infof("No backup found. Waiting %v (from -wait_for_backup_interval flag) to check again.", waitForBackupInterval)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
 		case <-time.After(waitForBackupInterval):
 		}
 	}
@@ -308,7 +285,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		err = tm.restoreToTimeFromBinlog(ctx, pos, keyspaceInfo.SnapshotTime)
 		if err != nil {
 			log.Errorf("unable to restore to the specified time %s, error : %v", keyspaceInfo.SnapshotTime.String(), err)
-			return nil
+			return "", nil
 		}
 	}
 	switch {
@@ -321,13 +298,13 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 			// up with the primary.
 			params.Logger.Infof("Restore: disabling replication")
 			if err := tm.disableReplication(context.Background()); err != nil {
-				return err
+				return "", err
 			}
 		} else if keyspaceInfo.KeyspaceType == topodatapb.KeyspaceType_NORMAL {
 			// Reconnect to primary only for "NORMAL" keyspaces
 			params.Logger.Infof("Restore: starting replication at position %v", pos)
 			if err := tm.startReplication(context.Background(), pos, originalType); err != nil {
-				return err
+				return "", err
 			}
 		}
 	case err == mysqlctl.ErrNoBackup:
@@ -335,7 +312,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		// We just need to initialize replication
 		_, err := tm.initializeReplication(ctx, originalType)
 		if err != nil {
-			return err
+			return "", err
 		}
 	case err == nil && params.DryRun:
 		// Do nothing here, let the rest of code run
@@ -346,7 +323,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		if err := tm.tmState.ChangeTabletType(bgCtx, originalType, DBActionNone); err != nil {
 			log.Errorf("Could not change back to original tablet type %v: %v", originalType, err)
 		}
-		return vterrors.Wrap(err, "Can't restore backup")
+		return "", vterrors.Wrap(err, "Can't restore backup")
 	}
 
 	// If we had type BACKUP or RESTORE it's better to set our type to the init_tablet_type to make result of the restore
@@ -365,7 +342,48 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 	params.Logger.Infof("Restore: changing tablet type to %v for %s", originalType, tm.tabletAlias.String())
 	// Change type back to original type if we're ok to serve.
 	bgCtx := context.Background()
-	return tm.tmState.ChangeTabletType(bgCtx, originalType, DBActionNone)
+	if err := tm.tmState.ChangeTabletType(bgCtx, originalType, DBActionNone); err != nil {
+		return "", err
+	}
+
+	var backupEngine string
+	if backupManifest != nil {
+		backupEngine = backupManifest.BackupMethod
+	}
+
+	return backupEngine, nil
+}
+
+func (tm *TabletManager) invokeRestoreDoneHook(startTime time.Time, err error, backupEngine string) {
+	stopTime := time.Now()
+
+	h := hook.NewSimpleHook("vttablet_restore_done")
+	h.ExtraEnv = tm.hookExtraEnv()
+	h.ExtraEnv["TM_RESTORE_DATA_START_TS"] = startTime.UTC().Format(time.RFC3339)
+	h.ExtraEnv["TM_RESTORE_DATA_STOP_TS"] = stopTime.UTC().Format(time.RFC3339)
+	h.ExtraEnv["TM_RESTORE_DATA_DURATION"] = stopTime.Sub(startTime).String()
+
+	if backupEngine != "" {
+		h.ExtraEnv["TM_RESTORE_DATA_BACKUP_ENGINE"] = backupEngine
+	}
+
+	if err != nil {
+		h.ExtraEnv["TM_RESTORE_DATA_ERROR"] = err.Error()
+	}
+
+	// vttablet_restore_done is best-effort (for now?).
+	go func() {
+		// Package vthook already logs the stdout/stderr of hooks when they
+		// are run, so we don't duplicate that here.
+		hr := h.Execute()
+		switch hr.ExitStatus {
+		case hook.HOOK_SUCCESS:
+		case hook.HOOK_DOES_NOT_EXIST:
+			log.Info("No vttablet_restore_done hook.")
+		default:
+			log.Warning("vttablet_restore_done hook failed")
+		}
+	}()
 }
 
 // restoreToTimeFromBinlog restores to the snapshot time of the keyspace
