@@ -1044,6 +1044,8 @@ func (tm *TabletManager) initializeReplication(ctx context.Context, tabletType t
 	if err != nil {
 		return nil, vterrors.Wrapf(err, "cannot get durability policy %v", durabilityName)
 	}
+
+	// Test
 	// If using semi-sync, we need to enable it before connecting to primary.
 	// We should set the correct type, since it is used in replica semi-sync
 
