@@ -423,6 +423,7 @@ const (
 	// MoveTablesSwitching is set when the write traffic is the middle of being switched from
 	// the source to the target.
 	MoveTablesSwitching
+	// dummy code for testing
 	// MoveTablesSwitched is set when write traffic has been completely switched to the target.
 	MoveTablesSwitched
 )
