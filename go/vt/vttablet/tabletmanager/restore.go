@@ -289,7 +289,7 @@ func (tm *TabletManager) restoreDataLocked(ctx context.Context, logger logutil.L
 		} else if keyspaceInfo.KeyspaceType == topodatapb.KeyspaceType_NORMAL {
 			// Reconnect to primary only for "NORMAL" keyspaces
 			params.Logger.Infof("Restore: starting replication at position %v", pos)
-			if err := tm.startReplication(context.Background(), pos, originalType); err != nil {
+			if err := tm.startReplication(ctx, pos, originalType); err != nil {
 				return "", err
 			}
 		}
