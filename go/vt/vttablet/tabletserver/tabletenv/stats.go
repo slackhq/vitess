@@ -82,7 +82,7 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 			vtrpcpb.Code_CLUSTER_EVENT.String(),
 		),
 		InternalErrors:         exporter.NewCountersWithSingleLabel("InternalErrors", "Internal component errors", "type", "Task", "StrayTransactions", "Panic", "HungQuery", "Schema", "TwopcCommit", "TwopcResurrection", "WatchdogFail", "Messages"),
-		Warnings:               exporter.NewCountersWithSingleLabel("Warnings", "Warnings", "type", "ResultsExceeded"),
+		Warnings:               exporter.NewCountersWithSingleLabel("Warnings", "Warnings", "type", "ResultsExceeded", "ResultsExceededRejection"),
 		Unresolved:             exporter.NewGaugesWithSingleLabel("Unresolved", "Unresolved items", "item_type", "Prepares"),
 		UserTableQueryCount:    exporter.NewCountersWithMultiLabels("UserTableQueryCount", "Queries received for each CallerID/table combination", []string{"TableName", "CallerID", "Type"}),
 		UserTableQueryTimesNs:  exporter.NewCountersWithMultiLabels("UserTableQueryTimesNs", "Total latency for each CallerID/table combination", []string{"TableName", "CallerID", "Type"}),

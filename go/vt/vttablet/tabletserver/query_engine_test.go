@@ -915,3 +915,65 @@ func TestPlanPoolUnsafe(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockedQueries(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+	schematest.AddDefaultQueries(db)
+
+	cfg := tabletenv.NewDefaultConfig()
+	cfg.DB = newDBConfigs(db)
+	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
+	se := schema.NewEngine(env)
+	qe := NewQueryEngine(env, se)
+
+	t.Run("BlockAndCheck", func(t *testing.T) {
+		fingerprint := "select * from t where id = :v1"
+		assert.False(t, qe.IsQueryBlocked(fingerprint))
+
+		qe.BlockQuery(fingerprint, 60)
+		assert.True(t, qe.IsQueryBlocked(fingerprint))
+	})
+
+	t.Run("ExpiredEntry", func(t *testing.T) {
+		fingerprint := "select * from t2 where id = :v1"
+		// Store an entry that already expired (1 second in the past)
+		qe.blockedQueries.Store(fingerprint, time.Now().Unix()-1)
+		assert.False(t, qe.IsQueryBlocked(fingerprint))
+		// Entry should have been lazy-deleted
+		_, ok := qe.blockedQueries.Load(fingerprint)
+		assert.False(t, ok)
+	})
+
+	t.Run("EmptyFingerprint", func(t *testing.T) {
+		qe.BlockQuery("", 60)
+		assert.False(t, qe.IsQueryBlocked(""))
+	})
+
+	t.Run("ZeroRejectSeconds", func(t *testing.T) {
+		fingerprint := "select * from t3 where id = :v1"
+		qe.BlockQuery(fingerprint, 0)
+		assert.False(t, qe.IsQueryBlocked(fingerprint))
+	})
+
+	t.Run("NegativeRejectSeconds", func(t *testing.T) {
+		fingerprint := "select * from t4 where id = :v1"
+		qe.BlockQuery(fingerprint, -1)
+		assert.False(t, qe.IsQueryBlocked(fingerprint))
+	})
+
+	t.Run("ClearBlockedQueries", func(t *testing.T) {
+		qe.BlockQuery("q1", 60)
+		qe.BlockQuery("q2", 60)
+		assert.True(t, qe.IsQueryBlocked("q1"))
+		assert.True(t, qe.IsQueryBlocked("q2"))
+
+		qe.ClearBlockedQueries()
+		assert.False(t, qe.IsQueryBlocked("q1"))
+		assert.False(t, qe.IsQueryBlocked("q2"))
+	})
+
+	t.Run("NonexistentFingerprint", func(t *testing.T) {
+		assert.False(t, qe.IsQueryBlocked("nonexistent-query"))
+	})
+}

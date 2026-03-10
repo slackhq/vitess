@@ -2068,6 +2068,16 @@ func (tsv *TabletServer) WarnResultSize() int {
 	return int(tsv.qe.warnResultSize.Load())
 }
 
+// SetWarnResultSizeRejectTimeSeconds changes the warn result size rejection duration.
+func (tsv *TabletServer) SetWarnResultSizeRejectTimeSeconds(val int) {
+	tsv.qe.warnResultSizeRejectTime.Store(int64(val))
+}
+
+// WarnResultSizeRejectTimeSeconds returns the warn result size rejection duration.
+func (tsv *TabletServer) WarnResultSizeRejectTimeSeconds() int {
+	return int(tsv.qe.warnResultSizeRejectTime.Load())
+}
+
 // SetThrottleMetricThreshold changes the throttler metric threshold
 func (tsv *TabletServer) SetThrottleMetricThreshold(val float64) {
 	tsv.lagThrottler.StoreMetricsThreshold(val)

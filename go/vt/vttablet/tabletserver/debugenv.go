@@ -132,6 +132,8 @@ func debugEnvHandler(tsv *TabletServer, w http.ResponseWriter, r *http.Request) 
 			setIntVal(tsv.SetMaxResultSize)
 		case "WarnResultSize":
 			setIntVal(tsv.SetWarnResultSize)
+		case "WarnResultSizeRejectTimeSeconds":
+			setIntVal(tsv.SetWarnResultSizeRejectTimeSeconds)
 		case "RowStreamerMaxInnoDBTrxHistLen":
 			setInt64Val(func(val int64) { tsv.Config().RowStreamer.MaxInnoDBTrxHistLen = val })
 		case "RowStreamerMaxMySQLReplLagSecs":
@@ -155,6 +157,7 @@ func debugEnvHandler(tsv *TabletServer, w http.ResponseWriter, r *http.Request) 
 	vars = addVar(vars, "QueryCacheCapacity", tsv.QueryPlanCacheCap)
 	vars = addVar(vars, "MaxResultSize", tsv.MaxResultSize)
 	vars = addVar(vars, "WarnResultSize", tsv.WarnResultSize)
+	vars = addVar(vars, "WarnResultSizeRejectTimeSeconds", tsv.WarnResultSizeRejectTimeSeconds)
 	vars = addVar(vars, "RowStreamerMaxInnoDBTrxHistLen", func() int64 { return tsv.Config().RowStreamer.MaxInnoDBTrxHistLen })
 	vars = addVar(vars, "RowStreamerMaxMySQLReplLagSecs", func() int64 { return tsv.Config().RowStreamer.MaxMySQLReplLagSecs })
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })

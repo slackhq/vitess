@@ -170,9 +170,11 @@ type QueryEngine struct {
 	txSerializer *txserializer.TxSerializer
 
 	// Vars
-	maxResultSize    atomic.Int64
-	warnResultSize   atomic.Int64
-	streamBufferSize atomic.Int64
+	maxResultSize              atomic.Int64
+	warnResultSize             atomic.Int64
+	warnResultSizeRejectTime   atomic.Int64
+	streamBufferSize           atomic.Int64
+	blockedQueries             sync.Map // key: fingerprint string, value: expiry unix seconds int64
 	// tableaclExemptCount count the number of accesses allowed
 	// based on membership in the superuser ACL
 	tableaclExemptCount  atomic.Int64
@@ -257,6 +259,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 
 	qe.maxResultSize.Store(int64(config.Oltp.MaxRows))
 	qe.warnResultSize.Store(int64(config.Oltp.WarnRows))
+	qe.warnResultSizeRejectTime.Store(int64(config.Oltp.WarnRowsRejectTimeSeconds))
 	qe.streamBufferSize.Store(int64(config.StreamBufferSize))
 
 	planbuilder.PassthroughDMLs = config.PassthroughDML
@@ -265,6 +268,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 
 	env.Exporter().NewGaugeFunc("MaxResultSize", "Query engine max result size", qe.maxResultSize.Load)
 	env.Exporter().NewGaugeFunc("WarnResultSize", "Query engine warn result size", qe.warnResultSize.Load)
+	env.Exporter().NewGaugeFunc("WarnResultSizeRejectTimeSeconds", "Query engine warn result size rejection duration in seconds", qe.warnResultSizeRejectTime.Load)
 	env.Exporter().NewGaugeFunc("StreamBufferSize", "Query engine stream buffer size", qe.streamBufferSize.Load)
 	env.Exporter().NewCounterFunc("TableACLExemptCount", "Query engine table ACL exempt count", qe.tableaclExemptCount.Load)
 
@@ -707,6 +711,38 @@ func (qe *QueryEngine) handleHTTPConsolidations(response http.ResponseWriter, re
 		}
 		response.Write([]byte(fmt.Sprintf("%v: %s\n", v.Count, query)))
 	}
+}
+
+// IsQueryBlocked checks if a query fingerprint is currently blocked.
+// It performs lazy deletion of expired entries.
+func (qe *QueryEngine) IsQueryBlocked(fingerprint string) bool {
+	val, ok := qe.blockedQueries.Load(fingerprint)
+	if !ok {
+		return false
+	}
+	expiry := val.(int64)
+	if time.Now().Unix() >= expiry {
+		qe.blockedQueries.Delete(fingerprint)
+		return false
+	}
+	return true
+}
+
+// BlockQuery adds a query fingerprint to the blocked queries map
+// with an expiry of now + rejectSeconds.
+func (qe *QueryEngine) BlockQuery(fingerprint string, rejectSeconds int64) {
+	if fingerprint == "" || rejectSeconds <= 0 {
+		return
+	}
+	qe.blockedQueries.Store(fingerprint, time.Now().Unix()+rejectSeconds)
+}
+
+// ClearBlockedQueries removes all entries from the blocked queries map.
+func (qe *QueryEngine) ClearBlockedQueries() {
+	qe.blockedQueries.Range(func(key, value any) bool {
+		qe.blockedQueries.Delete(key)
+		return true
+	})
 }
 
 // unicoded returns a valid UTF-8 string that json won't reject
