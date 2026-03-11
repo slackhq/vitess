@@ -31,6 +31,8 @@ type FakeConsolidator struct {
 	CreateReturn *FakeConsolidatorCreateReturn
 	// RecordCalls can be usd to inspect Record calls.
 	RecordCalls []string
+	// MemoryReturn is the value returned by Memory().
+	MemoryReturn int64
 }
 
 // FakeConsolidatorCreateReturn wraps the two return values of a call to
@@ -85,6 +87,11 @@ func (fc *FakeConsolidator) Record(sql string) {
 // Items is currently a no-op.
 func (fc *FakeConsolidator) Items() []ConsolidatorCacheItem {
 	return nil
+}
+
+// Memory returns the pre-configured memory value.
+func (fc *FakeConsolidator) Memory() int64 {
+	return fc.MemoryReturn
 }
 
 // Broadcast records the Broadcast call for later verification.

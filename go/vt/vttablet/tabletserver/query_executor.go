@@ -708,7 +708,8 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		return nil, err
 	}
 	// Check tablet type.
-	if qre.shouldConsolidate() {
+	memoryCap := qre.tsv.config.ConsolidatorMemoryCap
+	if qre.shouldConsolidate() && (memoryCap <= 0 || qre.tsv.qe.consolidator.Memory() <= memoryCap) {
 		q, original := qre.tsv.qe.consolidator.Create(sqlWithoutComments)
 		waiterCapExceeded := false
 
