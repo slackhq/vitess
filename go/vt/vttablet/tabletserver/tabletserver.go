@@ -521,6 +521,7 @@ func (tsv *TabletServer) begin(
 	settings []string,
 	options *querypb.ExecuteOptions,
 ) (state queryservice.TransactionState, err error) {
+	options = tsv.forceOLAPWorkload(options)
 	state.TabletAlias = tsv.alias
 	err = tsv.execRequest(
 		ctx, tsv.loadQueryTimeoutWithOptions(options),
@@ -890,6 +891,7 @@ func (tsv *TabletServer) Execute(ctx context.Context, target *querypb.Target, sq
 }
 
 func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sql string, bindVariables map[string]*querypb.BindVariable, transactionID int64, reservedID int64, settings []string, options *querypb.ExecuteOptions) (result *sqltypes.Result, err error) {
+	options = tsv.forceOLAPWorkload(options)
 	allowOnShutdown := transactionID != 0
 	timeout := tsv.loadQueryTimeoutWithTxAndOptions(transactionID, options)
 	err = tsv.execRequest(
@@ -990,6 +992,7 @@ func (tsv *TabletServer) StreamExecute(ctx context.Context, target *querypb.Targ
 }
 
 func (tsv *TabletServer) streamExecute(ctx context.Context, target *querypb.Target, sql string, bindVariables map[string]*querypb.BindVariable, transactionID int64, reservedID int64, settings []string, options *querypb.ExecuteOptions, callback func(*sqltypes.Result) error) error {
+	options = tsv.forceOLAPWorkload(options)
 	allowOnShutdown := false
 	var timeout time.Duration
 	if transactionID != 0 {
@@ -2135,6 +2138,20 @@ func withTimeout(ctx context.Context, timeout time.Duration, options *querypb.Ex
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, timeout)
+}
+
+// forceOLAPWorkload returns options with the workload set to OLAP if
+// the ForceWorkloadOLAP config flag is enabled. If options is nil, a new
+// ExecuteOptions is created.
+func (tsv *TabletServer) forceOLAPWorkload(options *querypb.ExecuteOptions) *querypb.ExecuteOptions {
+	if !tsv.config.ForceWorkloadOLAP {
+		return options
+	}
+	if options == nil {
+		return &querypb.ExecuteOptions{Workload: querypb.ExecuteOptions_OLAP}
+	}
+	options.Workload = querypb.ExecuteOptions_OLAP
+	return options
 }
 
 // skipQueryPlanCache returns true if the query plan should be cached

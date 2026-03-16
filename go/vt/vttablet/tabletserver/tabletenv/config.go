@@ -218,6 +218,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.EnablePerWorkloadTableMetrics, "enable-per-workload-table-metrics", defaultConfig.EnablePerWorkloadTableMetrics, "If true, query counts and query error metrics include a label that identifies the workload")
 
+	fs.BoolVar(&currentConfig.ForceWorkloadOLAP, "queryserver-config-force-olap", defaultConfig.ForceWorkloadOLAP, "If true, all queries will be treated as if workload is OLAP, using the stream connection pool and OLAP transaction timeouts")
+
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 }
 
@@ -382,6 +384,8 @@ type TabletConfig struct {
 	EnableViews bool `json:"-"`
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
+
+	ForceWorkloadOLAP bool `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1127,6 +1131,8 @@ var defaultConfig = TabletConfig{
 	},
 
 	EnablePerWorkloadTableMetrics: false,
+
+	ForceWorkloadOLAP: false,
 
 	TwoPCAbandonAge: 15 * time.Minute,
 }
