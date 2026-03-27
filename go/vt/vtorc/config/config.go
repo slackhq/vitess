@@ -218,6 +218,15 @@ var (
 			Dynamic:  true,
 		},
 	)
+
+	recoveryCooldownDuration = viperutil.Configure(
+		"recovery-cooldown-duration",
+		viperutil.Options[time.Duration]{
+			FlagName: "recovery-cooldown-duration",
+			Default:  0,
+			Dynamic:  true,
+		},
+	)
 )
 
 func init() {
@@ -246,6 +255,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-recovery", allowRecovery.Default(), "Whether VTOrc should be allowed to run recovery actions")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
+	fs.Duration("recovery-cooldown-duration", recoveryCooldownDuration.Default(), "Duration after a VTOrc-initiated ERS/PRS during which VTOrc will not attempt another ERS/PRS on the same shard. 0 disables cooldown.")
 
 	viperutil.BindFlags(fs,
 		instancePollTime,
@@ -268,6 +278,7 @@ func registerFlags(fs *pflag.FlagSet) {
 		allowRecovery,
 		convertTabletsWithErrantGTIDs,
 		enablePrimaryDiskStalledRecovery,
+		recoveryCooldownDuration,
 	)
 }
 
@@ -409,6 +420,17 @@ func SetConvertTabletWithErrantGTIDs(val bool) {
 // GetStalledDiskPrimaryRecovery reports whether VTOrc is allowed to check for and recovery stalled disk problems.
 func GetStalledDiskPrimaryRecovery() bool {
 	return enablePrimaryDiskStalledRecovery.Get()
+}
+
+// GetRecoveryCooldownDuration returns the minimum time between VTOrc-initiated
+// cluster-wide recoveries on the same shard. 0 means disabled.
+func GetRecoveryCooldownDuration() time.Duration {
+	return recoveryCooldownDuration.Get()
+}
+
+// SetRecoveryCooldownDuration sets the recovery cooldown duration. This should only be used from tests.
+func SetRecoveryCooldownDuration(v time.Duration) {
+	recoveryCooldownDuration.Set(v)
 }
 
 // MarkConfigurationLoaded is called once configuration has first been loaded.

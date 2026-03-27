@@ -114,6 +114,19 @@ func (ts *Server) getMetadata(ctx context.Context, key string) (string, error) {
 	return string(contents), nil
 }
 
+// GetSingleMetadata retrieves a single metadata value by exact key.
+// Returns empty string and no error if the key does not exist.
+func (ts *Server) GetSingleMetadata(ctx context.Context, key string) (string, error) {
+	val, err := ts.getMetadata(ctx, key)
+	if err != nil {
+		if IsErrType(err, NoNode) {
+			return "", nil
+		}
+		return "", err
+	}
+	return val, nil
+}
+
 func dispatchEvent(key string, status string) {
 	event.Dispatch(&events.MetadataChange{
 		Key:    key,
