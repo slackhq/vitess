@@ -562,6 +562,22 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 		return err
 	}
 
+	// Check recovery cooldown for cluster-wide recoveries (ERS/PRS).
+	// Checked before LockShard to avoid unnecessary lock contention across VTOrc instances.
+	if isClusterWideRecovery(checkAndRecoverFunctionCode) {
+		cooldownActive, cooldownErr := checkRecoveryCooldown(context.Background(),
+			analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
+		if cooldownErr != nil {
+			logger.Errorf("Error checking recovery cooldown, proceeding anyway: %v", cooldownErr)
+		} else if cooldownActive {
+			recoveryName := getRecoverFunctionName(checkAndRecoverFunctionCode)
+			logger.Infof("Recovery cooldown active for %s/%s, skipping %s",
+				analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard, recoveryName)
+			recoveriesCooldownSkipped.Add([]string{recoveryName, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard}, 1)
+			return nil
+		}
+	}
+
 	// Prioritise primary recovery.
 	// If we are performing some other action, first ensure that it is not because of primary issues.
 	// This step is only meant to improve the time taken to detect and fix cluster wide recoveries, it does not impact correctness.
@@ -670,6 +686,14 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	} else {
 		logger.Info("Recovery succeeded")
 		recoveriesSuccessfulCounter.Add(recoveryLabels, 1)
+		if isClusterWideRecovery(checkAndRecoverFunctionCode) {
+			writeRecoveryCooldown(
+				analysisEntry.AnalyzedKeyspace,
+				analysisEntry.AnalyzedShard,
+				string(analysisEntry.Analysis),
+				recoveryName,
+			)
+		}
 	}
 	if topologyRecovery == nil {
 		logger.Error("Topology recovery is nil - recovery might have failed")
