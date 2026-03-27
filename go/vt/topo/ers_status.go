@@ -28,11 +28,10 @@ import (
 type ERSStatus struct {
 	Identity  string `json:"identity"`  // hostname:port of the vtorc that performed/is performing the ERS
 	Timestamp string `json:"timestamp"` // RFC3339 timestamp
-	Status    string `json:"status"`    // pending, completed, errored_shard_unchanged, errored_shard_unknown
+	Status    string `json:"status"`    // completed, errored_shard_unchanged, errored_shard_unknown
 }
 
 const (
-	ERSStatusPending              = "pending"
 	ERSStatusCompleted            = "completed"
 	ERSStatusErroredShardUnchanged = "errored_shard_unchanged"
 	ERSStatusErroredShardUnknown   = "errored_shard_unknown"

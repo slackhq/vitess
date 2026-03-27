@@ -756,6 +756,9 @@ message EmergencyReparentShardRequest {
   // ExpectedPrimary is the optional alias we expect to be the current primary in order for
   // the reparent operation to succeed.
   topodata.TabletAlias expected_primary = 8;
+  // Force overrides ERS cascade prevention checks, including the hard block
+  // when PreviousERSStatus is errored_shard_unknown.
+  bool force = 9;
 }
 
 message EmergencyReparentShardResponse {

@@ -321,14 +321,26 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 		return false, nil, err
 	}
 
-	// Check ERS cascade prevention: if a successful ERS completed recently on this shard, skip.
-	if preventionSeconds := config.GetERSCascadePreventionSeconds(); preventionSeconds > 0 {
-		ersCtx, ersCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-		prevStatus, _, getErr := ts.GetERSStatus(ersCtx, tablet.Keyspace, tablet.Shard)
-		ersCancel()
-		if getErr != nil {
-			logger.Warningf("Failed to read previous ERS status from topo, proceeding with ERS: %v", getErr)
-		} else if prevStatus != nil && prevStatus.Status == topo.ERSStatusCompleted {
+	// Check PreviousERSStatus from topo for cascade prevention and hard blocks.
+	ersCtx, ersCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	prevStatus, _, getErr := ts.GetERSStatus(ersCtx, tablet.Keyspace, tablet.Shard)
+	ersCancel()
+	if getErr != nil {
+		logger.Warningf("Failed to read previous ERS status from topo, proceeding with ERS: %v", getErr)
+	} else if prevStatus != nil {
+		// Hard block: if the shard is in an unknown state from a previous failed ERS,
+		// no vtorc can initiate another ERS. An operator must use
+		// `vtctldclient EmergencyReparentShard --force` to resolve.
+		if prevStatus.Status == topo.ERSStatusErroredShardUnknown {
+			logger.Errorf("ERS blocked on %v/%v: previous ERS by %s at %s left the shard in an unknown state. "+
+				"Use `vtctldclient EmergencyReparentShard --force %v/%v` to override.",
+				tablet.Keyspace, tablet.Shard, prevStatus.Identity, prevStatus.Timestamp,
+				tablet.Keyspace, tablet.Shard)
+			ersCascadePreventionCounter.Add([]string{tablet.Keyspace, tablet.Shard}, 1)
+			return false, nil, nil
+		}
+		// Cascade prevention: if a successful ERS completed recently, skip.
+		if preventionSeconds := config.GetERSCascadePreventionSeconds(); preventionSeconds > 0 && prevStatus.Status == topo.ERSStatusCompleted {
 			prevTime, parseErr := time.Parse(time.RFC3339, prevStatus.Timestamp)
 			if parseErr == nil && time.Since(prevTime) < time.Duration(preventionSeconds)*time.Second {
 				logger.Warningf("ERS cascade prevention: skipping %v on %v/%v - last successful ERS by %s was %v ago (prevention window: %ds)",
@@ -339,13 +351,18 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 		}
 	}
 
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		message := fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another %v.", analysisEntry.AnalyzedInstanceAlias, recoveryName)
-		logger.Warning(message)
-		_ = AuditTopologyRecovery(topologyRecovery, message)
+	// Create a recovery record for auditing (replaces AttemptRecoveryRegistration for ERS).
+	topologyRecovery = NewTopologyRecovery(*analysisEntry)
+	topologyRecovery, err = writeTopologyRecovery(topologyRecovery)
+	if err != nil {
+		logger.Errorf("Failed to write topology recovery record: %v", err)
 		return false, nil, err
 	}
+	if topologyRecovery == nil {
+		logger.Warningf("Topology recovery record already exists for %+v, skipping %v", analysisEntry.AnalyzedInstanceAlias, recoveryName)
+		return false, nil, nil
+	}
+
 	logger.Infof("Analysis: %v, %v %+v", analysisEntry.Analysis, recoveryName, analysisEntry.AnalyzedInstanceAlias)
 	var promotedReplica *inst.Instance
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
@@ -354,18 +371,7 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 		_ = resolveRecovery(topologyRecovery, promotedReplica)
 	}()
 
-	// Write pending ERS status to topo before executing.
 	identity := vtorcIdentity()
-	pendingStatus := &topo.ERSStatus{
-		Identity:  identity,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Status:    topo.ERSStatusPending,
-	}
-	writeCtx, writeCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	if writeErr := ts.UpdateERSStatus(writeCtx, tablet.Keyspace, tablet.Shard, pendingStatus); writeErr != nil {
-		logger.Warningf("Failed to write pending ERS status to topo: %v", writeErr)
-	}
-	writeCancel()
 
 	ev, err := reparentutil.NewEmergencyReparenter(ts, tmc, logutil.NewCallbackLogger(func(event *logutilpb.Event) {
 		level := event.GetLevel()
@@ -403,14 +409,14 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 			finalStatus = topo.ERSStatusErroredShardUnchanged
 		}
 	}
-	completedStatus := &topo.ERSStatus{
+	ersStatus := &topo.ERSStatus{
 		Identity:  identity,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Status:    finalStatus,
 	}
-	writeCtx, writeCancel = context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	if writeErr := ts.UpdateERSStatus(writeCtx, tablet.Keyspace, tablet.Shard, completedStatus); writeErr != nil {
-		logger.Warningf("Failed to write final ERS status (%s) to topo: %v", finalStatus, writeErr)
+	writeCtx, writeCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	if writeErr := ts.UpdateERSStatus(writeCtx, tablet.Keyspace, tablet.Shard, ersStatus); writeErr != nil {
+		logger.Warningf("Failed to write ERS status (%s) to topo: %v", finalStatus, writeErr)
 	}
 	writeCancel()
 

@@ -1287,6 +1287,7 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 	span.Annotate("keyspace", req.Keyspace)
 	span.Annotate("shard", req.Shard)
 	span.Annotate("new_primary_alias", topoproto.TabletAliasString(req.NewPrimary))
+	span.Annotate("force", req.Force)
 
 	ignoreReplicaAliases := topoproto.TabletAliasList(req.IgnoreReplicas).ToStringSlice()
 	span.Annotate("ignore_replicas", strings.Join(ignoreReplicaAliases, ","))
@@ -1301,6 +1302,20 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 	span.Annotate("wait_replicas_timeout_sec", waitReplicasTimeout.Seconds())
 	span.Annotate("prevent_cross_cell_promotion", req.PreventCrossCellPromotion)
 	span.Annotate("wait_for_all_tablets", req.WaitForAllTablets)
+
+	// Check PreviousERSStatus: block if shard is in unknown state unless --force is set.
+	if !req.Force {
+		ersCtx, ersCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+		prevStatus, _, getErr := s.ts.GetERSStatus(ersCtx, req.Keyspace, req.Shard)
+		ersCancel()
+		if getErr != nil {
+			log.Warningf("EmergencyReparentShard: failed to read PreviousERSStatus for %s/%s, proceeding: %v", req.Keyspace, req.Shard, getErr)
+		} else if prevStatus != nil && prevStatus.Status == topo.ERSStatusErroredShardUnknown {
+			return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION,
+				"EmergencyReparentShard blocked on %s/%s: previous ERS by %s at %s left the shard in an unknown state. Use --force to override.",
+				req.Keyspace, req.Shard, prevStatus.Identity, prevStatus.Timestamp)
+		}
+	}
 
 	m := sync.RWMutex{}
 	logstream := []*logutilpb.Event{}
@@ -1323,6 +1338,27 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 			ExpectedPrimaryAlias:      req.ExpectedPrimary,
 		},
 	)
+
+	// Write PreviousERSStatus so vtorc instances and future ERS calls see the outcome.
+	finalStatus := topo.ERSStatusCompleted
+	if err != nil {
+		if ev != nil && ev.NewPrimary != nil {
+			finalStatus = topo.ERSStatusErroredShardUnknown
+		} else {
+			finalStatus = topo.ERSStatusErroredShardUnchanged
+		}
+	}
+	identity, _ := netutil.FullyQualifiedHostname()
+	ersStatus := &topo.ERSStatus{
+		Identity:  fmt.Sprintf("vtctld@%s", identity),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    finalStatus,
+	}
+	writeCtx, writeCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	if writeErr := s.ts.UpdateERSStatus(writeCtx, req.Keyspace, req.Shard, ersStatus); writeErr != nil {
+		log.Warningf("EmergencyReparentShard: failed to write PreviousERSStatus (%s) for %s/%s: %v", finalStatus, req.Keyspace, req.Shard, writeErr)
+	}
+	writeCancel()
 
 	resp = &vtctldatapb.EmergencyReparentShardResponse{
 		Keyspace: req.Keyspace,
