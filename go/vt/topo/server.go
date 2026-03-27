@@ -84,6 +84,7 @@ const (
 	ShardRoutingRulesFile  = "ShardRoutingRules"
 	CommonRoutingRulesFile = "Rules"
 	MirrorRulesFile        = "MirrorRules"
+	PreviousERSStatusFile  = "PreviousERSStatus"
 )
 
 // Path for all object types.

@@ -22,17 +22,21 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"sync/atomic"
 	"time"
 
 	"github.com/patrickmn/go-cache"
 	"golang.org/x/sync/errgroup"
 
+	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	logutilpb "vitess.io/vitess/go/vt/proto/logutil"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
@@ -125,6 +129,9 @@ var (
 	// shardLockTimings measures the timing of LockShard operations.
 	shardLockTimingsActions = []string{"Lock", "Unlock"}
 	shardLockTimings        = stats.NewTimings("ShardLockTimings", "Timings of global shard locks", "Action", shardLockTimingsActions...)
+
+	// ersCascadePreventionCounter counts the number of ERS attempts skipped due to cascade prevention.
+	ersCascadePreventionCounter = stats.NewCountersWithMultiLabels("ERSCascadePreventionSkipped", "Count of ERS attempts skipped due to cascade prevention", []string{"Keyspace", "Shard"})
 )
 
 // recoveryFunction is the code of the recovery function to be used
@@ -208,6 +215,18 @@ func initializeTopologyRecoveryPostConfiguration() {
 
 func getLockAction(analysedInstance string, code inst.AnalysisCode) string {
 	return fmt.Sprintf("VTOrc Recovery for %v on %v", code, analysedInstance)
+}
+
+// vtorcIdentity returns a string identifying this vtorc instance (hostname:port).
+func vtorcIdentity() string {
+	host, err := netutil.FullyQualifiedHostname()
+	if err != nil {
+		host, err = os.Hostname()
+		if err != nil {
+			host = "unknown"
+		}
+	}
+	return fmt.Sprintf("%s:%d", host, servenv.Port())
 }
 
 // LockShard locks the keyspace-shard preventing others from performing conflicting actions.
@@ -302,6 +321,24 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 		return false, nil, err
 	}
 
+	// Check ERS cascade prevention: if a successful ERS completed recently on this shard, skip.
+	if preventionSeconds := config.GetERSCascadePreventionSeconds(); preventionSeconds > 0 {
+		ersCtx, ersCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+		prevStatus, _, getErr := ts.GetERSStatus(ersCtx, tablet.Keyspace, tablet.Shard)
+		ersCancel()
+		if getErr != nil {
+			logger.Warningf("Failed to read previous ERS status from topo, proceeding with ERS: %v", getErr)
+		} else if prevStatus != nil && prevStatus.Status == topo.ERSStatusCompleted {
+			prevTime, parseErr := time.Parse(time.RFC3339, prevStatus.Timestamp)
+			if parseErr == nil && time.Since(prevTime) < time.Duration(preventionSeconds)*time.Second {
+				logger.Warningf("ERS cascade prevention: skipping %v on %v/%v - last successful ERS by %s was %v ago (prevention window: %ds)",
+					recoveryName, tablet.Keyspace, tablet.Shard, prevStatus.Identity, time.Since(prevTime), preventionSeconds)
+				ersCascadePreventionCounter.Add([]string{tablet.Keyspace, tablet.Shard}, 1)
+				return false, nil, nil
+			}
+		}
+	}
+
 	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
 	if topologyRecovery == nil {
 		message := fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another %v.", analysisEntry.AnalyzedInstanceAlias, recoveryName)
@@ -316,6 +353,19 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 	defer func() {
 		_ = resolveRecovery(topologyRecovery, promotedReplica)
 	}()
+
+	// Write pending ERS status to topo before executing.
+	identity := vtorcIdentity()
+	pendingStatus := &topo.ERSStatus{
+		Identity:  identity,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    topo.ERSStatusPending,
+	}
+	writeCtx, writeCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	if writeErr := ts.UpdateERSStatus(writeCtx, tablet.Keyspace, tablet.Shard, pendingStatus); writeErr != nil {
+		logger.Warningf("Failed to write pending ERS status to topo: %v", writeErr)
+	}
+	writeCancel()
 
 	ev, err := reparentutil.NewEmergencyReparenter(ts, tmc, logutil.NewCallbackLogger(func(event *logutilpb.Event) {
 		level := event.GetLevel()
@@ -343,6 +393,26 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.DetectionAn
 	if err != nil {
 		logger.Errorf("Error running ERS - %v", err)
 	}
+
+	// Write final ERS status to topo.
+	finalStatus := topo.ERSStatusCompleted
+	if err != nil {
+		if ev != nil && ev.NewPrimary != nil {
+			finalStatus = topo.ERSStatusErroredShardUnknown
+		} else {
+			finalStatus = topo.ERSStatusErroredShardUnchanged
+		}
+	}
+	completedStatus := &topo.ERSStatus{
+		Identity:  identity,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    finalStatus,
+	}
+	writeCtx, writeCancel = context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	if writeErr := ts.UpdateERSStatus(writeCtx, tablet.Keyspace, tablet.Shard, completedStatus); writeErr != nil {
+		logger.Warningf("Failed to write final ERS status (%s) to topo: %v", finalStatus, writeErr)
+	}
+	writeCancel()
 
 	if ev != nil && ev.NewPrimary != nil {
 		promotedReplica, _, _ = inst.ReadInstance(topoproto.TabletAliasString(ev.NewPrimary.Alias))
