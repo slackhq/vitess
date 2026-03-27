@@ -4,6 +4,8 @@ name: Generate error code docs
 on:
   pull_request:
     types: [opened, synchronize]
+    branches-ignore:
+      - '*'  # Disabled in Slack fork
     paths:
       - "go/vt/vterrors/code.go"
 
