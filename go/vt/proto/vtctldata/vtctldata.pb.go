@@ -4340,6 +4340,9 @@ type EmergencyReparentShardRequest struct {
 	// ExpectedPrimary is the optional alias we expect to be the current primary in order for
 	// the reparent operation to succeed.
 	ExpectedPrimary *topodata.TabletAlias `protobuf:"bytes,8,opt,name=expected_primary,json=expectedPrimary,proto3" json:"expected_primary,omitempty"`
+	// Force overrides ERS cascade prevention checks, including the hard block
+	// when PreviousERSStatus is errored_shard_unknown.
+	Force           bool                  `protobuf:"varint,9,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -4428,6 +4431,13 @@ func (x *EmergencyReparentShardRequest) GetExpectedPrimary() *topodata.TabletAli
 		return x.ExpectedPrimary
 	}
 	return nil
+}
+
+func (x *EmergencyReparentShardRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
 }
 
 type EmergencyReparentShardResponse struct {

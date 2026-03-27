@@ -144,6 +144,7 @@ func commandEmergencyReparentShard(cmd *cobra.Command, args []string) error {
 		WaitReplicasTimeout:       protoutil.DurationToProto(emergencyReparentShardOptions.WaitReplicasTimeout),
 		PreventCrossCellPromotion: emergencyReparentShardOptions.PreventCrossCellPromotion,
 		WaitForAllTablets:         emergencyReparentShardOptions.WaitForAllTablets,
+		Force:                     emergencyReparentShardOptions.Force,
 	})
 	if err != nil {
 		return err
@@ -310,6 +311,7 @@ func init() {
 	EmergencyReparentShard.Flags().BoolVar(&emergencyReparentShardOptions.PreventCrossCellPromotion, "prevent-cross-cell-promotion", false, "Only promotes a new primary from the same cell as the previous primary.")
 	EmergencyReparentShard.Flags().BoolVar(&emergencyReparentShardOptions.WaitForAllTablets, "wait-for-all-tablets", false, "Should ERS wait for all the tablets to respond. Useful when all the tablets are reachable.")
 	EmergencyReparentShard.Flags().StringSliceVarP(&emergencyReparentShardOptions.IgnoreReplicaAliasStrList, "ignore-replicas", "i", nil, "Comma-separated, repeated list of replica tablet aliases to ignore during the emergency reparent.")
+	EmergencyReparentShard.Flags().BoolVar(&emergencyReparentShardOptions.Force, "force", false, "Force the reparent even if PreviousERSStatus indicates the shard is in an unknown state from a prior failed ERS.")
 	Root.AddCommand(EmergencyReparentShard)
 
 	InitShardPrimary.Flags().DurationVar(&initShardPrimaryOptions.WaitReplicasTimeout, "wait-replicas-timeout", 30*time.Second, "Time to wait for replicas to catch up in reparenting.")

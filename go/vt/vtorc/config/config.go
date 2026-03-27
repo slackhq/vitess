@@ -231,6 +231,15 @@ var (
 			Dynamic:  true,
 		},
 	)
+
+	ersCascadePreventionSeconds = viperutil.Configure(
+		"ers-cascade-prevention-seconds",
+		viperutil.Options[int]{
+			FlagName: "ers-cascade-prevention-seconds",
+			Default:  0,
+			Dynamic:  true,
+		},
+	)
 )
 
 func init() {
@@ -260,6 +269,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-recovery", allowRecovery.Default(), "Whether VTOrc should be allowed to run recovery actions")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
+	fs.Int("ers-cascade-prevention-seconds", ersCascadePreventionSeconds.Default(), "If non-zero, prevents a subsequent ERS attempt on a shard if a successful ERS completed within this many seconds ago")
 
 	viperutil.BindFlags(fs,
 		cell,
@@ -283,6 +293,7 @@ func registerFlags(fs *pflag.FlagSet) {
 		allowRecovery,
 		convertTabletsWithErrantGTIDs,
 		enablePrimaryDiskStalledRecovery,
+		ersCascadePreventionSeconds,
 	)
 }
 
@@ -429,6 +440,11 @@ func SetConvertTabletWithErrantGTIDs(val bool) {
 // GetStalledDiskPrimaryRecovery reports whether VTOrc is allowed to check for and recovery stalled disk problems.
 func GetStalledDiskPrimaryRecovery() bool {
 	return enablePrimaryDiskStalledRecovery.Get()
+}
+
+// GetERSCascadePreventionSeconds is a getter function.
+func GetERSCascadePreventionSeconds() int {
+	return ersCascadePreventionSeconds.Get()
 }
 
 // MarkConfigurationLoaded is called once configuration has first been loaded.
