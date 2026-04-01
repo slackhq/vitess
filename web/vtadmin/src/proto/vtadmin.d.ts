@@ -48544,6 +48544,9 @@ export namespace replicationdata {
 
         /** StopReplicationStatus after */
         after?: (replicationdata.IStatus|null);
+
+        /** StopReplicationStatus last_ers_time_ns */
+        last_ers_time_ns?: (number|Long|null);
     }
 
     /** Represents a StopReplicationStatus. */
@@ -48560,6 +48563,9 @@ export namespace replicationdata {
 
         /** StopReplicationStatus after. */
         public after?: (replicationdata.IStatus|null);
+
+        /** StopReplicationStatus last_ers_time_ns. */
+        public last_ers_time_ns: (number|Long);
 
         /**
          * Creates a new StopReplicationStatus instance using the specified properties.
@@ -58118,6 +58124,9 @@ export namespace vtctldata {
 
         /** EmergencyReparentShardRequest expected_primary */
         expected_primary?: (topodata.ITabletAlias|null);
+
+        /** EmergencyReparentShardRequest ers_cooldown */
+        ers_cooldown?: (vttime.IDuration|null);
     }
 
     /** Represents an EmergencyReparentShardRequest. */
@@ -58152,6 +58161,9 @@ export namespace vtctldata {
 
         /** EmergencyReparentShardRequest expected_primary. */
         public expected_primary?: (topodata.ITabletAlias|null);
+
+        /** EmergencyReparentShardRequest ers_cooldown. */
+        public ers_cooldown?: (vttime.IDuration|null);
 
         /**
          * Creates a new EmergencyReparentShardRequest instance using the specified properties.

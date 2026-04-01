@@ -118100,6 +118100,7 @@ export const replicationdata = $root.replicationdata = (() => {
          * @interface IStopReplicationStatus
          * @property {replicationdata.IStatus|null} [before] StopReplicationStatus before
          * @property {replicationdata.IStatus|null} [after] StopReplicationStatus after
+         * @property {number|Long|null} [last_ers_time_ns] StopReplicationStatus last_ers_time_ns
          */
 
         /**
@@ -118134,6 +118135,14 @@ export const replicationdata = $root.replicationdata = (() => {
         StopReplicationStatus.prototype.after = null;
 
         /**
+         * StopReplicationStatus last_ers_time_ns.
+         * @member {number|Long} last_ers_time_ns
+         * @memberof replicationdata.StopReplicationStatus
+         * @instance
+         */
+        StopReplicationStatus.prototype.last_ers_time_ns = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+        /**
          * Creates a new StopReplicationStatus instance using the specified properties.
          * @function create
          * @memberof replicationdata.StopReplicationStatus
@@ -118161,6 +118170,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 $root.replicationdata.Status.encode(message.before, writer.uint32(/* id 1, wireType 2 =*/10).fork()).ldelim();
             if (message.after != null && Object.hasOwnProperty.call(message, "after"))
                 $root.replicationdata.Status.encode(message.after, writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
+            if (message.last_ers_time_ns != null && Object.hasOwnProperty.call(message, "last_ers_time_ns"))
+                writer.uint32(/* id 3, wireType 0 =*/24).int64(message.last_ers_time_ns);
             return writer;
         };
 
@@ -118201,6 +118212,10 @@ export const replicationdata = $root.replicationdata = (() => {
                     }
                 case 2: {
                         message.after = $root.replicationdata.Status.decode(reader, reader.uint32());
+                        break;
+                    }
+                case 3: {
+                        message.last_ers_time_ns = reader.int64();
                         break;
                     }
                 default:
@@ -118248,6 +118263,9 @@ export const replicationdata = $root.replicationdata = (() => {
                 if (error)
                     return "after." + error;
             }
+            if (message.last_ers_time_ns != null && message.hasOwnProperty("last_ers_time_ns"))
+                if (!$util.isInteger(message.last_ers_time_ns) && !(message.last_ers_time_ns && $util.isInteger(message.last_ers_time_ns.low) && $util.isInteger(message.last_ers_time_ns.high)))
+                    return "last_ers_time_ns: integer|Long expected";
             return null;
         };
 
@@ -118273,6 +118291,15 @@ export const replicationdata = $root.replicationdata = (() => {
                     throw TypeError(".replicationdata.StopReplicationStatus.after: object expected");
                 message.after = $root.replicationdata.Status.fromObject(object.after);
             }
+            if (object.last_ers_time_ns != null)
+                if ($util.Long)
+                    (message.last_ers_time_ns = $util.Long.fromValue(object.last_ers_time_ns)).unsigned = false;
+                else if (typeof object.last_ers_time_ns === "string")
+                    message.last_ers_time_ns = parseInt(object.last_ers_time_ns, 10);
+                else if (typeof object.last_ers_time_ns === "number")
+                    message.last_ers_time_ns = object.last_ers_time_ns;
+                else if (typeof object.last_ers_time_ns === "object")
+                    message.last_ers_time_ns = new $util.LongBits(object.last_ers_time_ns.low >>> 0, object.last_ers_time_ns.high >>> 0).toNumber();
             return message;
         };
 
@@ -118292,11 +118319,21 @@ export const replicationdata = $root.replicationdata = (() => {
             if (options.defaults) {
                 object.before = null;
                 object.after = null;
+                if ($util.Long) {
+                    let long = new $util.Long(0, 0, false);
+                    object.last_ers_time_ns = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+                } else
+                    object.last_ers_time_ns = options.longs === String ? "0" : 0;
             }
             if (message.before != null && message.hasOwnProperty("before"))
                 object.before = $root.replicationdata.Status.toObject(message.before, options);
             if (message.after != null && message.hasOwnProperty("after"))
                 object.after = $root.replicationdata.Status.toObject(message.after, options);
+            if (message.last_ers_time_ns != null && message.hasOwnProperty("last_ers_time_ns"))
+                if (typeof message.last_ers_time_ns === "number")
+                    object.last_ers_time_ns = options.longs === String ? String(message.last_ers_time_ns) : message.last_ers_time_ns;
+                else
+                    object.last_ers_time_ns = options.longs === String ? $util.Long.prototype.toString.call(message.last_ers_time_ns) : options.longs === Number ? new $util.LongBits(message.last_ers_time_ns.low >>> 0, message.last_ers_time_ns.high >>> 0).toNumber() : message.last_ers_time_ns;
             return object;
         };
 
@@ -143376,6 +143413,7 @@ export const vtctldata = $root.vtctldata = (() => {
          * @property {boolean|null} [prevent_cross_cell_promotion] EmergencyReparentShardRequest prevent_cross_cell_promotion
          * @property {boolean|null} [wait_for_all_tablets] EmergencyReparentShardRequest wait_for_all_tablets
          * @property {topodata.ITabletAlias|null} [expected_primary] EmergencyReparentShardRequest expected_primary
+         * @property {vttime.IDuration|null} [ers_cooldown] EmergencyReparentShardRequest ers_cooldown
          */
 
         /**
@@ -143459,6 +143497,14 @@ export const vtctldata = $root.vtctldata = (() => {
         EmergencyReparentShardRequest.prototype.expected_primary = null;
 
         /**
+         * EmergencyReparentShardRequest ers_cooldown.
+         * @member {vttime.IDuration|null|undefined} ers_cooldown
+         * @memberof vtctldata.EmergencyReparentShardRequest
+         * @instance
+         */
+        EmergencyReparentShardRequest.prototype.ers_cooldown = null;
+
+        /**
          * Creates a new EmergencyReparentShardRequest instance using the specified properties.
          * @function create
          * @memberof vtctldata.EmergencyReparentShardRequest
@@ -143499,6 +143545,8 @@ export const vtctldata = $root.vtctldata = (() => {
                 writer.uint32(/* id 7, wireType 0 =*/56).bool(message.wait_for_all_tablets);
             if (message.expected_primary != null && Object.hasOwnProperty.call(message, "expected_primary"))
                 $root.topodata.TabletAlias.encode(message.expected_primary, writer.uint32(/* id 8, wireType 2 =*/66).fork()).ldelim();
+            if (message.ers_cooldown != null && Object.hasOwnProperty.call(message, "ers_cooldown"))
+                $root.vttime.Duration.encode(message.ers_cooldown, writer.uint32(/* id 9, wireType 2 =*/74).fork()).ldelim();
             return writer;
         };
 
@@ -143565,6 +143613,10 @@ export const vtctldata = $root.vtctldata = (() => {
                     }
                 case 8: {
                         message.expected_primary = $root.topodata.TabletAlias.decode(reader, reader.uint32());
+                        break;
+                    }
+                case 9: {
+                        message.ers_cooldown = $root.vttime.Duration.decode(reader, reader.uint32());
                         break;
                     }
                 default:
@@ -143638,6 +143690,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 if (error)
                     return "expected_primary." + error;
             }
+            if (message.ers_cooldown != null && message.hasOwnProperty("ers_cooldown")) {
+                let error = $root.vttime.Duration.verify(message.ers_cooldown);
+                if (error)
+                    return "ers_cooldown." + error;
+            }
             return null;
         };
 
@@ -143686,6 +143743,11 @@ export const vtctldata = $root.vtctldata = (() => {
                     throw TypeError(".vtctldata.EmergencyReparentShardRequest.expected_primary: object expected");
                 message.expected_primary = $root.topodata.TabletAlias.fromObject(object.expected_primary);
             }
+            if (object.ers_cooldown != null) {
+                if (typeof object.ers_cooldown !== "object")
+                    throw TypeError(".vtctldata.EmergencyReparentShardRequest.ers_cooldown: object expected");
+                message.ers_cooldown = $root.vttime.Duration.fromObject(object.ers_cooldown);
+            }
             return message;
         };
 
@@ -143712,6 +143774,7 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.prevent_cross_cell_promotion = false;
                 object.wait_for_all_tablets = false;
                 object.expected_primary = null;
+                object.ers_cooldown = null;
             }
             if (message.keyspace != null && message.hasOwnProperty("keyspace"))
                 object.keyspace = message.keyspace;
@@ -143732,6 +143795,8 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.wait_for_all_tablets = message.wait_for_all_tablets;
             if (message.expected_primary != null && message.hasOwnProperty("expected_primary"))
                 object.expected_primary = $root.topodata.TabletAlias.toObject(message.expected_primary, options);
+            if (message.ers_cooldown != null && message.hasOwnProperty("ers_cooldown"))
+                object.ers_cooldown = $root.vttime.Duration.toObject(message.ers_cooldown, options);
             return object;
         };
 
