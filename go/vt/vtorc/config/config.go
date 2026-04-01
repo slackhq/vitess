@@ -218,6 +218,15 @@ var (
 			Dynamic:  true,
 		},
 	)
+
+	ersCooldown = viperutil.Configure(
+		"ers-cooldown",
+		viperutil.Options[time.Duration]{
+			FlagName: "ers-cooldown",
+			Default:  0,
+			Dynamic:  true,
+		},
+	)
 )
 
 func init() {
@@ -246,6 +255,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-recovery", allowRecovery.Default(), "Whether VTOrc should be allowed to run recovery actions")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
+	fs.Duration("ers-cooldown", ersCooldown.Default(), "Minimum duration that must have elapsed since the last ERS before VTOrc will allow another one. Zero means no cooldown")
 
 	viperutil.BindFlags(fs,
 		instancePollTime,
@@ -268,6 +278,7 @@ func registerFlags(fs *pflag.FlagSet) {
 		allowRecovery,
 		convertTabletsWithErrantGTIDs,
 		enablePrimaryDiskStalledRecovery,
+		ersCooldown,
 	)
 }
 
@@ -407,6 +418,10 @@ func SetConvertTabletWithErrantGTIDs(val bool) {
 }
 
 // GetStalledDiskPrimaryRecovery reports whether VTOrc is allowed to check for and recovery stalled disk problems.
+func GetERSCooldown() time.Duration {
+	return ersCooldown.Get()
+}
+
 func GetStalledDiskPrimaryRecovery() bool {
 	return enablePrimaryDiskStalledRecovery.Get()
 }

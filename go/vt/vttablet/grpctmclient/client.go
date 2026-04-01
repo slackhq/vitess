@@ -1248,8 +1248,9 @@ func (client *Client) StopReplicationAndGetStatus(ctx context.Context, tablet *t
 		return nil, err
 	}
 	return &replicationdatapb.StopReplicationStatus{ // nolint
-		Before: response.Status.Before,
-		After:  response.Status.After,
+		Before:        response.Status.Before,
+		After:         response.Status.After,
+		LastErsTimeNs: response.Status.LastErsTimeNs,
 	}, nil
 }
 

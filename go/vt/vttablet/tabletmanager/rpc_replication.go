@@ -1060,10 +1060,13 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	rs.FilePosition = rsAfter.FilePosition
 	rs.RelayLogSourceBinlogEquivalentPosition = rsAfter.RelayLogSourceBinlogEquivalentPosition
 
+	lastERSTimeNs := tm.readLastERSTimestamp(ctx)
+
 	return StopReplicationAndGetStatusResponse{
 		Status: &replicationdatapb.StopReplicationStatus{
-			Before: before,
-			After:  after,
+			Before:        before,
+			After:         after,
+			LastErsTimeNs: lastERSTimeNs,
 		},
 	}, nil
 }
@@ -1073,6 +1076,24 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 type StopReplicationAndGetStatusResponse struct {
 	// Status represents the replication status call right before, and right after telling the replica to stop.
 	Status *replicationdatapb.StopReplicationStatus
+}
+
+func (tm *TabletManager) readLastERSTimestamp(ctx context.Context) int64 {
+	query := mysqlctl.LastERSTimestampQuery()
+	res, err := tm.MysqlDaemon.FetchSuperQuery(ctx, query)
+	if err != nil {
+		log.Warningf("failed to read last ERS timestamp: %v", err)
+		return 0
+	}
+	if len(res.Rows) == 0 {
+		return 0
+	}
+	ts, err := res.Rows[0][0].ToInt64()
+	if err != nil {
+		log.Warningf("failed to parse last ERS timestamp: %v", err)
+		return 0
+	}
+	return ts
 }
 
 // PromoteReplica makes the current tablet the primary

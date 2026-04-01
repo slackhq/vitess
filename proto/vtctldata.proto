@@ -742,6 +742,10 @@ message EmergencyReparentShardRequest {
   // ExpectedPrimary is the optional alias we expect to be the current primary in order for
   // the reparent operation to succeed.
   topodata.TabletAlias expected_primary = 8;
+  // ERSCooldown is the minimum duration that must have elapsed since the last ERS
+  // before allowing another one. If a recent ERS is found within this window,
+  // the operation is rejected.
+  vttime.Duration ers_cooldown = 9;
 }
 
 message EmergencyReparentShardResponse {

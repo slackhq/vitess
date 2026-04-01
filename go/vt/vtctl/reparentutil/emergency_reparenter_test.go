@@ -5593,3 +5593,76 @@ func TestEmergencyReparenterFindErrantGTIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckERSCooldown(t *testing.T) {
+	t.Parallel()
+
+	erp := &EmergencyReparenter{logger: logutil.NewCallbackLogger(func(*logutilpb.Event) {})}
+
+	tests := []struct {
+		name      string
+		statusMap map[string]*replicationdatapb.StopReplicationStatus
+		cooldown  time.Duration
+		wantErr   bool
+		errMsg    string
+	}{
+		{
+			name: "no ERS history",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000100": {LastErsTimeNs: 0},
+				"zone1-0000000101": {LastErsTimeNs: 0},
+			},
+			cooldown: 5 * time.Minute,
+			wantErr:  false,
+		},
+		{
+			name: "ERS outside cooldown window",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000100": {LastErsTimeNs: time.Now().Add(-10 * time.Minute).UnixNano()},
+				"zone1-0000000101": {LastErsTimeNs: time.Now().Add(-15 * time.Minute).UnixNano()},
+			},
+			cooldown: 5 * time.Minute,
+			wantErr:  false,
+		},
+		{
+			name: "ERS within cooldown window",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000100": {LastErsTimeNs: time.Now().Add(-2 * time.Minute).UnixNano()},
+				"zone1-0000000101": {LastErsTimeNs: time.Now().Add(-10 * time.Minute).UnixNano()},
+			},
+			cooldown: 5 * time.Minute,
+			wantErr:  true,
+			errMsg:   "ERS cooldown in effect",
+		},
+		{
+			name: "most recent ERS from any replica triggers cooldown",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000100": {LastErsTimeNs: time.Now().Add(-20 * time.Minute).UnixNano()},
+				"zone1-0000000101": {LastErsTimeNs: time.Now().Add(-1 * time.Minute).UnixNano()},
+				"zone1-0000000102": {LastErsTimeNs: time.Now().Add(-30 * time.Minute).UnixNano()},
+			},
+			cooldown: 5 * time.Minute,
+			wantErr:  true,
+			errMsg:   "ERS cooldown in effect",
+		},
+		{
+			name:      "empty status map",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{},
+			cooldown:  5 * time.Minute,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := erp.checkERSCooldown(tt.statusMap, tt.cooldown)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

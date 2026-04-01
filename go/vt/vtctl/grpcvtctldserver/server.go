@@ -1299,6 +1299,11 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 	span.Annotate("prevent_cross_cell_promotion", req.PreventCrossCellPromotion)
 	span.Annotate("wait_for_all_tablets", req.WaitForAllTablets)
 
+	ersCooldown, _, err := protoutil.DurationFromProto(req.ErsCooldown)
+	if err != nil {
+		return nil, err
+	}
+
 	m := sync.RWMutex{}
 	logstream := []*logutilpb.Event{}
 	logger := logutil.NewCallbackLogger(func(e *logutilpb.Event) {
@@ -1318,6 +1323,7 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 			WaitAllTablets:            req.WaitForAllTablets,
 			PreventCrossCellPromotion: req.PreventCrossCellPromotion,
 			ExpectedPrimaryAlias:      req.ExpectedPrimary,
+			ERSCooldown:               ersCooldown,
 		},
 	)
 

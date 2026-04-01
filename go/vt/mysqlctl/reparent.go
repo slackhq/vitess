@@ -59,6 +59,12 @@ func ReadReparentJournalInfoQuery() string {
 	return fmt.Sprintf("SELECT COUNT(*) FROM %s.reparent_journal", sidecar.GetIdentifier())
 }
 
+func LastERSTimestampQuery() string {
+	return fmt.Sprintf("SELECT time_created_ns FROM %s.reparent_journal "+
+		"WHERE action_name LIKE 'EmergencyReparentShard%%' "+
+		"ORDER BY time_created_ns DESC LIMIT 1", sidecar.GetIdentifier())
+}
+
 // queryReparentJournal returns the SQL query to use to query the database
 // for a reparent_journal row.
 func queryReparentJournal(timeCreatedNS int64) string {

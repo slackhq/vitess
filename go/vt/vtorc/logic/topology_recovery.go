@@ -300,6 +300,7 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 			WaitReplicasTimeout:       config.GetWaitReplicasTimeout(),
 			PreventCrossCellPromotion: config.GetPreventCrossCellFailover(),
 			WaitAllTablets:            waitForAllTablets,
+			ERSCooldown:               config.GetERSCooldown(),
 		},
 	)
 	if err != nil {

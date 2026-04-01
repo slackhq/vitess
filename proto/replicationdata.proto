@@ -68,6 +68,7 @@ message Configuration {
 message StopReplicationStatus {
   replicationdata.Status before = 1;
   replicationdata.Status after = 2;
+  int64 last_ers_time_ns = 3;
 }
 
 // StopReplicationMode is used to provide controls over how replication is stopped.

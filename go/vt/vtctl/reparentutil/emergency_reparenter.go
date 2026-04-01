@@ -62,6 +62,7 @@ type EmergencyReparentOptions struct {
 	WaitReplicasTimeout       time.Duration
 	PreventCrossCellPromotion bool
 	ExpectedPrimaryAlias      *topodatapb.TabletAlias
+	ERSCooldown               time.Duration
 
 	// Private options managed internally. We use value passing to avoid leaking
 	// these details back out.
@@ -208,6 +209,12 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	stoppedReplicationSnapshot, err = stopReplicationAndBuildStatusMaps(ctx, erp.tmc, ev, tabletMap, topo.RemoteOperationTimeout, opts.IgnoreReplicas, opts.NewPrimaryAlias, opts.durability, opts.WaitAllTablets, erp.logger)
 	if err != nil {
 		return vterrors.Wrapf(err, "failed to stop replication and build status maps: %v", err)
+	}
+
+	if opts.ERSCooldown > 0 {
+		if err := erp.checkERSCooldown(stoppedReplicationSnapshot.statusMap, opts.ERSCooldown); err != nil {
+			return err
+		}
 	}
 
 	// check that we still have the shard lock. If we don't then we can terminate at this point
@@ -951,4 +958,24 @@ func (erp *EmergencyReparenter) gatherReparenJournalInfo(
 	}
 
 	return reparentJournalLen, nil
+}
+
+func (erp *EmergencyReparenter) checkERSCooldown(statusMap map[string]*replicationdatapb.StopReplicationStatus, cooldown time.Duration) error {
+	var maxERSTimeNs int64
+	for _, status := range statusMap {
+		if status.LastErsTimeNs > maxERSTimeNs {
+			maxERSTimeNs = status.LastErsTimeNs
+		}
+	}
+	if maxERSTimeNs == 0 {
+		return nil
+	}
+	lastERS := time.Unix(0, maxERSTimeNs)
+	elapsed := time.Since(lastERS)
+	if elapsed < cooldown {
+		return vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION,
+			"ERS cooldown in effect: last ERS was %s ago at %s, cooldown requires %s between operations",
+			elapsed.Truncate(time.Second), lastERS.UTC().Format(time.RFC3339), cooldown)
+	}
+	return nil
 }
