@@ -18,6 +18,7 @@ package smartconnpool
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,9 @@ var (
 
 	// ErrConnPoolClosed is returned when trying to get a connection from a closed conn pool
 	ErrConnPoolClosed = vterrors.New(vtrpcpb.Code_INTERNAL, "connection pool is closed")
+
+	// ErrPoolWaiterCapReached is returned when the waiter cap has been reached
+	ErrPoolWaiterCapReached = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool waiter cap reached")
 
 	// PoolCloseTimeout is how long to wait for all connections to be returned to the pool during close
 	PoolCloseTimeout = 10 * time.Second
@@ -95,6 +99,7 @@ type Config[C Connection] struct {
 	IdleTimeout     time.Duration
 	MaxLifetime     time.Duration
 	RefreshInterval time.Duration
+	MaxWaiters      int64
 	LogWait         func(time.Time)
 }
 
@@ -149,6 +154,9 @@ type ConnPool[C Connection] struct {
 		refreshInterval atomic.Int64
 		// logWait is called every time a client must block waiting for a connection
 		logWait func(time.Time)
+		// maxWaiters is the maximum number of clients that can be waiting for a connection;
+		// 0 means unlimited
+		maxWaiters int64
 	}
 
 	Metrics Metrics
@@ -165,6 +173,7 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.idleTimeout.Store(config.IdleTimeout.Nanoseconds())
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
 	pool.config.logWait = config.LogWait
+	pool.config.maxWaiters = config.MaxWaiters
 	pool.wait.init()
 
 	return pool
@@ -612,8 +621,11 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan)
+		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, pool.config.maxWaiters)
 		if err != nil {
+			if errors.Is(err, ErrPoolWaiterCapReached) {
+				return nil, err
+			}
 			return nil, ErrTimeout
 		}
 		pool.recordWait(start)
@@ -675,8 +687,11 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan)
+		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, pool.config.maxWaiters)
 		if err != nil {
+			if errors.Is(err, ErrPoolWaiterCapReached) {
+				return nil, err
+			}
 			return nil, ErrTimeout
 		}
 		pool.recordWait(start)
