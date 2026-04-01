@@ -54,7 +54,25 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 
 	elem.Value = waiter[C]{conn: elem.Value.conn, setting: setting}
 
+	// Fast path: reject early using an atomic read of the list length to avoid
+	// contending on the mutex under high query rates. This is racy — the count
+	// can change between this check and the lock acquisition — so we re-check
+	// under the lock below for correctness. Still, we expect to reject most
+	// requests early here when under a heavy load.
+	//
+	// We do this here rather than further upstream (e.g. in ConnPool.Get) because
+	// callers only reach waitForConn after exhausting all other options (idle
+	// connections, new connections, settings stacks). There is no point in checking
+	// there when those requests can still get a connection without waiting. The cap
+	// is just for waiting.
+	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
+		return nil, ErrPoolWaiterCapReached
+	}
+
 	wl.mu.Lock()
+	// Strict check: the list length may have changed since the lockless check
+	// above, so we verify again while holding the lock to guarantee the cap is
+	// never exceeded.
 	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
 		wl.mu.Unlock()
 		return nil, ErrPoolWaiterCapReached
