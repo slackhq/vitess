@@ -39,6 +39,10 @@ type waitlist[C Connection] struct {
 	nodes sync.Pool
 	mu    sync.Mutex
 	list  list.List[waiter[C]]
+	// onWait is called when a client gets to the point in which it is waiting for a connection - or the mutex that it needs to grab to wait for a connection.
+	onWait func()
+	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
+	onWaiterCapReached func()
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -66,7 +70,16 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// there when those requests can still get a connection without waiting. The cap
 	// is just for waiting.
 	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
+		if wl.onWaiterCapReached != nil {
+			wl.onWaiterCapReached()
+		}
 		return nil, ErrPoolWaiterCapReached
+	}
+
+	// If we reach this point, we are waiting, at the very least on the mutex, likely
+	// on the connection. So call onWait which takes care of recording the wait.
+	if wl.onWait != nil {
+		wl.onWait()
 	}
 
 	wl.mu.Lock()
@@ -75,6 +88,9 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// never exceeded.
 	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
 		wl.mu.Unlock()
+		if wl.onWaiterCapReached != nil {
+			wl.onWaiterCapReached()
+		}
 		return nil, ErrPoolWaiterCapReached
 	}
 	wl.list.PushBackValue(elem)

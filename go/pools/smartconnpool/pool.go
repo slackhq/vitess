@@ -56,6 +56,7 @@ type Metrics struct {
 	idleClosed           atomic.Int64
 	diffSetting          atomic.Int64
 	resetSetting         atomic.Int64
+	waiterCapRejected    atomic.Int64
 }
 
 func (m *Metrics) MaxLifetimeClosed() int64 {
@@ -88,6 +89,10 @@ func (m *Metrics) DiffSettingCount() int64 {
 
 func (m *Metrics) ResetSettingCount() int64 {
 	return m.resetSetting.Load()
+}
+
+func (m *Metrics) WaiterCapRejected() int64 {
+	return m.waiterCapRejected.Load()
 }
 
 type Connector[C Connection] func(ctx context.Context) (C, error)
@@ -175,6 +180,12 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters = config.MaxWaiters
 	pool.wait.init()
+	pool.wait.onWait = func() {
+		pool.Metrics.waitCount.Add(1)
+	}
+	pool.wait.onWaiterCapReached = func() {
+		pool.Metrics.waiterCapRejected.Add(1)
+	}
 
 	return pool
 }
@@ -383,8 +394,7 @@ func (pool *ConnPool[D]) RefreshInterval() time.Duration {
 	return time.Duration(pool.config.refreshInterval.Load())
 }
 
-func (pool *ConnPool[C]) recordWait(start time.Time) {
-	pool.Metrics.waitCount.Add(1)
+func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 	pool.Metrics.waitTime.Add(time.Since(start).Nanoseconds())
 	if pool.config.logWait != nil {
 		pool.config.logWait(start)
@@ -628,7 +638,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 			}
 			return nil, ErrTimeout
 		}
-		pool.recordWait(start)
+		pool.recordWaitDuration(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
@@ -694,7 +704,7 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 			}
 			return nil, ErrTimeout
 		}
-		pool.recordWait(start)
+		pool.recordWaitDuration(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
@@ -934,6 +944,9 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	})
 	stats.NewCounterFunc(name+"GetSetting", "Tablet server conn pool get with setting count", func() int64 {
 		return pool.Metrics.GetSettingCount()
+	})
+	stats.NewCounterFunc(name+"WaiterCapRejected", "Tablet server conn pool waiter cap rejected", func() int64 {
+		return pool.Metrics.WaiterCapRejected()
 	})
 	stats.NewCounterFunc(name+"DiffSetting", "Number of times pool applied different setting", func() int64 {
 		return pool.Metrics.DiffSettingCount()
