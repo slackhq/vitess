@@ -70,7 +70,7 @@ func (st *vrStats) register() {
 	stats.NewStringMapFuncWithMultiLabels(
 		"VReplicationStreamState",
 		"State of vreplication workflow",
-		[]string{"workflow", "counts"},
+		[]string{"workflow", "workflow_type", "counts"},
 		"state",
 		func() map[string]string {
 			st.mu.Lock()
@@ -79,7 +79,7 @@ func (st *vrStats) register() {
 			for _, ct := range st.controllers {
 				state := ct.blpStats.State.Load()
 				if state != nil {
-					result[ct.workflow+"."+fmt.Sprintf("%v", ct.id)] = state.(string)
+					result[ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)] = state.(string)
 				}
 			}
 			return result
@@ -88,13 +88,13 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationLagSeconds",
 		"vreplication seconds behind primary per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
-				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.ReplicationLagSeconds.Load()
+				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.ReplicationLagSeconds.Load()
 			}
 			return result
 		})
@@ -180,14 +180,14 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationPhaseTimings",
 		"vreplication per phase timings per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "phase"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "phase"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for phase, t := range ct.blpStats.PhaseTimings.Histograms() {
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+phase] = t.Total()
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+phase] = t.Total()
 				}
 			}
 			return result
@@ -210,14 +210,14 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationPhaseTimingsCounts",
 		"vreplication per phase count of timings per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "phase"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "phase"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for phase, t := range ct.blpStats.PhaseTimings.Counts() {
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+phase] = t
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+phase] = t
 				}
 			}
 			return result
@@ -225,7 +225,7 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationQueryCount",
 		"vreplication query counts per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "phase"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "phase"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -235,7 +235,7 @@ func (st *vrStats) register() {
 					if label == "" {
 						continue
 					}
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
 				}
 			}
 			return result
@@ -259,7 +259,7 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationBulkQueryCount",
 		"vreplication vplayer queries with consolidated row events counts per DML type per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "dml_type"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "dml_type"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -269,7 +269,7 @@ func (st *vrStats) register() {
 					if label == "" {
 						continue
 					}
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
 				}
 			}
 			return result
@@ -292,7 +292,7 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationNoopQueryCount",
 		"vreplication noop query counts per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "phase"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "phase"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -302,7 +302,7 @@ func (st *vrStats) register() {
 					if label == "" {
 						continue
 					}
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
 				}
 			}
 			return result
@@ -326,7 +326,7 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationTrxQueryBatchCount",
 		"vreplication vplayer transaction query batch counts per type per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "commit_or_not"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "commit_or_not"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -336,7 +336,7 @@ func (st *vrStats) register() {
 					if label == "" {
 						continue
 					}
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+label] = count
 				}
 			}
 			return result
@@ -360,13 +360,13 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationCopyRowCount",
 		"vreplication rows copied in copy phase per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
-				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.CopyRowCount.Get()
+				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.CopyRowCount.Get()
 			}
 			return result
 		})
@@ -387,13 +387,13 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationCopyLoopCount",
 		"Number of times the copy phase looped per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
-				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.CopyLoopCount.Get()
+				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.CopyLoopCount.Get()
 			}
 			return result
 		})
@@ -413,14 +413,14 @@ func (st *vrStats) register() {
 	stats.NewCountersFuncWithMultiLabels(
 		"VReplicationErrors",
 		"Errors during vreplication",
-		[]string{"workflow", "id", "type"},
+		[]string{"workflow", "workflow_type", "id", "type"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64)
 			for _, ct := range st.controllers {
 				for key, val := range ct.blpStats.ErrorCounts.Counts() {
-					result[fmt.Sprintf("%s.%d.%s", ct.workflow, ct.id, key)] = val
+					result[fmt.Sprintf("%s.%s.%d.%s", ct.workflow, ct.workflowTypeName(), ct.id, key)] = val
 				}
 			}
 			return result
@@ -428,13 +428,13 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationHeartbeat",
 		"Time when last heartbeat was received from a vstreamer",
-		[]string{"source_keyspace", "source_shard", "workflow", "time"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "time"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
-				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.Heartbeat()
+				result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)] = ct.blpStats.Heartbeat()
 			}
 			return result
 		})
@@ -442,7 +442,7 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationTableCopyRowCounts",
 		"vreplication rows copied in copy phase per table per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "table"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "table"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -452,7 +452,7 @@ func (st *vrStats) register() {
 					if table == "" {
 						continue
 					}
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+table] = count
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+table] = count
 				}
 			}
 			return result
@@ -461,14 +461,14 @@ func (st *vrStats) register() {
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationTableCopyTimings",
 		"vreplication copy phase timings per table per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "counts", "table"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "counts", "table"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for table, t := range ct.blpStats.TableCopyTimings.Histograms() {
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+table] = t.Total()
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+table] = t.Total()
 				}
 			}
 			return result
@@ -476,14 +476,14 @@ func (st *vrStats) register() {
 	stats.NewCountersFuncWithMultiLabels(
 		"VReplicationPartialQueryCount",
 		"count of partial queries per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "type"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "type"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for typ, t := range ct.blpStats.PartialQueryCount.Counts() {
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+typ] = t
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+typ] = t
 				}
 			}
 			return result
@@ -491,14 +491,14 @@ func (st *vrStats) register() {
 	stats.NewCountersFuncWithMultiLabels(
 		"VReplicationPartialQueryCacheSize",
 		"cache size for partial queries per stream",
-		[]string{"source_keyspace", "source_shard", "workflow", "type"},
+		[]string{"source_keyspace", "source_shard", "workflow", "workflow_type", "type"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for typ, t := range ct.blpStats.PartialQueryCacheSize.Counts() {
-					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+fmt.Sprintf("%v", ct.id)+"."+typ] = t
+					result[ct.source.Keyspace+"."+ct.source.Shard+"."+ct.workflow+"."+ct.workflowTypeName()+"."+fmt.Sprintf("%v", ct.id)+"."+typ] = t
 				}
 			}
 			return result
@@ -515,14 +515,14 @@ func (st *vrStats) register() {
 	stats.NewCountersFuncWithMultiLabels(
 		"VReplicationThrottledCounts",
 		"The number of times vreplication was throttled by workflow, id, throttler (trx or tablet), and the sub-component that was throttled",
-		[]string{"workflow", "id", "throttler", "component"},
+		[]string{"workflow", "workflow_type", "id", "throttler", "component"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64)
 			for _, ct := range st.controllers {
 				for key, val := range ct.blpStats.ThrottledCounts.Counts() {
-					result[fmt.Sprintf("%s.%d.%s", ct.workflow, ct.id, key)] = val
+					result[fmt.Sprintf("%s.%s.%d.%s", ct.workflow, ct.workflowTypeName(), ct.id, key)] = val
 				}
 			}
 			return result
@@ -531,14 +531,14 @@ func (st *vrStats) register() {
 	stats.NewCountersFuncWithMultiLabels(
 		"VReplicationDDLActions",
 		"vreplication DDL processing actions per stream",
-		[]string{"workflow", "action"},
+		[]string{"workflow", "workflow_type", "action"},
 		func() map[string]int64 {
 			st.mu.Lock()
 			defer st.mu.Unlock()
 			result := make(map[string]int64, len(st.controllers))
 			for _, ct := range st.controllers {
 				for key, val := range ct.blpStats.DDLEventActions.Counts() {
-					result[fmt.Sprintf("%s.%d.%s", ct.workflow, ct.id, key)] = val
+					result[fmt.Sprintf("%s.%s.%d.%s", ct.workflow, ct.workflowTypeName(), ct.id, key)] = val
 				}
 			}
 			return result
