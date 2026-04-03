@@ -987,15 +987,16 @@ func WaitForReadOnlyValue(t *testing.T, curPrimary *cluster.Vttablet, expectValu
 }
 
 // WaitForSuccessfulRecoveryCount waits until the given recovery name's count of successful runs matches the count expected
-func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcProcess, recoveryName string, countExpected int) {
+func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcProcess, recoveryName, keyspace, shard string, countExpected int) {
 	t.Helper()
 	timeout := 15 * time.Second
 	startTime := time.Now()
+	mapKey := fmt.Sprintf("%s.%s.%s", recoveryName, keyspace, shard)
 	for time.Since(startTime) < timeout {
 		vars := vtorcInstance.GetVars()
 		successfulRecoveriesMap, ok := vars["SuccessfulRecoveries"].(map[string]any)
 		require.True(t, ok, "SuccessfulRecoveries metric not yet available")
-		successCount := GetIntFromValue(successfulRecoveriesMap[recoveryName])
+		successCount := GetIntFromValue(successfulRecoveriesMap[mapKey])
 		if successCount == countExpected {
 			return
 		}
@@ -1004,7 +1005,7 @@ func WaitForSuccessfulRecoveryCount(t *testing.T, vtorcInstance *cluster.VTOrcPr
 	vars := vtorcInstance.GetVars()
 	successfulRecoveriesMap, ok := vars["SuccessfulRecoveries"].(map[string]any)
 	require.True(t, ok, "SuccessfulRecoveries metric not yet available")
-	successCount := GetIntFromValue(successfulRecoveriesMap[recoveryName])
+	successCount := GetIntFromValue(successfulRecoveriesMap[mapKey])
 	assert.EqualValues(t, countExpected, successCount)
 }
 
