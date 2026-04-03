@@ -880,6 +880,9 @@ func actionInfo(ctx context.Context, target *querypb.Target, session *econtext.S
 	shouldReserve := session.InReservedConn() && (shardSession == nil || shardSession.ReservedId == 0)
 	shouldBegin := session.InTransaction() && (shardSession == nil || shardSession.TransactionId == 0) && !autocommit
 
+	log.Infof("actionInfo: target=%s/%s, inTransaction=%v, inReservedConn=%v, autocommit=%v, shouldBegin=%v, shouldReserve=%v",
+		target.Keyspace, target.Shard, session.InTransaction(), session.InReservedConn(), autocommit, shouldBegin, shouldReserve)
+
 	var act = nothing
 	switch {
 	case shouldBegin && shouldReserve:

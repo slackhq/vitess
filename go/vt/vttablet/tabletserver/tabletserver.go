@@ -882,6 +882,8 @@ func (tsv *TabletServer) Execute(ctx context.Context, target *querypb.Target, sq
 	trace.AnnotateSQL(span, sqlparser.Preview(sql))
 	defer span.Finish()
 
+	log.Infof("TabletServer.Execute: transactionID=%d, reservedID=%d, sql=%s", transactionID, reservedID, sql)
+
 	if transactionID != 0 && reservedID != 0 && transactionID != reservedID {
 		return nil, vterrors.New(vtrpcpb.Code_INTERNAL, "[BUG] transactionID and reserveID must match if both are non-zero")
 	}
@@ -1050,6 +1052,7 @@ func (tsv *TabletServer) streamExecute(ctx context.Context, target *querypb.Targ
 
 // BeginExecute combines Begin and Execute.
 func (tsv *TabletServer) BeginExecute(ctx context.Context, target *querypb.Target, postBeginQueries []string, sql string, bindVariables map[string]*querypb.BindVariable, reservedID int64, options *querypb.ExecuteOptions) (queryservice.TransactionState, *sqltypes.Result, error) {
+	log.Infof("TabletServer.BeginExecute: reservedID=%d, sql=%s", reservedID, sql)
 
 	// Disable hot row protection in case of reserve connection.
 	if tsv.enableHotRowProtection && reservedID == 0 {

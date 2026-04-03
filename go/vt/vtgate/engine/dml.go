@@ -24,6 +24,7 @@ import (
 
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/key"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/srvtopo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -133,7 +134,10 @@ func allowOnlyPrimary(rss ...*srvtopo.ResolvedShard) error {
 }
 
 func (dml *DML) execMultiShard(ctx context.Context, primitive Primitive, vcursor VCursor, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery) (*sqltypes.Result, error) {
-	autocommit := (len(rss) == 1 || dml.MultiShardAutocommit) && vcursor.AutocommitApproval()
+	autocommitApproval := vcursor.AutocommitApproval()
+	autocommit := (len(rss) == 1 || dml.MultiShardAutocommit) && autocommitApproval
+	log.Infof("execMultiShard: numShards=%d, MultiShardAutocommit=%v, autocommitApproval=%v, autocommit=%v, query=%s",
+		len(rss), dml.MultiShardAutocommit, autocommitApproval, autocommit, dml.Query)
 	result, errs := vcursor.ExecuteMultiShard(ctx, primitive, rss, queries, true /*rollbackOnError*/, autocommit, dml.FetchLastInsertID)
 	return result, vterrors.Aggregate(errs)
 }
