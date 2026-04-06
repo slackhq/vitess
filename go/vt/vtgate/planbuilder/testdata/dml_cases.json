@@ -5872,47 +5872,18 @@
     "comment": "update with limit clause",
     "query": "update user set val = 1 where (name = 'foo' or id = 1) limit 1",
     "plan": {
-      "Type": "Complex",
+      "Type": "Scatter",
       "QueryType": "UPDATE",
       "Original": "update user set val = 1 where (name = 'foo' or id = 1) limit 1",
       "Instructions": {
-        "OperatorType": "DMLWithInput",
-        "Offset": [
-          "0:[0]"
-        ],
-        "Inputs": [
-          {
-            "OperatorType": "Limit",
-            "Count": "1",
-            "Inputs": [
-              {
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select `user`.id from `user` where 1 != 1",
-                "Query": "select `user`.id from `user` where `name` = 'foo' or id = 1 limit :__upper_limit lock in share mode",
-                "Table": "`user`"
-              }
-            ]
-          },
-          {
-            "OperatorType": "Update",
-            "Variant": "IN",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "Query": "update `user` set val = 1 where `user`.id in ::dml_vals",
-            "Table": "user",
-            "Values": [
-              "::dml_vals"
-            ],
-            "Vindex": "user_index"
-          }
-        ]
+        "OperatorType": "Update",
+        "Variant": "Scatter",
+        "Keyspace": {
+          "Name": "user",
+          "Sharded": true
+        },
+        "Query": "update `user` set val = 1 where `name` = 'foo' or id = 1 limit 1",
+        "Table": "user"
       },
       "TablesUsed": [
         "user.user"
@@ -5923,59 +5894,7 @@
   {
     "comment": "update a vindex column with limit",
     "query": "update user set name = 'abc' where id > 10 limit 1",
-    "plan": {
-      "Type": "Complex",
-      "QueryType": "UPDATE",
-      "Original": "update user set name = 'abc' where id > 10 limit 1",
-      "Instructions": {
-        "OperatorType": "DMLWithInput",
-        "Offset": [
-          "0:[0]"
-        ],
-        "Inputs": [
-          {
-            "OperatorType": "Limit",
-            "Count": "1",
-            "Inputs": [
-              {
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select `user`.id from `user` where 1 != 1",
-                "Query": "select `user`.id from `user` where id > 10 limit :__upper_limit lock in share mode",
-                "Table": "`user`"
-              }
-            ]
-          },
-          {
-            "OperatorType": "Update",
-            "Variant": "IN",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "ChangedVindexValues": [
-              "name_user_map:3"
-            ],
-            "KsidLength": 1,
-            "KsidVindex": "user_index",
-            "OwnedVindexQuery": "select Id, `Name`, Costly, `name` = 'abc' from `user` where `user`.id in ::dml_vals for update",
-            "Query": "update `user` set `name` = 'abc' where `user`.id in ::dml_vals",
-            "Table": "user",
-            "Values": [
-              "::dml_vals"
-            ],
-            "Vindex": "user_index"
-          }
-        ]
-      },
-      "TablesUsed": [
-        "user.user"
-      ]
-    },
+    "plan": "VT12001: unsupported: Vindex update should have ORDER BY clause when using LIMIT",
     "skip_e2e": true
   },
   {
