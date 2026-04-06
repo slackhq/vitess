@@ -78,5 +78,57 @@
     "comment": "multi table delete with 1 sharded and 1 reference table",
     "query": "delete u, r from user u join ref_with_source r on u.col = r.col",
     "plan": "VT09015: schema tracking required"
+  },
+  {
+    "comment": "slack: update with limit on sharded table without primary key produces direct plan",
+    "query": "update music_extra set col = 1 where user_id = 1 limit 1",
+    "plan": {
+      "Type": "Passthrough",
+      "QueryType": "UPDATE",
+      "Original": "update music_extra set col = 1 where user_id = 1 limit 1",
+      "Instructions": {
+        "OperatorType": "Update",
+        "Variant": "EqualUnique",
+        "Keyspace": {
+          "Name": "user",
+          "Sharded": true
+        },
+        "Query": "update music_extra set col = 1 where user_id = 1 limit 1",
+        "Table": "music_extra",
+        "Values": [
+          "1"
+        ],
+        "Vindex": "user_index"
+      },
+      "TablesUsed": [
+        "user.music_extra"
+      ]
+    }
+  },
+  {
+    "comment": "slack: update with multi-column in and limit without primary key",
+    "query": "update music_extra set col = 1 where (user_id, music_id) in ((1, 2)) and col != 1 limit 10",
+    "plan": {
+      "Type": "MultiShard",
+      "QueryType": "UPDATE",
+      "Original": "update music_extra set col = 1 where (user_id, music_id) in ((1, 2)) and col != 1 limit 10",
+      "Instructions": {
+        "OperatorType": "Update",
+        "Variant": "MultiEqual",
+        "Keyspace": {
+          "Name": "user",
+          "Sharded": true
+        },
+        "Query": "update music_extra set col = 1 where (user_id, music_id) in ((1, 2)) and col != 1 limit 10",
+        "Table": "music_extra",
+        "Values": [
+          "(1)"
+        ],
+        "Vindex": "user_index"
+      },
+      "TablesUsed": [
+        "user.music_extra"
+      ]
+    }
   }
 ]

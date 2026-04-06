@@ -48,6 +48,10 @@ type (
 
 		VerifyAll bool
 
+		// slack: v19-compat - embed LIMIT on Update when PrimaryKey is unavailable,
+		// so the Update pushes under the Route without requiring DMLWithInput.
+		Limit *sqlparser.Limit
+
 		noColumns
 		noPredicates
 	}
@@ -392,7 +396,14 @@ func createUpdateOperator(ctx *plancontext.PlanningContext, updStmt *sqlparser.U
 	}
 
 	if updStmt.Limit != nil {
-		updOp.Source = newLimit(updOp.Source, updStmt.Limit, false)
+		if len(targetTbl.VTable.PrimaryKey) > 0 {
+			// v22 path: separate Limit operator enables DMLWithInput in phases
+			updOp.Source = newLimit(updOp.Source, updStmt.Limit, false)
+		} else {
+			// slack: v19 fallback - embed LIMIT on Update so it pushes under Route
+			// without requiring PrimaryKey for DMLWithInput
+			updOp.Limit = updStmt.Limit
+		}
 	}
 
 	return sqc.getRootOperator(updOp, nil), targetTbl, updClone

@@ -485,6 +485,7 @@ func buildUpdate(op *Update, qb *queryBuilder) {
 	upd := &sqlparser.Update{
 		Ignore: op.Ignore,
 		Exprs:  updExprs,
+		Limit:  op.Limit,
 	}
 	qb.stmt = upd
 	qb.dmlOperator = op
