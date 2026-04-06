@@ -69,9 +69,9 @@ func TestUniqueLookupDuplicateEntries(t *testing.T) {
 	utils.AssertMatches(t, mcmp.VtConn, "select num, hex(keyspace_id) from num_vdx_tbl order by num", `[[INT64(30) VARCHAR("166B40B44ABA4BD6")] [INT64(100) VARCHAR("594764E1A2B2D98E")]]`)
 
 	// update to same value on multiple row should fail.
+	// slack: with v19 per-shard LIMIT (no DMLWithInput), vindex update without ORDER BY is rejected at plan time.
 	utils.AssertContainsError(t, mcmp.VtConn, "update s_tbl set num = 40 limit 2",
-		"lookup.Create: transaction rolled back to reverse changes of partial DML execution: target: sks.80-.primary: vttablet: "+
-			"rpc error: code = AlreadyExists desc = Duplicate entry '40' for key 'num_vdx_tbl.PRIMARY'")
+		"VT12001: unsupported: Vindex update should have ORDER BY clause when using LIMIT")
 	utils.AssertMatches(t, mcmp.VtConn, "select id, num from s_tbl order by id", `[[INT64(1) INT64(30)] [INT64(10) INT64(100)]]`)
 	utils.AssertMatches(t, mcmp.VtConn, "select num, hex(keyspace_id) from num_vdx_tbl order by num", `[[INT64(30) VARCHAR("166B40B44ABA4BD6")] [INT64(100) VARCHAR("594764E1A2B2D98E")]]`)
 }
@@ -214,6 +214,10 @@ func TestDeleteWithLimit(t *testing.T) {
 
 // TestUpdateWithLimit executed update queries with limit
 func TestUpdateWithLimit(t *testing.T) {
+	// slack: v19 per-shard LIMIT applies LIMIT on each shard independently,
+	// so total rows affected may exceed the LIMIT value. This test validates
+	// v22 DMLWithInput total-count LIMIT behavior which our fork doesn't use.
+	t.Skip("slack: v19 per-shard LIMIT semantics differ from v22 DMLWithInput total-count LIMIT")
 	mcmp, closer := start(t)
 	defer closer()
 
