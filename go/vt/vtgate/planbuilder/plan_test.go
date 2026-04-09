@@ -122,6 +122,20 @@ func (s *planTestSuite) TestPlan() {
 	s.testFile("cte_cases.json", vw, false)
 }
 
+// TestScatterUpdateLimitPassthru tests planning when scatter-update-limit-passthru is enabled.
+func (s *planTestSuite) TestScatterUpdateLimitPassthru() {
+	env := vtenv.NewTestEnv()
+	vschema := loadSchema(s.T(), "vschemas/schema.json", true)
+	vw, err := vschemawrapper.NewVschemaWrapper(env, vschema, TestBuilder)
+	require.NoError(s.T(), err)
+
+	vw.EnableScatterUpdateLimitPassthru = true
+
+	s.addPKs(vschema, "user", []string{"user", "music"})
+	s.addPKsProvided(vschema, "user", []string{"user_extra"}, []string{"id", "user_id"})
+	s.testFile("scatter_update_limit_passthru_cases.json", vw, false)
+}
+
 // TestForeignKeyPlanning tests the planning of foreign keys in a managed mode by Vitess.
 func (s *planTestSuite) TestForeignKeyPlanning() {
 	env := vtenv.NewTestEnv()

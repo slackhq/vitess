@@ -1541,11 +1541,12 @@ func (e *Executor) initVConfig(warnOnShardedOnly bool, pv plancontext.PlannerVer
 		QueryTimeout:  queryTimeout,
 		MaxMemoryRows: maxMemoryRows,
 
-		SetVarEnabled:      sysVarSetEnabled,
-		EnableViews:        enableViews,
-		ForeignKeyMode:     fkMode(foreignKeyMode),
-		EnableShardRouting: enableShardRouting,
-		WarnShardedOnly:    warnOnShardedOnly,
+		SetVarEnabled:              sysVarSetEnabled,
+		EnableViews:                enableViews,
+		ForeignKeyMode:             fkMode(foreignKeyMode),
+		EnableShardRouting:         enableShardRouting,
+		ScatterUpdateLimitPassthru: scatterUpdateLimitPassthru,
+		WarnShardedOnly:            warnOnShardedOnly,
 
 		DBDDLPlugin: dbDDLPlugin,
 

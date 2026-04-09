@@ -89,6 +89,8 @@ type (
 		WarnShardedOnly    bool
 		PlannerVersion     plancontext.PlannerVersion
 
+		ScatterUpdateLimitPassthru bool
+
 		WarmingReadsPercent int
 		WarmingReadsTimeout time.Duration
 		WarmingReadsChannel chan bool
@@ -397,6 +399,10 @@ func (vc *VCursorImpl) RecordWarning(warning *querypb.QueryWarning) {
 // IsShardRoutingEnabled implements the VCursor interface.
 func (vc *VCursorImpl) IsShardRoutingEnabled() bool {
 	return vc.config.EnableShardRouting
+}
+
+func (vc *VCursorImpl) IsScatterUpdateLimitPassthruEnabled() bool {
+	return vc.config.ScatterUpdateLimitPassthru
 }
 
 func (vc *VCursorImpl) ReadTransaction(ctx context.Context, transactionID string) (*querypb.TransactionMetadata, error) {
