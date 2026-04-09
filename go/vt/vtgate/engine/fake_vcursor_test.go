@@ -116,6 +116,10 @@ func (t *noopVCursor) GetWarmingReadsPercent() int {
 	panic("implement me")
 }
 
+func (t *noopVCursor) GetInClauseBatchSize() int {
+	return 0
+}
+
 func (t *noopVCursor) GetWarmingReadsChannel() chan bool {
 	panic("implement me")
 }
@@ -475,6 +479,8 @@ type loggingVCursor struct {
 	onStreamExecuteMultiFn func(context.Context, Primitive, string, []*srvtopo.ResolvedShard, []map[string]*querypb.BindVariable, bool, bool, func(*sqltypes.Result) error)
 	onRecordMirrorStatsFn  func(time.Duration, time.Duration, error)
 
+	inClauseBatchSize int
+
 	metrics *Metrics
 }
 
@@ -589,6 +595,10 @@ func (f *loggingVCursor) RecordWarning(warning *querypb.QueryWarning) {
 
 func (f *loggingVCursor) GetWarmingReadsPercent() int {
 	return 0
+}
+
+func (f *loggingVCursor) GetInClauseBatchSize() int {
+	return f.inClauseBatchSize
 }
 
 func (f *loggingVCursor) GetWarmingReadsChannel() chan bool {

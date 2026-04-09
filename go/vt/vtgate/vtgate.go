@@ -168,6 +168,8 @@ var (
 	warmingReadsPercent      = 0
 	warmingReadsQueryTimeout = 5 * time.Second
 	warmingReadsConcurrency  = 500
+
+	inClauseBatchSize = 0
 )
 
 func registerFlags(fs *pflag.FlagSet) {
@@ -205,6 +207,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&warmingReadsPercent, "warming-reads-percent", 0, "Percentage of reads on the primary to forward to replicas. Useful for keeping buffer pools warm")
 	fs.IntVar(&warmingReadsConcurrency, "warming-reads-concurrency", 500, "Number of concurrent warming reads allowed")
 	fs.DurationVar(&warmingReadsQueryTimeout, "warming-reads-query-timeout", 5*time.Second, "Timeout of warming read queries")
+	utils.SetFlagIntVar(fs, &inClauseBatchSize, "in-clause-batch-size", inClauseBatchSize, "Maximum number of values per IN clause sent to MySQL. When set, VTGate splits large IN clauses into multiple queries and merges results. 0 disables batching.")
 
 	viperutil.BindFlags(fs,
 		enableOnlineDDL,
@@ -380,6 +383,7 @@ func Init(
 		StreamSize:          streamBufferSize,
 		AllowScatter:        !noScatter,
 		WarmingReadsPercent: warmingReadsPercent,
+		InClauseBatchSize:   inClauseBatchSize,
 		QueryLogToFile:      queryLogToFile,
 	}
 

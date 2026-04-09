@@ -112,9 +112,10 @@ type (
 		Normalize  bool
 		StreamSize int
 		// AllowScatter will fail planning if set to false and a plan contains any scatter queries
-		AllowScatter        bool
-		WarmingReadsPercent int
-		QueryLogToFile      string
+		AllowScatter         bool
+		WarmingReadsPercent  int
+		InClauseBatchSize    int
+		QueryLogToFile       string
 	}
 
 	Executor struct {
@@ -1558,6 +1559,8 @@ func (e *Executor) initVConfig(warnOnShardedOnly bool, pv plancontext.PlannerVer
 		WarmingReadsPercent: e.config.WarmingReadsPercent,
 		WarmingReadsTimeout: warmingReadsQueryTimeout,
 		WarmingReadsChannel: e.warmingReadsChannel,
+
+		InClauseBatchSize: e.config.InClauseBatchSize,
 	}
 }
 

@@ -114,7 +114,78 @@ func (route *Route) TryExecute(ctx context.Context, vcursor VCursor, bindVars ma
 		return nil, err
 	}
 
+	if batchSize := vcursor.GetInClauseBatchSize(); batchSize > 0 && len(rss) > 0 {
+		if result, batched, batchErr := route.tryBatchedExecution(ctx, vcursor, bindVars, wantfields, rss, bvs, batchSize); batched {
+			return result, batchErr
+		}
+	}
+
 	return route.executeShards(ctx, vcursor, bindVars, wantfields, rss, bvs)
+}
+
+// tryBatchedExecution checks if any shard's bind vars contain a TUPLE that
+// exceeds batchSize. If so, it splits execution into batches and returns
+// (result, true, err). If no batching is needed, returns (nil, false, nil).
+func (route *Route) tryBatchedExecution(
+	ctx context.Context,
+	vcursor VCursor,
+	bindVars map[string]*querypb.BindVariable,
+	wantfields bool,
+	rss []*srvtopo.ResolvedShard,
+	bvs []map[string]*querypb.BindVariable,
+	batchSize int,
+) (*sqltypes.Result, bool, error) {
+	// Check the first shard's bind vars for large tuples. For non-vindex IN
+	// clauses all shards receive the same bind vars.
+	tupleName, tupleBV := findLargestTupleBV(bvs[0], batchSize)
+	if tupleName == "" {
+		return nil, false, nil
+	}
+
+	inClauseBatchCount.Add(1)
+
+	chunks := chunkTupleValues(tupleBV.Values, batchSize)
+	var combined *sqltypes.Result
+
+	for i, chunk := range chunks {
+		batchBVs := make([]map[string]*querypb.BindVariable, len(rss))
+		for j := range rss {
+			batchBVs[j] = cloneBindVarsWithTuple(bvs[j], tupleName, chunk)
+		}
+
+		queries := getQueries(route.Query, batchBVs)
+		result, errs := vcursor.ExecuteMultiShard(ctx, route, rss, queries,
+			false /*rollbackOnError*/, false /*canAutocommit*/, route.FetchLastInsertID)
+
+		if errs != nil {
+			errs = filterOutNilErrors(errs)
+			if !route.ScatterErrorsAsWarnings || len(errs) == len(rss) {
+				return nil, true, vterrors.Aggregate(errs)
+			}
+			partialSuccessScatterQueries.Add(1)
+			for _, err := range errs {
+				serr := sqlerror.NewSQLErrorFromError(err).(*sqlerror.SQLError)
+				vcursor.Session().RecordWarning(&querypb.QueryWarning{Code: uint32(serr.Num), Message: err.Error()})
+			}
+		}
+
+		if i == 0 {
+			combined = result
+		} else {
+			combined.AppendResult(result)
+		}
+	}
+
+	// Re-sort if OrderBy is populated and we produced multiple batches.
+	if len(route.OrderBy) > 0 && len(chunks) > 1 {
+		var err error
+		combined, err = route.sort(combined)
+		if err != nil {
+			return nil, true, err
+		}
+	}
+
+	return combined.Truncate(route.TruncateColumnCount), true, nil
 }
 
 type cxtKey int
