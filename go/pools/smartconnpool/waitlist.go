@@ -52,7 +52,7 @@ type waitlist[C Connection] struct {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters int64) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -69,7 +69,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// connections, new connections, settings stacks). There is no point in checking
 	// there when those requests can still get a connection without waiting. The cap
 	// is just for waiting.
-	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
+	if wl.aboveWaiterCap(maxWaiters) {
 		if wl.onWaiterCapReached != nil {
 			wl.onWaiterCapReached()
 		}
@@ -86,7 +86,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// Strict check: the list length may have changed since the lockless check
 	// above, so we verify again while holding the lock to guarantee the cap is
 	// never exceeded.
-	if maxWaiters > 0 && wl.list.Len() >= int(maxWaiters) {
+	if wl.aboveWaiterCap(maxWaiters) {
 		wl.mu.Unlock()
 		if wl.onWaiterCapReached != nil {
 			wl.onWaiterCapReached()
@@ -147,6 +147,10 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	case conn := <-elem.Value.conn:
 		return conn, nil
 	}
+}
+
+func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {
+	return maxWaiters > 0 && wl.list.Len() >= int(maxWaiters)
 }
 
 func (wl *waitlist[C]) maybeStarvingCount() (maybeStarving int) {
