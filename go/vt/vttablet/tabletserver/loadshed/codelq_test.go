@@ -323,7 +323,7 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 	q := newTestQueue(defaultTestConfig(), clock)
 
 	q.lockedEnqueue(nil)                                   // undroppable
-	inf, _, _ := q.lockedEnqueue(NewPriority(math.Inf(1))) // droppable, high priority
+	inf, _, _ := q.lockedEnqueue(NewPriority(math.Inf(1))) //nolint:modernize // droppable, high priority
 
 	dropped := q.lockedDropLowestPriority()
 	assert.Same(t, inf, dropped)
@@ -333,8 +333,8 @@ func TestCoDelQueue_DropAllInf_NoPanic(t *testing.T) {
 	clock := newTestClock()
 	q := newTestQueue(defaultTestConfig(), clock)
 
-	q.lockedEnqueue(NewPriority(math.Inf(1)))
-	q.lockedEnqueue(NewPriority(math.Inf(1)))
+	q.lockedEnqueue(NewPriority(math.Inf(1))) //nolint:modernize
+	q.lockedEnqueue(NewPriority(math.Inf(1))) //nolint:modernize
 
 	dropped := q.lockedDropLowestPriority()
 	assert.NotNil(t, dropped)

@@ -86,9 +86,7 @@ func TestLock_MutualExclusion(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			unlock, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -99,7 +97,7 @@ func TestLock_MutualExclusion(t *testing.T) {
 			assert.Equal(t, int32(1), val, "multiple goroutines hold the lock")
 			time.Sleep(1 * time.Millisecond)
 			held.Add(-1)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -120,11 +118,10 @@ func TestLock_FIFO_Order(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 5 {
-		wg.Add(1)
 		// small sleep to ensure enqueue order
 		time.Sleep(2 * time.Millisecond)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -133,7 +130,7 @@ func TestLock_FIFO_Order(t *testing.T) {
 			order = append(order, idx)
 			mu.Unlock()
 			u.Release()
-		}(i)
+		})
 	}
 
 	// give goroutines time to enqueue
@@ -303,10 +300,9 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 3 {
-		wg.Add(1)
 		time.Sleep(2 * time.Millisecond)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -315,7 +311,7 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 			order = append(order, idx)
 			mu.Unlock()
 			u.Release()
-		}(i)
+		})
 	}
 
 	time.Sleep(20 * time.Millisecond)
@@ -343,16 +339,14 @@ func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
 	acquired := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
 			acquired <- struct{}{}
 			u.Release()
-		}()
+		})
 	}
 
 	time.Sleep(10 * time.Millisecond)
@@ -895,10 +889,9 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := 2; i <= 4; i++ {
-		wg.Add(1)
 		time.Sleep(2 * time.Millisecond)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -907,7 +900,7 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 			order = append(order, idx)
 			mu.Unlock()
 			u.Release(errors.New("simulated error"))
-		}(i)
+		})
 	}
 
 	time.Sleep(20 * time.Millisecond)
