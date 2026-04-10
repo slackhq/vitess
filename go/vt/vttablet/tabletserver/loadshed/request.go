@@ -54,6 +54,6 @@ func (r *Request) isDone() bool {
 
 // NewPriority returns a pointer to the given float64, for use as a droppable
 // priority value. nil means undroppable.
-func NewPriority(v float64) *float64 {
+func NewPriority(v float64) *float64 { //nolint:modernize
 	return &v
 }

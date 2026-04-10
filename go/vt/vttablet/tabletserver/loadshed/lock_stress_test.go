@@ -19,7 +19,7 @@ package loadshed
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -40,9 +40,7 @@ func TestLock_Stress_HighContention(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 200 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -50,11 +48,11 @@ func TestLock_Stress_HighContention(t *testing.T) {
 			val := held.Add(1)
 			assert.LessOrEqual(t, val, int32(1), "mutual exclusion violated")
 			// random hold time 1-10ms
-			time.Sleep(time.Duration(1+rand.Intn(10)) * time.Millisecond)
+			time.Sleep(time.Duration(1+rand.IntN(10)) * time.Millisecond)
 			held.Add(-1)
 			u.Release()
 			completed.Add(1)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -71,11 +69,9 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 	var acquired, cancelled atomic.Int64
 
 	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(t.Context(),
-				time.Duration(1+rand.Intn(5))*time.Millisecond)
+				time.Duration(1+rand.IntN(5))*time.Millisecond)
 			defer cancel()
 
 			u, err := l.Acquire(ctx)
@@ -84,9 +80,9 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 				return
 			}
 			acquired.Add(1)
-			time.Sleep(time.Duration(1+rand.Intn(3)) * time.Millisecond)
+			time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 			u.Release()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -121,9 +117,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	var droppableSuccess, droppableFailed atomic.Int64
 
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			u, err := droppableLock.Acquire(t.Context())
 			if err != nil {
 				droppableFailed.Add(1)
@@ -131,7 +125,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 			}
 			droppableSuccess.Add(1)
 			u.Release()
-		}()
+		})
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -147,16 +141,14 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 
 	var undroppableSuccess atomic.Int64
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			u, err := undroppableLock.Acquire(t.Context())
 			if err != nil {
 				return
 			}
 			undroppableSuccess.Add(1)
 			u.Release()
-		}()
+		})
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -179,9 +171,8 @@ func TestLock_Stress_SelfContention(t *testing.T) {
 	// 10 contention IDs, 5 goroutines each
 	for id := range 10 {
 		for range 5 {
-			wg.Add(1)
-			go func(cid string) {
-				defer wg.Done()
+			cid := fmt.Sprintf("id%d", id)
+			wg.Go(func() {
 				lc := defaultLockConfig()
 				lc.ContentionID = func() string { return cid }
 				// use the same underlying lock but set contention ID via goroutine-local config
@@ -191,10 +182,10 @@ func TestLock_Stress_SelfContention(t *testing.T) {
 				if err != nil {
 					return
 				}
-				time.Sleep(time.Duration(1+rand.Intn(3)) * time.Millisecond)
+				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 				u.Release()
 				completed.Add(1)
-			}(fmt.Sprintf("id%d", id))
+			})
 		}
 	}
 
@@ -222,9 +213,8 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 
 	for id := range 10 {
 		for range 5 {
-			wg.Add(1)
-			go func(cid string) {
-				defer wg.Done()
+			cid := fmt.Sprintf("id%d", id)
+			wg.Go(func() {
 				gid := goroutineID()
 				currentID.Store(gid, cid)
 				defer currentID.Delete(gid)
@@ -233,10 +223,10 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 				if err != nil {
 					return
 				}
-				time.Sleep(time.Duration(1+rand.Intn(3)) * time.Millisecond)
+				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 				u.Release()
 				completed.Add(1)
-			}(fmt.Sprintf("id%d", id))
+			})
 		}
 	}
 
@@ -266,9 +256,7 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				u, err := l.Acquire(t.Context())
 				if err != nil {
@@ -276,7 +264,7 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 				}
 				u.Release()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -290,13 +278,11 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx, cancel := context.WithCancel(t.Context())
 			// cancel almost immediately to race with grant
 			go func() {
-				time.Sleep(time.Duration(rand.Intn(5)) * time.Microsecond)
+				time.Sleep(time.Duration(rand.IntN(5)) * time.Microsecond)
 				cancel()
 			}()
 
@@ -305,7 +291,7 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 				time.Sleep(100 * time.Microsecond)
 				u.Release()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -327,9 +313,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 			defer cancel()
 
@@ -337,7 +321,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 			if err == nil {
 				u.Release()
 			}
-		}()
+		})
 	}
 
 	time.Sleep(20 * time.Millisecond)
@@ -358,9 +342,7 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 	var completed atomic.Int64
 
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
@@ -369,7 +351,7 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 			u.Release() // may fail with stale nonce
 			completed.Add(1)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -399,9 +381,8 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 
 	// mix of same-ID and different-ID
 	for i := range 30 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			cid := fmt.Sprintf("id%d", idx%5)
 			gid := goroutineID()
 			currentID.Store(gid, cid)
@@ -411,9 +392,9 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 			if err != nil {
 				return // dropped
 			}
-			time.Sleep(time.Duration(1+rand.Intn(5)) * time.Millisecond)
+			time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
 			u.Release()
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -429,9 +410,7 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			defer cancel()
 			u, err := l.Acquire(ctx)
@@ -439,7 +418,7 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 				time.Sleep(time.Millisecond)
 				u.Release()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -461,9 +440,8 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 	acquiredFlags := make([]atomic.Bool, 100)
 
 	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		idx := i
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
@@ -472,9 +450,9 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 				return
 			}
 			acquiredFlags[idx].Store(true)
-			time.Sleep(time.Duration(1+rand.Intn(3)) * time.Millisecond)
+			time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 			u.Release()
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -514,11 +492,9 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 	// enqueue 20 waiters with same ID, cancel half
 	ctxs := make([]context.CancelFunc, 20)
 	for i := range 20 {
-		wg.Add(1)
 		var ctx context.Context
 		ctx, ctxs[i] = context.WithCancel(t.Context())
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			gid := goroutineID()
 			currentID.Store(gid, "id1")
 			defer currentID.Delete(gid)
@@ -528,7 +504,7 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 				time.Sleep(time.Millisecond)
 				u.Release()
 			}
-		}(i)
+		})
 	}
 
 	time.Sleep(10 * time.Millisecond)
