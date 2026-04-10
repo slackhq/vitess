@@ -322,7 +322,7 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 	clock := newTestClock()
 	q := newTestQueue(defaultTestConfig(), clock)
 
-	q.lockedEnqueue(nil)                      // undroppable
+	q.lockedEnqueue(nil)                                   // undroppable
 	inf, _, _ := q.lockedEnqueue(NewPriority(math.Inf(1))) // droppable, high priority
 
 	dropped := q.lockedDropLowestPriority()
@@ -479,8 +479,8 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 func TestCoDelQueue_RunScheduledDrop_MaxIterations(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
-	cfg.IntervalNs = func() int64 { return 1 }  // very small
-	cfg.TargetNs = func() int64 { return 1 }    // very small
+	cfg.IntervalNs = func() int64 { return 1 } // very small
+	cfg.TargetNs = func() int64 { return 1 }   // very small
 	cfg.MinDropDelayNs = func() int64 { return 1 }
 	q := newTestQueue(cfg, clock)
 

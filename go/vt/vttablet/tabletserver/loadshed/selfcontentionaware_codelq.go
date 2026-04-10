@@ -17,15 +17,15 @@ limitations under the License.
 package loadshed
 
 type (
-	// SelfAwareCoDelQueue wraps a CoDelQueue with self-contention awareness.
+	// SelfContentionAwareCoDelQueue wraps a CoDelQueue with self-contention awareness.
 	// For a given contention ID, only one request is in the CoDel queue at a
 	// time. Additional requests wait in per-ID "valve" queues and are promoted
 	// when the active request completes (dequeue, drop, or cancel).
 	//
 	// All methods are prefixed locked* and assume the caller holds the parent
 	// mutex.
-	SelfAwareCoDelQueue struct {
-		cq *CoDelQueue
+	SelfContentionAwareCoDelQueue struct {
+		codelq *CoDelQueue
 
 		// pendingRequests is the per-contention-ID valve. Requests here are
 		// waiting for the active request to complete before entering the CoDel
@@ -42,9 +42,9 @@ type (
 	}
 )
 
-func newSelfAwareCoDelQueue(cfg CoDelConfig, clockFunc func() int64) *SelfAwareCoDelQueue {
-	return &SelfAwareCoDelQueue{
-		cq:                newCoDelQueue(cfg, clockFunc),
+func newSelfContentionAwareCoDelQueue(cfg CoDelConfig, clockFunc func() int64) *SelfContentionAwareCoDelQueue {
+	return &SelfContentionAwareCoDelQueue{
+		codelq:            newCoDelQueue(cfg, clockFunc),
 		pendingRequests:   make(map[string][]*Request),
 		outstandingCounts: make(map[string]int),
 		activeRequests:    make(map[string]*Request),
@@ -52,25 +52,25 @@ func newSelfAwareCoDelQueue(cfg CoDelConfig, clockFunc func() int64) *SelfAwareC
 }
 
 // lockedLen returns the number of requests in the CoDel queue.
-func (s *SelfAwareCoDelQueue) lockedLen() int {
-	return s.cq.lockedLen()
+func (s *SelfContentionAwareCoDelQueue) lockedLen() int {
+	return s.codelq.lockedLen()
 }
 
 // lockedIsHealthy reports whether the CoDel queue is healthy.
-func (s *SelfAwareCoDelQueue) lockedIsHealthy() bool {
-	return s.cq.lockedIsHealthy()
+func (s *SelfContentionAwareCoDelQueue) lockedIsHealthy() bool {
+	return s.codelq.lockedIsHealthy()
 }
 
 // lockedPeek returns the head of the CoDel queue without removing it.
-func (s *SelfAwareCoDelQueue) lockedPeek() *Request {
-	return s.cq.lockedPeek()
+func (s *SelfContentionAwareCoDelQueue) lockedPeek() *Request {
+	return s.codelq.lockedPeek()
 }
 
 // lockedEnqueue enqueues a request. If the contention ID already has an active
 // request in the CoDel queue, the new request is placed in the valve instead.
 // Returns the request, whether to schedule a drop timer, and the delay.
-func (s *SelfAwareCoDelQueue) lockedEnqueue(contentionID string, priority *float64) (*Request, bool, int64) {
-	req := newRequest(priority, s.cq.clockFunc())
+func (s *SelfContentionAwareCoDelQueue) lockedEnqueue(contentionID string, priority *float64) (*Request, bool, int64) {
+	req := newRequest(priority, s.codelq.clockFunc())
 	req.contentionID = contentionID
 
 	if contentionID != "" {
@@ -87,8 +87,8 @@ func (s *SelfAwareCoDelQueue) lockedEnqueue(contentionID string, priority *float
 
 // lockedDequeue dequeues the head request from the CoDel queue. After removal,
 // promotes the next pending request for the same contention ID from the valve.
-func (s *SelfAwareCoDelQueue) lockedDequeue() *Request {
-	req := s.cq.lockedDequeue()
+func (s *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
+	req := s.codelq.lockedDequeue()
 	if req == nil {
 		return nil
 	}
@@ -99,8 +99,8 @@ func (s *SelfAwareCoDelQueue) lockedDequeue() *Request {
 
 // lockedDropActive drops the active request for a contention ID (called by the
 // CoDel drop timer). Promotes the next pending request from the valve.
-func (s *SelfAwareCoDelQueue) lockedDropActive(contentionID string, r *Request) {
-	s.cq.lockedCancel(r)
+func (s *SelfContentionAwareCoDelQueue) lockedDropActive(contentionID string, r *Request) {
+	s.codelq.lockedCancel(r)
 	if !r.isDone() {
 		r.done <- &DroppedRequestError{}
 	}
@@ -110,10 +110,10 @@ func (s *SelfAwareCoDelQueue) lockedDropActive(contentionID string, r *Request) 
 // lockedCancel cancels a request. If it's the active request in the CoDel
 // queue, it removes it and promotes the next from the valve. If it's pending
 // in the valve, it removes it from there.
-func (s *SelfAwareCoDelQueue) lockedCancel(contentionID string, r *Request) {
+func (s *SelfContentionAwareCoDelQueue) lockedCancel(contentionID string, r *Request) {
 	if r.elem != nil {
 		// in the CoDel queue: remove and promote
-		s.cq.lockedCancel(r)
+		s.codelq.lockedCancel(r)
 		s.onRequestComplete(r)
 	} else {
 		// in the valve: find and remove
@@ -123,41 +123,41 @@ func (s *SelfAwareCoDelQueue) lockedCancel(contentionID string, r *Request) {
 }
 
 // lockedMarkNotDroppable forwards to the CoDel queue.
-func (s *SelfAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
-	s.cq.lockedMarkNotDroppable(r)
+func (s *SelfContentionAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
+	s.codelq.lockedMarkNotDroppable(r)
 }
 
 // --- private helpers ---
 
-func (s *SelfAwareCoDelQueue) codelqEnqueue(req *Request, contentionID string) (*Request, bool, int64) {
+func (s *SelfContentionAwareCoDelQueue) codelqEnqueue(req *Request, contentionID string) (*Request, bool, int64) {
 	if contentionID != "" {
 		s.activeRequests[contentionID] = req
 	}
 
 	// enqueue into the CoDel queue (sets elem, enqueuedAt, etc.)
-	now := s.cq.clockFunc()
+	now := s.codelq.clockFunc()
 	req.enqueuedAt = now
-	req.elem = s.cq.queue.PushBack(req)
+	req.elem = s.codelq.queue.PushBack(req)
 	if req.droppable {
-		s.cq.droppableLen++
+		s.codelq.droppableLen++
 	}
 
 	needSchedule := false
 	delay := int64(0)
-	if req.droppable && s.cq.droppableLen > 0 && !s.cq.timerScheduled {
+	if req.droppable && s.codelq.droppableLen > 0 && !s.codelq.timerScheduled {
 		needSchedule = true
-		delay = s.cq.lockedCurrentInterval()
-		minDelay := s.cq.cfg.MinDropDelayNs()
+		delay = s.codelq.lockedCurrentInterval()
+		minDelay := s.codelq.cfg.MinDropDelayNs()
 		if delay < minDelay {
 			delay = minDelay
 		}
-		s.cq.timerScheduled = true
+		s.codelq.timerScheduled = true
 	}
 
 	return req, needSchedule, delay
 }
 
-func (s *SelfAwareCoDelQueue) onRequestComplete(req *Request) {
+func (s *SelfContentionAwareCoDelQueue) onRequestComplete(req *Request) {
 	contentionID := req.contentionID
 	if contentionID == "" {
 		return
@@ -168,7 +168,7 @@ func (s *SelfAwareCoDelQueue) onRequestComplete(req *Request) {
 	s.lockedPromote(contentionID)
 }
 
-func (s *SelfAwareCoDelQueue) lockedPromote(contentionID string) {
+func (s *SelfContentionAwareCoDelQueue) lockedPromote(contentionID string) {
 	s.clearDone(contentionID)
 
 	pending, ok := s.pendingRequests[contentionID]
@@ -189,7 +189,7 @@ func (s *SelfAwareCoDelQueue) lockedPromote(contentionID string) {
 // clearDone removes done (cancelled) requests from the head of the valve.
 // Their outstanding counts are decremented since the CoDel queue never learned
 // about them.
-func (s *SelfAwareCoDelQueue) clearDone(contentionID string) {
+func (s *SelfContentionAwareCoDelQueue) clearDone(contentionID string) {
 	pending, ok := s.pendingRequests[contentionID]
 	if !ok {
 		return
@@ -211,7 +211,7 @@ func (s *SelfAwareCoDelQueue) clearDone(contentionID string) {
 	}
 }
 
-func (s *SelfAwareCoDelQueue) removeFromValve(contentionID string, r *Request) {
+func (s *SelfContentionAwareCoDelQueue) removeFromValve(contentionID string, r *Request) {
 	pending, ok := s.pendingRequests[contentionID]
 	if !ok {
 		return
@@ -227,7 +227,7 @@ func (s *SelfAwareCoDelQueue) removeFromValve(contentionID string, r *Request) {
 	}
 }
 
-func (s *SelfAwareCoDelQueue) decrementOutstanding(contentionID string) {
+func (s *SelfContentionAwareCoDelQueue) decrementOutstanding(contentionID string) {
 	if contentionID == "" {
 		return
 	}

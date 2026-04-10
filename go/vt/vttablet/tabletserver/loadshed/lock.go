@@ -45,7 +45,7 @@ type (
 	Lock struct {
 		mu sync.Mutex
 
-		sq             *SelfAwareCoDelQueue
+		sq             *SelfContentionAwareCoDelQueue
 		holder         *Request
 		lockNonce      uint64
 		dropTimer      *time.Timer
@@ -83,7 +83,7 @@ func NewLockWithClock(cfg LockConfig, clockFunc func() int64) *Lock {
 		cfg:       cfg,
 		clockFunc: clockFunc,
 	}
-	l.sq = newSelfAwareCoDelQueue(cfg.CoDel, clockFunc)
+	l.sq = newSelfContentionAwareCoDelQueue(cfg.CoDel, clockFunc)
 	return l
 }
 
@@ -107,16 +107,16 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 		nonce := l.lockNonce
 		l.holder = req
 		l.sq.lockedMarkNotDroppable(req)
-		l.startMaxAgeTimerLocked(req)
+		l.lockedStartMaxAgeTimer(req)
 		if needSchedule {
-			l.scheduleDropTimerLocked(delay)
+			l.lockedScheduleDropTimer(delay)
 		}
 		l.mu.Unlock()
 		return &SafeUnlock{l: l, nonce: nonce}, nil
 	}
 
 	if needSchedule {
-		l.scheduleDropTimerLocked(delay)
+		l.lockedScheduleDropTimer(delay)
 	}
 	l.mu.Unlock()
 
@@ -128,7 +128,7 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 		}
 		l.mu.Lock()
 		nonce := l.lockNonce
-		l.startMaxAgeTimerLocked(req)
+		l.lockedStartMaxAgeTimer(req)
 		l.mu.Unlock()
 		return &SafeUnlock{l: l, nonce: nonce}, nil
 
@@ -187,7 +187,7 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 		l.mu.Unlock()
 		return fmt.Errorf("unauthorized release: nonce %d != %d", nonce, currentNonce)
 	}
-	l.stopMaxAgeTimerLocked()
+	l.lockedStopMaxAgeTimer()
 	l.mu.Unlock()
 
 	// run release callbacks without mutex held
@@ -224,7 +224,7 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 // Used when the context is cancelled after the lock was already granted.
 func (l *Lock) releaseInternal() {
 	l.mu.Lock()
-	l.stopMaxAgeTimerLocked()
+	l.lockedStopMaxAgeTimer()
 	l.sq.lockedDequeue()
 	next := l.sq.lockedPeek()
 	if next != nil {
@@ -243,7 +243,7 @@ func (l *Lock) releaseInternal() {
 
 func (l *Lock) priority() *float64 {
 	if l.cfg.LoadsheddingAllowed != nil && !l.cfg.LoadsheddingAllowed() {
-		return nil // undroppable
+		return PriorityUndroppable
 	}
 	return NewPriority(0)
 }
@@ -257,7 +257,7 @@ func (l *Lock) acquireError() error {
 
 // --- timer management (must be called with l.mu held) ---
 
-func (l *Lock) scheduleDropTimerLocked(delayNs int64) {
+func (l *Lock) lockedScheduleDropTimer(delayNs int64) {
 	if l.dropTimerArmed {
 		return
 	}
@@ -275,7 +275,7 @@ func (l *Lock) runDropTimer() {
 	l.dropTimerArmed = false
 
 	dropFn := func() bool {
-		elem := l.sq.cq.lockedFindLowestPriorityDroppable()
+		elem := l.sq.codelq.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
 		}
@@ -283,14 +283,14 @@ func (l *Lock) runDropTimer() {
 		l.sq.lockedDropActive(req.contentionID, req)
 		return true
 	}
-	reschedule, delayNs := l.sq.cq.lockedRunScheduledDrop(dropFn)
+	reschedule, delayNs := l.sq.codelq.lockedRunScheduledDrop(dropFn)
 	if reschedule {
-		l.scheduleDropTimerLocked(delayNs)
+		l.lockedScheduleDropTimer(delayNs)
 	}
 	l.mu.Unlock()
 }
 
-func (l *Lock) startMaxAgeTimerLocked(holder *Request) {
+func (l *Lock) lockedStartMaxAgeTimer(holder *Request) {
 	if l.cfg.MaxAge == nil {
 		return
 	}
@@ -313,7 +313,7 @@ func (l *Lock) startMaxAgeTimerLocked(holder *Request) {
 	})
 }
 
-func (l *Lock) stopMaxAgeTimerLocked() {
+func (l *Lock) lockedStopMaxAgeTimer() {
 	l.maxAgeHolder = nil
 	if l.maxAgeTimer != nil {
 		l.maxAgeTimer.Stop()

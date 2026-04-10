@@ -22,6 +22,10 @@ import (
 )
 
 type (
+	// DroppedRequestError is returned when a request is dropped by the CoDel
+	// queue due to persistent queue buildup.
+	DroppedRequestError struct{}
+
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
@@ -48,6 +52,10 @@ type (
 		clockFunc func() int64
 	}
 )
+
+func (e *DroppedRequestError) Error() string {
+	return "request dropped by CoDel queue"
+}
 
 func newCoDelQueue(cfg CoDelConfig, clockFunc func() int64) *CoDelQueue {
 	return &CoDelQueue{

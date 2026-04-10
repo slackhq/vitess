@@ -54,7 +54,7 @@ func TestLock_AcquireRelease_Basic(t *testing.T) {
 
 	assert.False(t, l.IsLocked())
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 	assert.True(t, l.IsLocked())
 
@@ -67,7 +67,7 @@ func TestLock_AcquireRelease_Sequential(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
 	for range 10 {
-		unlock, err := l.Acquire(context.Background())
+		unlock, err := l.Acquire(t.Context())
 		require.NoError(t, err)
 		assert.True(t, l.IsLocked())
 
@@ -89,7 +89,7 @@ func TestLock_MutualExclusion(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			unlock, err := l.Acquire(context.Background())
+			unlock, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -112,7 +112,7 @@ func TestLock_FIFO_Order(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
 	// acquire first to force others to wait
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -125,7 +125,7 @@ func TestLock_FIFO_Order(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 		go func(idx int) {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -150,12 +150,12 @@ func TestLock_FIFO_Order(t *testing.T) {
 func TestLock_ReleaseWakesNext(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -185,10 +185,10 @@ func TestLock_ContextCancellation(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
 	// hold the lock
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -215,10 +215,10 @@ func TestLock_ContextCancellation(t *testing.T) {
 func TestLock_ContextTimeout(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 
 	_, err = l.Acquire(ctx)
@@ -234,10 +234,10 @@ func TestLock_ContextCancel_RaceWithGrant(t *testing.T) {
 	// release the lock so the next waiter isn't orphaned.
 	l := newTestLock(defaultLockConfig())
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	// waiter 2: will be cancelled. If it wins the grant race, release immediately.
 	waiter2Done := make(chan error, 1)
@@ -253,7 +253,7 @@ func TestLock_ContextCancel_RaceWithGrant(t *testing.T) {
 	// waiter 3: should ultimately get the lock
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			u.Release()
 		}
@@ -295,7 +295,7 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 	l := newTestLock(cfg)
 
 	// hold the lock
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -307,7 +307,7 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 		go func(idx int) {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -336,7 +336,7 @@ func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
 	l := newTestLock(cfg)
 
 	// hold the lock
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// both use unique IDs, so both enter CoDel queue directly
@@ -346,7 +346,7 @@ func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -373,13 +373,13 @@ func TestLock_DroppedRequest(t *testing.T) {
 	l := newTestLock(cfg)
 
 	// hold the lock for a long time
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	errCh := make(chan error, 5)
 	for range 5 {
 		go func() {
-			_, err := l.Acquire(context.Background())
+			_, err := l.Acquire(t.Context())
 			errCh <- err
 		}()
 	}
@@ -416,13 +416,13 @@ func TestLock_SelfContention_NoDrop(t *testing.T) {
 	cfg.ContentionID = func() string { return "same-id" }
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	results := make(chan error, 3)
 	for range 3 {
 		go func() {
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err == nil {
 				time.Sleep(1 * time.Millisecond)
 				u.Release()
@@ -451,13 +451,13 @@ func TestLock_MaxAge_Timeout(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
 	l := newTestLock(cfg)
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// second waiter
 	acquired := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -482,7 +482,7 @@ func TestLock_MaxAge_CancelledOnRelease(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 100 * time.Millisecond }
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// release well before max-age
@@ -498,7 +498,7 @@ func TestLock_MaxAge_Zero_NoTimeout(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 0 }
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// hold for a bit — should not be force-released
@@ -513,7 +513,7 @@ func TestLock_MaxAge_Zero_NoTimeout(t *testing.T) {
 func TestLock_SafeUnlock_DoubleRelease(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	err = unlock.Release()
@@ -527,13 +527,13 @@ func TestLock_SafeUnlock_DoubleRelease(t *testing.T) {
 func TestLock_SafeUnlock_StaleNonce(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// second acquire that will be granted after release
 	acquired := make(chan *SafeUnlock, 1)
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			acquired <- u
 		}
@@ -567,7 +567,7 @@ func TestLock_ReleaseCallbacks_Executed(t *testing.T) {
 	}
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -582,7 +582,7 @@ func TestLock_ReleaseCallbacks_ReceiveError(t *testing.T) {
 	}
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	myErr := errors.New("test error")
@@ -607,7 +607,7 @@ func TestLock_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
 	}
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -624,7 +624,7 @@ func TestLock_ReleaseCallbacks_PanicRecovery(t *testing.T) {
 	}
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// panic in first callback should not prevent second or lock release
@@ -644,7 +644,7 @@ func TestLock_ReleaseCallbacks_NoDeadlock(t *testing.T) {
 	}
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -668,7 +668,7 @@ func TestLock_IsLocked_IsHealthy(t *testing.T) {
 	assert.False(t, l.IsLocked())
 	assert.True(t, l.IsHealthy())
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	assert.True(t, l.IsLocked())
@@ -683,11 +683,11 @@ func TestLock_IsLocked_IsHealthy(t *testing.T) {
 func TestLock_CancelInCoDelQueue(t *testing.T) {
 	l := newTestLock(defaultLockConfig())
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// waiter 2: will be cancelled
-	ctx2, cancel2 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(t.Context())
 	waiter2Done := make(chan error, 1)
 	go func() {
 		_, err := l.Acquire(ctx2)
@@ -697,7 +697,7 @@ func TestLock_CancelInCoDelQueue(t *testing.T) {
 	// waiter 3: should get the lock after waiter 2 is cancelled
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			close(waiter3Done)
 			u.Release()
@@ -733,17 +733,17 @@ func TestLock_CancelInValve(t *testing.T) {
 	cfg.ContentionID = func() string { return "id1" }
 	l := newTestLock(cfg)
 
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	// waiter 2: same contention ID, enters valve since waiter1 is active
 	// waiter 2 enters CoDel queue when waiter1 completes
 	// waiter 3: same contention ID, enters valve behind waiter2
-	ctx3, cancel3 := context.WithCancel(context.Background())
+	ctx3, cancel3 := context.WithCancel(t.Context())
 
 	waiter2Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			u.Release()
 		}
@@ -762,7 +762,7 @@ func TestLock_CancelInValve(t *testing.T) {
 
 	waiter4Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(context.Background())
+		u, err := l.Acquire(t.Context())
 		if err == nil {
 			u.Release()
 		}
@@ -807,13 +807,13 @@ func TestLock_Undroppable_NeverDropped(t *testing.T) {
 	cfg.LoadsheddingAllowed = func() bool { return false }
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	results := make(chan error, 5)
 	for range 5 {
 		go func() {
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err == nil {
 				u.Release()
 			}
@@ -846,13 +846,13 @@ func TestLock_AcquireError_Custom(t *testing.T) {
 	cfg.AcquireError = func() error { return myErr }
 	l := newTestLock(cfg)
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	errCh := make(chan error, 3)
 	for range 3 {
 		go func() {
-			_, err := l.Acquire(context.Background())
+			_, err := l.Acquire(t.Context())
 			errCh <- err
 		}()
 	}
@@ -890,7 +890,7 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 	var order []int
 
 	// waiter 1: acquire and release with error
-	unlock1, err := l.Acquire(context.Background())
+	unlock1, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -899,7 +899,7 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 		go func(idx int) {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -922,7 +922,7 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 func TestNewLock_DefaultClock(t *testing.T) {
 	l := NewLock(defaultLockConfig())
 
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 	assert.True(t, l.IsLocked())
 

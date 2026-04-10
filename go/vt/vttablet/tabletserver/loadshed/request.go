@@ -33,6 +33,10 @@ type (
 	}
 )
 
+// PriorityUndroppable indicates a request that must never be dropped by CoDel.
+// Pass this as the priority to Lock.Acquire when load-shedding is not allowed.
+var PriorityUndroppable *float64 // nil sentinel
+
 func newRequest(priority *float64, enqueuedAt int64) *Request {
 	droppable := priority != nil
 	return &Request{
