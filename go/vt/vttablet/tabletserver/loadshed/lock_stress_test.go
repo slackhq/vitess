@@ -43,7 +43,7 @@ func TestLock_Stress_HighContention(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -74,7 +74,7 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(),
+			ctx, cancel := context.WithTimeout(t.Context(),
 				time.Duration(1+rand.Intn(5))*time.Millisecond)
 			defer cancel()
 
@@ -114,7 +114,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	undroppableLock := NewLock(undroppableCfg)
 
 	// Test droppable lock: hold and let queue build up
-	unlock, err := droppableLock.Acquire(context.Background())
+	unlock, err := droppableLock.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -124,7 +124,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := droppableLock.Acquire(context.Background())
+			u, err := droppableLock.Acquire(t.Context())
 			if err != nil {
 				droppableFailed.Add(1)
 				return
@@ -142,7 +142,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	assert.False(t, droppableLock.IsLocked())
 
 	// Test undroppable lock: hold and verify nothing is dropped
-	unlock2, err := undroppableLock.Acquire(context.Background())
+	unlock2, err := undroppableLock.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var undroppableSuccess atomic.Int64
@@ -150,7 +150,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := undroppableLock.Acquire(context.Background())
+			u, err := undroppableLock.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -187,7 +187,7 @@ func TestLock_Stress_SelfContention(t *testing.T) {
 				// use the same underlying lock but set contention ID via goroutine-local config
 				// Actually, we need to use the Lock's config. Let me adjust.
 				_ = lc
-				u, err := l.Acquire(context.Background())
+				u, err := l.Acquire(t.Context())
 				if err != nil {
 					return
 				}
@@ -229,7 +229,7 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 				currentID.Store(gid, cid)
 				defer currentID.Delete(gid)
 
-				u, err := l.Acquire(context.Background())
+				u, err := l.Acquire(t.Context())
 				if err != nil {
 					return
 				}
@@ -270,7 +270,7 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 100 {
-				u, err := l.Acquire(context.Background())
+				u, err := l.Acquire(t.Context())
 				if err != nil {
 					continue
 				}
@@ -293,7 +293,7 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			// cancel almost immediately to race with grant
 			go func() {
 				time.Sleep(time.Duration(rand.Intn(5)) * time.Microsecond)
@@ -322,7 +322,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	l := NewLock(cfg)
 
 	// hold the lock to trigger drops
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -330,7 +330,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 			defer cancel()
 
 			u, err := l.Acquire(ctx)
@@ -361,7 +361,7 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -407,7 +407,7 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 			currentID.Store(gid, cid)
 			defer currentID.Delete(gid)
 
-			u, err := l.Acquire(context.Background())
+			u, err := l.Acquire(t.Context())
 			if err != nil {
 				return // dropped
 			}
@@ -432,7 +432,7 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			defer cancel()
 			u, err := l.Acquire(ctx)
 			if err == nil {
@@ -464,7 +464,7 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
 			u, err := l.Acquire(ctx)
@@ -507,7 +507,7 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 	// hold the lock
 	gid := goroutineID()
 	currentID.Store(gid, "id1")
-	unlock, err := l.Acquire(context.Background())
+	unlock, err := l.Acquire(t.Context())
 	currentID.Delete(gid)
 	require.NoError(t, err)
 
@@ -516,7 +516,7 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 	for i := range 20 {
 		wg.Add(1)
 		var ctx context.Context
-		ctx, ctxs[i] = context.WithCancel(context.Background())
+		ctx, ctxs[i] = context.WithCancel(t.Context())
 		go func(idx int) {
 			defer wg.Done()
 			gid := goroutineID()

@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestSelfAware(clock *testClock) *SelfAwareCoDelQueue {
-	return newSelfAwareCoDelQueue(defaultTestConfig(), clock.nowFunc)
+func newTestSelfAware(clock *testClock) *SelfContentionAwareCoDelQueue {
+	return newSelfContentionAwareCoDelQueue(defaultTestConfig(), clock.nowFunc)
 }
 
 // --- Direct entry tests ---
