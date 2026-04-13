@@ -140,6 +140,9 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.OltpReadPool.Timeout, "queryserver-config-query-pool-timeout", defaultConfig.OltpReadPool.Timeout, "query server query pool timeout, it is how long vttablet waits for a connection from the query pool. If set to 0 (default) then the overall query timeout is used instead.")
 	fs.DurationVar(&currentConfig.OlapReadPool.Timeout, "queryserver-config-stream-pool-timeout", defaultConfig.OlapReadPool.Timeout, "query server stream pool timeout, it is how long vttablet waits for a connection from the stream pool. If set to 0 (default) then there is no timeout.")
 	fs.DurationVar(&currentConfig.TxPool.Timeout, "queryserver-config-txpool-timeout", defaultConfig.TxPool.Timeout, "query server transaction pool timeout, it is how long vttablet waits if tx pool is full")
+	fs.UintVar(&currentConfig.OltpReadPool.MaxWaiters, "queryserver-config-query-pool-waiter-cap", defaultConfig.OltpReadPool.MaxWaiters, "query server query pool waiter cap is the maximum number of queries allowed to wait for a connection from the pool. If set to 0 (default) then there is no limit.")
+	fs.UintVar(&currentConfig.OlapReadPool.MaxWaiters, "queryserver-config-stream-pool-waiter-cap", defaultConfig.OlapReadPool.MaxWaiters, "query server stream pool waiter cap is the maximum number of streaming queries allowed to wait for a connection from the pool. If set to 0 (default) then there is no limit.")
+	fs.UintVar(&currentConfig.TxPool.MaxWaiters, "queryserver-config-txpool-waiter-cap", defaultConfig.TxPool.MaxWaiters, "query server transaction pool waiter cap is the maximum number of transactions allowed to wait for a connection from the pool. If set to 0 (default) then there is no limit.")
 	fs.DurationVar(&currentConfig.OltpReadPool.IdleTimeout, "queryserver-config-idle-timeout", defaultConfig.OltpReadPool.IdleTimeout, "query server idle timeout, vttablet manages various mysql connection pools. This config means if a connection has not been used in given idle timeout, this connection will be removed from pool. This effectively manages number of connection objects and optimize the pool performance.")
 	fs.DurationVar(&currentConfig.OltpReadPool.MaxLifetime, "queryserver-config-pool-conn-max-lifetime", defaultConfig.OltpReadPool.MaxLifetime, "query server connection max lifetime, vttablet manages various mysql connection pools. This config means if a connection has lived at least this long, it connection will be removed from pool upon the next time it is returned to the pool.")
 
@@ -455,6 +458,7 @@ type ConnPoolConfig struct {
 	Timeout            time.Duration `json:"timeoutSeconds,omitempty"`
 	IdleTimeout        time.Duration `json:"idleTimeoutSeconds,omitempty"`
 	MaxLifetime        time.Duration `json:"maxLifetimeSeconds,omitempty"`
+	MaxWaiters         uint          `json:"maxWaiters,omitempty"`
 	PrefillParallelism int           `json:"prefillParallelism,omitempty"`
 }
 
@@ -491,6 +495,7 @@ func (cfg *ConnPoolConfig) UnmarshalJSON(data []byte) (err error) {
 		Timeout            string `json:"timeoutSeconds,omitempty"`
 		IdleTimeout        string `json:"idleTimeoutSeconds,omitempty"`
 		MaxLifetime        string `json:"maxLifetimeSeconds,omitempty"`
+		MaxWaiters         uint   `json:"maxWaiters,omitempty"`
 		PrefillParallelism int    `json:"prefillParallelism,omitempty"`
 	}
 
@@ -520,6 +525,7 @@ func (cfg *ConnPoolConfig) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	cfg.Size = tmp.Size
+	cfg.MaxWaiters = tmp.MaxWaiters
 	cfg.PrefillParallelism = tmp.PrefillParallelism
 
 	return nil
