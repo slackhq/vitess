@@ -4,8 +4,6 @@ name: Update error code docs
 on:
   pull_request_target:
     types: [opened, synchronize]
-    branches-ignore:
-      - '*' 
     paths:
       - 'go/vt/vterrors/code.go'
 
