@@ -17,6 +17,7 @@ limitations under the License.
 package engine
 
 import (
+	"maps"
 	"sort"
 	"strings"
 
@@ -98,10 +99,7 @@ func chunkTupleValues(values []*querypb.Value, batchSize int) [][]*querypb.Value
 	chunks := make([][]*querypb.Value, 0, numChunks)
 
 	for i := 0; i < len(values); i += batchSize {
-		end := i + batchSize
-		if end > len(values) {
-			end = len(values)
-		}
+		end := min(i+batchSize, len(values))
 		chunks = append(chunks, values[i:end])
 	}
 
@@ -113,9 +111,7 @@ func chunkTupleValues(values []*querypb.Value, batchSize int) [][]*querypb.Value
 // provided chunk of values.
 func cloneBindVarsWithTuple(original map[string]*querypb.BindVariable, tupleName string, chunk []*querypb.Value) map[string]*querypb.BindVariable {
 	out := make(map[string]*querypb.BindVariable, len(original))
-	for k, v := range original {
-		out[k] = v
-	}
+	maps.Copy(out, original)
 	out[tupleName] = &querypb.BindVariable{
 		Type:   querypb.Type_TUPLE,
 		Values: chunk,
@@ -128,9 +124,7 @@ func cloneBindVarsWithTuple(original map[string]*querypb.BindVariable, tupleName
 // the provided chunk values.
 func cloneBindVarsWithTuples(original map[string]*querypb.BindVariable, replacements []tupleReplacement) map[string]*querypb.BindVariable {
 	out := make(map[string]*querypb.BindVariable, len(original))
-	for k, v := range original {
-		out[k] = v
-	}
+	maps.Copy(out, original)
 	for _, r := range replacements {
 		out[r.name] = &querypb.BindVariable{
 			Type:   querypb.Type_TUPLE,
