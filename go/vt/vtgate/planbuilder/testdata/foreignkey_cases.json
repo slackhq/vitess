@@ -3278,6 +3278,7 @@
               "Sharded": false
             },
             "FieldQuery": "select u_tbl1.id from u_tbl1 where 1 != 1",
+            "OrderBy": "0 ASC",
             "Query": "select u_tbl1.id from u_tbl1 order by id asc limit 1 for update"
           },
           {
@@ -3818,6 +3819,7 @@
               "Sharded": false
             },
             "FieldQuery": "select u_tbl2.id from u_tbl2 where 1 != 1",
+            "OrderBy": "0 ASC",
             "Query": "select u_tbl2.id from u_tbl2 order by id asc limit 2 for update"
           },
           {

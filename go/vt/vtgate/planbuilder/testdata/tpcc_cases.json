@@ -547,6 +547,7 @@
           "Sharded": true
         },
         "FieldQuery": "select c_balance, c_first, c_middle, c_id from customer1 where 1 != 1",
+        "OrderBy": "1 ASC",
         "Query": "select c_balance, c_first, c_middle, c_id from customer1 where c_w_id = 840 and c_d_id = 1 and c_last = 'test' order by customer1.c_first asc",
         "Values": [
           "840"
@@ -599,6 +600,7 @@
           "Sharded": true
         },
         "FieldQuery": "select o_id, o_carrier_id, o_entry_d from orders1 where 1 != 1",
+        "OrderBy": "0 DESC",
         "Query": "select o_id, o_carrier_id, o_entry_d from orders1 where o_w_id = 9894 and o_d_id = 3 and o_c_id = 159 order by orders1.o_id desc",
         "Values": [
           "9894"
@@ -651,6 +653,7 @@
           "Sharded": true
         },
         "FieldQuery": "select no_o_id from new_orders1 where 1 != 1",
+        "OrderBy": "0 ASC",
         "Query": "select no_o_id from new_orders1 where no_d_id = 689 and no_w_id = 15 order by new_orders1.no_o_id asc limit 1 for update",
         "Values": [
           "15"

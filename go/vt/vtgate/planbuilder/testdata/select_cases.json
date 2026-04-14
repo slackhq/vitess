@@ -846,6 +846,7 @@
           "Sharded": true
         },
         "FieldQuery": "select col, trim((select user_name from `user` where 1 != 1)) as val from user_extra where 1 != 1 group by col",
+        "OrderBy": "1 ASC",
         "Query": "select col, trim((select user_name from `user` where id = 3)) as val from user_extra where user_id = 3 group by col order by trim((select `user`.user_name from `user` where `user`.id = 3)) asc",
         "Values": [
           "3"
@@ -1458,6 +1459,7 @@
           "Sharded": true
         },
         "FieldQuery": "select user0_.col as col0_ from `user` as user0_ where 1 != 1",
+        "OrderBy": "0 DESC",
         "Query": "select user0_.col as col0_ from `user` as user0_ where id = 1 order by user0_.col desc limit 2",
         "Values": [
           "1"
@@ -1484,6 +1486,7 @@
           "Sharded": true
         },
         "FieldQuery": "select user0_.col as col0_ from `user` as user0_ where 1 != 1",
+        "OrderBy": "0 DESC",
         "Query": "select user0_.col as col0_ from `user` as user0_ where id = 1 order by user0_.col desc limit 3",
         "Values": [
           "1"
@@ -6372,10 +6375,10 @@
         },
         "FieldQuery": "select r from (select rank() over (partition by col) as r from `user` where 1 != 1) as t where 1 != 1",
         "Query": "select r from (select rank() over (partition by col) as r from `user` where id = 1) as t",
-        "Vindex": "user_index",
         "Values": [
           "1"
-        ]
+        ],
+        "Vindex": "user_index"
       },
       "TablesUsed": [
         "user.user"

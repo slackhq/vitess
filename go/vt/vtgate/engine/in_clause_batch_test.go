@@ -146,6 +146,99 @@ func TestChunkTupleValues(t *testing.T) {
 	})
 }
 
+func TestFindOversizedTuples(t *testing.T) {
+	t.Run("no oversized tuples", func(t *testing.T) {
+		bvs := map[string]*querypb.BindVariable{
+			"v1": makeTestTuple(3),
+			"v2": makeTestTuple(2),
+		}
+		result := findOversizedTuples(bvs, 3)
+		assert.Empty(t, result)
+	})
+
+	t.Run("one oversized tuple", func(t *testing.T) {
+		bvs := map[string]*querypb.BindVariable{
+			"v1": makeTestTuple(5),
+			"v2": makeTestTuple(2),
+		}
+		result := findOversizedTuples(bvs, 3)
+		require.Len(t, result, 1)
+		assert.Equal(t, "v1", result[0].name)
+		assert.Len(t, result[0].chunks, 2) // 5/3 = 2 chunks
+	})
+
+	t.Run("two oversized tuples sorted by name", func(t *testing.T) {
+		bvs := map[string]*querypb.BindVariable{
+			"v2": makeTestTuple(7),
+			"v1": makeTestTuple(5),
+		}
+		result := findOversizedTuples(bvs, 3)
+		require.Len(t, result, 2)
+		assert.Equal(t, "v1", result[0].name) // sorted by name
+		assert.Equal(t, "v2", result[1].name)
+	})
+
+	t.Run("skips __vals", func(t *testing.T) {
+		bvs := map[string]*querypb.BindVariable{
+			ListVarName: makeTestTuple(100),
+			"v1":        makeTestTuple(5),
+		}
+		result := findOversizedTuples(bvs, 3)
+		require.Len(t, result, 1)
+		assert.Equal(t, "v1", result[0].name)
+	})
+}
+
+func TestCartesianBatchCombinations(t *testing.T) {
+	t.Run("single tuple", func(t *testing.T) {
+		tuples := []oversizedTuple{
+			{name: "v1", chunks: [][]*querypb.Value{
+				makeTestTuple(2).Values,
+				makeTestTuple(1).Values,
+			}},
+		}
+		combos := cartesianBatchCombinations(tuples)
+		assert.Len(t, combos, 2)
+		assert.Len(t, combos[0], 1)
+		assert.Equal(t, "v1", combos[0][0].name)
+	})
+
+	t.Run("two tuples produce cartesian product", func(t *testing.T) {
+		tuples := []oversizedTuple{
+			{name: "v1", chunks: [][]*querypb.Value{
+				makeTestTuple(2).Values,
+				makeTestTuple(1).Values,
+			}},
+			{name: "v2", chunks: [][]*querypb.Value{
+				makeTestTuple(3).Values,
+				makeTestTuple(2).Values,
+				makeTestTuple(1).Values,
+			}},
+		}
+		combos := cartesianBatchCombinations(tuples)
+		assert.Len(t, combos, 6) // 2 × 3 = 6
+
+		// Verify all combinations are present: (0,0), (0,1), (0,2), (1,0), (1,1), (1,2)
+		for _, combo := range combos {
+			assert.Len(t, combo, 2)
+			assert.Equal(t, "v1", combo[0].name)
+			assert.Equal(t, "v2", combo[1].name)
+		}
+
+		// First combo should use first chunk of each
+		assert.Len(t, combos[0][0].chunk, 2) // v1 chunk 0 has 2 values
+		assert.Len(t, combos[0][1].chunk, 3) // v2 chunk 0 has 3 values
+		// Last combo should use last chunk of each
+		assert.Len(t, combos[5][0].chunk, 1) // v1 chunk 1 has 1 value
+		assert.Len(t, combos[5][1].chunk, 1) // v2 chunk 2 has 1 value
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		combos := cartesianBatchCombinations(nil)
+		assert.Nil(t, combos)
+	})
+}
+
 func TestCloneBindVarsWithTuple(t *testing.T) {
 	original := map[string]*querypb.BindVariable{
 		"v1": {Type: querypb.Type_INT64, Value: []byte("1")},

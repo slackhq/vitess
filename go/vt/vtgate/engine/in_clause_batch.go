@@ -17,6 +17,7 @@ limitations under the License.
 package engine
 
 import (
+	"sort"
 	"strings"
 
 	"vitess.io/vitess/go/stats"
@@ -25,6 +26,39 @@ import (
 )
 
 var inClauseBatchCount = stats.NewCounter("InClauseBatchCount", "Number of queries where IN-clause batching was applied")
+
+// oversizedTuple holds the name and bind variable of a tuple that exceeds the
+// batch size threshold, along with its pre-computed chunks.
+type oversizedTuple struct {
+	name   string
+	chunks [][]*querypb.Value
+}
+
+// findOversizedTuples scans a bind variable map and returns all TUPLE-type
+// bind variables whose value count exceeds the threshold. Results are sorted
+// by name for deterministic batching order. It skips bind vars used for vindex
+// routing (__vals, __vals0, etc.).
+func findOversizedTuples(bvs map[string]*querypb.BindVariable, threshold int) []oversizedTuple {
+	var result []oversizedTuple
+	for name, bv := range bvs {
+		if bv.Type != querypb.Type_TUPLE {
+			continue
+		}
+		if strings.HasPrefix(name, ListVarName) {
+			continue
+		}
+		if len(bv.Values) > threshold {
+			result = append(result, oversizedTuple{
+				name:   name,
+				chunks: chunkTupleValues(bv.Values, threshold),
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].name < result[j].name
+	})
+	return result
+}
 
 // findLargestTupleBV scans a bind variable map and returns the name of the
 // TUPLE-type bind variable with the most values that exceeds the given
@@ -87,4 +121,66 @@ func cloneBindVarsWithTuple(original map[string]*querypb.BindVariable, tupleName
 		Values: chunk,
 	}
 	return out
+}
+
+// cloneBindVarsWithTuples creates a shallow copy of the bind var map,
+// replacing multiple named tuple bind variables with new ones containing
+// the provided chunk values.
+func cloneBindVarsWithTuples(original map[string]*querypb.BindVariable, replacements []tupleReplacement) map[string]*querypb.BindVariable {
+	out := make(map[string]*querypb.BindVariable, len(original))
+	for k, v := range original {
+		out[k] = v
+	}
+	for _, r := range replacements {
+		out[r.name] = &querypb.BindVariable{
+			Type:   querypb.Type_TUPLE,
+			Values: r.chunk,
+		}
+	}
+	return out
+}
+
+type tupleReplacement struct {
+	name  string
+	chunk []*querypb.Value
+}
+
+// cartesianBatchCombinations generates all combinations of chunk indices across
+// multiple oversized tuples. For example, if tuple A has 2 chunks and tuple B
+// has 3 chunks, this returns 6 combinations: [(0,0), (0,1), (0,2), (1,0), (1,1), (1,2)].
+// Each combination is a slice of tupleReplacement ready for cloneBindVarsWithTuples.
+func cartesianBatchCombinations(tuples []oversizedTuple) [][]tupleReplacement {
+	if len(tuples) == 0 {
+		return nil
+	}
+
+	totalCombinations := 1
+	for _, t := range tuples {
+		totalCombinations *= len(t.chunks)
+	}
+
+	result := make([][]tupleReplacement, 0, totalCombinations)
+	indices := make([]int, len(tuples))
+
+	for i := 0; i < totalCombinations; i++ {
+		combo := make([]tupleReplacement, len(tuples))
+		for j, t := range tuples {
+			combo[j] = tupleReplacement{
+				name:  t.name,
+				chunk: t.chunks[indices[j]],
+			}
+		}
+		result = append(result, combo)
+
+		// Increment indices (odometer-style, rightmost advances first)
+		for j := len(indices) - 1; j >= 0; j-- {
+			indices[j]++
+			if indices[j] < len(tuples[j].chunks) {
+				break
+			}
+			indices[j] = 0
+		}
+	}
+
+	return result
 }

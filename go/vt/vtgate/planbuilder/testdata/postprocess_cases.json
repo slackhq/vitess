@@ -195,6 +195,7 @@
           "Sharded": true
         },
         "FieldQuery": "select col from `user` where 1 != 1",
+        "OrderBy": "0 ASC",
         "Query": "select col from `user` where id = 1 order by col asc",
         "Values": [
           "1"
@@ -603,6 +604,7 @@
               "Sharded": true
             },
             "FieldQuery": "select `user`.col1 as a, `user`.col2, `user`.id from `user` where 1 != 1",
+            "OrderBy": "0 ASC",
             "Query": "select `user`.col1 as a, `user`.col2, `user`.id from `user` where `user`.id = 1 order by `user`.col1 asc",
             "Values": [
               "1"
@@ -678,6 +680,7 @@
               "Sharded": true
             },
             "FieldQuery": "select `user`.col1 as a, `user`.col2, `user`.id from `user` where 1 != 1",
+            "OrderBy": "0 ASC",
             "Query": "select `user`.col1 as a, `user`.col2, `user`.id from `user` where `user`.id = 1 order by `user`.col1 asc",
             "Values": [
               "1"
@@ -1219,6 +1222,7 @@
           "Sharded": true
         },
         "FieldQuery": "select col from `user` as route1 where 1 != 1",
+        "OrderBy": "0 ASC",
         "Query": "select col from `user` as route1 where id = 1 order by route1.col asc",
         "Values": [
           "1"

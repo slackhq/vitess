@@ -773,13 +773,13 @@ func isSpecialOrderBy(o OrderBy) bool {
 }
 
 func (r *Route) planOffsets(ctx *plancontext.PlanningContext) Operator {
-	// if operator is returning data from a single shard, we don't need to do anything more
 	if r.IsSingleShard() {
+		r.planSingleShardOrderBy(ctx)
 		return nil
 	}
 
-	// if we are getting results from multiple shards, we need to do a merge-sort
-	// between them to get the final output correctly sorted
+	// For multi-shard routes, add columns (and weight strings) as needed
+	// so the engine can merge-sort results from different shards.
 	ordering := r.Source.GetOrdering(ctx)
 	if len(ordering) == 0 {
 		return nil
@@ -805,6 +805,39 @@ func (r *Route) planOffsets(ctx *plancontext.PlanningContext) Operator {
 		r.Ordering = append(r.Ordering, o)
 	}
 	return nil
+}
+
+// planSingleShardOrderBy attempts to record ORDER BY column offsets for
+// single-shard routes. This lets the engine re-sort results when IN-clause
+// batching splits a query into multiple round trips. We only use FindCol
+// (no AddColumn) so the SQL sent to MySQL is unchanged. If columns can't
+// be resolved (e.g., SELECT * without schema tracking), we silently skip —
+// batching will still work, just without global re-sort guarantees.
+func (r *Route) planSingleShardOrderBy(ctx *plancontext.PlanningContext) {
+	// GetOrdering can trigger schema tracking errors for SELECT * queries.
+	// Recover gracefully — ordering info is best-effort for single-shard.
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.Ordering = nil
+		}
+	}()
+
+	ordering := r.Source.GetOrdering(ctx)
+	for _, order := range ordering {
+		if isSpecialOrderBy(order) {
+			continue
+		}
+		offset := r.FindCol(ctx, order.SimplifiedExpr, true)
+		if offset == -1 {
+			continue
+		}
+		r.Ordering = append(r.Ordering, RouteOrdering{
+			AST:       order.Inner.Expr,
+			Offset:    offset,
+			WOffset:   -1,
+			Direction: order.Inner.Direction,
+		})
+	}
 }
 
 func weightStringFor(expr sqlparser.Expr) sqlparser.Expr {

@@ -2054,3 +2054,259 @@ func TestInClauseBatchingDisabled(t *testing.T) {
 	assert.Equal(t, 1, executeCount, "expected 1 ExecuteMultiShard call (batching disabled)")
 	expectResult(t, result, defaultSelectResult)
 }
+
+func TestInClauseBatchingMultiIN(t *testing.T) {
+	sel := NewRoute(
+		Unsharded,
+		&vindexes.Keyspace{
+			Name:    "ks",
+			Sharded: false,
+		},
+		"select id from t where id in ::v1 and name in ::v2",
+		"select id from t where 1 != 1",
+	)
+
+	fields := sqltypes.MakeTestFields("id", "int64")
+
+	// v1 has 5 values (batch size 3 → 2 chunks), v2 has 7 values (batch size 3 → 3 chunks)
+	// Cartesian product: 2 × 3 = 6 batch executions
+	vc := &loggingVCursor{
+		shards:            []string{"0"},
+		inClauseBatchSize: 3,
+		results: []*sqltypes.Result{
+			sqltypes.MakeTestResult(fields, "1"),
+			sqltypes.MakeTestResult(fields, "2"),
+			sqltypes.MakeTestResult(fields, "3"),
+			sqltypes.MakeTestResult(fields, "4"),
+			sqltypes.MakeTestResult(fields, "5"),
+			sqltypes.MakeTestResult(fields, "6"),
+		},
+	}
+
+	bvs := map[string]*querypb.BindVariable{
+		"v1": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 5)},
+		"v2": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 7)},
+	}
+	for i := range bvs["v1"].Values {
+		bvs["v1"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 1))}
+	}
+	for i := range bvs["v2"].Values {
+		bvs["v2"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 100))}
+	}
+
+	result, err := sel.TryExecute(context.Background(), vc, bvs, false)
+	require.NoError(t, err)
+
+	executeCount := 0
+	for _, l := range vc.log {
+		if strings.HasPrefix(l, "ExecuteMultiShard") {
+			executeCount++
+		}
+	}
+	assert.Equal(t, 6, executeCount, "expected 2×3=6 batched ExecuteMultiShard calls")
+	assert.Len(t, result.Rows, 6)
+}
+
+func TestInClauseBatchingMultiINWithOrderBy(t *testing.T) {
+	sel := NewRoute(
+		Unsharded,
+		&vindexes.Keyspace{
+			Name:    "ks",
+			Sharded: false,
+		},
+		"select id from t where id in ::v1 and name in ::v2 order by id",
+		"select id from t where 1 != 1",
+	)
+	sel.OrderBy = []evalengine.OrderByParams{{
+		Col:             0,
+		WeightStringCol: -1,
+	}}
+
+	fields := sqltypes.MakeTestFields("id", "int64")
+
+	// v1: 4 values (2 chunks), v2: 4 values (2 chunks) → 4 batches
+	// Each batch returns results sorted, but the global order is mixed
+	vc := &loggingVCursor{
+		shards:            []string{"0"},
+		inClauseBatchSize: 3,
+		results: []*sqltypes.Result{
+			sqltypes.MakeTestResult(fields, "1", "5"),
+			sqltypes.MakeTestResult(fields, "3", "7"),
+			sqltypes.MakeTestResult(fields, "2", "6"),
+			sqltypes.MakeTestResult(fields, "4", "8"),
+		},
+	}
+
+	bvs := map[string]*querypb.BindVariable{
+		"v1": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 4)},
+		"v2": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 4)},
+	}
+	for i := range bvs["v1"].Values {
+		bvs["v1"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 1))}
+	}
+	for i := range bvs["v2"].Values {
+		bvs["v2"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 100))}
+	}
+
+	result, err := sel.TryExecute(context.Background(), vc, bvs, false)
+	require.NoError(t, err)
+
+	// 4 batch calls
+	executeCount := 0
+	for _, l := range vc.log {
+		if strings.HasPrefix(l, "ExecuteMultiShard") {
+			executeCount++
+		}
+	}
+	assert.Equal(t, 4, executeCount, "expected 2×2=4 batched calls")
+
+	// Results should be globally sorted
+	wantResult := sqltypes.MakeTestResult(fields, "1", "2", "3", "4", "5", "6", "7", "8")
+	expectResult(t, result, wantResult)
+}
+
+func TestInClauseBatchingMultiINOnlyOneLarge(t *testing.T) {
+	sel := NewRoute(
+		Unsharded,
+		&vindexes.Keyspace{
+			Name:    "ks",
+			Sharded: false,
+		},
+		"select id from t where id in ::v1 and name in ::v2",
+		"select id from t where 1 != 1",
+	)
+
+	fields := sqltypes.MakeTestFields("id", "int64")
+
+	// v1: 7 values (3 chunks at batch size 3), v2: 2 values (under threshold, 1 chunk)
+	// Only v1 is batched → 3 calls
+	vc := &loggingVCursor{
+		shards:            []string{"0"},
+		inClauseBatchSize: 3,
+		results: []*sqltypes.Result{
+			sqltypes.MakeTestResult(fields, "1", "2"),
+			sqltypes.MakeTestResult(fields, "3", "4"),
+			sqltypes.MakeTestResult(fields, "5"),
+		},
+	}
+
+	bvs := map[string]*querypb.BindVariable{
+		"v1": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 7)},
+		"v2": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 2)},
+	}
+	for i := range bvs["v1"].Values {
+		bvs["v1"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 1))}
+	}
+	for i := range bvs["v2"].Values {
+		bvs["v2"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 100))}
+	}
+
+	result, err := sel.TryExecute(context.Background(), vc, bvs, false)
+	require.NoError(t, err)
+
+	executeCount := 0
+	for _, l := range vc.log {
+		if strings.HasPrefix(l, "ExecuteMultiShard") {
+			executeCount++
+		}
+	}
+	assert.Equal(t, 3, executeCount, "only v1 should be batched (3 chunks)")
+	assert.Len(t, result.Rows, 5)
+}
+
+func TestInClauseBatchingStreaming(t *testing.T) {
+	sel := NewRoute(
+		Unsharded,
+		&vindexes.Keyspace{
+			Name:    "ks",
+			Sharded: false,
+		},
+		"select id from t where id in ::v1",
+		"select id from t where 1 != 1",
+	)
+
+	fields := sqltypes.MakeTestFields("id", "int64")
+
+	vc := &loggingVCursor{
+		shards:            []string{"0"},
+		inClauseBatchSize: 3,
+		results: []*sqltypes.Result{
+			sqltypes.MakeTestResult(fields, "1", "2", "3"),
+			sqltypes.MakeTestResult(fields, "4", "5", "6"),
+			sqltypes.MakeTestResult(fields, "7"),
+		},
+	}
+
+	bvs := map[string]*querypb.BindVariable{
+		"v1": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 7)},
+	}
+	for i := range bvs["v1"].Values {
+		bvs["v1"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 1))}
+	}
+
+	var results []*sqltypes.Result
+	err := sel.TryStreamExecute(context.Background(), vc, bvs, false, func(result *sqltypes.Result) error {
+		results = append(results, result)
+		return nil
+	})
+	require.NoError(t, err)
+
+	// Streaming batching falls back to non-streaming, so we get ExecuteMultiShard calls
+	executeCount := 0
+	for _, l := range vc.log {
+		if strings.HasPrefix(l, "ExecuteMultiShard") {
+			executeCount++
+		}
+	}
+	assert.Equal(t, 3, executeCount, "expected 3 batched ExecuteMultiShard calls in streaming mode")
+
+	// Should receive one callback with all rows
+	require.Len(t, results, 1)
+	assert.Len(t, results[0].Rows, 7)
+}
+
+func TestInClauseBatchingStreamingWithOrderBy(t *testing.T) {
+	sel := NewRoute(
+		Unsharded,
+		&vindexes.Keyspace{
+			Name:    "ks",
+			Sharded: false,
+		},
+		"select id from t where id in ::v1 order by id",
+		"select id from t where 1 != 1",
+	)
+	sel.OrderBy = []evalengine.OrderByParams{{
+		Col:             0,
+		WeightStringCol: -1,
+	}}
+
+	fields := sqltypes.MakeTestFields("id", "int64")
+
+	vc := &loggingVCursor{
+		shards:            []string{"0"},
+		inClauseBatchSize: 3,
+		results: []*sqltypes.Result{
+			sqltypes.MakeTestResult(fields, "2", "5", "8"),
+			sqltypes.MakeTestResult(fields, "1", "4", "7"),
+			sqltypes.MakeTestResult(fields, "3"),
+		},
+	}
+
+	bvs := map[string]*querypb.BindVariable{
+		"v1": {Type: querypb.Type_TUPLE, Values: make([]*querypb.Value, 7)},
+	}
+	for i := range bvs["v1"].Values {
+		bvs["v1"].Values[i] = &querypb.Value{Type: querypb.Type_INT64, Value: []byte(strconv.Itoa(i + 1))}
+	}
+
+	var results []*sqltypes.Result
+	err := sel.TryStreamExecute(context.Background(), vc, bvs, false, func(result *sqltypes.Result) error {
+		results = append(results, result)
+		return nil
+	})
+	require.NoError(t, err)
+
+	require.Len(t, results, 1)
+	wantResult := sqltypes.MakeTestResult(fields, "1", "2", "3", "4", "5", "7", "8")
+	expectResult(t, results[0], wantResult)
+}

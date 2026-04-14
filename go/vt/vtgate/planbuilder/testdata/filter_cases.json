@@ -4865,6 +4865,7 @@
           "Sharded": true
         },
         "FieldQuery": "select user_id, col1, col2 from authoritative where 1 != 1",
+        "OrderBy": "0 ASC",
         "Query": "select user_id, col1, col2 from authoritative where user_id = 5 order by authoritative.user_id asc",
         "Values": [
           "5"
@@ -4891,6 +4892,7 @@
           "Sharded": true
         },
         "FieldQuery": "select user_id, col1, col2 from authoritative where 1 != 1 group by user_id",
+        "OrderBy": "0 ASC",
         "Query": "select user_id, col1, col2 from authoritative where user_id = 5 group by user_id having count(user_id) = 6 order by authoritative.user_id asc",
         "Values": [
           "5"

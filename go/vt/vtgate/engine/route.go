@@ -123,9 +123,10 @@ func (route *Route) TryExecute(ctx context.Context, vcursor VCursor, bindVars ma
 	return route.executeShards(ctx, vcursor, bindVars, wantfields, rss, bvs)
 }
 
-// tryBatchedExecution checks if any shard's bind vars contain a TUPLE that
-// exceeds batchSize. If so, it splits execution into batches and returns
-// (result, true, err). If no batching is needed, returns (nil, false, nil).
+// tryBatchedExecution checks if any shard's bind vars contain TUPLE(s) that
+// exceed batchSize. If so, it splits execution into batches (with cartesian
+// product for multiple oversized tuples) and returns (result, true, err).
+// If no batching is needed, returns (nil, false, nil).
 func (route *Route) tryBatchedExecution(
 	ctx context.Context,
 	vcursor VCursor,
@@ -135,22 +136,25 @@ func (route *Route) tryBatchedExecution(
 	bvs []map[string]*querypb.BindVariable,
 	batchSize int,
 ) (*sqltypes.Result, bool, error) {
-	// Check the first shard's bind vars for large tuples. For non-vindex IN
-	// clauses all shards receive the same bind vars.
-	tupleName, tupleBV := findLargestTupleBV(bvs[0], batchSize)
-	if tupleName == "" {
+	// Check the first shard's bind vars for oversized tuples. For non-vindex
+	// IN clauses all shards receive the same bind vars.
+	tuples := findOversizedTuples(bvs[0], batchSize)
+	if len(tuples) == 0 {
 		return nil, false, nil
 	}
 
 	inClauseBatchCount.Add(1)
 
-	chunks := chunkTupleValues(tupleBV.Values, batchSize)
+	// Generate all combinations of chunks across all oversized tuples.
+	// For a single tuple this is equivalent to iterating over its chunks.
+	// For multiple tuples this produces a cartesian product.
+	combinations := cartesianBatchCombinations(tuples)
 	var combined *sqltypes.Result
 
-	for i, chunk := range chunks {
+	for i, combo := range combinations {
 		batchBVs := make([]map[string]*querypb.BindVariable, len(rss))
 		for j := range rss {
-			batchBVs[j] = cloneBindVarsWithTuple(bvs[j], tupleName, chunk)
+			batchBVs[j] = cloneBindVarsWithTuples(bvs[j], combo)
 		}
 
 		queries := getQueries(route.Query, batchBVs)
@@ -177,7 +181,7 @@ func (route *Route) tryBatchedExecution(
 	}
 
 	// Re-sort if OrderBy is populated and we produced multiple batches.
-	if len(route.OrderBy) > 0 && len(chunks) > 1 {
+	if len(route.OrderBy) > 0 && len(combinations) > 1 {
 		var err error
 		combined, err = route.sort(combined)
 		if err != nil {
@@ -286,6 +290,17 @@ func (route *Route) TryStreamExecute(
 	rss, bvs, err := route.findRoute(ctx, vcursor, bindVars)
 	if err != nil {
 		return err
+	}
+
+	// When batching is needed, fall back to non-streaming execution since
+	// we need to collect all results to re-sort and de-duplicate across batches.
+	if batchSize := vcursor.GetInClauseBatchSize(); batchSize > 0 && len(rss) > 0 {
+		if result, batched, batchErr := route.tryBatchedExecution(ctx, vcursor, bindVars, wantfields, rss, bvs, batchSize); batched {
+			if batchErr != nil {
+				return batchErr
+			}
+			return callback(result)
+		}
 	}
 
 	return route.streamExecuteShards(ctx, vcursor, bindVars, wantfields, callback, rss, bvs)

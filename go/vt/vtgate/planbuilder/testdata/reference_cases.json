@@ -182,6 +182,7 @@
           "Sharded": true
         },
         "FieldQuery": "select u.id from (select a.id, a.u_id from ref_with_source as a where 1 != 1) as u left join ref_with_source as u0 on u.u_id = u0.u_uid where 1 != 1",
+        "OrderBy": "0 ASC",
         "Query": "select u.id from (select a.id, a.u_id from ref_with_source as a where a.id in (3) order by a.d_at asc limit 1) as u left join ref_with_source as u0 on u.u_id = u0.u_uid order by u.id asc"
       },
       "TablesUsed": [
