@@ -91,6 +91,8 @@ type (
 		WarmingReadsPercent int
 		WarmingReadsTimeout time.Duration
 		WarmingReadsChannel chan bool
+
+		InClauseBatchSize int
 	}
 
 	// vcursor_impl needs these facilities to be able to be able to execute queries for vindexes
@@ -1650,6 +1652,10 @@ func (vc *VCursorImpl) GetPrepareData(stmtName string) *vtgatepb.PrepareData {
 
 func (vc *VCursorImpl) GetWarmingReadsPercent() int {
 	return vc.config.WarmingReadsPercent
+}
+
+func (vc *VCursorImpl) GetInClauseBatchSize() int {
+	return vc.config.InClauseBatchSize
 }
 
 func (vc *VCursorImpl) GetWarmingReadsChannel() chan bool {

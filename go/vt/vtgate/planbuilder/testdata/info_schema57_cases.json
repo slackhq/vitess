@@ -1036,22 +1036,54 @@
       "QueryType": "SELECT",
       "Original": "select `COLLATION_NAME` from information_schema.`COLUMNS` t where `COLUMN_NAME` in (select `TABLE_NAME` from information_schema.tables t where t.TABLE_SCHEMA = 'a' union select `COLUMN_NAME` from information_schema.columns)",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Distinct",
-            "Collations": [
-              "0: utf8mb3_general_ci"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
             ],
             "Inputs": [
               {
-                "OperatorType": "Concatenate",
+                "InputName": "SubQuery",
+                "OperatorType": "Distinct",
+                "Collations": [
+                  "0: utf8mb3_general_ci"
+                ],
+                "Inputs": [
+                  {
+                    "OperatorType": "Concatenate",
+                    "Inputs": [
+                      {
+                        "OperatorType": "Route",
+                        "Variant": "DBA",
+                        "Keyspace": {
+                          "Name": "main",
+                          "Sharded": false
+                        },
+                        "FieldQuery": "select `TABLE_NAME` from information_schema.`tables` as t where 1 != 1",
+                        "Query": "select distinct `TABLE_NAME` from information_schema.`tables` as t where t.TABLE_SCHEMA = :__vtschemaname /* VARCHAR */",
+                        "SysTableTableSchema": "['a']"
+                      },
+                      {
+                        "OperatorType": "Route",
+                        "Variant": "DBA",
+                        "Keyspace": {
+                          "Name": "main",
+                          "Sharded": false
+                        },
+                        "FieldQuery": "select `COLUMN_NAME` from information_schema.`columns` where 1 != 1",
+                        "Query": "select distinct `COLUMN_NAME` from information_schema.`columns`"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
                 "Inputs": [
                   {
                     "OperatorType": "Route",
@@ -1060,34 +1092,12 @@
                       "Name": "main",
                       "Sharded": false
                     },
-                    "FieldQuery": "select `TABLE_NAME` from information_schema.`tables` as t where 1 != 1",
-                    "Query": "select distinct `TABLE_NAME` from information_schema.`tables` as t where t.TABLE_SCHEMA = :__vtschemaname /* VARCHAR */",
-                    "SysTableTableSchema": "['a']"
-                  },
-                  {
-                    "OperatorType": "Route",
-                    "Variant": "DBA",
-                    "Keyspace": {
-                      "Name": "main",
-                      "Sharded": false
-                    },
-                    "FieldQuery": "select `COLUMN_NAME` from information_schema.`columns` where 1 != 1",
-                    "Query": "select distinct `COLUMN_NAME` from information_schema.`columns`"
+                    "FieldQuery": "select COLLATION_NAME from information_schema.`COLUMNS` as t where 1 != 1",
+                    "Query": "select COLLATION_NAME from information_schema.`COLUMNS` as t where :__sq_has_values and `COLUMN_NAME` in ::__sq1"
                   }
                 ]
               }
             ]
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "DBA",
-            "Keyspace": {
-              "Name": "main",
-              "Sharded": false
-            },
-            "FieldQuery": "select COLLATION_NAME from information_schema.`COLUMNS` as t where 1 != 1",
-            "Query": "select COLLATION_NAME from information_schema.`COLUMNS` as t where :__sq_has_values and `COLUMN_NAME` in ::__sq1"
           }
         ]
       }

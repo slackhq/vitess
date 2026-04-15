@@ -126,6 +126,9 @@ type (
 		// GetWarmingReadsPercent gets the percentage of queries to clone to replicas for bufferpool warming
 		GetWarmingReadsPercent() int
 
+		// GetInClauseBatchSize returns the max number of IN clause values per batch. 0 means disabled.
+		GetInClauseBatchSize() int
+
 		// GetWarmingReadsChannel returns the channel for executing warming reads against replicas
 		GetWarmingReadsChannel() chan bool
 

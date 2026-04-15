@@ -105,6 +105,7 @@ Flags:
       --healthcheck-retry-delay duration                                 health check retry delay (default 2ms)
       --healthcheck-timeout duration                                     the health check timeout period (default 1m0s)
   -h, --help                                                             help for vtgate
+      --in-clause-batch-size int                                         Maximum number of values per IN clause sent to MySQL. When set, VTGate splits large IN clauses into multiple queries and merges results. 0 disables batching.
       --jaeger-agent-host string                                         host and port to send spans to. if empty, no tracing will be done
       --keep-logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep-logs-by-mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)

@@ -186,6 +186,7 @@ Flags:
       --init-tablet-type-lookup                                          (Experimental, init parameter) if enabled, uses tablet alias to look up the tablet type from the existing topology record on restart and use that instead of init-tablet-type. This allows tablets to maintain their changed roles (e.g., RDONLY/DRAINED) across restarts. If disabled or if no topology record exists, init-tablet-type will be used.
       --init-tags StringMap                                              (init parameter) comma separated list of key:value pairs used to tag the tablet
       --init-timeout duration                                            (init parameter) timeout to use for the init phase. (default 1m0s)
+      --in-clause-batch-size int                                         Maximum number of values per IN clause sent to MySQL. When set, VTGate splits large IN clauses into multiple queries and merges results. 0 disables batching.
       --jaeger-agent-host string                                         host and port to send spans to. if empty, no tracing will be done
       --json-topo vttest.TopoData                                        vttest proto definition of the topology, encoded in json format. See vttest.proto for more information.
       --keep-logs duration                                               keep logs for this long (using ctime) (zero to keep forever)

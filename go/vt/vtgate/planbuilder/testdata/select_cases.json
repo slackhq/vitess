@@ -972,34 +972,44 @@
       "QueryType": "SELECT",
       "Original": "select /* comment */ user.col from user where foo IN (select id from user where id > 1 and id < 10)",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select id from `user` where 1 != 1",
-            "Query": "select /* comment */ id from `user` where id > 1 and id < 10"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select `user`.col from `user` where 1 != 1",
-            "Query": "select /* comment */ `user`.col from `user` where :__sq_has_values and foo in ::__sq1"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
+            ],
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "Scatter",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select id from `user` where 1 != 1",
+                "Query": "select /* comment */ id from `user` where id > 1 and id < 10"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "Scatter",
+                    "Keyspace": {
+                      "Name": "user",
+                      "Sharded": true
+                    },
+                    "FieldQuery": "select `user`.col from `user` where 1 != 1",
+                    "Query": "select /* comment */ `user`.col from `user` where :__sq_has_values and foo in ::__sq1"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -2157,39 +2167,54 @@
       "QueryType": "SELECT",
       "Original": "select count(*) from user where user.id = 2 or user.id in (select id from unsharded_a where colb = 2)",
       "Instructions": {
-        "OperatorType": "Aggregate",
-        "Variant": "Scalar",
-        "Aggregates": "sum_count_star(0) AS count(*)",
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "OperatorType": "UncorrelatedSubquery",
-            "Variant": "PulloutIn",
-            "PulloutVars": [
-              "__sq_has_values",
-              "__sq1"
-            ],
+            "OperatorType": "Aggregate",
+            "Variant": "Scalar",
+            "Aggregates": "sum_count_star(0) AS count(*)",
             "Inputs": [
               {
-                "InputName": "SubQuery",
-                "OperatorType": "Route",
-                "Variant": "Unsharded",
-                "Keyspace": {
-                  "Name": "main",
-                  "Sharded": false
-                },
-                "FieldQuery": "select id from unsharded_a where 1 != 1",
-                "Query": "select id from unsharded_a where colb = 2"
-              },
-              {
-                "InputName": "Outer",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select count(*) from `user` where 1 != 1",
-                "Query": "select count(*) from `user` where `user`.id = 2 or :__sq_has_values and `user`.id in ::__sq1"
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "UncorrelatedSubquery",
+                    "Variant": "PulloutIn",
+                    "PulloutVars": [
+                      "__sq_has_values",
+                      "__sq1"
+                    ],
+                    "Inputs": [
+                      {
+                        "InputName": "SubQuery",
+                        "OperatorType": "Route",
+                        "Variant": "Unsharded",
+                        "Keyspace": {
+                          "Name": "main",
+                          "Sharded": false
+                        },
+                        "FieldQuery": "select id from unsharded_a where 1 != 1",
+                        "Query": "select id from unsharded_a where colb = 2"
+                      },
+                      {
+                        "InputName": "Outer",
+                        "OperatorType": "BatchIN",
+                        "Inputs": [
+                          {
+                            "OperatorType": "Route",
+                            "Variant": "Scatter",
+                            "Keyspace": {
+                              "Name": "user",
+                              "Sharded": true
+                            },
+                            "FieldQuery": "select count(*) from `user` where 1 != 1",
+                            "Query": "select count(*) from `user` where `user`.id = 2 or :__sq_has_values and `user`.id in ::__sq1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }

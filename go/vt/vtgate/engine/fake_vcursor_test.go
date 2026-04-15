@@ -116,6 +116,10 @@ func (t *noopVCursor) GetWarmingReadsPercent() int {
 	panic("implement me")
 }
 
+func (t *noopVCursor) GetInClauseBatchSize() int {
+	return 0
+}
+
 func (t *noopVCursor) GetWarmingReadsChannel() chan bool {
 	panic("implement me")
 }
@@ -480,6 +484,8 @@ type loggingVCursor struct {
 	onRecordMirrorStatsFn   func(time.Duration, time.Duration, error)
 	onResolveDestinationsFn func(context.Context)
 
+	inClauseBatchSize int
+
 	metrics *Metrics
 }
 
@@ -594,6 +600,10 @@ func (f *loggingVCursor) RecordWarning(warning *querypb.QueryWarning) {
 
 func (f *loggingVCursor) GetWarmingReadsPercent() int {
 	return 0
+}
+
+func (f *loggingVCursor) GetInClauseBatchSize() int {
+	return f.inClauseBatchSize
 }
 
 func (f *loggingVCursor) GetWarmingReadsChannel() chan bool {

@@ -2189,59 +2189,74 @@
       "QueryType": "SELECT",
       "Original": "select id1 from user where id = (select id2 from user where id2 in (select id3 from user))",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutValue",
-        "PulloutVars": [
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
             "OperatorType": "UncorrelatedSubquery",
-            "Variant": "PulloutIn",
+            "Variant": "PulloutValue",
             "PulloutVars": [
-              "__sq_has_values",
-              "__sq2"
+              "__sq1"
             ],
             "Inputs": [
               {
                 "InputName": "SubQuery",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select id3 from `user` where 1 != 1",
-                "Query": "select id3 from `user`"
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "UncorrelatedSubquery",
+                    "Variant": "PulloutIn",
+                    "PulloutVars": [
+                      "__sq_has_values",
+                      "__sq2"
+                    ],
+                    "Inputs": [
+                      {
+                        "InputName": "SubQuery",
+                        "OperatorType": "Route",
+                        "Variant": "Scatter",
+                        "Keyspace": {
+                          "Name": "user",
+                          "Sharded": true
+                        },
+                        "FieldQuery": "select id3 from `user` where 1 != 1",
+                        "Query": "select id3 from `user`"
+                      },
+                      {
+                        "InputName": "Outer",
+                        "OperatorType": "BatchIN",
+                        "Inputs": [
+                          {
+                            "OperatorType": "Route",
+                            "Variant": "Scatter",
+                            "Keyspace": {
+                              "Name": "user",
+                              "Sharded": true
+                            },
+                            "FieldQuery": "select id2 from `user` where 1 != 1",
+                            "Query": "select id2 from `user` where :__sq_has_values and id2 in ::__sq2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
               },
               {
                 "InputName": "Outer",
                 "OperatorType": "Route",
-                "Variant": "Scatter",
+                "Variant": "EqualUnique",
                 "Keyspace": {
                   "Name": "user",
                   "Sharded": true
                 },
-                "FieldQuery": "select id2 from `user` where 1 != 1",
-                "Query": "select id2 from `user` where :__sq_has_values and id2 in ::__sq2"
+                "FieldQuery": "select id1 from `user` where 1 != 1",
+                "Query": "select id1 from `user` where id = :__sq1",
+                "Values": [
+                  ":__sq1"
+                ],
+                "Vindex": "user_index"
               }
             ]
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "EqualUnique",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select id1 from `user` where 1 != 1",
-            "Query": "select id1 from `user` where id = :__sq1",
-            "Values": [
-              ":__sq1"
-            ],
-            "Vindex": "user_index"
           }
         ]
       },
@@ -2978,42 +2993,52 @@
       "QueryType": "SELECT",
       "Original": "select id from user where id = 5 and not id in (select user_extra.col from user_extra where user_extra.user_id = 5) and id in (select user_extra.col from user_extra where user_extra.user_id = 4)",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq2"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "EqualUnique",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select user_extra.col from user_extra where 1 != 1",
-            "Query": "select user_extra.col from user_extra where user_extra.user_id = 4",
-            "Values": [
-              "4"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq2"
             ],
-            "Vindex": "user_index"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "EqualUnique",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select id from `user` where 1 != 1",
-            "Query": "select id from `user` where id = 5 and id not in (select user_extra.col from user_extra where user_extra.user_id = 5) and :__sq_has_values and id in ::__sq2",
-            "Values": [
-              "5"
-            ],
-            "Vindex": "user_index"
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "EqualUnique",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select user_extra.col from user_extra where 1 != 1",
+                "Query": "select user_extra.col from user_extra where user_extra.user_id = 4",
+                "Values": [
+                  "4"
+                ],
+                "Vindex": "user_index"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "EqualUnique",
+                    "Keyspace": {
+                      "Name": "user",
+                      "Sharded": true
+                    },
+                    "FieldQuery": "select id from `user` where 1 != 1",
+                    "Query": "select id from `user` where id = 5 and id not in (select user_extra.col from user_extra where user_extra.user_id = 5) and :__sq_has_values and id in ::__sq2",
+                    "Values": [
+                      "5"
+                    ],
+                    "Vindex": "user_index"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -3332,42 +3357,57 @@
       "QueryType": "SELECT",
       "Original": "select distinct user.id, user.col from user where user.col in (select id from music where col2 = 'a')",
       "Instructions": {
-        "OperatorType": "Distinct",
-        "Collations": [
-          "(0:2)",
-          "1"
-        ],
-        "ResultColumns": 2,
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "OperatorType": "UncorrelatedSubquery",
-            "Variant": "PulloutIn",
-            "PulloutVars": [
-              "__sq_has_values",
-              "__sq1"
+            "OperatorType": "Distinct",
+            "Collations": [
+              "(0:2)",
+              "1"
             ],
+            "ResultColumns": 2,
             "Inputs": [
               {
-                "InputName": "SubQuery",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select id from music where 1 != 1",
-                "Query": "select id from music where col2 = 'a'"
-              },
-              {
-                "InputName": "Outer",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select `user`.id, `user`.col, weight_string(`user`.id) from `user` where 1 != 1",
-                "Query": "select `user`.id, `user`.col, weight_string(`user`.id) from `user` where :__sq_has_values and `user`.col in ::__sq1"
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "UncorrelatedSubquery",
+                    "Variant": "PulloutIn",
+                    "PulloutVars": [
+                      "__sq_has_values",
+                      "__sq1"
+                    ],
+                    "Inputs": [
+                      {
+                        "InputName": "SubQuery",
+                        "OperatorType": "Route",
+                        "Variant": "Scatter",
+                        "Keyspace": {
+                          "Name": "user",
+                          "Sharded": true
+                        },
+                        "FieldQuery": "select id from music where 1 != 1",
+                        "Query": "select id from music where col2 = 'a'"
+                      },
+                      {
+                        "InputName": "Outer",
+                        "OperatorType": "BatchIN",
+                        "Inputs": [
+                          {
+                            "OperatorType": "Route",
+                            "Variant": "Scatter",
+                            "Keyspace": {
+                              "Name": "user",
+                              "Sharded": true
+                            },
+                            "FieldQuery": "select `user`.id, `user`.col, weight_string(`user`.id) from `user` where 1 != 1",
+                            "Query": "select `user`.id, `user`.col, weight_string(`user`.id) from `user` where :__sq_has_values and `user`.col in ::__sq1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }
@@ -4637,22 +4677,27 @@
     "comment": "list args: single column vindex",
     "query": "select 1 from user where (id, col) in ::vals",
     "plan": {
-      "Type": "MultiShard",
+      "Type": "Complex",
       "QueryType": "SELECT",
       "Original": "select 1 from user where (id, col) in ::vals",
       "Instructions": {
-        "OperatorType": "Route",
-        "Variant": "MultiEqual",
-        "Keyspace": {
-          "Name": "user",
-          "Sharded": true
-        },
-        "FieldQuery": "select 1 from `user` where 1 != 1",
-        "Query": "select 1 from `user` where (id, col) in ::vals",
-        "Values": [
-          "vals:0"
-        ],
-        "Vindex": "user_index"
+        "OperatorType": "BatchIN",
+        "Inputs": [
+          {
+            "OperatorType": "Route",
+            "Variant": "MultiEqual",
+            "Keyspace": {
+              "Name": "user",
+              "Sharded": true
+            },
+            "FieldQuery": "select 1 from `user` where 1 != 1",
+            "Query": "select 1 from `user` where (id, col) in ::vals",
+            "Values": [
+              "vals:0"
+            ],
+            "Vindex": "user_index"
+          }
+        ]
       },
       "TablesUsed": [
         "user.user"
@@ -4664,22 +4709,27 @@
     "comment": "list args: single column vindex on non-zero offset",
     "query": "select 1 from user where (col, id) in ::vals",
     "plan": {
-      "Type": "MultiShard",
+      "Type": "Complex",
       "QueryType": "SELECT",
       "Original": "select 1 from user where (col, id) in ::vals",
       "Instructions": {
-        "OperatorType": "Route",
-        "Variant": "MultiEqual",
-        "Keyspace": {
-          "Name": "user",
-          "Sharded": true
-        },
-        "FieldQuery": "select 1 from `user` where 1 != 1",
-        "Query": "select 1 from `user` where (col, id) in ::vals",
-        "Values": [
-          "vals:1"
-        ],
-        "Vindex": "user_index"
+        "OperatorType": "BatchIN",
+        "Inputs": [
+          {
+            "OperatorType": "Route",
+            "Variant": "MultiEqual",
+            "Keyspace": {
+              "Name": "user",
+              "Sharded": true
+            },
+            "FieldQuery": "select 1 from `user` where 1 != 1",
+            "Query": "select 1 from `user` where (col, id) in ::vals",
+            "Values": [
+              "vals:1"
+            ],
+            "Vindex": "user_index"
+          }
+        ]
       },
       "TablesUsed": [
         "user.user"
@@ -4691,23 +4741,28 @@
     "comment": "list args: multi column vindex",
     "query": "select 1 from multicol_tbl where (cola, colb) in ::vals",
     "plan": {
-      "Type": "MultiShard",
+      "Type": "Complex",
       "QueryType": "SELECT",
       "Original": "select 1 from multicol_tbl where (cola, colb) in ::vals",
       "Instructions": {
-        "OperatorType": "Route",
-        "Variant": "MultiEqual",
-        "Keyspace": {
-          "Name": "user",
-          "Sharded": true
-        },
-        "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
-        "Query": "select 1 from multicol_tbl where (cola, colb) in ::vals",
-        "Values": [
-          "vals:0",
-          "vals:1"
-        ],
-        "Vindex": "multicolIdx"
+        "OperatorType": "BatchIN",
+        "Inputs": [
+          {
+            "OperatorType": "Route",
+            "Variant": "MultiEqual",
+            "Keyspace": {
+              "Name": "user",
+              "Sharded": true
+            },
+            "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
+            "Query": "select 1 from multicol_tbl where (cola, colb) in ::vals",
+            "Values": [
+              "vals:0",
+              "vals:1"
+            ],
+            "Vindex": "multicolIdx"
+          }
+        ]
       },
       "TablesUsed": [
         "user.multicol_tbl"
@@ -4746,23 +4801,28 @@
     "comment": "list args: multi column vindex - more columns",
     "query": "select 1 from multicol_tbl where (cola, colx, colb) in ::vals",
     "plan": {
-      "Type": "MultiShard",
+      "Type": "Complex",
       "QueryType": "SELECT",
       "Original": "select 1 from multicol_tbl where (cola, colx, colb) in ::vals",
       "Instructions": {
-        "OperatorType": "Route",
-        "Variant": "MultiEqual",
-        "Keyspace": {
-          "Name": "user",
-          "Sharded": true
-        },
-        "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
-        "Query": "select 1 from multicol_tbl where (cola, colx, colb) in ::vals",
-        "Values": [
-          "vals:0",
-          "vals:2"
-        ],
-        "Vindex": "multicolIdx"
+        "OperatorType": "BatchIN",
+        "Inputs": [
+          {
+            "OperatorType": "Route",
+            "Variant": "MultiEqual",
+            "Keyspace": {
+              "Name": "user",
+              "Sharded": true
+            },
+            "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
+            "Query": "select 1 from multicol_tbl where (cola, colx, colb) in ::vals",
+            "Values": [
+              "vals:0",
+              "vals:2"
+            ],
+            "Vindex": "multicolIdx"
+          }
+        ]
       },
       "TablesUsed": [
         "user.multicol_tbl"
@@ -4774,23 +4834,28 @@
     "comment": "list args: multi column vindex - columns rearranged",
     "query": "select 1 from multicol_tbl where (colb, colx, cola) in ::vals",
     "plan": {
-      "Type": "MultiShard",
+      "Type": "Complex",
       "QueryType": "SELECT",
       "Original": "select 1 from multicol_tbl where (colb, colx, cola) in ::vals",
       "Instructions": {
-        "OperatorType": "Route",
-        "Variant": "MultiEqual",
-        "Keyspace": {
-          "Name": "user",
-          "Sharded": true
-        },
-        "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
-        "Query": "select 1 from multicol_tbl where (colb, colx, cola) in ::vals",
-        "Values": [
-          "vals:2",
-          "vals:0"
-        ],
-        "Vindex": "multicolIdx"
+        "OperatorType": "BatchIN",
+        "Inputs": [
+          {
+            "OperatorType": "Route",
+            "Variant": "MultiEqual",
+            "Keyspace": {
+              "Name": "user",
+              "Sharded": true
+            },
+            "FieldQuery": "select 1 from multicol_tbl where 1 != 1",
+            "Query": "select 1 from multicol_tbl where (colb, colx, cola) in ::vals",
+            "Values": [
+              "vals:2",
+              "vals:0"
+            ],
+            "Vindex": "multicolIdx"
+          }
+        ]
       },
       "TablesUsed": [
         "user.multicol_tbl"

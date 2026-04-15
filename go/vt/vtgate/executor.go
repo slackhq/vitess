@@ -115,6 +115,7 @@ type (
 		// AllowScatter will fail planning if set to false and a plan contains any scatter queries
 		AllowScatter        bool
 		WarmingReadsPercent int
+		InClauseBatchSize   int
 		QueryLogToFile      string
 	}
 
@@ -1567,6 +1568,8 @@ func (e *Executor) initVConfig(warnOnShardedOnly bool, pv plancontext.PlannerVer
 		WarmingReadsPercent: e.config.WarmingReadsPercent,
 		WarmingReadsTimeout: warmingReadsQueryTimeout,
 		WarmingReadsChannel: e.warmingReadsChannel,
+
+		InClauseBatchSize: e.config.InClauseBatchSize,
 	}
 }
 

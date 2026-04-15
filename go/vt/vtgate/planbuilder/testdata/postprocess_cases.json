@@ -468,35 +468,47 @@
       "QueryType": "SELECT",
       "Original": "select col from user where col in (select col2 from user) order by col",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
+        "OrderBy": "0 ASC",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col2 from `user` where 1 != 1",
-            "Query": "select col2 from `user`"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col from `user` where 1 != 1",
-            "OrderBy": "0 ASC",
-            "Query": "select col from `user` where :__sq_has_values and col in ::__sq1 order by `user`.col asc"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
+            ],
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "Scatter",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select col2 from `user` where 1 != 1",
+                "Query": "select col2 from `user`"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "OrderBy": "0 ASC",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "Scatter",
+                    "Keyspace": {
+                      "Name": "user",
+                      "Sharded": true
+                    },
+                    "FieldQuery": "select col from `user` where 1 != 1",
+                    "OrderBy": "0 ASC",
+                    "Query": "select col from `user` where :__sq_has_values and col in ::__sq1 order by `user`.col asc"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -738,34 +750,44 @@
       "QueryType": "SELECT",
       "Original": "select col from user where col in (select col2 from user) order by null",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col2 from `user` where 1 != 1",
-            "Query": "select col2 from `user`"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col from `user` where 1 != 1",
-            "Query": "select col from `user` where :__sq_has_values and col in ::__sq1"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
+            ],
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "Scatter",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select col2 from `user` where 1 != 1",
+                "Query": "select col2 from `user`"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "Scatter",
+                    "Keyspace": {
+                      "Name": "user",
+                      "Sharded": true
+                    },
+                    "FieldQuery": "select col from `user` where 1 != 1",
+                    "Query": "select col from `user` where :__sq_has_values and col in ::__sq1"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -879,34 +901,44 @@
       "QueryType": "SELECT",
       "Original": "select col from user where col in (select col2 from user) order by rand()",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col2 from `user` where 1 != 1",
-            "Query": "select col2 from `user`"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col from `user` where 1 != 1",
-            "Query": "select col from `user` where :__sq_has_values and col in ::__sq1 order by rand()"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
+            ],
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "Scatter",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select col2 from `user` where 1 != 1",
+                "Query": "select col2 from `user`"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "Scatter",
+                    "Keyspace": {
+                      "Name": "user",
+                      "Sharded": true
+                    },
+                    "FieldQuery": "select col from `user` where 1 != 1",
+                    "Query": "select col from `user` where :__sq_has_values and col in ::__sq1 order by rand()"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1400,38 +1432,53 @@
       "QueryType": "SELECT",
       "Original": "select col from user where col in (select col1 from user) limit 1",
       "Instructions": {
-        "OperatorType": "Limit",
-        "Count": "1",
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "OperatorType": "UncorrelatedSubquery",
-            "Variant": "PulloutIn",
-            "PulloutVars": [
-              "__sq_has_values",
-              "__sq1"
-            ],
+            "OperatorType": "Limit",
+            "Count": "1",
             "Inputs": [
               {
-                "InputName": "SubQuery",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select col1 from `user` where 1 != 1",
-                "Query": "select col1 from `user`"
-              },
-              {
-                "InputName": "Outer",
-                "OperatorType": "Route",
-                "Variant": "Scatter",
-                "Keyspace": {
-                  "Name": "user",
-                  "Sharded": true
-                },
-                "FieldQuery": "select col from `user` where 1 != 1",
-                "Query": "select col from `user` where :__sq_has_values and col in ::__sq1"
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "UncorrelatedSubquery",
+                    "Variant": "PulloutIn",
+                    "PulloutVars": [
+                      "__sq_has_values",
+                      "__sq1"
+                    ],
+                    "Inputs": [
+                      {
+                        "InputName": "SubQuery",
+                        "OperatorType": "Route",
+                        "Variant": "Scatter",
+                        "Keyspace": {
+                          "Name": "user",
+                          "Sharded": true
+                        },
+                        "FieldQuery": "select col1 from `user` where 1 != 1",
+                        "Query": "select col1 from `user`"
+                      },
+                      {
+                        "InputName": "Outer",
+                        "OperatorType": "BatchIN",
+                        "Inputs": [
+                          {
+                            "OperatorType": "Route",
+                            "Variant": "Scatter",
+                            "Keyspace": {
+                              "Name": "user",
+                              "Sharded": true
+                            },
+                            "FieldQuery": "select col from `user` where 1 != 1",
+                            "Query": "select col from `user` where :__sq_has_values and col in ::__sq1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }

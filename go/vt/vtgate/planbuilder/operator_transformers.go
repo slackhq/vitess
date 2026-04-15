@@ -46,6 +46,7 @@ func transformToPrimitive(ctx *plancontext.PlanningContext, op operators.Operato
 			Optimized:  prim,
 		}
 	}
+	prim = maybeBatchIN(prim)
 	return prim, nil
 }
 

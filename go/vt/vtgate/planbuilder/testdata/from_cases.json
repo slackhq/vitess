@@ -2383,34 +2383,44 @@
       "QueryType": "SELECT",
       "Original": "select unsharded_a.col from unsharded_a join unsharded_b on unsharded_a.col in (select col from user)",
       "Instructions": {
-        "OperatorType": "UncorrelatedSubquery",
-        "Variant": "PulloutIn",
-        "PulloutVars": [
-          "__sq_has_values",
-          "__sq1"
-        ],
+        "OperatorType": "BatchIN",
         "Inputs": [
           {
-            "InputName": "SubQuery",
-            "OperatorType": "Route",
-            "Variant": "Scatter",
-            "Keyspace": {
-              "Name": "user",
-              "Sharded": true
-            },
-            "FieldQuery": "select col from `user` where 1 != 1",
-            "Query": "select col from `user`"
-          },
-          {
-            "InputName": "Outer",
-            "OperatorType": "Route",
-            "Variant": "Unsharded",
-            "Keyspace": {
-              "Name": "main",
-              "Sharded": false
-            },
-            "FieldQuery": "select unsharded_a.col from unsharded_a, unsharded_b where 1 != 1",
-            "Query": "select unsharded_a.col from unsharded_a, unsharded_b where :__sq_has_values and unsharded_a.col in ::__sq1"
+            "OperatorType": "UncorrelatedSubquery",
+            "Variant": "PulloutIn",
+            "PulloutVars": [
+              "__sq_has_values",
+              "__sq1"
+            ],
+            "Inputs": [
+              {
+                "InputName": "SubQuery",
+                "OperatorType": "Route",
+                "Variant": "Scatter",
+                "Keyspace": {
+                  "Name": "user",
+                  "Sharded": true
+                },
+                "FieldQuery": "select col from `user` where 1 != 1",
+                "Query": "select col from `user`"
+              },
+              {
+                "InputName": "Outer",
+                "OperatorType": "BatchIN",
+                "Inputs": [
+                  {
+                    "OperatorType": "Route",
+                    "Variant": "Unsharded",
+                    "Keyspace": {
+                      "Name": "main",
+                      "Sharded": false
+                    },
+                    "FieldQuery": "select unsharded_a.col from unsharded_a, unsharded_b where 1 != 1",
+                    "Query": "select unsharded_a.col from unsharded_a, unsharded_b where :__sq_has_values and unsharded_a.col in ::__sq1"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
