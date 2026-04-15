@@ -108,26 +108,13 @@ func (b *BatchIN) TryExecute(ctx context.Context, vcursor VCursor, bindVars map[
 	return b.mergeResults(results)
 }
 
-// TryStreamExecute implements the Primitive interface. When batching is needed,
-// it falls back to non-streaming execution since we need to collect all results
-// to re-sort and merge across batches.
+// TryStreamExecute implements the Primitive interface. It always delegates to
+// streaming on the sub-tree unconditionally. Batching requires buffering all
+// results for re-sort/merge, which is antithetical to streaming. If an engineer
+// opted into OLAP/streaming, we respect that choice — OLAP queries with large
+// IN-clauses go through unbatched.
 func (b *BatchIN) TryStreamExecute(ctx context.Context, vcursor VCursor, bindVars map[string]*querypb.BindVariable, wantfields bool, callback func(*sqltypes.Result) error) error {
-	batchSize := vcursor.GetInClauseBatchSize()
-	if batchSize <= 0 {
-		return vcursor.StreamExecutePrimitive(ctx, b.Input, bindVars, wantfields, callback)
-	}
-
-	tuples := findOversizedTuples(bindVars, batchSize)
-	if len(tuples) == 0 {
-		return vcursor.StreamExecutePrimitive(ctx, b.Input, bindVars, wantfields, callback)
-	}
-
-	// Fall back to non-streaming for batched queries.
-	result, err := b.TryExecute(ctx, vcursor, bindVars, wantfields)
-	if err != nil {
-		return err
-	}
-	return callback(result)
+	return vcursor.StreamExecutePrimitive(ctx, b.Input, bindVars, wantfields, callback)
 }
 
 // GetFields implements the Primitive interface.

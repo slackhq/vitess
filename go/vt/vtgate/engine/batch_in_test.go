@@ -225,13 +225,17 @@ func TestBatchIN_StreamPassthrough_WhenDisabled(t *testing.T) {
 	assert.Equal(t, 2, len(result.Rows))
 }
 
-func TestBatchIN_StreamFallsBackToBatched(t *testing.T) {
+func TestBatchIN_StreamAlwaysPassesThrough(t *testing.T) {
 	fields := sqltypes.MakeTestFields("id|name", "int64|varchar")
 
+	// Even though the IN-clause exceeds the batch size threshold, streaming
+	// must delegate to StreamExecutePrimitive (not buffer via TryExecute).
+	// We give fakePrimitive a single result — if batching kicked in it would
+	// call TryExecute multiple times and fail because there aren't enough
+	// results queued.
 	fp := &fakePrimitive{
 		results: []*sqltypes.Result{
-			sqltypes.MakeTestResult(fields, "1|a", "2|b"),
-			sqltypes.MakeTestResult(fields, "3|c"),
+			sqltypes.MakeTestResult(fields, "1|a", "2|b", "3|c"),
 		},
 	}
 	batch := &BatchIN{Input: fp}
@@ -244,6 +248,11 @@ func TestBatchIN_StreamFallsBackToBatched(t *testing.T) {
 	result, err := wrapStreamExecute(batch, vc, bvs, true)
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(result.Rows))
+
+	// Verify the streaming path was used, not the buffered TryExecute path.
+	fp.ExpectLog(t, []string{
+		"StreamExecute ids: type:TUPLE values:{type:INT64 value:\"1\"} values:{type:INT64 value:\"2\"} values:{type:INT64 value:\"3\"} true",
+	})
 }
 
 func TestBatchIN_InputError(t *testing.T) {
