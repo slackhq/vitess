@@ -204,6 +204,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	utils.SetFlagBoolVar(fs, &enableConsolidatorReplicas, "enable-consolidator-replicas", false, "This option enables the query consolidator only on replicas.")
 	fs.Int64Var(&currentConfig.ConsolidatorStreamQuerySize, "consolidator-stream-query-size", defaultConfig.ConsolidatorStreamQuerySize, "Configure the stream consolidator query size in bytes. Setting to 0 disables the stream consolidator.")
 	fs.Int64Var(&currentConfig.ConsolidatorStreamTotalSize, "consolidator-stream-total-size", defaultConfig.ConsolidatorStreamTotalSize, "Configure the stream consolidator total size in bytes. Setting to 0 disables the stream consolidator.")
+	fs.IntVar(&currentConfig.ConsolidatorStreamBufferSize, "consolidator-stream-buffer-size", defaultConfig.ConsolidatorStreamBufferSize, "Configure the stream consolidator buffer size for follower streams. A larger buffer reduces the chance of a follower being dropped during consolidation at the cost of increased memory usage.")
 
 	fs.Int64Var(&currentConfig.ConsolidatorQueryWaiterCap, "consolidator-query-waiter-cap", 0, "Configure the maximum number of clients allowed to wait on the consolidator.")
 	utils.SetFlagDurationVar(fs, &healthCheckInterval, "health-check-interval", defaultConfig.Healthcheck.Interval, "Interval between health checks")
@@ -335,24 +336,25 @@ type TabletConfig struct {
 	ReplicationTracker ReplicationTrackerConfig `json:"replicationTracker"`
 
 	// Consolidator can be enable, disable, or notOnPrimary. Default is enable.
-	Consolidator                string        `json:"consolidator,omitempty"`
-	PassthroughDML              bool          `json:"passthroughDML,omitempty"`
-	StreamBufferSize            int           `json:"streamBufferSize,omitempty"`
-	ConsolidatorStreamTotalSize int64         `json:"consolidatorStreamTotalSize,omitempty"`
-	ConsolidatorStreamQuerySize int64         `json:"consolidatorStreamQuerySize,omitempty"`
-	ConsolidatorQueryWaiterCap  int64         `json:"consolidatorMaxQueryWait,omitempty"`
-	QueryCacheMemory            int64         `json:"queryCacheMemory,omitempty"`
-	QueryCacheDoorkeeper        bool          `json:"queryCacheDoorkeeper,omitempty"`
-	SchemaReloadInterval        time.Duration `json:"schemaReloadIntervalSeconds,omitempty"`
-	SchemaChangeReloadTimeout   time.Duration `json:"schemaChangeReloadTimeout,omitempty"`
-	WatchReplication            bool          `json:"watchReplication,omitempty"` // Ignored and unused, remove in v25
-	TrackSchemaVersions         bool          `json:"trackSchemaVersions,omitempty"`
-	SchemaVersionMaxAgeSeconds  int64         `json:"schemaVersionMaxAgeSeconds,omitempty"`
-	TerseErrors                 bool          `json:"terseErrors,omitempty"`
-	TruncateErrorLen            int           `json:"truncateErrorLen,omitempty"`
-	AnnotateQueries             bool          `json:"annotateQueries,omitempty"`
-	MessagePostponeParallelism  int           `json:"messagePostponeParallelism,omitempty"`
-	SignalWhenSchemaChange      bool          `json:"signalWhenSchemaChange,omitempty"`
+	Consolidator                 string        `json:"consolidator,omitempty"`
+	PassthroughDML               bool          `json:"passthroughDML,omitempty"`
+	StreamBufferSize             int           `json:"streamBufferSize,omitempty"`
+	ConsolidatorStreamTotalSize  int64         `json:"consolidatorStreamTotalSize,omitempty"`
+	ConsolidatorStreamQuerySize  int64         `json:"consolidatorStreamQuerySize,omitempty"`
+	ConsolidatorStreamBufferSize int           `json:"consolidatorStreamBufferSize,omitempty"`
+	ConsolidatorQueryWaiterCap   int64         `json:"consolidatorMaxQueryWait,omitempty"`
+	QueryCacheMemory             int64         `json:"queryCacheMemory,omitempty"`
+	QueryCacheDoorkeeper         bool          `json:"queryCacheDoorkeeper,omitempty"`
+	SchemaReloadInterval         time.Duration `json:"schemaReloadIntervalSeconds,omitempty"`
+	SchemaChangeReloadTimeout    time.Duration `json:"schemaChangeReloadTimeout,omitempty"`
+	WatchReplication             bool          `json:"watchReplication,omitempty"` // Ignored and unused, remove in v25
+	TrackSchemaVersions          bool          `json:"trackSchemaVersions,omitempty"`
+	SchemaVersionMaxAgeSeconds   int64         `json:"schemaVersionMaxAgeSeconds,omitempty"`
+	TerseErrors                  bool          `json:"terseErrors,omitempty"`
+	TruncateErrorLen             int           `json:"truncateErrorLen,omitempty"`
+	AnnotateQueries              bool          `json:"annotateQueries,omitempty"`
+	MessagePostponeParallelism   int           `json:"messagePostponeParallelism,omitempty"`
+	SignalWhenSchemaChange       bool          `json:"signalWhenSchemaChange,omitempty"`
 
 	ExternalConnections map[string]*dbconfigs.DBConfigs `json:"externalConnections,omitempty"`
 
@@ -1093,9 +1095,10 @@ var defaultConfig = TabletConfig{
 		// of them ready in MySQL and profit from a pipelining effect.
 		MaxConcurrency: 5,
 	},
-	Consolidator:                Enable,
-	ConsolidatorStreamTotalSize: 128 * 1024 * 1024,
-	ConsolidatorStreamQuerySize: 2 * 1024 * 1024,
+	Consolidator:                 Enable,
+	ConsolidatorStreamTotalSize:  128 * 1024 * 1024,
+	ConsolidatorStreamQuerySize:  2 * 1024 * 1024,
+	ConsolidatorStreamBufferSize: 8,
 	// The value for StreamBufferSize was chosen after trying out a few of
 	// them. Too small buffers force too many packets to be sent. Too big
 	// buffers force the clients to read them in multiple chunks and make

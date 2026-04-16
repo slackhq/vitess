@@ -28,8 +28,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
-const streamBufferSize = 8
-
 // StreamConsolidator is a data structure capable of merging several identical streaming queries so only
 // one query is executed in MySQL and its response is fanned out to all the clients simultaneously.
 type StreamConsolidator struct {
@@ -37,6 +35,7 @@ type StreamConsolidator struct {
 	inflight                       map[string]*streamInFlight
 	memory                         int64
 	maxMemoryTotal, maxMemoryQuery int64
+	streamBufferSize               int
 	blocking                       bool
 	cleanup                        StreamCallback
 }
@@ -44,13 +43,15 @@ type StreamConsolidator struct {
 // NewStreamConsolidator allocates a stream consolidator. The consolidator will use up to maxMemoryTotal
 // bytes in order to allow simultaneous queries to "catch up" to each other. Each individual stream will
 // only use up to maxMemoryQuery bytes of memory as a history buffer to catch up.
-func NewStreamConsolidator(maxMemoryTotal, maxMemoryQuery int64, cleanup StreamCallback) *StreamConsolidator {
+// streamBufferSize controls the channel buffer depth for each follower stream.
+func NewStreamConsolidator(maxMemoryTotal, maxMemoryQuery int64, streamBufferSize int, cleanup StreamCallback) *StreamConsolidator {
 	return &StreamConsolidator{
-		inflight:       make(map[string]*streamInFlight),
-		maxMemoryTotal: maxMemoryTotal,
-		maxMemoryQuery: maxMemoryQuery,
-		blocking:       false,
-		cleanup:        cleanup,
+		inflight:         make(map[string]*streamInFlight),
+		maxMemoryTotal:   maxMemoryTotal,
+		maxMemoryQuery:   maxMemoryQuery,
+		streamBufferSize: streamBufferSize,
+		blocking:         false,
+		cleanup:          cleanup,
 	}
 }
 
@@ -87,7 +88,7 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 
 	// if there's an existing stream for our query, try to follow it
 	if inflight != nil {
-		catchup, followChan = inflight.follow()
+		catchup, followChan = inflight.follow(sc.streamBufferSize)
 	}
 
 	// if there isn't an existing stream; OR if there is an existing stream but
@@ -194,7 +195,7 @@ type streamInFlight struct {
 // that will receive all the Results in the future.
 // If this stream has been running for too long and we cannot catch up to it, follow
 // returns a nil channel.
-func (s *streamInFlight) follow() ([]*sqltypes.Result, chan *sqltypes.Result) {
+func (s *streamInFlight) follow(streamBufferSize int) ([]*sqltypes.Result, chan *sqltypes.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

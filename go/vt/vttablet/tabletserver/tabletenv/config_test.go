@@ -132,6 +132,7 @@ func TestDefaultConfig(t *testing.T) {
 	gotBytes, err := yaml2.Marshal(NewDefaultConfig())
 	require.NoError(t, err)
 	want := `consolidator: enable
+consolidatorStreamBufferSize: 8
 consolidatorStreamQuerySize: 2097152
 consolidatorStreamTotalSize: 134217728
 gracePeriods:

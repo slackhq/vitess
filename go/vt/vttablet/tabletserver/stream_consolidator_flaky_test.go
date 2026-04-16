@@ -148,7 +148,7 @@ func (ct *consolidationTest) run(workers int, generateCallback func(int) (string
 
 func TestConsolidatorSimple(t *testing.T) {
 	ct := consolidationTest{
-		cc:              NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+		cc:              NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 		streamItemDelay: 10 * time.Millisecond,
 		streamItemCount: 10,
 	}
@@ -175,7 +175,7 @@ func TestConsolidatorSimple(t *testing.T) {
 func TestConsolidatorErrorPropagation(t *testing.T) {
 	t.Run("from mysql", func(t *testing.T) {
 		ct := consolidationTest{
-			cc: NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+			cc: NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 			leaderCallback: func(callback StreamCallback) error {
 				time.Sleep(100 * time.Millisecond)
 				return errors.New("mysqld error")
@@ -195,7 +195,7 @@ func TestConsolidatorErrorPropagation(t *testing.T) {
 
 	t.Run("from leader", func(t *testing.T) {
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 			streamItemDelay: 10 * time.Millisecond,
 			streamItemCount: 10,
 		}
@@ -229,7 +229,7 @@ func TestConsolidatorErrorPropagation(t *testing.T) {
 
 	t.Run("from followers", func(t *testing.T) {
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 			streamItemDelay: 10 * time.Millisecond,
 			streamItemCount: 10,
 		}
@@ -263,7 +263,7 @@ func TestConsolidatorErrorPropagation(t *testing.T) {
 
 func TestConsolidatorDelayedListener(t *testing.T) {
 	ct := consolidationTest{
-		cc:              NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+		cc:              NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 		streamItemDelay: 1 * time.Millisecond,
 		streamItemCount: 100,
 	}
@@ -304,7 +304,7 @@ func TestConsolidatorDelayedListener(t *testing.T) {
 func TestConsolidatorMemoryLimits(t *testing.T) {
 	t.Run("rows too large", func(t *testing.T) {
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, 32, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, 32, 8, nocleanup),
 			streamItemDelay: 1 * time.Millisecond,
 			streamItemCount: 100,
 		}
@@ -326,7 +326,7 @@ func TestConsolidatorMemoryLimits(t *testing.T) {
 
 	t.Run("two-phase consolidation (time)", func(t *testing.T) {
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, 2*1024, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, 2*1024, 8, nocleanup),
 			streamItemDelay: 2 * time.Millisecond,
 			streamItemCount: 10,
 		}
@@ -354,7 +354,7 @@ func TestConsolidatorMemoryLimits(t *testing.T) {
 		rsize := results[0].CachedSize(true)
 
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, rsize*streamsInFirstBatch+1, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, rsize*streamsInFirstBatch+1, 8, nocleanup),
 			streamItemDelay: 1 * time.Millisecond,
 			streamItems:     results,
 		}
@@ -379,7 +379,7 @@ func TestConsolidatorMemoryLimits(t *testing.T) {
 		rsize := results[0].CachedSize(true)
 
 		ct := consolidationTest{
-			cc:              NewStreamConsolidator(128*1024, rsize*2+1, nocleanup),
+			cc:              NewStreamConsolidator(128*1024, rsize*2+1, 8, nocleanup),
 			streamItemDelay: 10 * time.Millisecond,
 			streamItems:     results,
 		}
