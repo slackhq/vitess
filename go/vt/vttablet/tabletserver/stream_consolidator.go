@@ -119,6 +119,9 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 			}
 		}
 
+		memchange := inflight.doneCatchup(sc.cleanup)
+		atomic.AddInt64(&sc.memory, memchange)
+
 		// now we can follow the leader: it will send in real time all new Results through
 		// our follower channel
 		for result := range followChan {
@@ -156,7 +159,7 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 		// update the live consolidated stream; this will fan out the Result to all our active followers
 		// and tell us how much more memory we're using by temporarily storing the result so other followers
 		// in the future can catch up to this stream
-		memChange := inflight.update(result, sc.blocking, sc.maxMemoryQuery, sc.maxMemoryTotal-atomic.LoadInt64(&sc.memory))
+		memChange := inflight.update(result, sc.blocking, sc.maxMemoryQuery, sc.maxMemoryTotal-atomic.LoadInt64(&sc.memory), sc.cleanup)
 		atomic.AddInt64(&sc.memory, memChange)
 
 		// yield the result to the very first client that started the query; this client is not listening
@@ -167,8 +170,12 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 			// once we've finished the stream for all our followers UNLESS we currently have 0 active followers;
 			// if that's the case, we can terminate early.
 			leaderClientErr = callback(result)
-			if leaderClientErr != nil && !inflight.shouldContinueStreaming() {
-				return leaderClientErr
+			if leaderClientErr != nil {
+				shouldContinue, memChange := inflight.shouldContinueStreaming(sc.cleanup)
+				atomic.AddInt64(&sc.memory, memChange)
+				if !shouldContinue {
+					return leaderClientErr
+				}
 			}
 		}
 		return nil
@@ -186,6 +193,7 @@ type streamInFlight struct {
 	err            error
 	memory         int64
 	catchupAllowed bool
+	catchupCount   int
 	finished       bool
 }
 
@@ -206,7 +214,34 @@ func (s *streamInFlight) follow() ([]*sqltypes.Result, chan *sqltypes.Result) {
 	}
 	follow := make(chan *sqltypes.Result, streamBufferSize)
 	s.fanout[follow] = true
+	s.catchupCount++
 	return s.catchup, follow
+}
+
+// doneCatchup signals that a follower has finished iterating the catchup buffer.
+// If catchup is no longer allowed and this was the last follower reading the buffer,
+// the buffer is freed and the memory is returned.
+func (s *streamInFlight) doneCatchup(cleanup StreamCallback) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.catchupCount--
+	return s.releaseCatchup(cleanup)
+}
+
+// releaseCatchup frees the catchup buffer if no new followers can join and no
+// existing followers are still reading it. Must be called with s.mu held.
+func (s *streamInFlight) releaseCatchup(cleanup StreamCallback) int64 {
+	if s.catchupAllowed || s.catchupCount > 0 || s.catchup == nil {
+		return 0
+	}
+	for _, result := range s.catchup {
+		_ = cleanup(result)
+	}
+	s.catchup = nil
+	freed := -s.memory
+	s.memory = 0
+	return freed
 }
 
 // unfollow unsubscribes the given follower from receiving more results from the stream.
@@ -234,22 +269,23 @@ func (s *streamInFlight) result(ch chan *sqltypes.Result) error {
 }
 
 // shouldContinueStreaming returns whether this stream has active followers;
-// if it doesn't, it marks the stream as terminated.
-func (s *streamInFlight) shouldContinueStreaming() bool {
+// if it doesn't, it marks the stream as terminated and returns the amount
+// of catchup memory freed (if any) through the memChange output parameter.
+func (s *streamInFlight) shouldContinueStreaming(cleanup StreamCallback) (bool, int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if len(s.fanout) > 0 {
-		return true
+		return true, 0
 	}
 	s.catchupAllowed = false
-	s.catchup = nil
-	return false
+	memChange := s.releaseCatchup(cleanup)
+	return false, memChange
 }
 
 // update fans out the given result to all the active followers for the stream and
 // returns the amount of memory that is being used by the catchup buffer
-func (s *streamInFlight) update(result *sqltypes.Result, block bool, maxMemoryQuery, maxMemoryTotal int64) int64 {
+func (s *streamInFlight) update(result *sqltypes.Result, block bool, maxMemoryQuery, maxMemoryTotal int64, cleanup StreamCallback) int64 {
 	var memoryChange int64
 	resultSize := result.CachedSize(true)
 
@@ -263,6 +299,7 @@ func (s *streamInFlight) update(result *sqltypes.Result, block bool, maxMemoryQu
 		if s.memory+resultSize > maxMemoryQuery || resultSize > maxMemoryTotal {
 			// if the catch up buffer has grown too large, disable catching up to this stream.
 			s.catchupAllowed = false
+			memoryChange = s.releaseCatchup(cleanup)
 		} else {
 			// otherwise store the result in our catchup buffer for future clients
 			s.catchup = append(s.catchup, result)
