@@ -1570,6 +1570,7 @@ func TestQueryExecutorConsolidatorWaiterCapReject(t *testing.T) {
 	// Set up consolidator to simulate an identical query already running (Created=false)
 	fakePendingResult := &sync2.FakePendingResult{}
 	fakePendingResult.SetResult(result)
+	fakePendingResult.Consolidator = fakeConsolidator
 
 	// Start with waiter count above the cap (2 > 1), so the condition fails
 	fakePendingResult.WaiterCount = 2

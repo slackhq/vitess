@@ -86,7 +86,6 @@ func (cached *QueryWarning) CachedSize(alloc bool) int64 {
 	}
 	return size
 }
-
 func (cached *Row) CachedSize(alloc bool) int64 {
 	if cached == nil {
 		return int64(0)
@@ -109,7 +108,6 @@ func (cached *Row) CachedSize(alloc bool) int64 {
 	}
 	return size
 }
-
 func (cached *Target) CachedSize(alloc bool) int64 {
 	if cached == nil {
 		return int64(0)
