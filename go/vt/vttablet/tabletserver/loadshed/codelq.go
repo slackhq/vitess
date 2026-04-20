@@ -78,13 +78,20 @@ func (q *CoDelQueue) lockedIsHealthy() bool {
 	return !q.dropping
 }
 
-// lockedEnqueue adds a request to the queue and returns:
-//   - the request
-//   - whether the parent should schedule a drop timer
-//   - the delay in nanoseconds for the timer
+// lockedEnqueue creates a new request and inserts it into the queue.
+// Returns the request, whether the parent should schedule a drop timer,
+// and the delay in nanoseconds for the timer.
 func (q *CoDelQueue) lockedEnqueue(priority *float64) (*Request, bool, int64) {
 	now := q.clockFunc()
 	req := newRequest(priority, now)
+	return q.lockedEnqueueRequest(req)
+}
+
+// lockedEnqueueRequest inserts an already-created request into the queue.
+// Used by SelfContentionAwareCoDelQueue to enqueue requests that were
+// created earlier and held in the valve.
+func (q *CoDelQueue) lockedEnqueueRequest(req *Request) (*Request, bool, int64) {
+	req.enqueuedAt = q.clockFunc()
 	req.elem = q.queue.PushBack(req)
 
 	if req.droppable {

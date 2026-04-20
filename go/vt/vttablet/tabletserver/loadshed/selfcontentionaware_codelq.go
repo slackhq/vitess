@@ -134,27 +134,7 @@ func (s *SelfContentionAwareCoDelQueue) codelqEnqueue(req *Request, contentionID
 		s.activeRequests[contentionID] = req
 	}
 
-	// enqueue into the CoDel queue (sets elem, enqueuedAt, etc.)
-	now := s.codelq.clockFunc()
-	req.enqueuedAt = now
-	req.elem = s.codelq.queue.PushBack(req)
-	if req.droppable {
-		s.codelq.droppableLen++
-	}
-
-	needSchedule := false
-	delay := int64(0)
-	if req.droppable && s.codelq.droppableLen > 0 && !s.codelq.timerScheduled {
-		needSchedule = true
-		delay = s.codelq.lockedCurrentInterval()
-		minDelay := s.codelq.cfg.MinDropDelayNs()
-		if delay < minDelay {
-			delay = minDelay
-		}
-		s.codelq.timerScheduled = true
-	}
-
-	return req, needSchedule, delay
+	return s.codelq.lockedEnqueueRequest(req)
 }
 
 func (s *SelfContentionAwareCoDelQueue) onRequestComplete(req *Request) {
