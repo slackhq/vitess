@@ -102,7 +102,7 @@ func (s *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
 func (s *SelfContentionAwareCoDelQueue) lockedDropActive(contentionID string, r *Request) {
 	s.codelq.lockedCancel(r)
 	if !r.isDone() {
-		r.done <- &DroppedRequestError{}
+		r.signal(&DroppedRequestError{})
 	}
 	s.onRequestComplete(r)
 }

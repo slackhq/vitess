@@ -16,16 +16,23 @@ limitations under the License.
 
 package loadshed
 
-import "container/list"
+import (
+	"container/list"
+	"sync/atomic"
+)
 
 type (
 	// Request represents an entry in the CoDel queue. It may be granted (lock
 	// acquired) or dropped (load shed). Each request owns a done channel that
-	// receives nil on grant or a *DroppedRequestError on drop.
+	// receives nil on grant or a *DroppedRequestError on drop. The signaled
+	// flag and result field allow non-consuming inspection of the outcome
+	// (used by lockedPeek to avoid channel pop/push-back).
 	Request struct {
 		priority   *float64
 		enqueuedAt int64
 		done       chan error
+		signaled   atomic.Bool
+		result     error
 		droppable  bool
 		elem       *list.Element
 		// contentionID is stored so that cancel can look up the valve.
@@ -47,9 +54,17 @@ func newRequest(priority *float64, enqueuedAt int64) *Request {
 	}
 }
 
-// isDone reports whether the request's done channel has been written to.
+// signal writes the result to both the inspectable field and the blocking
+// channel. It must be called at most once per request.
+func (r *Request) signal(err error) {
+	r.result = err
+	r.signaled.Store(true)
+	r.done <- err
+}
+
+// isDone reports whether the request has been signaled.
 func (r *Request) isDone() bool {
-	return len(r.done) > 0
+	return r.signaled.Load()
 }
 
 // NewPriority returns a pointer to the given float64, for use as a droppable
