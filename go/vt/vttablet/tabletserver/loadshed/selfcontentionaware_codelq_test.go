@@ -179,7 +179,7 @@ func TestSelfAware_ClearDone_InValve(t *testing.T) {
 	r3, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
 
 	// mark r2 as done (cancelled while in valve)
-	r2.done <- &DroppedRequestError{}
+	r2.signal(&DroppedRequestError{})
 
 	// dequeue r1 → promote should skip r2 (done) and promote r3
 	sq.lockedDequeue()

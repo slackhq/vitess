@@ -215,7 +215,7 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 	l.mu.Unlock()
 
 	if next != nil {
-		next.done <- nil // signal next holder
+		next.signal(nil)
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func (l *Lock) releaseInternal() {
 	l.mu.Unlock()
 
 	if next != nil {
-		next.done <- nil
+		next.signal(nil)
 	}
 }
 

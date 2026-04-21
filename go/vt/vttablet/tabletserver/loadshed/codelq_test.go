@@ -221,8 +221,8 @@ func TestCoDelQueue_Peek_CleansHeadCancelled(t *testing.T) {
 	r1, _, _ := q.lockedEnqueue(NewPriority(0))
 	r2, _, _ := q.lockedEnqueue(NewPriority(0))
 
-	// simulate r1 being cancelled (done channel written with error)
-	r1.done <- &DroppedRequestError{}
+	// simulate r1 being cancelled
+	r1.signal(&DroppedRequestError{})
 	r1.droppable = false
 	q.droppableLen--
 
@@ -239,7 +239,7 @@ func TestCoDelQueue_Peek_KeepsDoneNotCancelled(t *testing.T) {
 
 	// r1 is done (granted) but not cancelled — peek should keep it.
 	// In the lock flow, the holder's request is at the head with done written.
-	r1.done <- nil
+	r1.signal(nil)
 	r1.droppable = false
 	q.droppableLen--
 
@@ -299,7 +299,7 @@ func TestCoDelQueue_DropSkipsDone(t *testing.T) {
 	r2, _, _ := q.lockedEnqueue(NewPriority(5))
 
 	// mark r1 as done (already granted, still in queue)
-	r1.done <- nil
+	r1.signal(nil)
 	r1.droppable = false
 	q.droppableLen--
 
@@ -534,7 +534,7 @@ func TestCoDelQueue_Cancel_AlreadyDone(t *testing.T) {
 	r1, _, _ := q.lockedEnqueue(NewPriority(0))
 
 	// mark as done
-	r1.done <- nil
+	r1.signal(nil)
 	r1.droppable = false
 	q.droppableLen--
 

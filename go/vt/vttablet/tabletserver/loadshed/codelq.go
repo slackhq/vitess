@@ -142,22 +142,11 @@ func (q *CoDelQueue) lockedPeek() *Request {
 		if !req.isDone() {
 			return req
 		}
-		// isDone means the channel was written to. If nil (granted), keep it.
-		// If error (dropped/cancelled), remove it.
-		select {
-		case err := <-req.done:
-			if err == nil {
-				// granted, put it back and keep
-				req.done <- nil
-				return req
-			}
-			// dropped or cancelled, remove
-			req.done <- err // put it back for the receiver
-			q.queue.Remove(front)
-			req.elem = nil
-		default:
+		if req.result == nil {
 			return req
 		}
+		q.queue.Remove(front)
+		req.elem = nil
 	}
 	q.dropping = false
 	return nil
@@ -171,7 +160,7 @@ func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req.elem = nil
 
 	if !req.isDone() {
-		req.done <- err
+		req.signal(err)
 	}
 
 	if req.droppable {
