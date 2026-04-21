@@ -274,16 +274,7 @@ func (l *Lock) runDropTimer() {
 	}
 	l.dropTimerArmed = false
 
-	dropFn := func() bool {
-		elem := l.sq.codelq.lockedFindLowestPriorityDroppable()
-		if elem == nil {
-			return false
-		}
-		req := elem.Value.(*Request)
-		l.sq.lockedDropActive(req.contentionID, req)
-		return true
-	}
-	reschedule, delayNs := l.sq.codelq.lockedRunScheduledDrop(dropFn)
+	reschedule, delayNs := l.sq.lockedRunScheduledDrop()
 	if reschedule {
 		l.lockedScheduleDropTimer(delayNs)
 	}
