@@ -122,6 +122,22 @@ func (s *SelfContentionAwareCoDelQueue) lockedCancel(contentionID string, r *Req
 	}
 }
 
+// lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
+// lowest-priority request and handling valve promotion. Returns whether to
+// reschedule and the delay in nanoseconds.
+func (s *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() (bool, int64) {
+	dropFn := func() bool {
+		elem := s.codelq.lockedFindLowestPriorityDroppable()
+		if elem == nil {
+			return false
+		}
+		req := elem.Value.(*Request)
+		s.lockedDropActive(req.contentionID, req)
+		return true
+	}
+	return s.codelq.lockedRunScheduledDrop(dropFn)
+}
+
 // lockedMarkNotDroppable forwards to the CoDel queue.
 func (s *SelfContentionAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
 	s.codelq.lockedMarkNotDroppable(r)
