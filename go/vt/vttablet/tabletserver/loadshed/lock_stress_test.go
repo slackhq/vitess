@@ -161,44 +161,11 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 
 // --- Self-contention ---
 
-func TestLock_Stress_SelfContention(t *testing.T) {
-	cfg := defaultLockConfig()
-	l := NewLock(cfg)
-
-	var wg sync.WaitGroup
-	var completed atomic.Int64
-
-	// 10 contention IDs, 5 goroutines each
-	for id := range 10 {
-		for range 5 {
-			cid := fmt.Sprintf("id%d", id)
-			wg.Go(func() {
-				lc := defaultLockConfig()
-				lc.ContentionID = func() string { return cid }
-				// use the same underlying lock but set contention ID via goroutine-local config
-				// Actually, we need to use the Lock's config. Let me adjust.
-				_ = lc
-				u, err := l.Acquire(t.Context())
-				if err != nil {
-					return
-				}
-				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
-				u.Release()
-				completed.Add(1)
-			})
-		}
-	}
-
-	wg.Wait()
-	assert.Equal(t, int64(50), completed.Load())
-	assert.False(t, l.IsLocked())
-}
-
-func TestLock_Stress_SelfContention_Proper(t *testing.T) {
-	// each goroutine sets its contention ID via the config function
+// selfContentionLock creates a Lock whose ContentionID is read from a
+// goroutine-keyed sync.Map. Callers store their contention ID before
+// calling Acquire and delete it afterward.
+func selfContentionLock(cfg LockConfig) (*Lock, *sync.Map) {
 	var currentID sync.Map
-
-	cfg := defaultLockConfig()
 	cfg.ContentionID = func() string {
 		id, ok := currentID.Load(goroutineID())
 		if !ok {
@@ -206,14 +173,30 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 		}
 		return id.(string)
 	}
-	l := NewLock(cfg)
+	return NewLock(cfg), &currentID
+}
+
+func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
+	l, currentID := selfContentionLock(defaultLockConfig())
 
 	var wg sync.WaitGroup
+	var globalHeld atomic.Int32
+	var globalMax atomic.Int32
 	var completed atomic.Int64
 
+	type perID struct {
+		held atomic.Int32
+		max  atomic.Int32
+	}
+	ids := make([]*perID, 10)
+	for i := range ids {
+		ids[i] = &perID{}
+	}
+
 	for id := range 10 {
-		for range 5 {
+		for range 10 {
 			cid := fmt.Sprintf("id%d", id)
+			pid := ids[id]
 			wg.Go(func() {
 				gid := goroutineID()
 				currentID.Store(gid, cid)
@@ -223,7 +206,20 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 				if err != nil {
 					return
 				}
-				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
+
+				gv := globalHeld.Add(1)
+				if gv > globalMax.Load() {
+					globalMax.Store(gv)
+				}
+				pv := pid.held.Add(1)
+				if pv > pid.max.Load() {
+					pid.max.Store(pv)
+				}
+
+				time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
+
+				pid.held.Add(-1)
+				globalHeld.Add(-1)
 				u.Release()
 				completed.Add(1)
 			})
@@ -231,7 +227,291 @@ func TestLock_Stress_SelfContention_Proper(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.Equal(t, int64(50), completed.Load())
+	assert.Equal(t, int64(100), completed.Load())
+	assert.LessOrEqual(t, globalMax.Load(), int32(1), "mutual exclusion violated")
+	for id, pid := range ids {
+		assert.LessOrEqual(t, pid.max.Load(), int32(1),
+			"contention ID %d had concurrent holders", id)
+	}
+	assert.False(t, l.IsLocked())
+}
+
+func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
+	l, currentID := selfContentionLock(defaultLockConfig())
+
+	// Hold the lock so all 20 goroutines enqueue before any are granted.
+	gid := goroutineID()
+	currentID.Store(gid, "order-test")
+	unlock, err := l.Acquire(t.Context())
+	currentID.Delete(gid)
+	require.NoError(t, err)
+
+	const n = 20
+	var mu sync.Mutex
+	var order []int
+	var wg sync.WaitGroup
+
+	for i := range n {
+		time.Sleep(2 * time.Millisecond)
+		idx := i
+		wg.Go(func() {
+			gid := goroutineID()
+			currentID.Store(gid, "order-test")
+			defer currentID.Delete(gid)
+
+			u, err := l.Acquire(t.Context())
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			order = append(order, idx)
+			mu.Unlock()
+			u.Release()
+		})
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	unlock.Release()
+	wg.Wait()
+
+	expected := make([]int, n)
+	for i := range n {
+		expected[i] = i
+	}
+	assert.Equal(t, expected, order, "valve should preserve FIFO order within contention ID")
+	assert.False(t, l.IsLocked())
+}
+
+func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
+	cfg := defaultLockConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
+	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
+	l, currentID := selfContentionLock(cfg)
+
+	// Hold the lock to build queue pressure.
+	gid := goroutineID()
+	currentID.Store(gid, "holder")
+	unlock, err := l.Acquire(t.Context())
+	currentID.Delete(gid)
+	require.NoError(t, err)
+
+	const numIDs = 5
+	const perID = 10
+	type result struct {
+		id      int
+		granted bool
+	}
+	results := make(chan result, numIDs*perID)
+
+	var wg sync.WaitGroup
+	for id := range numIDs {
+		for range perID {
+			cid := fmt.Sprintf("drop-id%d", id)
+			idx := id
+			wg.Go(func() {
+				gid := goroutineID()
+				currentID.Store(gid, cid)
+				defer currentID.Delete(gid)
+
+				u, err := l.Acquire(t.Context())
+				if err != nil {
+					results <- result{id: idx, granted: false}
+					return
+				}
+				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
+				u.Release()
+				results <- result{id: idx, granted: true}
+			})
+		}
+	}
+
+	// Hold long enough for CoDel to start dropping.
+	time.Sleep(100 * time.Millisecond)
+	unlock.Release()
+	wg.Wait()
+	close(results)
+
+	granted := make([]int, numIDs)
+	dropped := make([]int, numIDs)
+	for r := range results {
+		if r.granted {
+			granted[r.id]++
+		} else {
+			dropped[r.id]++
+		}
+	}
+
+	for id := range numIDs {
+		total := granted[id] + dropped[id]
+		assert.Equal(t, perID, total,
+			"contention ID %d: granted(%d) + dropped(%d) != total(%d)",
+			id, granted[id], dropped[id], perID)
+	}
+	assert.False(t, l.IsLocked())
+}
+
+func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
+	l, currentID := selfContentionLock(defaultLockConfig())
+
+	// Hold the lock so all waiters queue up.
+	gid := goroutineID()
+	currentID.Store(gid, "cancel-test")
+	unlock, err := l.Acquire(t.Context())
+	currentID.Delete(gid)
+	require.NoError(t, err)
+
+	const n = 20
+	ctxs := make([]context.Context, n)
+	cancels := make([]context.CancelFunc, n)
+	results := make([]chan error, n)
+
+	var wg sync.WaitGroup
+	for i := range n {
+		ctxs[i], cancels[i] = context.WithCancel(t.Context())
+		results[i] = make(chan error, 1)
+		idx := i
+		wg.Go(func() {
+			gid := goroutineID()
+			currentID.Store(gid, "cancel-test")
+			defer currentID.Delete(gid)
+
+			u, err := l.Acquire(ctxs[idx])
+			if err != nil {
+				results[idx] <- err
+				return
+			}
+			time.Sleep(time.Millisecond)
+			u.Release()
+			results[idx] <- nil
+		})
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel every other waiter.
+	for i := 0; i < n; i += 2 {
+		cancels[i]()
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	unlock.Release()
+	wg.Wait()
+
+	for i := range n {
+		select {
+		case err := <-results[i]:
+			if i%2 == 0 {
+				assert.ErrorIs(t, err, context.Canceled,
+					"waiter %d should have been cancelled", i)
+			} else {
+				assert.NoError(t, err,
+					"waiter %d should have been granted", i)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("waiter %d did not return", i)
+		}
+	}
+	assert.False(t, l.IsLocked())
+}
+
+func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
+	cfg := defaultLockConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
+	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
+	cfg.MaxAge = func() time.Duration { return 50 * time.Millisecond }
+	l, currentID := selfContentionLock(cfg)
+
+	const numIDs = 5
+	const perID = 8
+	const total = numIDs * perID
+
+	var granted, dropped, cancelled atomic.Int64
+	var wg sync.WaitGroup
+
+	for id := range numIDs {
+		for range perID {
+			cid := fmt.Sprintf("mix-id%d", id)
+			wg.Go(func() {
+				gid := goroutineID()
+				currentID.Store(gid, cid)
+				defer currentID.Delete(gid)
+
+				timeout := time.Duration(1+rand.IntN(20)) * time.Millisecond
+				ctx, cancel := context.WithTimeout(t.Context(), timeout)
+				defer cancel()
+
+				u, err := l.Acquire(ctx)
+				if err != nil {
+					if ctx.Err() != nil {
+						cancelled.Add(1)
+					} else {
+						dropped.Add(1)
+					}
+					return
+				}
+				time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
+				u.Release()
+				granted.Add(1)
+			})
+		}
+	}
+
+	wg.Wait()
+
+	g, d, c := granted.Load(), dropped.Load(), cancelled.Load()
+	assert.Equal(t, int64(total), g+d+c,
+		"granted(%d) + dropped(%d) + cancelled(%d) != total(%d)", g, d, c, total)
+	assert.False(t, l.IsLocked())
+}
+
+func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
+	l, currentID := selfContentionLock(defaultLockConfig())
+
+	const numIDs = 5
+	const goroutinesPerID = 4
+	deadline := time.Now().Add(500 * time.Millisecond)
+
+	var globalHeld atomic.Int32
+	var globalMax atomic.Int32
+	var totalAcquires atomic.Int64
+	var wg sync.WaitGroup
+
+	for id := range numIDs {
+		for range goroutinesPerID {
+			cid := fmt.Sprintf("sustained-id%d", id)
+			wg.Go(func() {
+				gid := goroutineID()
+				currentID.Store(gid, cid)
+				defer currentID.Delete(gid)
+
+				for time.Now().Before(deadline) {
+					u, err := l.Acquire(t.Context())
+					if err != nil {
+						continue
+					}
+
+					v := globalHeld.Add(1)
+					if v > globalMax.Load() {
+						globalMax.Store(v)
+					}
+
+					time.Sleep(time.Duration(500+rand.IntN(1500)) * time.Microsecond)
+
+					globalHeld.Add(-1)
+					u.Release()
+					totalAcquires.Add(1)
+				}
+			})
+		}
+	}
+
+	wg.Wait()
+	assert.LessOrEqual(t, globalMax.Load(), int32(1), "mutual exclusion violated")
+	assert.Greater(t, totalAcquires.Load(), int64(50),
+		"too few acquires — test may not be exercising contention")
 	assert.False(t, l.IsLocked())
 }
 
