@@ -36,7 +36,7 @@ var (
 	vreplicationExperimentalFlags   = VReplicationExperimentalFlagOptimizeInserts | VReplicationExperimentalFlagAllowNoBlobBinlogRowImage | VReplicationExperimentalFlagVPlayerBatching
 	vreplicationNetReadTimeout      = 300
 	vreplicationNetWriteTimeout     = 600
-	vreplicationCopyPhaseDuration   = 1 * time.Hour
+	vreplicationCopyPhaseDuration   = 10 * time.Minute
 	vreplicationRetryDelay          = 5 * time.Second
 	vreplicationMaxTimeToRetryError = 0 * time.Second // Default behavior is to keep retrying, for backward compatibility
 
