@@ -71,6 +71,7 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		IdleTimeout:     cfg.IdleTimeout,
 		MaxLifetime:     cfg.MaxLifetime,
 		RefreshInterval: mysqlctl.PoolDynamicHostnameResolution,
+		MaxWaiters:      cfg.MaxWaiters,
 	}
 
 	if name != "" {
