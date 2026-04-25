@@ -94,6 +94,10 @@ func (cached *Row) CachedSize(alloc bool) int64 {
 	if alloc {
 		size += int64(96)
 	}
+	// field unknownFields []byte
+	{
+		size += hack.RuntimeAllocSize(int64(cap(cached.unknownFields)))
+	}
 	// field Lengths []int64
 	{
 		size += hack.RuntimeAllocSize(int64(cap(cached.Lengths)) * int64(8))
@@ -101,10 +105,6 @@ func (cached *Row) CachedSize(alloc bool) int64 {
 	// field Values []byte
 	{
 		size += hack.RuntimeAllocSize(int64(cap(cached.Values)))
-	}
-	// field unknownFields google.golang.org/protobuf/runtime/protoimpl.UnknownFields
-	{
-		size += hack.RuntimeAllocSize(int64(cap(cached.unknownFields)))
 	}
 	return size
 }
