@@ -86,6 +86,28 @@ func (cached *QueryWarning) CachedSize(alloc bool) int64 {
 	size += hack.RuntimeAllocSize(int64(len(cached.Message)))
 	return size
 }
+func (cached *Row) CachedSize(alloc bool) int64 {
+	if cached == nil {
+		return int64(0)
+	}
+	size := int64(0)
+	if alloc {
+		size += int64(96)
+	}
+	// field unknownFields []byte
+	{
+		size += hack.RuntimeAllocSize(int64(cap(cached.unknownFields)))
+	}
+	// field Lengths []int64
+	{
+		size += hack.RuntimeAllocSize(int64(cap(cached.Lengths)) * int64(8))
+	}
+	// field Values []byte
+	{
+		size += hack.RuntimeAllocSize(int64(cap(cached.Values)))
+	}
+	return size
+}
 func (cached *Target) CachedSize(alloc bool) int64 {
 	if cached == nil {
 		return int64(0)
