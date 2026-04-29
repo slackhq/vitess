@@ -46,18 +46,17 @@ var _ plancontext.VSchema = (*VSchemaWrapper)(nil)
 // VSchemaWrapper is a wrapper around VSchema that implements the ContextVSchema interface.
 // It is used in tests to provide a VSchema implementation.
 type VSchemaWrapper struct {
-	Vcursor                          *econtext.VCursorImpl
-	V                                *vindexes.VSchema
-	Keyspace                         *vindexes.Keyspace
-	TabletType_                      topodatapb.TabletType
-	Dest                             key.ShardDestination
-	SysVarEnabled                    bool
-	ForeignKeyChecksState            *bool
-	Version                          plancontext.PlannerVersion
-	EnableViews                      bool
-	EnableScatterUpdateLimitPassthru bool
-	TestBuilder                      func(query string, vschema plancontext.VSchema, keyspace string) (*engine.Plan, error)
-	Env                              *vtenv.Environment
+	Vcursor               *econtext.VCursorImpl
+	V                     *vindexes.VSchema
+	Keyspace              *vindexes.Keyspace
+	TabletType_           topodatapb.TabletType
+	Dest                  key.ShardDestination
+	SysVarEnabled         bool
+	ForeignKeyChecksState *bool
+	Version               plancontext.PlannerVersion
+	EnableViews           bool
+	TestBuilder           func(query string, vschema plancontext.VSchema, keyspace string) (*engine.Plan, error)
+	Env                   *vtenv.Environment
 }
 
 func NewVschemaWrapper(
@@ -131,10 +130,6 @@ func (vw *VSchemaWrapper) GetUDV(name string) *querypb.BindVariable {
 
 func (vw *VSchemaWrapper) IsShardRoutingEnabled() bool {
 	return false
-}
-
-func (vw *VSchemaWrapper) IsScatterUpdateLimitPassthruEnabled() bool {
-	return vw.EnableScatterUpdateLimitPassthru
 }
 
 func (vw *VSchemaWrapper) GetVSchema() *vindexes.VSchema {

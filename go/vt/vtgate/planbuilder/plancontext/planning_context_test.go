@@ -336,10 +336,6 @@ func (v *vschema) IsShardRoutingEnabled() bool {
 	panic("implement me")
 }
 
-func (v *vschema) IsScatterUpdateLimitPassthruEnabled() bool {
-	return false
-}
-
 func (v *vschema) IsViewsEnabled() bool {
 	// TODO implement me
 	panic("implement me")

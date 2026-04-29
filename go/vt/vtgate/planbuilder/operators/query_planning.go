@@ -525,11 +525,7 @@ func tryPushingDownLimitInRoute(ctx *plancontext.PlanningContext, in *Limit, src
 	}
 
 	if sqlparser.IsDMLStatement(ctx.Statement) {
-		// When scatter-update-limit-passthru is enabled, for non-scatter multi-shard DML
-		// routes (e.g., IN clause on vindex), push the LIMIT under the route so each shard
-		// gets the LIMIT directly. This restores v19 behavior where LIMIT was pushed to
-		// individual shards rather than requiring DMLWithInput and schema tracking.
-		if ctx.VSchema.IsScatterUpdateLimitPassthruEnabled() && src.Routing.OpCode() != engine.Scatter {
+		if src.Routing.OpCode() != engine.Scatter {
 			return Swap(in, src, "push limit under route")
 		}
 		return setUpperLimit(in)

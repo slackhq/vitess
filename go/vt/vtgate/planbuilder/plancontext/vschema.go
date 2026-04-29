@@ -80,10 +80,6 @@ type VSchema interface {
 	// IsShardRoutingEnabled returns true if partial shard routing is enabled
 	IsShardRoutingEnabled() bool
 
-	// IsScatterUpdateLimitPassthruEnabled returns true if non-scatter multi-shard DML
-	// with LIMIT should push the LIMIT to each shard instead of using DMLWithInput.
-	IsScatterUpdateLimitPassthruEnabled() bool
-
 	// IsViewsEnabled returns true if Vitess manages the views.
 	IsViewsEnabled() bool
 
