@@ -132,6 +132,26 @@ func TestIsMySQLReachable_TooManyConnectionsTreatedAsReachable(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
+func TestIsMySQLReachable_MaxUserConnectionsTreatedAsReachable(t *testing.T) {
+	calls := 0
+	err := isMySQLReachable(func() error {
+		calls++
+		return sqlerror.NewSQLError(sqlerror.ERUserLimitReached, sqlerror.SSUnknownSQLState, "User 'vt_app' has exceeded the 'max_user_connections' resource (current value: 1000)")
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, calls)
+}
+
+func TestIsMySQLReachable_TooManyUserConnectionsTreatedAsReachable(t *testing.T) {
+	calls := 0
+	err := isMySQLReachable(func() error {
+		calls++
+		return sqlerror.NewSQLError(sqlerror.ERTooManyUserConnections, sqlerror.SSUnknownSQLState, "Too many connections for user")
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, calls)
+}
+
 func TestIsMySQLReachable_ExponentialBackoff(t *testing.T) {
 	defer func(d time.Duration) { healthCheckRetryBaseDelay = d }(healthCheckRetryBaseDelay)
 	healthCheckRetryBaseDelay = 50 * time.Millisecond

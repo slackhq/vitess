@@ -537,7 +537,7 @@ func (qe *QueryEngine) ForEachPlan(each func(plan *TabletPlan) bool) {
 // This can be called before opening the QueryEngine.
 func (qe *QueryEngine) IsMySQLReachable() error {
 	return isMySQLReachable(func() error {
-		conn, err := dbconnpool.NewDBConnection(context.TODO(), qe.env.Config().DB.AppWithDB())
+		conn, err := dbconnpool.NewDBConnection(context.TODO(), qe.env.Config().DB.DbaWithDB())
 		if err != nil {
 			return err
 		}
