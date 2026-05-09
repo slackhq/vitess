@@ -125,8 +125,7 @@ func (q *CoDelQueue) lockedDequeue() *Request {
 	sojournTime := now - req.enqueuedAt
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
-		q.stopDropTimer()
-		q.scheduleDropIfNeeded()
+		q.lockedClearTimerFlag()
 	}
 
 	return req
@@ -167,7 +166,7 @@ func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 		req.droppable = false
 		q.droppableLen--
 		if q.droppableLen == 0 {
-			q.stopDropTimer()
+			q.lockedClearTimerFlag()
 		}
 	}
 
@@ -186,13 +185,13 @@ func (q *CoDelQueue) lockedCancel(r *Request) {
 		r.droppable = false
 		q.droppableLen--
 		if q.droppableLen == 0 {
-			q.stopDropTimer()
+			q.lockedClearTimerFlag()
 		}
 	}
 }
 
-// lockedMarkNotDroppable marks a request as not droppable (e.g., when it
-// becomes the lock holder). Decrements droppableLen if needed.
+// lockedMarkNotDroppable marks a request as not droppable (e.g., when it is
+// granted). Decrements droppableLen if needed.
 func (q *CoDelQueue) lockedMarkNotDroppable(r *Request) {
 	if !r.droppable {
 		return
@@ -200,7 +199,7 @@ func (q *CoDelQueue) lockedMarkNotDroppable(r *Request) {
 	r.droppable = false
 	q.droppableLen--
 	if q.droppableLen == 0 {
-		q.stopDropTimer()
+		q.lockedClearTimerFlag()
 	}
 }
 
@@ -317,12 +316,6 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	return result
 }
 
-func (q *CoDelQueue) stopDropTimer() {
+func (q *CoDelQueue) lockedClearTimerFlag() {
 	q.timerScheduled = false
-}
-
-func (q *CoDelQueue) scheduleDropIfNeeded() {
-	// no-op at this level: signaling for timer schedule is done via return
-	// values from lockedEnqueue and lockedRunScheduledDrop. The parent (Lock)
-	// manages the actual timer.
 }
