@@ -18,9 +18,12 @@ package tabletserver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -714,12 +717,13 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 
 		if original {
 			defer q.Broadcast()
-			conn, err := qre.getConn()
+			conn, release, err := qre.getConn()
 
 			if err != nil {
 				q.SetErr(err)
 			} else {
 				defer conn.Recycle()
+				defer release()
 				res, err := qre.execDBConn(conn.Conn, sql, true)
 				if qre.tsv.config.ConsolidatorCacheProto3Rows && q.HasWaiters() {
 					res.CacheProto3Rows()
@@ -755,11 +759,12 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		}
 		// If waiter cap exceeded, fall through to independent execution
 	}
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	res, err := qre.execDBConn(conn.Conn, sql, true)
 	if err != nil {
 		return nil, err
@@ -797,22 +802,55 @@ func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 }
 
 func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	return qre.execDBConn(conn.Conn, qre.query, true)
 }
 
-func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
+func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+
+	snake := qre.tsv.qe.snake
+	if snake != nil {
+		contentionID := extractUniqueID(qre.marginComments.Leading)
+		unlock, err := snake.Acquire(ctx, contentionID)
+		if err != nil {
+			return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
+		}
+		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+		if err != nil {
+			unlock.Release()
+			return nil, nil, err
+		}
+		return conn, func() { unlock.Release() }, nil
+	}
+
+	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, func() {}, nil
+}
+
+var uniqueIDRegex = regexp.MustCompile(`unique_id=([^\s*/]+)`)
+
+func extractUniqueID(comment string) string {
+	matches := uniqueIDRegex.FindStringSubmatch(comment)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	var buf [8]byte
+	_, _ = rand.Read(buf[:])
+	return hex.EncodeToString(buf[:])
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
@@ -927,11 +965,12 @@ func rewriteOUTParamError(err error) error {
 }
 
 func (qre *QueryExecutor) execCallProc() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	sql, _, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err

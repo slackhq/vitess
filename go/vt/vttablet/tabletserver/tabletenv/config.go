@@ -80,6 +80,7 @@ var (
 	unhealthyThreshold           time.Duration
 	transitionGracePeriod        time.Duration
 	enableReplicationReporter    bool
+	enableSnake                  bool
 )
 
 func init() {
@@ -223,6 +224,10 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.EnablePerWorkloadTableMetrics, "enable-per-workload-table-metrics", defaultConfig.EnablePerWorkloadTableMetrics, "If true, query counts and query error metrics include a label that identifies the workload")
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
+
+	fs.BoolVar(&enableSnake, "snake-enabled", false, "If true, enables CoDel-based load shedding (Snake) on the OLTP read pool.")
+	fs.DurationVar(&currentConfig.SnakeTarget, "snake-target", 5*time.Millisecond, "CoDel target delay for the Snake load shedder.")
+	fs.DurationVar(&currentConfig.SnakeInterval, "snake-interval", 100*time.Millisecond, "CoDel interval for the Snake load shedder.")
 }
 
 var (
@@ -295,6 +300,7 @@ func Init() {
 	currentConfig.GracePeriods.Transition = transitionGracePeriod
 	currentConfig.SemiSyncMonitor.Interval = semiSyncMonitorInterval
 
+	currentConfig.SnakeEnabled = enableSnake
 	logFormat := streamlog.GetQueryLogConfig().Format
 	switch logFormat {
 	case streamlog.QueryLogFormatText:
@@ -387,6 +393,10 @@ type TabletConfig struct {
 	EnableViews bool `json:"-"`
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
+
+	SnakeEnabled  bool          `json:"-"`
+	SnakeTarget   time.Duration `json:"-"`
+	SnakeInterval time.Duration `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
