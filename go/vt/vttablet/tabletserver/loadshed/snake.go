@@ -99,7 +99,16 @@ func (s *Snake) Acquire(ctx context.Context) (*SafeUnlock, error) {
 	if s.cfg.ContentionID != nil {
 		contentionID = s.cfg.ContentionID()
 	}
+	return s.acquire(ctx, contentionID)
+}
 
+// AcquireWithContentionID is like Acquire but uses the provided contention
+// ID instead of the one from SnakeConfig.ContentionID.
+func (s *Snake) AcquireWithContentionID(ctx context.Context, contentionID string) (*SafeUnlock, error) {
+	return s.acquire(ctx, contentionID)
+}
+
+func (s *Snake) acquire(ctx context.Context, contentionID string) (*SafeUnlock, error) {
 	priority := s.priority()
 
 	s.mu.Lock()

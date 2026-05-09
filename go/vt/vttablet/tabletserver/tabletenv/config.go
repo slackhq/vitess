@@ -82,6 +82,7 @@ var (
 	transitionGracePeriod               time.Duration
 	enableReplicationReporter           bool
 	queryThrottlerConfigRefreshInterval time.Duration
+	enableSnake                         bool
 )
 
 func init() {
@@ -227,6 +228,10 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&queryThrottlerConfigRefreshInterval, "query-throttler-config-refresh-interval", time.Minute, "How frequently to refresh configuration for the query throttler")
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
+
+	utils.SetFlagBoolVar(fs, &enableSnake, "snake-enabled", false, "If true, enables CoDel-based load shedding (Snake) on the OLTP read pool.")
+	fs.DurationVar(&currentConfig.SnakeTarget, "snake-target", 5*time.Millisecond, "CoDel target delay for the Snake load shedder.")
+	fs.DurationVar(&currentConfig.SnakeInterval, "snake-interval", 100*time.Millisecond, "CoDel interval for the Snake load shedder.")
 }
 
 var (
@@ -290,6 +295,7 @@ func Init() {
 	currentConfig.SemiSyncMonitor.Interval = semiSyncMonitorInterval
 
 	currentConfig.QueryThrottlerConfigRefreshInterval = queryThrottlerConfigRefreshInterval
+	currentConfig.SnakeEnabled = enableSnake
 
 	logFormat := streamlog.GetQueryLogConfig().Format
 	switch logFormat {
@@ -384,6 +390,10 @@ type TabletConfig struct {
 	EnablePerWorkloadTableMetrics       bool          `json:"-"`
 	SkipUserMetrics                     bool          `json:"-"`
 	QueryThrottlerConfigRefreshInterval time.Duration `json:"-"`
+
+	SnakeEnabled  bool          `json:"-"`
+	SnakeTarget   time.Duration `json:"-"`
+	SnakeInterval time.Duration `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
