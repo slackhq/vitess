@@ -18,12 +18,9 @@ package tabletserver
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -845,17 +842,19 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 
 	snake := qre.tsv.qe.snake
 	if snake != nil {
-		contentionID := extractUniqueID(qre.marginComments.Leading)
-		unlock, err := snake.AcquireWithContentionID(ctx, contentionID)
-		if err != nil {
-			return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
+		contentionID := qre.options.GetUniqueId()
+		if contentionID != "" {
+			unlock, err := snake.AcquireWithContentionID(ctx, contentionID)
+			if err != nil {
+				return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
+			}
+			conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+			if err != nil {
+				unlock.Release()
+				return nil, nil, err
+			}
+			return conn, func() { unlock.Release() }, nil
 		}
-		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
-		if err != nil {
-			unlock.Release()
-			return nil, nil, err
-		}
-		return conn, func() { unlock.Release() }, nil
 	}
 
 	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
@@ -863,18 +862,6 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		return nil, nil, err
 	}
 	return conn, func() {}, nil
-}
-
-var uniqueIDRegex = regexp.MustCompile(`unique_id=([^\s*/]+)`)
-
-func extractUniqueID(comment string) string {
-	matches := uniqueIDRegex.FindStringSubmatch(comment)
-	if len(matches) > 1 {
-		return matches[1]
-	}
-	var buf [8]byte
-	_, _ = rand.Read(buf[:])
-	return hex.EncodeToString(buf[:])
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
