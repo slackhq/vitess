@@ -233,6 +233,67 @@ func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
 	assert.False(t, exists, "empty valve should be removed from map")
 }
 
+// --- Promotion on grant tests ---
+
+func TestSelfAware_Promotion_OnGrant(t *testing.T) {
+	clock := newTestClock()
+	sq := newTestSelfAware(clock)
+
+	r1, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+	r2, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+
+	assert.Nil(t, r2.elem, "r2 in valve before grant")
+
+	// simulate grant of r1
+	sq.lockedMarkNotDroppable(r1)
+	sq.lockedPromoteOnGrant(r1.contentionID)
+
+	assert.NotNil(t, r2.elem, "r2 promoted to CoDel queue after r1 granted")
+	assert.Equal(t, 2, sq.lockedLen(), "both r1 (undroppable) and r2 (droppable) in queue")
+}
+
+func TestSelfAware_Promotion_OnGrant_Chain(t *testing.T) {
+	clock := newTestClock()
+	sq := newTestSelfAware(clock)
+
+	r1, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+	r2, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+	r3, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+
+	// grant r1 → promotes r2
+	sq.lockedMarkNotDroppable(r1)
+	sq.lockedPromoteOnGrant(r1.contentionID)
+	assert.NotNil(t, r2.elem, "r2 promoted after r1 granted")
+	assert.Nil(t, r3.elem, "r3 still in valve")
+
+	// grant r2 → promotes r3
+	sq.lockedMarkNotDroppable(r2)
+	sq.lockedPromoteOnGrant(r2.contentionID)
+	assert.NotNil(t, r3.elem, "r3 promoted after r2 granted")
+
+	assert.Equal(t, 3, sq.lockedLen(), "all three in CoDel queue")
+}
+
+func TestSelfAware_Complete_NoDoublePromote(t *testing.T) {
+	clock := newTestClock()
+	sq := newTestSelfAware(clock)
+
+	r1, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+	_, _, _ = sq.lockedEnqueue("id1", NewPriority(0))
+	r3, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
+
+	// grant r1 → promotes r2 into CoDel queue
+	sq.lockedMarkNotDroppable(r1)
+	sq.lockedPromoteOnGrant(r1.contentionID)
+
+	// complete r1 (release) — should NOT promote r3 (r2 is still active/droppable)
+	sq.lockedComplete(r1)
+
+	assert.Nil(t, r3.elem, "r3 should still be in valve — r2 is the active droppable request")
+	assert.Equal(t, 1, sq.lockedLen(), "only r2 in CoDel queue (r1 removed by complete)")
+	assert.Equal(t, 2, sq.outstandingCounts["id1"], "r2 + r3 still outstanding")
+}
+
 // --- FIFO within contention ---
 
 func TestSelfAware_FIFO_WithinContention(t *testing.T) {

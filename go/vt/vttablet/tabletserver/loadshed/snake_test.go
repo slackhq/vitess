@@ -1129,3 +1129,32 @@ func TestSnake_CapacityN_MutualExclusion_AtN(t *testing.T) {
 	assert.Greater(t, maxHeld.Load(), int32(1), "should have had concurrent holders")
 	assert.Equal(t, 0, s.InFlight())
 }
+
+func TestSnake_SelfContention_ConcurrentGrant(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 3 }
+	contentionID := "same-id"
+	cfg.ContentionID = func() string { return contentionID }
+	s := newTestSnake(cfg)
+
+	var granted atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(3)
+	for range 3 {
+		go func() {
+			defer wg.Done()
+			u, err := s.Acquire(t.Context())
+			require.NoError(t, err)
+			granted.Add(1)
+			time.Sleep(50 * time.Millisecond)
+			u.Release()
+		}()
+	}
+
+	assert.Eventually(t, func() bool {
+		return granted.Load() == 3
+	}, 5*time.Second, 10*time.Millisecond, "all 3 requests for same contention ID should be granted concurrently")
+
+	wg.Wait()
+	assert.Equal(t, 0, s.InFlight())
+}

@@ -219,6 +219,7 @@ func (s *Snake) lockedGrant(req *Request) {
 	s.inFlight++
 	s.holders[req] = struct{}{}
 	s.sq.lockedMarkNotDroppable(req)
+	s.sq.lockedPromoteOnGrant(req.contentionID)
 	s.lockedStartMaxAgeTimer(req)
 	if !req.isDone() {
 		req.signal(nil)
