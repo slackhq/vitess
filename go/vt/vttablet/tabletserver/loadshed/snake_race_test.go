@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLock_CancelVsGrant_Race proves and verifies the fix for a race between
+// TestSnake_CancelVsGrant_Race proves and verifies the fix for a race between
 // context cancellation and lock grant in Acquire's double-select.
 //
 // The race window: the releaser sets holder=B and unlocks, then signals B.
@@ -36,18 +36,18 @@ import (
 // (done channel empty) and acquire the mutex. Without the fix, B would call
 // lockedCancel on itself (the holder), leaking the grant.
 //
-// With the fix, the default branch checks l.holder == req after acquiring the
+// With the fix, the default branch checks s.holder == req after acquiring the
 // mutex. If true, it calls releaseInternal to hand the lock to the next waiter.
-func TestLock_CancelVsGrant_Race(t *testing.T) {
+func TestSnake_CancelVsGrant_Race(t *testing.T) {
 	const iterations = 50000
 
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	var leaked atomic.Int64
 
 	for range iterations {
-		l := newTestLock(cfg)
+		s := newTestSnake(cfg)
 
-		unlockA, err := l.Acquire(t.Context(), "")
+		unlockA, err := s.Acquire(t.Context(), "")
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -60,7 +60,7 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			unlockB, acquireErr = l.Acquire(ctx, "")
+			unlockB, acquireErr = s.Acquire(ctx, "")
 		}()
 
 		runtime.Gosched()
@@ -73,9 +73,9 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 
 		if acquireErr != nil {
 			// B was cancelled. Verify the lock isn't stuck.
-			l.mu.Lock()
-			holderAfterCancel := l.holder
-			l.mu.Unlock()
+			s.mu.Lock()
+			holderAfterCancel := s.holder
+			s.mu.Unlock()
 
 			if holderAfterCancel != nil {
 				leaked.Add(1)
@@ -83,7 +83,7 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 
 			// Verify lock is still usable.
 			ctx2, cancel2 := context.WithTimeout(t.Context(), 10*time.Millisecond)
-			unlockC, err2 := l.Acquire(ctx2, "")
+			unlockC, err2 := s.Acquire(ctx2, "")
 			cancel2()
 			if assert.NoError(t, err2, "lock must remain acquirable") {
 				unlockC.Release()
