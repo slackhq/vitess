@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func defaultLockConfig() LockConfig {
-	return LockConfig{
-		Name: "test-lock",
+func defaultSnakeConfig() SnakeConfig {
+	return SnakeConfig{
+		Name: "test-snake",
 		CoDel: CoDelConfig{
 			IntervalNs:     func() int64 { return int64(1e9) },
 			TargetNs:       func() int64 { return int64(1e9) },
@@ -41,44 +41,44 @@ func defaultLockConfig() LockConfig {
 	}
 }
 
-func newTestLock(cfg LockConfig) *Lock {
-	return NewLock(cfg)
+func newTestSnake(cfg SnakeConfig) *Snake {
+	return NewSnake(cfg)
 }
 
 // --- Basic acquire/release ---
 
-func TestLock_AcquireRelease_Basic(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_AcquireRelease_Basic(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
-	assert.True(t, l.IsLocked())
+	assert.True(t, s.IsLocked())
 
 	err = unlock.Release()
 	assert.NoError(t, err)
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_AcquireRelease_Sequential(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_AcquireRelease_Sequential(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
 	for range 10 {
-		unlock, err := l.Acquire(t.Context(), "")
+		unlock, err := s.Acquire(t.Context(), "")
 		require.NoError(t, err)
-		assert.True(t, l.IsLocked())
+		assert.True(t, s.IsLocked())
 
 		err = unlock.Release()
 		assert.NoError(t, err)
-		assert.False(t, l.IsLocked())
+		assert.False(t, s.IsLocked())
 	}
 }
 
 // --- Mutual exclusion ---
 
-func TestLock_MutualExclusion(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_MutualExclusion(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
 	var held atomic.Int32
 	var wg sync.WaitGroup
@@ -87,7 +87,7 @@ func TestLock_MutualExclusion(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			unlock, err := l.Acquire(t.Context(), "")
+			unlock, err := s.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
@@ -101,16 +101,15 @@ func TestLock_MutualExclusion(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- FIFO ordering ---
 
-func TestLock_FIFO_Order(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_FIFO_Order(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	// acquire first to force others to wait
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -118,13 +117,12 @@ func TestLock_FIFO_Order(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 5 {
-		// small sleep to ensure enqueue order
 		time.Sleep(2 * time.Millisecond)
 		idx := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
@@ -135,7 +133,6 @@ func TestLock_FIFO_Order(t *testing.T) {
 		}()
 	}
 
-	// give goroutines time to enqueue
 	time.Sleep(20 * time.Millisecond)
 
 	unlock1.Release()
@@ -146,22 +143,21 @@ func TestLock_FIFO_Order(t *testing.T) {
 
 // --- Release wakes next ---
 
-func TestLock_ReleaseWakesNext(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_ReleaseWakesNext(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "")
 		if err == nil {
 			close(acquired)
 			u.Release()
 		}
 	}()
 
-	// waiter shouldn't be signaled yet
 	select {
 	case <-acquired:
 		t.Fatal("second acquire should not have succeeded yet")
@@ -172,7 +168,6 @@ func TestLock_ReleaseWakesNext(t *testing.T) {
 
 	select {
 	case <-acquired:
-		// success
 	case <-time.After(1 * time.Second):
 		t.Fatal("second acquire was never woken")
 	}
@@ -180,22 +175,20 @@ func TestLock_ReleaseWakesNext(t *testing.T) {
 
 // --- Context cancellation ---
 
-func TestLock_ContextCancellation(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_ContextCancellation(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	// hold the lock
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := l.Acquire(ctx, "")
+		_, err := s.Acquire(ctx, "")
 		errCh <- err
 	}()
 
-	// give goroutine time to enqueue
 	time.Sleep(10 * time.Millisecond)
 
 	cancel()
@@ -208,19 +201,19 @@ func TestLock_ContextCancellation(t *testing.T) {
 	}
 
 	unlock.Release()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_ContextTimeout(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_ContextTimeout(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err = l.Acquire(ctx, "")
+	_, err = s.Acquire(ctx, "")
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	unlock.Release()
@@ -228,17 +221,17 @@ func TestLock_ContextTimeout(t *testing.T) {
 
 // --- Cancel-vs-grant race ---
 
-func TestLock_ContextCancel_RaceWithGrant(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_ContextCancel_RaceWithGrant(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
 	waiter2Done := make(chan error, 1)
 	go func() {
-		u, err := l.Acquire(ctx, "")
+		u, err := s.Acquire(ctx, "")
 		if err == nil {
 			u.Release()
 		}
@@ -247,7 +240,7 @@ func TestLock_ContextCancel_RaceWithGrant(t *testing.T) {
 
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "")
 		if err == nil {
 			u.Release()
 		}
@@ -271,16 +264,15 @@ func TestLock_ContextCancel_RaceWithGrant(t *testing.T) {
 		t.Fatal("waiter3 was orphaned — lock leaked after cancel-vs-grant race")
 	}
 
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Self-contention ---
 
-func TestLock_SelfContention_Serialized(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_SelfContention_Serialized(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	// hold the lock
-	unlock1, err := l.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1")
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -293,7 +285,7 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "id1")
+			u, err := s.Acquire(t.Context(), "id1")
 			if err != nil {
 				return
 			}
@@ -308,18 +300,15 @@ func TestLock_SelfContention_Serialized(t *testing.T) {
 	unlock1.Release()
 	wg.Wait()
 
-	// same valve ID → serialized through valve → FIFO
 	assert.Equal(t, []int{0, 1, 2}, order)
 }
 
-func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_SelfContention_DifferentIDs_Independent(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	// hold the lock
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
-	// both use unique IDs, so both enter CoDel queue directly
 	acquired := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 	for i := range 2 {
@@ -327,7 +316,7 @@ func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), valveID)
+			u, err := s.Acquire(t.Context(), valveID)
 			if err != nil {
 				return
 			}
@@ -345,20 +334,20 @@ func TestLock_SelfContention_DifferentIDs_Independent(t *testing.T) {
 
 // --- CoDel drop ---
 
-func TestLock_DroppedRequest(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_DroppedRequest(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	errCh := make(chan error, 5)
 	for range 5 {
 		go func() {
-			_, err := l.Acquire(t.Context(), "")
+			_, err := s.Acquire(t.Context(), "")
 			errCh <- err
 		}()
 	}
@@ -383,20 +372,20 @@ func TestLock_DroppedRequest(t *testing.T) {
 	assert.Greater(t, dropped, 0, "CoDel should have dropped some requests")
 }
 
-func TestLock_SelfContention_NoDrop(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_SelfContention_NoDrop(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "same-id")
+	unlock, err := s.Acquire(t.Context(), "same-id")
 	require.NoError(t, err)
 
 	results := make(chan error, 3)
 	for range 3 {
 		go func() {
-			u, err := l.Acquire(t.Context(), "same-id")
+			u, err := s.Acquire(t.Context(), "same-id")
 			if err == nil {
 				time.Sleep(1 * time.Millisecond)
 				u.Release()
@@ -420,17 +409,17 @@ func TestLock_SelfContention_NoDrop(t *testing.T) {
 
 // --- Max age ---
 
-func TestLock_MaxAge_Timeout(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_MaxAge_Timeout(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "")
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -447,40 +436,40 @@ func TestLock_MaxAge_Timeout(t *testing.T) {
 	assert.Error(t, err, "stale nonce should fail")
 }
 
-func TestLock_MaxAge_CancelledOnRelease(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_MaxAge_CancelledOnRelease(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.MaxAge = func() time.Duration { return 100 * time.Millisecond }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	unlock.Release()
 
 	time.Sleep(150 * time.Millisecond)
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_MaxAge_Zero_NoTimeout(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.MaxAge = func() time.Duration { return 0 }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)
-	assert.True(t, l.IsLocked())
+	assert.True(t, s.IsLocked())
 
 	unlock.Release()
 }
 
 // --- SafeUnlock ---
 
-func TestLock_SafeUnlock_DoubleRelease(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_SafeUnlock_DoubleRelease(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	err = unlock.Release()
@@ -490,15 +479,15 @@ func TestLock_SafeUnlock_DoubleRelease(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestLock_SafeUnlock_StaleNonce(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_SafeUnlock_StaleNonce(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	acquired := make(chan *SafeUnlock, 1)
 	go func() {
-		u, err := l.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "")
 		if err == nil {
 			acquired <- u
 		}
@@ -522,30 +511,30 @@ func TestLock_SafeUnlock_StaleNonce(t *testing.T) {
 
 // --- Release callbacks ---
 
-func TestLock_ReleaseCallbacks_Executed(t *testing.T) {
+func TestSnake_ReleaseCallbacks_Executed(t *testing.T) {
 	var called atomic.Bool
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.ReleaseCBs = []func(error){
 		func(err error) { called.Store(true) },
 	}
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	unlock.Release()
 	assert.True(t, called.Load())
 }
 
-func TestLock_ReleaseCallbacks_ReceiveError(t *testing.T) {
+func TestSnake_ReleaseCallbacks_ReceiveError(t *testing.T) {
 	var received atomic.Value
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.ReleaseCBs = []func(error){
 		func(err error) { received.Store(err) },
 	}
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	myErr := errors.New("test error")
@@ -555,10 +544,10 @@ func TestLock_ReleaseCallbacks_ReceiveError(t *testing.T) {
 	assert.Equal(t, myErr, val)
 }
 
-func TestLock_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
+func TestSnake_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
 	var received atomic.Value
 	received.Store("sentinel")
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.ReleaseCBs = []func(error){
 		func(err error) {
 			if err == nil {
@@ -568,9 +557,9 @@ func TestLock_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
 			}
 		},
 	}
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -578,32 +567,32 @@ func TestLock_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
 	assert.Equal(t, "nil", received.Load())
 }
 
-func TestLock_ReleaseCallbacks_PanicRecovery(t *testing.T) {
+func TestSnake_ReleaseCallbacks_PanicRecovery(t *testing.T) {
 	var secondCalled atomic.Bool
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.ReleaseCBs = []func(error){
 		func(err error) { panic("callback panic") },
 		func(err error) { secondCalled.Store(true) },
 	}
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	err = unlock.Release()
 	assert.NoError(t, err)
 	assert.True(t, secondCalled.Load())
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_ReleaseCallbacks_NoDeadlock(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_ReleaseCallbacks_NoDeadlock(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.ReleaseCBs = []func(error){
 		func(err error) {},
 	}
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -621,40 +610,40 @@ func TestLock_ReleaseCallbacks_NoDeadlock(t *testing.T) {
 
 // --- IsLocked / IsHealthy ---
 
-func TestLock_IsLocked_IsHealthy(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_IsLocked_IsHealthy(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	assert.False(t, l.IsLocked())
-	assert.True(t, l.IsHealthy())
+	assert.False(t, s.IsLocked())
+	assert.True(t, s.IsHealthy())
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
-	assert.True(t, l.IsLocked())
-	assert.True(t, l.IsHealthy())
+	assert.True(t, s.IsLocked())
+	assert.True(t, s.IsHealthy())
 
 	unlock.Release()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Cancel in CoDel queue ---
 
-func TestLock_CancelInCoDelQueue(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_CancelInCoDelQueue(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := l.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	ctx2, cancel2 := context.WithCancel(t.Context())
 	waiter2Done := make(chan error, 1)
 	go func() {
-		_, err := l.Acquire(ctx2, "")
+		_, err := s.Acquire(ctx2, "")
 		waiter2Done <- err
 	}()
 
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "")
 		if err == nil {
 			close(waiter3Done)
 			u.Release()
@@ -683,17 +672,17 @@ func TestLock_CancelInCoDelQueue(t *testing.T) {
 
 // --- Cancel in valve ---
 
-func TestLock_CancelInValve(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_CancelInValve(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := l.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1")
 	require.NoError(t, err)
 
 	ctx3, cancel3 := context.WithCancel(t.Context())
 
 	waiter2Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "id1")
+		u, err := s.Acquire(t.Context(), "id1")
 		if err == nil {
 			u.Release()
 		}
@@ -704,7 +693,7 @@ func TestLock_CancelInValve(t *testing.T) {
 
 	waiter3Done := make(chan error, 1)
 	go func() {
-		_, err := l.Acquire(ctx3, "id1")
+		_, err := s.Acquire(ctx3, "id1")
 		waiter3Done <- err
 	}()
 
@@ -712,7 +701,7 @@ func TestLock_CancelInValve(t *testing.T) {
 
 	waiter4Done := make(chan struct{})
 	go func() {
-		u, err := l.Acquire(t.Context(), "id1")
+		u, err := s.Acquire(t.Context(), "id1")
 		if err == nil {
 			u.Release()
 		}
@@ -747,21 +736,21 @@ func TestLock_CancelInValve(t *testing.T) {
 
 // --- Undroppable ---
 
-func TestLock_Undroppable_NeverDropped(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Undroppable_NeverDropped(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	cfg.LoadsheddingAllowed = func() bool { return false }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	results := make(chan error, 5)
 	for range 5 {
 		go func() {
-			u, err := l.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "")
 			if err == nil {
 				u.Release()
 			}
@@ -784,22 +773,22 @@ func TestLock_Undroppable_NeverDropped(t *testing.T) {
 
 // --- Custom acquire error ---
 
-func TestLock_AcquireError_Custom(t *testing.T) {
+func TestSnake_AcquireError_Custom(t *testing.T) {
 	myErr := errors.New("custom acquire error")
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	cfg.AcquireError = func() error { return myErr }
-	l := newTestLock(cfg)
+	s := newTestSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	errCh := make(chan error, 3)
 	for range 3 {
 		go func() {
-			_, err := l.Acquire(t.Context(), "")
+			_, err := s.Acquire(t.Context(), "")
 			errCh <- err
 		}()
 	}
@@ -828,13 +817,13 @@ func TestLock_AcquireError_Custom(t *testing.T) {
 
 // --- Self-contention: exceptions during hold ---
 
-func TestLock_SelfContention_WithExceptions(t *testing.T) {
-	l := newTestLock(defaultLockConfig())
+func TestSnake_SelfContention_WithExceptions(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
 
 	var mu sync.Mutex
 	var order []int
 
-	unlock1, err := l.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -844,7 +833,7 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "id1")
+			u, err := s.Acquire(t.Context(), "id1")
 			if err != nil {
 				return
 			}
@@ -862,15 +851,15 @@ func TestLock_SelfContention_WithExceptions(t *testing.T) {
 	assert.Equal(t, []int{2, 3, 4}, order, "all waiters should complete despite errors")
 }
 
-// --- NewLock (default clock) ---
+// --- NewSnake (default clock) ---
 
-func TestNewLock_DefaultClock(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestNewSnake_DefaultClock(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
-	assert.True(t, l.IsLocked())
+	assert.True(t, s.IsLocked())
 
 	unlock.Release()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
