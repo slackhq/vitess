@@ -143,6 +143,24 @@ func (s *SelfContentionAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
 	s.codelq.lockedMarkNotDroppable(r)
 }
 
+// lockedComplete removes a granted (undroppable) request from the queue and
+// decrements outstanding counts. Does not trigger valve promotion — that is
+// handled by the caller (Snake.release) via lockedTryGrantNext.
+func (s *SelfContentionAwareCoDelQueue) lockedComplete(r *Request) {
+	s.codelq.lockedComplete(r)
+	s.decrementOutstanding(r.contentionID)
+	if r.contentionID != "" {
+		delete(s.activeRequests, r.contentionID)
+		s.lockedPromote(r.contentionID)
+	}
+}
+
+// lockedFindFirstWaiting returns the first not-yet-done request in the CoDel
+// queue, regardless of droppable status.
+func (s *SelfContentionAwareCoDelQueue) lockedFindFirstWaiting() *Request {
+	return s.codelq.lockedFindFirstWaiting()
+}
+
 // --- private helpers ---
 
 func (s *SelfContentionAwareCoDelQueue) codelqEnqueue(req *Request, contentionID string) (*Request, bool, int64) {

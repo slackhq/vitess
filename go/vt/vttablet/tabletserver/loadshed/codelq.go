@@ -316,6 +316,36 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	return result
 }
 
+// lockedComplete removes a specific granted (undroppable) request from the
+// queue. Checks sojourn time for CoDel state transition.
+func (q *CoDelQueue) lockedComplete(r *Request) {
+	if r.elem == nil {
+		return
+	}
+	q.queue.Remove(r.elem)
+	r.elem = nil
+
+	now := q.clockFunc()
+	sojournTime := now - r.enqueuedAt
+	if sojournTime < q.cfg.TargetNs() {
+		q.dropping = false
+		q.lockedClearTimerFlag()
+	}
+}
+
+// lockedFindFirstWaiting scans from head and returns the first not-yet-done
+// request that has not been granted yet (still droppable or undroppable but
+// waiting). Returns nil if none exists.
+func (q *CoDelQueue) lockedFindFirstWaiting() *Request {
+	for e := q.queue.Front(); e != nil; e = e.Next() {
+		req := e.Value.(*Request)
+		if !req.isDone() {
+			return req
+		}
+	}
+	return nil
+}
+
 func (q *CoDelQueue) lockedClearTimerFlag() {
 	q.timerScheduled = false
 }
