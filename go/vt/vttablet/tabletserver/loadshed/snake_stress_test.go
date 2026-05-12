@@ -32,8 +32,8 @@ import (
 
 // --- High contention ---
 
-func TestLock_Stress_HighContention(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_HighContention(t *testing.T) {
+	l := NewSnake(defaultSnakeConfig())
 
 	var completed atomic.Int64
 	var held atomic.Int32
@@ -62,8 +62,8 @@ func TestLock_Stress_HighContention(t *testing.T) {
 
 // --- Context cancellation under load ---
 
-func TestLock_Stress_ContextCancellation(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_ContextCancellation(t *testing.T) {
+	l := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var acquired, cancelled atomic.Int64
@@ -92,25 +92,25 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 
 // --- Mixed droppable/undroppable ---
 
-func TestLock_Stress_MixedPriorities(t *testing.T) {
-	// Use two locks to test droppable vs undroppable behavior without
+func TestSnake_Stress_MixedPriorities(t *testing.T) {
+	// Use two gates to test droppable vs undroppable behavior without
 	// sharing mutable state between goroutines.
-	droppableCfg := defaultLockConfig()
+	droppableCfg := defaultSnakeConfig()
 	droppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	droppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	droppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
 	droppableCfg.LoadsheddingAllowed = func() bool { return true }
-	droppableLock := NewLock(droppableCfg)
+	droppableSnake := NewSnake(droppableCfg)
 
-	undroppableCfg := defaultLockConfig()
+	undroppableCfg := defaultSnakeConfig()
 	undroppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }
 	undroppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }
 	undroppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 }
 	undroppableCfg.LoadsheddingAllowed = func() bool { return false }
-	undroppableLock := NewLock(undroppableCfg)
+	undroppableSnake := NewSnake(undroppableCfg)
 
-	// Test droppable lock: hold and let queue build up
-	unlock, err := droppableLock.Acquire(t.Context())
+	// Test droppable gate: hold and let queue build up
+	unlock, err := droppableSnake.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -118,7 +118,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 
 	for range 50 {
 		wg.Go(func() {
-			u, err := droppableLock.Acquire(t.Context())
+			u, err := droppableSnake.Acquire(t.Context())
 			if err != nil {
 				droppableFailed.Add(1)
 				return
@@ -133,16 +133,16 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), droppableSuccess.Load()+droppableFailed.Load())
-	assert.False(t, droppableLock.IsLocked())
+	assert.False(t, droppableSnake.IsLocked())
 
-	// Test undroppable lock: hold and verify nothing is dropped
-	unlock2, err := undroppableLock.Acquire(t.Context())
+	// Test undroppable gate: hold and verify nothing is dropped
+	unlock2, err := undroppableSnake.Acquire(t.Context())
 	require.NoError(t, err)
 
 	var undroppableSuccess atomic.Int64
 	for range 50 {
 		wg.Go(func() {
-			u, err := undroppableLock.Acquire(t.Context())
+			u, err := undroppableSnake.Acquire(t.Context())
 			if err != nil {
 				return
 			}
@@ -156,15 +156,15 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), undroppableSuccess.Load(), "undroppable requests should never be dropped")
-	assert.False(t, undroppableLock.IsLocked())
+	assert.False(t, undroppableSnake.IsLocked())
 }
 
 // --- Self-contention ---
 
-// selfContentionLock creates a Lock whose ContentionID is read from a
+// selfContentionSnake creates a Snake whose ContentionID is read from a
 // goroutine-keyed sync.Map. Callers store their contention ID before
 // calling Acquire and delete it afterward.
-func selfContentionLock(cfg LockConfig) (*Lock, *sync.Map) {
+func selfContentionSnake(cfg SnakeConfig) (*Snake, *sync.Map) {
 	var currentID sync.Map
 	cfg.ContentionID = func() string {
 		id, ok := currentID.Load(goroutineID())
@@ -173,11 +173,11 @@ func selfContentionLock(cfg LockConfig) (*Lock, *sync.Map) {
 		}
 		return id.(string)
 	}
-	return NewLock(cfg), &currentID
+	return NewSnake(cfg), &currentID
 }
 
-func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
-	l, currentID := selfContentionLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
+	l, currentID := selfContentionSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var globalHeld atomic.Int32
@@ -236,10 +236,10 @@ func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
 	assert.False(t, l.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
-	l, currentID := selfContentionLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
+	l, currentID := selfContentionSnake(defaultSnakeConfig())
 
-	// Hold the lock so all 20 goroutines enqueue before any are granted.
+	// Hold the gate so all 20 goroutines enqueue before any are granted.
 	gid := goroutineID()
 	currentID.Store(gid, "order-test")
 	unlock, err := l.Acquire(t.Context())
@@ -282,14 +282,14 @@ func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 	assert.False(t, l.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	l, currentID := selfContentionLock(cfg)
+	l, currentID := selfContentionSnake(cfg)
 
-	// Hold the lock to build queue pressure.
+	// Hold the gate to build queue pressure.
 	gid := goroutineID()
 	currentID.Store(gid, "holder")
 	unlock, err := l.Acquire(t.Context())
@@ -351,10 +351,10 @@ func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 	assert.False(t, l.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
-	l, currentID := selfContentionLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
+	l, currentID := selfContentionSnake(defaultSnakeConfig())
 
-	// Hold the lock so all waiters queue up.
+	// Hold the gate so all waiters queue up.
 	gid := goroutineID()
 	currentID.Store(gid, "cancel-test")
 	unlock, err := l.Acquire(t.Context())
@@ -416,13 +416,13 @@ func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
 	assert.False(t, l.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
 	cfg.MaxAge = func() time.Duration { return 50 * time.Millisecond }
-	l, currentID := selfContentionLock(cfg)
+	l, currentID := selfContentionSnake(cfg)
 
 	const numIDs = 5
 	const perID = 8
@@ -467,8 +467,8 @@ func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	assert.False(t, l.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
-	l, currentID := selfContentionLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
+	l, currentID := selfContentionSnake(defaultSnakeConfig())
 
 	const numIDs = 5
 	const goroutinesPerID = 4
@@ -531,8 +531,8 @@ func goroutineID() int64 {
 
 // --- Rapid acquire/release ---
 
-func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
+	l := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -553,8 +553,8 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 
 // --- Cancel and grant race under load ---
 
-func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_CancelAndGrant_Race(t *testing.T) {
+	l := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 100 {
@@ -575,19 +575,19 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, l.IsLocked(), "lock should not be orphaned")
+	assert.False(t, l.IsLocked(), "gate should not be orphaned")
 }
 
 // --- Drop timer + cancel race ---
 
-func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	l := NewLock(cfg)
+	l := NewSnake(cfg)
 
-	// hold the lock to trigger drops
+	// hold the gate to trigger drops
 	unlock, err := l.Acquire(t.Context())
 	require.NoError(t, err)
 
@@ -613,10 +613,10 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 
 // --- Max age under load ---
 
-func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_MaxAge_UnderLoad(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.MaxAge = func() time.Duration { return 5 * time.Millisecond }
-	l := NewLock(cfg)
+	l := NewSnake(cfg)
 
 	var wg sync.WaitGroup
 	var completed atomic.Int64
@@ -641,8 +641,8 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 
 // --- Self-contention with drops ---
 
-func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	cfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
@@ -655,7 +655,7 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 		}
 		return id.(string)
 	}
-	l := NewLock(cfg)
+	l := NewSnake(cfg)
 
 	var wg sync.WaitGroup
 
@@ -683,10 +683,10 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 
 // --- Goroutine leak detector ---
 
-func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
+func TestSnake_Stress_GoroutineLeakDetector(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 
-	l := NewLock(defaultLockConfig())
+	l := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 50 {
@@ -713,8 +713,8 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 
 // --- No starvation ---
 
-func TestLock_Stress_NoStarvation(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_NoStarvation(t *testing.T) {
+	l := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	acquiredFlags := make([]atomic.Bool, 100)
@@ -748,9 +748,9 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 
 // --- Promotion during cancel ---
 
-func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
+func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
 	var currentID sync.Map
-	cfg := defaultLockConfig()
+	cfg := defaultSnakeConfig()
 	cfg.ContentionID = func() string {
 		id, ok := currentID.Load(goroutineID())
 		if !ok {
@@ -758,11 +758,11 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 		}
 		return id.(string)
 	}
-	l := NewLock(cfg)
+	l := NewSnake(cfg)
 
 	var wg sync.WaitGroup
 
-	// hold the lock
+	// hold the gate
 	gid := goroutineID()
 	currentID.Store(gid, "id1")
 	unlock, err := l.Acquire(t.Context())
