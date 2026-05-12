@@ -32,8 +32,8 @@ import (
 
 // --- High contention ---
 
-func TestLock_Stress_HighContention(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_HighContention(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var completed atomic.Int64
 	var held atomic.Int32
@@ -43,7 +43,7 @@ func TestLock_Stress_HighContention(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
@@ -59,13 +59,13 @@ func TestLock_Stress_HighContention(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(200), completed.Load())
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Context cancellation under load ---
 
-func TestLock_Stress_ContextCancellation(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_ContextCancellation(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var acquired, cancelled atomic.Int64
@@ -78,7 +78,7 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 				time.Duration(1+rand.IntN(5))*time.Millisecond)
 			defer cancel()
 
-			u, err := l.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "")
 			if err != nil {
 				cancelled.Add(1)
 				return
@@ -91,27 +91,27 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(100), acquired.Load()+cancelled.Load())
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Mixed droppable/undroppable ---
 
-func TestLock_Stress_MixedPriorities(t *testing.T) {
-	droppableCfg := defaultLockConfig()
+func TestSnake_Stress_MixedPriorities(t *testing.T) {
+	droppableCfg := defaultSnakeConfig()
 	droppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	droppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	droppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
 	droppableCfg.LoadsheddingAllowed = func() bool { return true }
-	droppableLock := NewLock(droppableCfg)
+	droppableSnake := NewSnake(droppableCfg)
 
-	undroppableCfg := defaultLockConfig()
+	undroppableCfg := defaultSnakeConfig()
 	undroppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }
 	undroppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }
 	undroppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 }
 	undroppableCfg.LoadsheddingAllowed = func() bool { return false }
-	undroppableLock := NewLock(undroppableCfg)
+	undroppableSnake := NewSnake(undroppableCfg)
 
-	unlock, err := droppableLock.Acquire(t.Context(), "")
+	unlock, err := droppableSnake.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -121,7 +121,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := droppableLock.Acquire(t.Context(), "")
+			u, err := droppableSnake.Acquire(t.Context(), "")
 			if err != nil {
 				droppableFailed.Add(1)
 				return
@@ -136,9 +136,9 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), droppableSuccess.Load()+droppableFailed.Load())
-	assert.False(t, droppableLock.IsLocked())
+	assert.False(t, droppableSnake.IsLocked())
 
-	unlock2, err := undroppableLock.Acquire(t.Context(), "")
+	unlock2, err := undroppableSnake.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	var undroppableSuccess atomic.Int64
@@ -146,7 +146,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := undroppableLock.Acquire(t.Context(), "")
+			u, err := undroppableSnake.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
@@ -160,13 +160,13 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), undroppableSuccess.Load(), "undroppable requests should never be dropped")
-	assert.False(t, undroppableLock.IsLocked())
+	assert.False(t, undroppableSnake.IsLocked())
 }
 
 // --- Self-contention ---
 
-func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var globalHeld atomic.Int32
@@ -189,7 +189,7 @@ func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := l.Acquire(t.Context(), cid)
+				u, err := s.Acquire(t.Context(), cid)
 				if err != nil {
 					return
 				}
@@ -220,13 +220,13 @@ func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
 		assert.LessOrEqual(t, pid.max.Load(), int32(1),
 			"contention ID %d had concurrent holders", id)
 	}
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "order-test")
+	unlock, err := s.Acquire(t.Context(), "order-test")
 	require.NoError(t, err)
 
 	const n = 20
@@ -240,7 +240,7 @@ func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "order-test")
+			u, err := s.Acquire(t.Context(), "order-test")
 			if err != nil {
 				return
 			}
@@ -260,17 +260,17 @@ func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 		expected[i] = i
 	}
 	assert.Equal(t, expected, order, "valve should preserve FIFO order within contention ID")
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	l := NewLock(cfg)
+	s := NewSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "holder")
+	unlock, err := s.Acquire(t.Context(), "holder")
 	require.NoError(t, err)
 
 	const numIDs = 5
@@ -289,7 +289,7 @@ func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := l.Acquire(t.Context(), cid)
+				u, err := s.Acquire(t.Context(), cid)
 				if err != nil {
 					results <- result{id: idx, granted: false}
 					return
@@ -322,13 +322,13 @@ func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 			"contention ID %d: granted(%d) + dropped(%d) != total(%d)",
 			id, granted[id], dropped[id], perID)
 	}
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "cancel-test")
+	unlock, err := s.Acquire(t.Context(), "cancel-test")
 	require.NoError(t, err)
 
 	const n = 20
@@ -344,7 +344,7 @@ func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(ctxs[idx], "cancel-test")
+			u, err := s.Acquire(ctxs[idx], "cancel-test")
 			if err != nil {
 				results[idx] <- err
 				return
@@ -380,16 +380,16 @@ func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
 			t.Fatalf("waiter %d did not return", i)
 		}
 	}
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
 	cfg.MaxAge = func() time.Duration { return 50 * time.Millisecond }
-	l := NewLock(cfg)
+	s := NewSnake(cfg)
 
 	const numIDs = 5
 	const perID = 8
@@ -408,7 +408,7 @@ func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), timeout)
 				defer cancel()
 
-				u, err := l.Acquire(ctx, cid)
+				u, err := s.Acquire(ctx, cid)
 				if err != nil {
 					if ctx.Err() != nil {
 						cancelled.Add(1)
@@ -429,11 +429,11 @@ func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	g, d, c := granted.Load(), dropped.Load(), cancelled.Load()
 	assert.Equal(t, int64(total), g+d+c,
 		"granted(%d) + dropped(%d) + cancelled(%d) != total(%d)", g, d, c, total)
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
-func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	const numIDs = 5
 	const goroutinesPerID = 4
@@ -451,7 +451,7 @@ func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for time.Now().Before(deadline) {
-					u, err := l.Acquire(t.Context(), cid)
+					u, err := s.Acquire(t.Context(), cid)
 					if err != nil {
 						continue
 					}
@@ -475,13 +475,13 @@ func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 	assert.LessOrEqual(t, globalMax.Load(), int32(1), "mutual exclusion violated")
 	assert.Greater(t, totalAcquires.Load(), int64(50),
 		"too few acquires — test may not be exercising contention")
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Rapid acquire/release ---
 
-func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -489,7 +489,7 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 100 {
-				u, err := l.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "")
 				if err != nil {
 					continue
 				}
@@ -499,13 +499,13 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Cancel and grant race under load ---
 
-func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_CancelAndGrant_Race(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 100 {
@@ -518,7 +518,7 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 				cancel()
 			}()
 
-			u, err := l.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "")
 			if err == nil {
 				time.Sleep(100 * time.Microsecond)
 				u.Release()
@@ -527,19 +527,19 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, l.IsLocked(), "lock should not be orphaned")
+	assert.False(t, s.IsLocked(), "lock should not be orphaned")
 }
 
 // --- Drop timer + cancel race ---
 
-func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	l := NewLock(cfg)
+	s := NewSnake(cfg)
 
-	unlock, err := l.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -550,7 +550,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 			defer cancel()
 
-			u, err := l.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "")
 			if err == nil {
 				u.Release()
 			}
@@ -561,15 +561,15 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Max age under load ---
 
-func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_MaxAge_UnderLoad(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.MaxAge = func() time.Duration { return 5 * time.Millisecond }
-	l := NewLock(cfg)
+	s := NewSnake(cfg)
 
 	var wg sync.WaitGroup
 	var completed atomic.Int64
@@ -578,7 +578,7 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
@@ -590,17 +590,17 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(50), completed.Load())
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Self-contention with drops ---
 
-func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
-	cfg := defaultLockConfig()
+func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
+	cfg := defaultSnakeConfig()
 	cfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	cfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	l := NewLock(cfg)
+	s := NewSnake(cfg)
 
 	var wg sync.WaitGroup
 
@@ -609,7 +609,7 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(t.Context(), cid)
+			u, err := s.Acquire(t.Context(), cid)
 			if err != nil {
 				return
 			}
@@ -619,15 +619,15 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
 
 // --- Goroutine leak detector ---
 
-func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
+func TestSnake_Stress_GoroutineLeakDetector(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 
-	l := NewLock(defaultLockConfig())
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 50 {
@@ -636,7 +636,7 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			defer cancel()
-			u, err := l.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "")
 			if err == nil {
 				time.Sleep(time.Millisecond)
 				u.Release()
@@ -655,8 +655,8 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 
 // --- No starvation ---
 
-func TestLock_Stress_NoStarvation(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_NoStarvation(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	acquiredFlags := make([]atomic.Bool, 100)
@@ -669,7 +669,7 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
-			u, err := l.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "")
 			if err != nil {
 				return
 			}
@@ -692,10 +692,10 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 
 // --- Promotion during cancel ---
 
-func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
-	l := NewLock(defaultLockConfig())
+func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := l.Acquire(t.Context(), "id1")
+	unlock, err := s.Acquire(t.Context(), "id1")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -707,7 +707,7 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := l.Acquire(ctx, "id1")
+			u, err := s.Acquire(ctx, "id1")
 			if err == nil {
 				time.Sleep(time.Millisecond)
 				u.Release()
@@ -725,5 +725,5 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, l.IsLocked())
+	assert.False(t, s.IsLocked())
 }
