@@ -127,9 +127,9 @@ func TestCoDelQueue_Dequeue_FIFO(t *testing.T) {
 	r2, _, _ := q.lockedEnqueue(NewPriority(0))
 	r3, _, _ := q.lockedEnqueue(NewPriority(0))
 
-	d1 := q.lockedDequeue()
-	d2 := q.lockedDequeue()
-	d3 := q.lockedDequeue()
+	d1, _, _ := q.lockedDequeue()
+	d2, _, _ := q.lockedDequeue()
+	d3, _, _ := q.lockedDequeue()
 
 	assert.Same(t, r1, d1)
 	assert.Same(t, r2, d2)
@@ -141,7 +141,7 @@ func TestCoDelQueue_Dequeue_SignalsNil(t *testing.T) {
 	q := newTestQueue(defaultTestConfig(), clock)
 
 	q.lockedEnqueue(NewPriority(0))
-	req := q.lockedDequeue()
+	req, _, _ := q.lockedDequeue()
 
 	require.True(t, req.isDone())
 	err := <-req.done
@@ -156,7 +156,7 @@ func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
 	q.lockedEnqueue(NewPriority(0))
 	assert.Equal(t, 2, q.droppableLen)
 
-	q.lockedDequeue()
+	_, _, _ = q.lockedDequeue()
 	assert.Equal(t, 1, q.droppableLen)
 }
 
@@ -175,7 +175,7 @@ func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
 	q.lockedEnqueue(NewPriority(0))
 	clock.now = 100
 
-	q.lockedDequeue()
+	_, _, _ = q.lockedDequeue()
 
 	assert.False(t, q.dropping)
 }
@@ -184,7 +184,7 @@ func TestCoDelQueue_Dequeue_Empty(t *testing.T) {
 	clock := newTestClock()
 	q := newTestQueue(defaultTestConfig(), clock)
 
-	req := q.lockedDequeue()
+	req, _, _ := q.lockedDequeue()
 	assert.Nil(t, req)
 }
 
@@ -601,12 +601,59 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 		enqueued++
 
 		clock.advance(4_000_000) // 4ms processing (sojourn ~4ms < 5ms target)
-		if req := q.lockedDequeue(); req != nil {
+		if req, _, _ := q.lockedDequeue(); req != nil {
 			dequeued++
 		}
 	}
 
 	assert.Equal(t, enqueued, dequeued, "fast-moving queue should not drop")
+}
+
+// TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit verifies that when
+// lockedDequeue exits the dropping state (sojourn < target), the drop timer is
+// re-armed so that remaining droppable items will eventually be dropped. Without
+// re-arming, if no new enqueue arrives, CoDel never fires again — a liveness gap.
+func TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit(t *testing.T) {
+	clock := newTestClock()
+	cfg := CoDelConfig{
+		IntervalNs:     func() int64 { return 1_000_000 }, // 1ms
+		TargetNs:       func() int64 { return 500_000 },   // 0.5ms
+		Exponent:       func() float64 { return 1.0 },
+		MinDropDelayNs: func() int64 { return 100 },
+	}
+	q := newTestQueue(cfg, clock)
+
+	// Enqueue 3 droppable requests at time 0.
+	clock.now = 0
+	q.lockedEnqueue(NewPriority(1))
+	q.lockedEnqueue(NewPriority(2))
+	q.lockedEnqueue(NewPriority(3))
+
+	// Enter dropping state (simulates the timer having fired).
+	q.dropping = true
+	q.timerScheduled = true
+	q.count = 2
+	q.dropNextNs = clock.now + cfg.IntervalNs()
+
+	// Now dequeue a request whose sojourn is below target (healthy).
+	// Advance just a tiny bit so sojourn = 100ns < 500_000ns target.
+	clock.now = 100
+	req, needSchedule, delay := q.lockedDequeue()
+
+	// The dequeue should have succeeded.
+	require.NotNil(t, req)
+
+	// After the healthy dequeue, we should have exited dropping state.
+	assert.False(t, q.dropping, "should exit dropping state")
+
+	// Since droppable items remain, the dequeue should signal the need to
+	// reschedule the timer. This is the bug: without re-arming, the remaining
+	// 2 droppable requests will never be dropped if no new enqueue arrives.
+	assert.True(t, needSchedule, "should signal reschedule when droppable items remain")
+	assert.Greater(t, delay, int64(0), "delay should be positive")
+
+	// The timer flag should be set again (re-armed by the dequeue).
+	assert.True(t, q.timerScheduled, "timer flag should be re-armed")
 }
 
 func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {

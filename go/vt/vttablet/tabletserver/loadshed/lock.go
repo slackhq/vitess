@@ -146,7 +146,10 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 		default:
 			// Not yet signaled. Cancel from queue.
 			l.mu.Lock()
-			l.sq.lockedCancel(contentionID, req)
+			needSchedule, delay := l.sq.lockedCancel(contentionID, req)
+			if needSchedule {
+				l.lockedScheduleDropTimer(delay)
+			}
 			l.mu.Unlock()
 		}
 		return nil, ctx.Err()
@@ -203,7 +206,7 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 	}
 
 	l.mu.Lock()
-	l.sq.lockedDequeue() // removes current holder, promotes from valve
+	_, needSchedule, delay := l.sq.lockedDequeue() // removes current holder, promotes from valve
 	next := l.sq.lockedPeek()
 	if next != nil {
 		l.lockNonce++
@@ -211,6 +214,9 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 		l.sq.lockedMarkNotDroppable(next)
 	} else {
 		l.holder = nil
+	}
+	if needSchedule {
+		l.lockedScheduleDropTimer(delay)
 	}
 	l.mu.Unlock()
 
@@ -225,7 +231,7 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 func (l *Lock) releaseInternal() {
 	l.mu.Lock()
 	l.lockedStopMaxAgeTimer()
-	l.sq.lockedDequeue()
+	_, needSchedule, delay := l.sq.lockedDequeue()
 	next := l.sq.lockedPeek()
 	if next != nil {
 		l.lockNonce++
@@ -233,6 +239,9 @@ func (l *Lock) releaseInternal() {
 		l.sq.lockedMarkNotDroppable(next)
 	} else {
 		l.holder = nil
+	}
+	if needSchedule {
+		l.lockedScheduleDropTimer(delay)
 	}
 	l.mu.Unlock()
 

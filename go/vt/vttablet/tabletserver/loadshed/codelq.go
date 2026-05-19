@@ -114,21 +114,35 @@ func (q *CoDelQueue) lockedEnqueueRequest(req *Request) (*Request, bool, int64) 
 }
 
 // lockedDequeue pops the next eligible request from the head of the queue.
-// Returns nil if the queue is empty.
-func (q *CoDelQueue) lockedDequeue() *Request {
+// Returns nil if the queue is empty. Also returns whether the parent should
+// schedule a drop timer and the delay, since exiting dropping state clears the
+// timer but droppable items may remain.
+func (q *CoDelQueue) lockedDequeue() (req *Request, needSchedule bool, delayNs int64) {
 	if q.lockedPeek() == nil {
-		return nil
+		return nil, false, 0
 	}
-	req := q.lockedPopElem(q.queue.Front(), nil)
+	req = q.lockedPopElem(q.queue.Front(), nil)
 
 	now := q.clockFunc()
 	sojournTime := now - req.enqueuedAt
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
 		q.lockedClearTimerFlag()
+
+		// Re-arm the timer if droppable items remain — without this, CoDel
+		// would never fire again unless a new enqueue arrives.
+		if q.droppableLen > 0 && !q.timerScheduled {
+			needSchedule = true
+			delayNs = q.lockedCurrentInterval()
+			minDelay := q.cfg.MinDropDelayNs()
+			if delayNs < minDelay {
+				delayNs = minDelay
+			}
+			q.timerScheduled = true
+		}
 	}
 
-	return req
+	return req, needSchedule, delayNs
 }
 
 // lockedPeek returns the head request without removing it. As a side effect,

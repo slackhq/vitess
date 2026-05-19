@@ -113,7 +113,7 @@ func TestSelfAware_Promotion_OnDequeue(t *testing.T) {
 	assert.Nil(t, r2.elem, "r2 in valve before dequeue")
 
 	// dequeue r1: should promote r2 from valve to CoDel queue
-	d := sq.lockedDequeue()
+	d, _, _ := sq.lockedDequeue()
 	assert.NotNil(t, d)
 
 	assert.NotNil(t, r2.elem, "r2 promoted to CoDel queue after dequeue")
@@ -143,7 +143,7 @@ func TestSelfAware_Promotion_OnCancel(t *testing.T) {
 	r1, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
 	r2, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
 
-	sq.lockedCancel("id1", r1)
+	_, _ = sq.lockedCancel("id1", r1)
 
 	assert.NotNil(t, r2.elem, "r2 promoted after r1 cancelled")
 	assert.Equal(t, 1, sq.lockedLen())
@@ -162,7 +162,7 @@ func TestSelfAware_CancelInValve(t *testing.T) {
 	_, _, _ = sq.lockedEnqueue("id1", NewPriority(0))
 
 	// cancel r3 from the valve
-	sq.lockedCancel("id1", r3)
+	_, _ = sq.lockedCancel("id1", r3)
 
 	assert.NotNil(t, r1.elem, "r1 still in CoDel queue")
 	assert.Equal(t, 1, sq.lockedLen())
@@ -182,7 +182,7 @@ func TestSelfAware_ClearDone_InValve(t *testing.T) {
 	r2.signal(&DroppedRequestError{})
 
 	// dequeue r1 → promote should skip r2 (done) and promote r3
-	sq.lockedDequeue()
+	_, _, _ = sq.lockedDequeue()
 
 	assert.NotNil(t, r3.elem, "r3 promoted (r2 was skipped)")
 	assert.Equal(t, 1, sq.lockedLen())
@@ -200,10 +200,10 @@ func TestSelfAware_OutstandingCount_Lifecycle(t *testing.T) {
 	sq.lockedEnqueue("id1", NewPriority(0))
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
-	sq.lockedDequeue() // removes first, promotes second
+	_, _, _ = sq.lockedDequeue() // removes first, promotes second
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 
-	sq.lockedDequeue() // removes second
+	_, _, _ = sq.lockedDequeue() // removes second
 	assert.Equal(t, 0, sq.outstandingCounts["id1"])
 }
 
@@ -215,7 +215,7 @@ func TestSelfAware_OutstandingCount_SurvivesCancel(t *testing.T) {
 	sq.lockedEnqueue("id1", NewPriority(0))
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
-	sq.lockedCancel("id1", r1)
+	_, _ = sq.lockedCancel("id1", r1)
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
@@ -226,8 +226,8 @@ func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
 	sq.lockedEnqueue("id1", NewPriority(0))
 	sq.lockedEnqueue("id1", NewPriority(0))
 
-	sq.lockedDequeue() // removes first, promotes second
-	sq.lockedDequeue() // removes second
+	_, _, _ = sq.lockedDequeue() // removes first, promotes second
+	_, _, _ = sq.lockedDequeue() // removes second
 
 	_, exists := sq.pendingRequests["id1"]
 	assert.False(t, exists, "empty valve should be removed from map")
@@ -243,9 +243,9 @@ func TestSelfAware_FIFO_WithinContention(t *testing.T) {
 	r2, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
 	r3, _, _ := sq.lockedEnqueue("id1", NewPriority(0))
 
-	d1 := sq.lockedDequeue()
-	d2 := sq.lockedDequeue()
-	d3 := sq.lockedDequeue()
+	d1, _, _ := sq.lockedDequeue()
+	d2, _, _ := sq.lockedDequeue()
+	d3, _, _ := sq.lockedDequeue()
 
 	assert.Same(t, r1, d1)
 	assert.Same(t, r2, d2)

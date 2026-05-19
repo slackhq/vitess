@@ -87,14 +87,20 @@ func (s *SelfContentionAwareCoDelQueue) lockedEnqueue(contentionID string, prior
 
 // lockedDequeue dequeues the head request from the CoDel queue. After removal,
 // promotes the next pending request for the same contention ID from the valve.
-func (s *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
-	req := s.codelq.lockedDequeue()
+// Returns the request, whether the parent should schedule a drop timer, and the
+// delay in nanoseconds.
+func (s *SelfContentionAwareCoDelQueue) lockedDequeue() (*Request, bool, int64) {
+	req, needSchedule, delayNs := s.codelq.lockedDequeue()
 	if req == nil {
-		return nil
+		return nil, false, 0
 	}
 
-	s.onRequestComplete(req)
-	return req
+	promoteNeedSchedule, promoteDelay := s.onRequestComplete(req)
+	if promoteNeedSchedule && !needSchedule {
+		needSchedule = true
+		delayNs = promoteDelay
+	}
+	return req, needSchedule, delayNs
 }
 
 // lockedDropActive drops the active request for a contention ID (called by the
@@ -104,22 +110,25 @@ func (s *SelfContentionAwareCoDelQueue) lockedDropActive(contentionID string, r 
 	if !r.isDone() {
 		r.signal(&DroppedRequestError{})
 	}
+	// Discard schedule signal: called from within lockedRunScheduledDrop which
+	// manages its own rescheduling based on droppableLen.
 	s.onRequestComplete(r)
 }
 
 // lockedCancel cancels a request. If it's the active request in the CoDel
 // queue, it removes it and promotes the next from the valve. If it's pending
-// in the valve, it removes it from there.
-func (s *SelfContentionAwareCoDelQueue) lockedCancel(contentionID string, r *Request) {
+// in the valve, it removes it from there. Returns whether the parent should
+// schedule a drop timer (from valve promotion).
+func (s *SelfContentionAwareCoDelQueue) lockedCancel(contentionID string, r *Request) (needSchedule bool, delayNs int64) {
 	if r.elem != nil {
 		// in the CoDel queue: remove and promote
 		s.codelq.lockedCancel(r)
-		s.onRequestComplete(r)
-	} else {
-		// in the valve: find and remove
-		s.removeFromValve(contentionID, r)
-		s.decrementOutstanding(contentionID)
+		return s.onRequestComplete(r)
 	}
+	// in the valve: find and remove
+	s.removeFromValve(contentionID, r)
+	s.decrementOutstanding(contentionID)
+	return false, 0
 }
 
 // lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
@@ -153,23 +162,23 @@ func (s *SelfContentionAwareCoDelQueue) codelqEnqueue(req *Request, contentionID
 	return s.codelq.lockedEnqueueRequest(req)
 }
 
-func (s *SelfContentionAwareCoDelQueue) onRequestComplete(req *Request) {
+func (s *SelfContentionAwareCoDelQueue) onRequestComplete(req *Request) (needSchedule bool, delayNs int64) {
 	contentionID := req.contentionID
 	if contentionID == "" {
-		return
+		return false, 0
 	}
 
 	delete(s.activeRequests, contentionID)
 	s.decrementOutstanding(contentionID)
-	s.lockedPromote(contentionID)
+	return s.lockedPromote(contentionID)
 }
 
-func (s *SelfContentionAwareCoDelQueue) lockedPromote(contentionID string) {
+func (s *SelfContentionAwareCoDelQueue) lockedPromote(contentionID string) (needSchedule bool, delayNs int64) {
 	s.clearDone(contentionID)
 
 	pending, ok := s.pendingRequests[contentionID]
 	if !ok || len(pending) == 0 {
-		return
+		return false, 0
 	}
 
 	// pop the first pending request and enqueue it
@@ -179,7 +188,8 @@ func (s *SelfContentionAwareCoDelQueue) lockedPromote(contentionID string) {
 		delete(s.pendingRequests, contentionID)
 	}
 
-	s.codelqEnqueue(next, contentionID)
+	_, needSchedule, delayNs = s.codelqEnqueue(next, contentionID)
+	return needSchedule, delayNs
 }
 
 // clearDone removes done (cancelled) requests from the head of the valve.
