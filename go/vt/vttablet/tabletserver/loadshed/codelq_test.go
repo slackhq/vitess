@@ -61,7 +61,7 @@ func (r *testDropTimerRecorder) schedule(delayNs int64) {
 
 func newTestQueue(cfg CoDelConfig, clock *testClock) (*CoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(cfg, clock.nowFunc, rec.schedule)
+	q := newCoDelQueue(cfg, clock.nowFunc, rec.schedule, nil)
 	return q, rec
 }
 

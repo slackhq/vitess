@@ -48,8 +48,15 @@ func newSelfContentionAwareCoDelQueue(cfg CoDelConfig, now func() int64, schedul
 		outstandingCounts: make(map[string]int),
 		activePerValve:    make(map[string]*Request),
 	}
-	q.codelq = newCoDelQueue(cfg, now, scheduleDropTimer)
+	q.codelq = newCoDelQueue(cfg, now, scheduleDropTimer, q.onPeekCleanup)
 	return q
+}
+
+// onPeekCleanup is called by the CoDel queue when lockedPeek defensively
+// removes a done-with-error request from the list head. Decrements the
+// outstanding count for the request's valve ID.
+func (q *SelfContentionAwareCoDelQueue) onPeekCleanup(req *Request) {
+	q.decrementOutstanding(req.valveID)
 }
 
 // lockedLen returns the number of requests in the CoDel queue.

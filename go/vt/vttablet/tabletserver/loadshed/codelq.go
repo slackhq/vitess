@@ -45,9 +45,10 @@ type (
 		lastCount    int
 		droppableLen int
 
-		cfg              CoDelConfig
-		now              func() int64
+		cfg               CoDelConfig
+		now               func() int64
 		scheduleDropTimer func(delayNs int64)
+		onPeekCleanup    func(*Request)
 	}
 )
 
@@ -55,7 +56,7 @@ func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
 }
 
-func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(delayNs int64)) *CoDelQueue {
+func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(delayNs int64), onPeekCleanup func(*Request)) *CoDelQueue {
 	return &CoDelQueue{
 		queue:             list.New(),
 		count:             1,
@@ -63,6 +64,7 @@ func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(del
 		cfg:               cfg,
 		now:               now,
 		scheduleDropTimer: scheduleDropTimer,
+		onPeekCleanup:    onPeekCleanup,
 	}
 }
 
@@ -133,6 +135,12 @@ func (q *CoDelQueue) lockedPeek() *Request {
 		}
 		q.queue.Remove(front)
 		req.elem = nil
+		if req.isDroppable() {
+			q.droppableLen--
+		}
+		if q.onPeekCleanup != nil {
+			q.onPeekCleanup(req)
+		}
 	}
 	q.dropping = false
 	return nil

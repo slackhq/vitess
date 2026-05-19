@@ -232,6 +232,51 @@ func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
 	assert.False(t, exists, "empty valve should be removed from map")
 }
 
+// --- Peek cleanup tests ---
+
+// TestSelfAware_PeekCleanup_DecrementsOutstandingCount proves that when
+// lockedPeek defensively removes a done-with-error request from the CoDel
+// queue head, outstanding counts are decremented correctly.
+func TestSelfAware_PeekCleanup_DecrementsOutstandingCount(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newTestSelfAware(clock)
+
+	r1 := sq.lockedEnqueue("id1", NewPriority(0))
+	sq.lockedEnqueue("id1", NewPriority(0))
+
+	assert.Equal(t, 2, sq.outstandingCounts["id1"])
+
+	// Simulate the "impossible" state: signal r1 with error without calling
+	// lockedRemove. This leaves elem non-nil, so lockedPeek will find it as
+	// isDone() with non-nil outcome and clean it up.
+	r1.signal(&DroppedRequestError{})
+
+	// lockedPeek should remove r1 and decrement outstanding count
+	result := sq.lockedPeek()
+	assert.Nil(t, result, "r2 is in valve not CoDel queue, so peek returns nil after r1 cleanup")
+	assert.Equal(t, 1, sq.outstandingCounts["id1"], "outstanding should be decremented for cleaned-up request")
+}
+
+// TestSelfAware_PeekCleanup_DecrementsDroppableLen proves that when
+// lockedPeek removes a done droppable request, droppableLen is decremented.
+func TestSelfAware_PeekCleanup_DecrementsDroppableLen(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newTestSelfAware(clock)
+
+	r1 := sq.lockedEnqueue("id1", NewPriority(0))
+	r2 := sq.lockedEnqueue("id2", NewPriority(0))
+
+	assert.Equal(t, 2, sq.codelq.droppableLen)
+
+	// Signal r1 without removing it from the list
+	r1.signal(&DroppedRequestError{})
+
+	// lockedPeek should clean up r1 and decrement droppableLen
+	result := sq.lockedPeek()
+	assert.Same(t, r2, result)
+	assert.Equal(t, 1, sq.codelq.droppableLen, "droppableLen should be decremented for cleaned-up request")
+}
+
 // --- FIFO within contention ---
 
 func TestSelfAware_FIFO_WithinContention(t *testing.T) {
