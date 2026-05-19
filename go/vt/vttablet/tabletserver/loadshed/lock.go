@@ -144,13 +144,21 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 			}
 			// if err != nil: was dropped, nothing to do
 		default:
-			// Not yet signaled. Cancel from queue.
 			l.mu.Lock()
-			needSchedule, delay := l.sq.lockedCancel(contentionID, req)
-			if needSchedule {
-				l.lockedScheduleDropTimer(delay)
+			if l.holder == req {
+				// Race: granted between inner select and mutex acquisition.
+				// The releaser will signal momentarily — drain it to prevent
+				// a double-signal deadlock, then release.
+				l.mu.Unlock()
+				<-req.done
+				l.releaseInternal()
+			} else {
+				needSchedule, delay := l.sq.lockedCancel(contentionID, req)
+				if needSchedule {
+					l.lockedScheduleDropTimer(delay)
+				}
+				l.mu.Unlock()
 			}
-			l.mu.Unlock()
 		}
 		return nil, ctx.Err()
 	}
