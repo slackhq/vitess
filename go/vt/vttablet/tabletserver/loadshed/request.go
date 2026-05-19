@@ -18,48 +18,59 @@ package loadshed
 
 import (
 	"container/list"
+	"math"
 	"sync/atomic"
 )
 
 type (
 	// Request represents an entry in the CoDel queue. It may be granted (lock
-	// acquired) or dropped (load shed). Each request owns a done channel that
+	// acquired) or dropped (load shed). Each request owns a result channel that
 	// receives nil on grant or a *DroppedRequestError on drop. The signaled
-	// flag and result field allow non-consuming inspection of the outcome
+	// flag and outcome field allow non-consuming inspection of the outcome
 	// (used by lockedPeek to avoid channel pop/push-back).
 	Request struct {
-		priority   *float64
-		enqueuedAt int64
-		done       chan error
-		signaled   atomic.Bool
-		result     error
-		droppable  bool
-		elem       *list.Element
-		// contentionID is stored so that cancel can look up the valve.
-		contentionID string
+		priority    *float64
+		enqueuedAtNs int64
+		result      chan error
+		signaled    atomic.Bool
+		outcome     error
+		elem        *list.Element
+		// valveID is stored so that cancel can look up the valve.
+		valveID string
 	}
 )
 
-// PriorityUndroppable indicates a request that must never be dropped by CoDel.
-// Pass this as the priority to Lock.Acquire when load-shedding is not allowed.
-var PriorityUndroppable *float64 // nil sentinel
+// priorityUndroppable is a sentinel value indicating a request that must never
+// be dropped by CoDel. We use negative infinity so it's distinguishable from
+// any real priority value.
+var priorityUndroppable = math.Inf(-1)
 
-func newRequest(priority *float64, enqueuedAt int64) *Request {
-	droppable := priority != nil
+func isUndroppable(priority *float64) bool {
+	return priority != nil && *priority == priorityUndroppable
+}
+
+func newUndroppablePriority() *float64 {
+	v := priorityUndroppable
+	return &v
+}
+
+func newRequest(priority *float64) *Request {
 	return &Request{
-		priority:   priority,
-		enqueuedAt: enqueuedAt,
-		done:       make(chan error, 1),
-		droppable:  droppable,
+		priority: priority,
+		result:   make(chan error, 1),
 	}
 }
 
-// signal writes the result to both the inspectable field and the blocking
+func (r *Request) isDroppable() bool {
+	return !isUndroppable(r.priority)
+}
+
+// signal writes the outcome to both the inspectable field and the blocking
 // channel. It must be called at most once per request.
 func (r *Request) signal(err error) {
-	r.result = err
+	r.outcome = err
 	r.signaled.Store(true)
-	r.done <- err
+	r.result <- err
 }
 
 // isDone reports whether the request has been signaled.
@@ -68,7 +79,7 @@ func (r *Request) isDone() bool {
 }
 
 // NewPriority returns a pointer to the given float64, for use as a droppable
-// priority value. nil means undroppable.
+// priority value.
 func NewPriority(v float64) *float64 { //nolint:modernize
 	return &v
 }

@@ -47,7 +47,7 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 	for range iterations {
 		l := newTestLock(cfg)
 
-		unlockA, err := l.Acquire(t.Context())
+		unlockA, err := l.Acquire(t.Context(), "")
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -60,7 +60,7 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			unlockB, acquireErr = l.Acquire(ctx)
+			unlockB, acquireErr = l.Acquire(ctx, "")
 		}()
 
 		runtime.Gosched()
@@ -83,7 +83,7 @@ func TestLock_CancelVsGrant_Race(t *testing.T) {
 
 			// Verify lock is still usable.
 			ctx2, cancel2 := context.WithTimeout(t.Context(), 10*time.Millisecond)
-			unlockC, err2 := l.Acquire(ctx2)
+			unlockC, err2 := l.Acquire(ctx2, "")
 			cancel2()
 			if assert.NoError(t, err2, "lock must remain acquirable") {
 				unlockC.Release()

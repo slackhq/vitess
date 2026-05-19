@@ -32,7 +32,6 @@ type (
 		CoDel               CoDelConfig
 		MaxAge              func() time.Duration
 		LoadsheddingAllowed func() bool
-		ContentionID        func() string
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
 	}
@@ -45,13 +44,12 @@ type (
 	Lock struct {
 		mu sync.Mutex
 
-		sq             *SelfContentionAwareCoDelQueue
+		q              *SelfContentionAwareCoDelQueue
 		holder         *Request
 		lockNonce      uint64
 		dropTimer      *time.Timer
 		dropTimerArmed bool
 		maxAgeTimer    *time.Timer
-		maxAgeHolder   *Request
 		cfg            LockConfig
 		clockFunc      func() int64
 	}
@@ -74,55 +72,40 @@ func defaultClock() int64 {
 
 // NewLock creates a new CoDel-based load-shedding lock.
 func NewLock(cfg LockConfig) *Lock {
-	return NewLockWithClock(cfg, defaultClock)
-}
-
-// NewLockWithClock creates a Lock with an injected clock (for testing).
-func NewLockWithClock(cfg LockConfig, clockFunc func() int64) *Lock {
 	l := &Lock{
 		cfg:       cfg,
-		clockFunc: clockFunc,
+		clockFunc: defaultClock,
 	}
-	l.sq = newSelfContentionAwareCoDelQueue(cfg.CoDel, clockFunc)
+	l.q = newSelfContentionAwareCoDelQueue(cfg.CoDel, defaultClock, l.lockedScheduleDropTimer)
 	return l
 }
 
 // Acquire acquires the lock. It blocks until the lock is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
-// must be released via defer unlock.Release().
-func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
-	contentionID := ""
-	if l.cfg.ContentionID != nil {
-		contentionID = l.cfg.ContentionID()
-	}
-
+// must be released via defer unlock.Release(). valveID controls self-contention
+// awareness: requests with the same non-empty ID are serialized through the
+// valve so at most one is in the CoDel queue at a time. Pass "" to bypass.
+func (l *Lock) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error) {
 	priority := l.priority()
 
 	l.mu.Lock()
-	isLocked := l.sq.lockedPeek() != nil
-	req, needSchedule, delay := l.sq.lockedEnqueue(contentionID, priority)
+	isLocked := l.q.lockedPeek() != nil
+	req := l.q.lockedEnqueue(valveID, priority)
 
 	if !isLocked {
 		l.lockNonce++
 		nonce := l.lockNonce
 		l.holder = req
-		l.sq.lockedMarkNotDroppable(req)
+		l.q.lockedMarkNotDroppable(req)
 		l.lockedStartMaxAgeTimer(req)
-		if needSchedule {
-			l.lockedScheduleDropTimer(delay)
-		}
 		l.mu.Unlock()
 		return &SafeUnlock{l: l, nonce: nonce}, nil
 	}
 
-	if needSchedule {
-		l.lockedScheduleDropTimer(delay)
-	}
 	l.mu.Unlock()
 
-	// wait for grant or drop
 	select {
-	case err := <-req.done:
+	case err := <-req.result:
 		if err != nil {
 			return nil, l.acquireError()
 		}
@@ -133,30 +116,19 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 		return &SafeUnlock{l: l, nonce: nonce}, nil
 
 	case <-ctx.Done():
-		// Race: the request may have been granted AND the context cancelled
-		// simultaneously. Go's select picks non-deterministically.
 		select {
-		case err := <-req.done:
+		case err := <-req.result:
 			if err == nil {
-				// Lock was granted but context cancelled. Release immediately
-				// to avoid orphaning the lock.
 				l.releaseInternal()
 			}
-			// if err != nil: was dropped, nothing to do
 		default:
 			l.mu.Lock()
 			if l.holder == req {
-				// Race: granted between inner select and mutex acquisition.
-				// The releaser will signal momentarily — drain it to prevent
-				// a double-signal deadlock, then release.
 				l.mu.Unlock()
-				<-req.done
+				<-req.result
 				l.releaseInternal()
 			} else {
-				needSchedule, delay := l.sq.lockedCancel(contentionID, req)
-				if needSchedule {
-					l.lockedScheduleDropTimer(delay)
-				}
+				l.q.lockedCancel(req)
 				l.mu.Unlock()
 			}
 		}
@@ -168,14 +140,14 @@ func (l *Lock) Acquire(ctx context.Context) (*SafeUnlock, error) {
 func (l *Lock) IsLocked() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.sq.lockedPeek() != nil
+	return l.q.lockedPeek() != nil
 }
 
 // IsHealthy reports whether the CoDel queue is healthy.
 func (l *Lock) IsHealthy() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.sq.lockedIsHealthy()
+	return l.q.lockedIsHealthy()
 }
 
 // Release releases the lock. exc is an optional error that caused the release
@@ -199,9 +171,49 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 		return fmt.Errorf("unauthorized release: nonce %d != %d", nonce, currentNonce)
 	}
 	l.lockedStopMaxAgeTimer()
+	next := l.lockedGrantNext()
 	l.mu.Unlock()
 
-	// run release callbacks without mutex held
+	if next != nil {
+		next.signal(nil)
+	}
+
+	l.runReleaseCBs(excValue)
+	return nil
+}
+
+// releaseInternal releases the lock without nonce verification or callbacks.
+// Used when the context is cancelled after the lock was already granted.
+func (l *Lock) releaseInternal() {
+	l.mu.Lock()
+	l.lockedStopMaxAgeTimer()
+	next := l.lockedGrantNext()
+	l.mu.Unlock()
+
+	if next != nil {
+		next.signal(nil)
+	}
+}
+
+// lockedGrantNext dequeues the current holder, promotes from valve, and grants
+// to the next waiter. Returns the next request to signal, or nil.
+func (l *Lock) lockedGrantNext() *Request {
+	l.q.lockedDequeue()
+	next := l.q.lockedPeek()
+	if next != nil {
+		l.lockNonce++
+		l.holder = next
+		l.q.lockedMarkNotDroppable(next)
+	} else {
+		l.holder = nil
+	}
+	return next
+}
+
+// runReleaseCBs executes release callbacks outside the mutex.
+// Release callbacks may block or call back into the Lock (e.g., to read
+// IsLocked); holding the mutex would deadlock.
+func (l *Lock) runReleaseCBs(excValue error) {
 	for _, cb := range l.cfg.ReleaseCBs {
 		func() {
 			defer func() {
@@ -212,55 +224,11 @@ func (l *Lock) release(nonce uint64, excValue error) error {
 			cb(excValue)
 		}()
 	}
-
-	l.mu.Lock()
-	_, needSchedule, delay := l.sq.lockedDequeue() // removes current holder, promotes from valve
-	next := l.sq.lockedPeek()
-	if next != nil {
-		l.lockNonce++
-		l.holder = next
-		l.sq.lockedMarkNotDroppable(next)
-	} else {
-		l.holder = nil
-	}
-	if needSchedule {
-		l.lockedScheduleDropTimer(delay)
-	}
-	l.mu.Unlock()
-
-	if next != nil {
-		next.signal(nil)
-	}
-	return nil
-}
-
-// releaseInternal releases the lock without nonce verification or callbacks.
-// Used when the context is cancelled after the lock was already granted.
-func (l *Lock) releaseInternal() {
-	l.mu.Lock()
-	l.lockedStopMaxAgeTimer()
-	_, needSchedule, delay := l.sq.lockedDequeue()
-	next := l.sq.lockedPeek()
-	if next != nil {
-		l.lockNonce++
-		l.holder = next
-		l.sq.lockedMarkNotDroppable(next)
-	} else {
-		l.holder = nil
-	}
-	if needSchedule {
-		l.lockedScheduleDropTimer(delay)
-	}
-	l.mu.Unlock()
-
-	if next != nil {
-		next.signal(nil)
-	}
 }
 
 func (l *Lock) priority() *float64 {
 	if l.cfg.LoadsheddingAllowed != nil && !l.cfg.LoadsheddingAllowed() {
-		return PriorityUndroppable
+		return newUndroppablePriority()
 	}
 	return NewPriority(0)
 }
@@ -290,11 +258,7 @@ func (l *Lock) runDropTimer() {
 		return
 	}
 	l.dropTimerArmed = false
-
-	reschedule, delayNs := l.sq.lockedRunScheduledDrop()
-	if reschedule {
-		l.lockedScheduleDropTimer(delayNs)
-	}
+	l.q.lockedRunScheduledDrop()
 	l.mu.Unlock()
 }
 
@@ -306,12 +270,11 @@ func (l *Lock) lockedStartMaxAgeTimer(holder *Request) {
 	if maxAge <= 0 {
 		return
 	}
-	l.maxAgeHolder = holder
 	l.maxAgeTimer = time.AfterFunc(maxAge, func() {
 		l.mu.Lock()
-		if l.maxAgeHolder != holder {
+		if l.holder != holder {
 			l.mu.Unlock()
-			return // stale timer
+			return
 		}
 		nonce := l.lockNonce
 		l.mu.Unlock()
@@ -322,7 +285,6 @@ func (l *Lock) lockedStartMaxAgeTimer(holder *Request) {
 }
 
 func (l *Lock) lockedStopMaxAgeTimer() {
-	l.maxAgeHolder = nil
 	if l.maxAgeTimer != nil {
 		l.maxAgeTimer.Stop()
 		l.maxAgeTimer = nil

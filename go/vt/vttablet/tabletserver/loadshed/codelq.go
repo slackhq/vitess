@@ -44,12 +44,10 @@ type (
 		count        int
 		lastCount    int
 		droppableLen int
-		// timerScheduled tracks whether the parent has a drop timer armed.
-		// Set by the parent after lockedEnqueue returns needSchedule=true.
-		timerScheduled bool
 
-		cfg       CoDelConfig
-		clockFunc func() int64
+		cfg              CoDelConfig
+		now              func() int64
+		scheduleDropTimer func(delayNs int64)
 	}
 )
 
@@ -57,13 +55,14 @@ func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
 }
 
-func newCoDelQueue(cfg CoDelConfig, clockFunc func() int64) *CoDelQueue {
+func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(delayNs int64)) *CoDelQueue {
 	return &CoDelQueue{
-		queue:     list.New(),
-		count:     1,
-		lastCount: 1,
-		cfg:       cfg,
-		clockFunc: clockFunc,
+		queue:             list.New(),
+		count:             1,
+		lastCount:         1,
+		cfg:               cfg,
+		now:               now,
+		scheduleDropTimer: scheduleDropTimer,
 	}
 }
 
@@ -79,74 +78,48 @@ func (q *CoDelQueue) lockedIsHealthy() bool {
 }
 
 // lockedEnqueue creates a new request and inserts it into the queue.
-// Returns the request, whether the parent should schedule a drop timer,
-// and the delay in nanoseconds for the timer.
-func (q *CoDelQueue) lockedEnqueue(priority *float64) (*Request, bool, int64) {
-	now := q.clockFunc()
-	req := newRequest(priority, now)
-	return q.lockedEnqueueRequest(req)
+func (q *CoDelQueue) lockedEnqueue(priority *float64) *Request {
+	req := newRequest(priority)
+	q.lockedEnqueueRequest(req)
+	return req
 }
 
 // lockedEnqueueRequest inserts an already-created request into the queue.
 // Used by SelfContentionAwareCoDelQueue to enqueue requests that were
 // created earlier and held in the valve.
-func (q *CoDelQueue) lockedEnqueueRequest(req *Request) (*Request, bool, int64) {
-	req.enqueuedAt = q.clockFunc()
+func (q *CoDelQueue) lockedEnqueueRequest(req *Request) {
+	req.enqueuedAtNs = q.now()
 	req.elem = q.queue.PushBack(req)
 
-	if req.droppable {
+	if req.isDroppable() {
 		q.droppableLen++
+		q.lockedArmDropTimer()
 	}
-
-	needSchedule := false
-	delay := int64(0)
-	if req.droppable && q.droppableLen > 0 && !q.timerScheduled {
-		needSchedule = true
-		delay = q.lockedCurrentInterval()
-		minDelay := q.cfg.MinDropDelayNs()
-		if delay < minDelay {
-			delay = minDelay
-		}
-		q.timerScheduled = true
-	}
-
-	return req, needSchedule, delay
 }
 
 // lockedDequeue pops the next eligible request from the head of the queue.
-// Returns nil if the queue is empty. Also returns whether the parent should
-// schedule a drop timer and the delay, since exiting dropping state clears the
-// timer but droppable items may remain.
-func (q *CoDelQueue) lockedDequeue() (req *Request, needSchedule bool, delayNs int64) {
+// Returns nil if the queue is empty.
+func (q *CoDelQueue) lockedDequeue() *Request {
 	if q.lockedPeek() == nil {
-		return nil, false, 0
+		return nil
 	}
-	req = q.lockedPopElem(q.queue.Front(), nil)
+	req := q.lockedPopElem(q.queue.Front(), nil)
 
-	now := q.clockFunc()
-	sojournTime := now - req.enqueuedAt
+	now := q.now()
+	sojournTime := now - req.enqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
-		q.lockedClearTimerFlag()
 
-		// Re-arm the timer if droppable items remain — without this, CoDel
-		// would never fire again unless a new enqueue arrives.
-		if q.droppableLen > 0 && !q.timerScheduled {
-			needSchedule = true
-			delayNs = q.lockedCurrentInterval()
-			minDelay := q.cfg.MinDropDelayNs()
-			if delayNs < minDelay {
-				delayNs = minDelay
-			}
-			q.timerScheduled = true
+		if q.droppableLen > 0 {
+			q.lockedArmDropTimer()
 		}
 	}
 
-	return req, needSchedule, delayNs
+	return req
 }
 
 // lockedPeek returns the head request without removing it. As a side effect,
-// cleans up done-and-not-granted requests at the head (requests whose done
+// cleans up done-and-not-granted requests at the head (requests whose result
 // channel has an error). Empty queue transitions to healthy.
 func (q *CoDelQueue) lockedPeek() *Request {
 	for q.queue.Len() > 0 {
@@ -155,7 +128,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 		if !req.isDone() {
 			return req
 		}
-		if req.result == nil {
+		if req.outcome == nil {
 			return req
 		}
 		q.queue.Remove(front)
@@ -166,7 +139,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 }
 
 // lockedPopElem removes the given element from the queue, signals the request's
-// done channel, and updates bookkeeping.
+// result channel, and updates bookkeeping.
 func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req := elem.Value.(*Request)
 	q.queue.Remove(elem)
@@ -176,44 +149,42 @@ func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 		req.signal(err)
 	}
 
-	if req.droppable {
-		req.droppable = false
+	if req.isDroppable() {
 		q.droppableLen--
-		if q.droppableLen == 0 {
-			q.lockedClearTimerFlag()
+		if q.droppableLen == 0 && q.dropping {
+			q.dropping = false
 		}
 	}
 
 	return req
 }
 
-// lockedCancel removes a specific request from the queue.
-func (q *CoDelQueue) lockedCancel(r *Request) {
+// lockedRemove removes a specific request from the queue without signaling it.
+func (q *CoDelQueue) lockedRemove(r *Request) {
 	if r.elem == nil {
 		return
 	}
 	q.queue.Remove(r.elem)
 	r.elem = nil
 
-	if r.droppable {
-		r.droppable = false
+	if r.isDroppable() {
 		q.droppableLen--
-		if q.droppableLen == 0 {
-			q.lockedClearTimerFlag()
+		if q.droppableLen == 0 && q.dropping {
+			q.dropping = false
 		}
 	}
 }
 
 // lockedMarkNotDroppable marks a request as not droppable (e.g., when it is
-// granted). Decrements droppableLen if needed.
+// granted). Uses the undroppable sentinel priority.
 func (q *CoDelQueue) lockedMarkNotDroppable(r *Request) {
-	if !r.droppable {
+	if !r.isDroppable() {
 		return
 	}
-	r.droppable = false
+	r.priority = newUndroppablePriority()
 	q.droppableLen--
-	if q.droppableLen == 0 {
-		q.lockedClearTimerFlag()
+	if q.droppableLen == 0 && q.dropping {
+		q.dropping = false
 	}
 }
 
@@ -224,10 +195,9 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 
 	for e := q.queue.Front(); e != nil; e = e.Next() {
 		req := e.Value.(*Request)
-		if req.isDone() || !req.droppable {
+		if req.isDone() || !req.isDroppable() {
 			continue
 		}
-		// priority 0 is the instant pick
 		if req.priority != nil && *req.priority == 0 {
 			return e
 		}
@@ -244,27 +214,15 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 	return best
 }
 
-// lockedDropLowestPriority finds and drops the lowest-priority droppable
-// request. Returns nil if no droppable request exists.
-func (q *CoDelQueue) lockedDropLowestPriority() *Request {
-	elem := q.lockedFindLowestPriorityDroppable()
-	if elem == nil {
-		return nil
-	}
-	return q.lockedPopElem(elem, &DroppedRequestError{})
-}
-
 // lockedRunScheduledDrop executes the CoDel drop logic. The dropFn is called
 // for each drop; it should remove the request from the queue and handle any
-// promotion. Returns whether to reschedule and the delay in nanoseconds.
-func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) (reschedule bool, delayNs int64) {
-	q.timerScheduled = false
-
+// promotion.
+func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 	if q.droppableLen == 0 {
-		return false, 0
+		return
 	}
 
-	now := q.clockFunc()
+	now := q.now()
 	if !q.dropping {
 		q.lockedEnterDroppingState()
 	}
@@ -282,27 +240,19 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) (reschedule bool
 		q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 	}
 
-	if q.droppableLen == 0 {
-		return false, 0
+	if q.droppableLen > 0 {
+		q.lockedArmDropTimer()
 	}
-
-	delay := q.dropNextNs - now
-	minDelay := q.cfg.MinDropDelayNs()
-	if delay < minDelay {
-		delay = minDelay
-	}
-	return true, delay
 }
 
 // lockedEnterDroppingState transitions to the dropping state, possibly
 // restoring the drop count from a prior dropping period.
 func (q *CoDelQueue) lockedEnterDroppingState() {
-	now := q.clockFunc()
+	now := q.now()
 	q.dropping = true
 	delta := q.count - q.lastCount
 	q.count = 1
 
-	// restore prior state if the last dropping period was recent
 	if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
 		q.count = delta
 	}
@@ -330,6 +280,11 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	return result
 }
 
-func (q *CoDelQueue) lockedClearTimerFlag() {
-	q.timerScheduled = false
+func (q *CoDelQueue) lockedArmDropTimer() {
+	delay := q.lockedCurrentInterval()
+	minDelay := q.cfg.MinDropDelayNs()
+	if delay < minDelay {
+		delay = minDelay
+	}
+	q.scheduleDropTimer(delay)
 }
