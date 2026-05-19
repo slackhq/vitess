@@ -40,7 +40,9 @@ func TestLock_Stress_HighContention(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 200 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(t.Context(), "")
 			if err != nil {
 				return
@@ -52,7 +54,7 @@ func TestLock_Stress_HighContention(t *testing.T) {
 			held.Add(-1)
 			u.Release()
 			completed.Add(1)
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -69,7 +71,9 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 	var acquired, cancelled atomic.Int64
 
 	for range 100 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(),
 				time.Duration(1+rand.IntN(5))*time.Millisecond)
 			defer cancel()
@@ -82,7 +86,7 @@ func TestLock_Stress_ContextCancellation(t *testing.T) {
 			acquired.Add(1)
 			time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 			u.Release()
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -114,7 +118,9 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 	var droppableSuccess, droppableFailed atomic.Int64
 
 	for range 50 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := droppableLock.Acquire(t.Context(), "")
 			if err != nil {
 				droppableFailed.Add(1)
@@ -122,7 +128,7 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 			}
 			droppableSuccess.Add(1)
 			u.Release()
-		})
+		}()
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -137,14 +143,16 @@ func TestLock_Stress_MixedPriorities(t *testing.T) {
 
 	var undroppableSuccess atomic.Int64
 	for range 50 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := undroppableLock.Acquire(t.Context(), "")
 			if err != nil {
 				return
 			}
 			undroppableSuccess.Add(1)
 			u.Release()
-		})
+		}()
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -178,7 +186,9 @@ func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
 		for range 10 {
 			cid := fmt.Sprintf("id%d", id)
 			pid := ids[id]
-			wg.Go(func() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				u, err := l.Acquire(t.Context(), cid)
 				if err != nil {
 					return
@@ -199,7 +209,7 @@ func TestLock_Stress_SelfContention_MutualExclusion(t *testing.T) {
 				globalHeld.Add(-1)
 				u.Release()
 				completed.Add(1)
-			})
+			}()
 		}
 	}
 
@@ -227,7 +237,9 @@ func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 	for i := range n {
 		time.Sleep(2 * time.Millisecond)
 		idx := i
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(t.Context(), "order-test")
 			if err != nil {
 				return
@@ -236,7 +248,7 @@ func TestLock_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 			order = append(order, idx)
 			mu.Unlock()
 			u.Release()
-		})
+		}()
 	}
 
 	time.Sleep(50 * time.Millisecond)
@@ -274,7 +286,9 @@ func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 		for range perID {
 			cid := fmt.Sprintf("drop-id%d", id)
 			idx := id
-			wg.Go(func() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				u, err := l.Acquire(t.Context(), cid)
 				if err != nil {
 					results <- result{id: idx, granted: false}
@@ -283,7 +297,7 @@ func TestLock_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 				time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 				u.Release()
 				results <- result{id: idx, granted: true}
-			})
+			}()
 		}
 	}
 
@@ -327,7 +341,9 @@ func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
 		ctxs[i], cancels[i] = context.WithCancel(t.Context())
 		results[i] = make(chan error, 1)
 		idx := i
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(ctxs[idx], "cancel-test")
 			if err != nil {
 				results[idx] <- err
@@ -336,7 +352,7 @@ func TestLock_Stress_SelfContention_CancelInValve(t *testing.T) {
 			time.Sleep(time.Millisecond)
 			u.Release()
 			results[idx] <- nil
-		})
+		}()
 		time.Sleep(2 * time.Millisecond)
 	}
 
@@ -385,7 +401,9 @@ func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	for id := range numIDs {
 		for range perID {
 			cid := fmt.Sprintf("mix-id%d", id)
-			wg.Go(func() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				timeout := time.Duration(1+rand.IntN(20)) * time.Millisecond
 				ctx, cancel := context.WithTimeout(t.Context(), timeout)
 				defer cancel()
@@ -402,7 +420,7 @@ func TestLock_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 				time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
 				u.Release()
 				granted.Add(1)
-			})
+			}()
 		}
 	}
 
@@ -429,7 +447,9 @@ func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 	for id := range numIDs {
 		for range goroutinesPerID {
 			cid := fmt.Sprintf("sustained-id%d", id)
-			wg.Go(func() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				for time.Now().Before(deadline) {
 					u, err := l.Acquire(t.Context(), cid)
 					if err != nil {
@@ -447,7 +467,7 @@ func TestLock_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 					u.Release()
 					totalAcquires.Add(1)
 				}
-			})
+			}()
 		}
 	}
 
@@ -465,7 +485,9 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for range 100 {
 				u, err := l.Acquire(t.Context(), "")
 				if err != nil {
@@ -473,7 +495,7 @@ func TestLock_Stress_RapidAcquireRelease(t *testing.T) {
 				}
 				u.Release()
 			}
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -487,7 +509,9 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 100 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			ctx, cancel := context.WithCancel(t.Context())
 			go func() {
 				time.Sleep(time.Duration(rand.IntN(5)) * time.Microsecond)
@@ -499,7 +523,7 @@ func TestLock_Stress_CancelAndGrant_Race(t *testing.T) {
 				time.Sleep(100 * time.Microsecond)
 				u.Release()
 			}
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -520,7 +544,9 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 			defer cancel()
 
@@ -528,7 +554,7 @@ func TestLock_Stress_DropTimerAndCancel_Race(t *testing.T) {
 			if err == nil {
 				u.Release()
 			}
-		})
+		}()
 	}
 
 	time.Sleep(20 * time.Millisecond)
@@ -549,7 +575,9 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 	var completed atomic.Int64
 
 	for range 50 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(t.Context(), "")
 			if err != nil {
 				return
@@ -557,7 +585,7 @@ func TestLock_Stress_MaxAge_UnderLoad(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 			u.Release()
 			completed.Add(1)
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -578,14 +606,16 @@ func TestLock_Stress_SelfContention_WithDrops(t *testing.T) {
 
 	for i := range 30 {
 		cid := fmt.Sprintf("id%d", i%5)
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(t.Context(), cid)
 			if err != nil {
 				return
 			}
 			time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
 			u.Release()
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -601,7 +631,9 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			defer cancel()
 			u, err := l.Acquire(ctx, "")
@@ -609,7 +641,7 @@ func TestLock_Stress_GoroutineLeakDetector(t *testing.T) {
 				time.Sleep(time.Millisecond)
 				u.Release()
 			}
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -631,7 +663,9 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 
 	for i := range 100 {
 		idx := i
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
@@ -642,7 +676,7 @@ func TestLock_Stress_NoStarvation(t *testing.T) {
 			acquiredFlags[idx].Store(true)
 			time.Sleep(time.Duration(1+rand.IntN(3)) * time.Millisecond)
 			u.Release()
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -670,13 +704,15 @@ func TestLock_Stress_PromotionDuringCancel(t *testing.T) {
 	for i := range 20 {
 		var ctx context.Context
 		ctx, ctxs[i] = context.WithCancel(t.Context())
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			u, err := l.Acquire(ctx, "id1")
 			if err == nil {
 				time.Sleep(time.Millisecond)
 				u.Release()
 			}
-		})
+		}()
 	}
 
 	time.Sleep(10 * time.Millisecond)

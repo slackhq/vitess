@@ -48,7 +48,7 @@ type (
 		cfg               CoDelConfig
 		now               func() int64
 		scheduleDropTimer func(delayNs int64)
-		onPeekCleanup    func(*Request)
+		onPeekCleanup     func(*Request)
 	}
 )
 
@@ -64,7 +64,7 @@ func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(del
 		cfg:               cfg,
 		now:               now,
 		scheduleDropTimer: scheduleDropTimer,
-		onPeekCleanup:    onPeekCleanup,
+		onPeekCleanup:     onPeekCleanup,
 	}
 }
 

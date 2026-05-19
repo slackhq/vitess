@@ -29,12 +29,12 @@ type (
 	// flag and outcome field allow non-consuming inspection of the outcome
 	// (used by lockedPeek to avoid channel pop/push-back).
 	Request struct {
-		priority    *float64
+		priority     *float64
 		enqueuedAtNs int64
-		result      chan error
-		signaled    atomic.Bool
-		outcome     error
-		elem        *list.Element
+		result       chan error
+		signaled     atomic.Bool
+		outcome      error
+		elem         *list.Element
 		// valveID is stored so that cancel can look up the valve.
 		valveID string
 	}
