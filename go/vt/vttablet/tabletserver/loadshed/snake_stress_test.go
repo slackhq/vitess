@@ -62,6 +62,88 @@ func TestSnake_Stress_HighContention(t *testing.T) {
 	assert.False(t, s.IsLocked())
 }
 
+// --- N-holder stress ---
+
+func TestSnake_Stress_NHolder_CapacityRespected(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 5 }
+	s := NewSnake(cfg)
+
+	var held atomic.Int32
+	var maxHeld atomic.Int32
+	var completed atomic.Int64
+	var wg sync.WaitGroup
+
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u, err := s.Acquire(t.Context(), "")
+			if err != nil {
+				return
+			}
+			v := held.Add(1)
+			for {
+				cur := maxHeld.Load()
+				if v <= cur || maxHeld.CompareAndSwap(cur, v) {
+					break
+				}
+			}
+			time.Sleep(time.Duration(1+rand.IntN(5)) * time.Millisecond)
+			held.Add(-1)
+			u.Release()
+			completed.Add(1)
+		}()
+	}
+
+	wg.Wait()
+	assert.Equal(t, int64(100), completed.Load())
+	assert.LessOrEqual(t, maxHeld.Load(), int32(5), "capacity exceeded")
+	assert.Greater(t, maxHeld.Load(), int32(1), "capacity not utilized")
+	assert.False(t, s.IsLocked())
+}
+
+func TestSnake_Stress_NHolder_Sustained(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 3 }
+	s := NewSnake(cfg)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var held atomic.Int32
+	var maxHeld atomic.Int32
+	var totalAcquires atomic.Int64
+	var wg sync.WaitGroup
+
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				u, err := s.Acquire(t.Context(), "")
+				if err != nil {
+					continue
+				}
+				v := held.Add(1)
+				for {
+					cur := maxHeld.Load()
+					if v <= cur || maxHeld.CompareAndSwap(cur, v) {
+						break
+					}
+				}
+				time.Sleep(time.Duration(500+rand.IntN(1500)) * time.Microsecond)
+				held.Add(-1)
+				u.Release()
+				totalAcquires.Add(1)
+			}
+		}()
+	}
+
+	wg.Wait()
+	assert.LessOrEqual(t, maxHeld.Load(), int32(3), "capacity exceeded")
+	assert.Greater(t, totalAcquires.Load(), int64(50), "too few acquires")
+	assert.False(t, s.IsLocked())
+}
+
 // --- Context cancellation under load ---
 
 func TestSnake_Stress_ContextCancellation(t *testing.T) {

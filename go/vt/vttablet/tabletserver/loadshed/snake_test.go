@@ -37,6 +37,7 @@ func defaultSnakeConfig() SnakeConfig {
 			Exponent:       func() float64 { return 1.0 },
 			MinDropDelayNs: func() int64 { return 100 },
 		},
+		Capacity:            func() int { return 1 },
 		LoadsheddingAllowed: func() bool { return true },
 	}
 }
@@ -862,4 +863,219 @@ func TestNewSnake_DefaultClock(t *testing.T) {
 
 	unlock.Release()
 	assert.False(t, s.IsLocked())
+}
+
+// --- N-holder (capacity > 1) ---
+
+func TestSnake_NHolder_ConcurrentGrant(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 3 }
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, s.InFlight())
+
+	u2, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, 2, s.InFlight())
+
+	u3, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, 3, s.InFlight())
+
+	u1.Release()
+	assert.Equal(t, 2, s.InFlight())
+
+	u2.Release()
+	assert.Equal(t, 1, s.InFlight())
+
+	u3.Release()
+	assert.Equal(t, 0, s.InFlight())
+	assert.False(t, s.IsLocked())
+}
+
+func TestSnake_NHolder_BlocksAtCapacity(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 2 }
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	u2, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	acquired := make(chan struct{})
+	go func() {
+		u, err := s.Acquire(t.Context(), "")
+		if err == nil {
+			close(acquired)
+			u.Release()
+		}
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("third acquire should block at capacity=2")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	u1.Release()
+
+	select {
+	case <-acquired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("third acquire should have been granted after release")
+	}
+
+	u2.Release()
+}
+
+func TestSnake_NHolder_ReleaseGrantsWaiters(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 2 }
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+	u2, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	var completed atomic.Int64
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u, err := s.Acquire(t.Context(), "")
+			if err != nil {
+				return
+			}
+			completed.Add(1)
+			time.Sleep(time.Millisecond)
+			u.Release()
+		}()
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	u1.Release()
+	u2.Release()
+	wg.Wait()
+
+	assert.Equal(t, int64(5), completed.Load())
+	assert.False(t, s.IsLocked())
+}
+
+func TestSnake_NHolder_WithSelfContention(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 3 }
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "id1")
+	require.NoError(t, err)
+
+	u2, err := s.Acquire(t.Context(), "id2")
+	require.NoError(t, err)
+
+	u3, err := s.Acquire(t.Context(), "id3")
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, s.InFlight())
+
+	// Fourth request blocks (at capacity)
+	acquired := make(chan struct{})
+	go func() {
+		u, err := s.Acquire(t.Context(), "id4")
+		if err == nil {
+			close(acquired)
+			u.Release()
+		}
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("should block at capacity")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	u1.Release()
+
+	select {
+	case <-acquired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("waiter not granted after release")
+	}
+
+	u2.Release()
+	u3.Release()
+	assert.False(t, s.IsLocked())
+}
+
+func TestSnake_NHolder_NilCapacity_DefaultsToOne(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = nil
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	acquired := make(chan struct{})
+	go func() {
+		u, err := s.Acquire(t.Context(), "")
+		if err == nil {
+			close(acquired)
+			u.Release()
+		}
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("nil capacity should default to 1")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	u1.Release()
+
+	select {
+	case <-acquired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("waiter not granted")
+	}
+}
+
+func TestSnake_NHolder_MaxAge(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 2 }
+	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
+	s := NewSnake(cfg)
+
+	u1, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	u2, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	// Waiter should be granted via max-age force-release.
+	acquired := make(chan struct{})
+	go func() {
+		u, err := s.Acquire(t.Context(), "")
+		if err == nil {
+			close(acquired)
+			u.Release()
+		}
+	}()
+
+	select {
+	case <-acquired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("max-age should have force-released a slot")
+	}
+
+	// One of the original holders was force-released by max-age.
+	// Releasing it again should error (already released).
+	err1 := u1.Release()
+	err2 := u2.Release()
+	assert.True(t, err1 != nil || err2 != nil,
+		"at least one release should error after max-age force-release")
 }

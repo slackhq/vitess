@@ -74,8 +74,10 @@ func (q *SelfContentionAwareCoDelQueue) lockedPeek() *Request {
 	return q.codelq.lockedPeek()
 }
 
-// lockedEnqueue enqueues a request. If the valve ID already has an active
-// request in the CoDel queue, the new request is placed in the valve instead.
+// lockedEnqueue enqueues a request. If the valve ID already has any outstanding
+// request (in the CoDel queue or granted), the new request is placed in the
+// valve instead. This prevents same-ID requests from piling up in the queue
+// where they'd be exposed to CoDel drops while waiting for their predecessor.
 func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority *float64) *Request {
 	req := newRequest(priority)
 	req.valveID = valveID
@@ -142,9 +144,53 @@ func (q *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() {
 	q.codelq.lockedRunScheduledDrop(dropFn)
 }
 
-// lockedMarkNotDroppable forwards to the CoDel queue.
+// lockedMarkNotDroppable marks a request as undroppable (grant). Clears the
+// active-per-valve tracking since the request no longer occupies a droppable
+// slot. Valve promotion is handled separately by lockedPromoteValve.
 func (q *SelfContentionAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
 	q.codelq.lockedMarkNotDroppable(r)
+	if r.valveID != "" {
+		delete(q.activePerValve, r.valveID)
+	}
+}
+
+// lockedPromoteValve promotes the next pending request for a valve ID from
+// the valve into the CoDel queue. Called by Snake when capacity is available
+// and it's safe for a new droppable entry to enter the queue.
+func (q *SelfContentionAwareCoDelQueue) lockedPromoteValve(valveID string) {
+	if valveID == "" {
+		return
+	}
+	if _, hasActive := q.activePerValve[valveID]; hasActive {
+		return
+	}
+	q.lockedPromote(valveID)
+}
+
+// lockedPromoteAllValves promotes one pending request from every valve ID that
+// doesn't currently have a droppable entry in the CoDel queue. Called by Snake
+// inside lockedTryGrantNext when capacity is available, ensuring valve entries
+// only enter the queue when they can potentially be granted.
+func (q *SelfContentionAwareCoDelQueue) lockedPromoteAllValves() {
+	for valveID := range q.pendingRequests {
+		if _, hasActive := q.activePerValve[valveID]; hasActive {
+			continue
+		}
+		q.lockedPromote(valveID)
+	}
+}
+
+// lockedComplete removes a granted (undroppable) request from the queue on
+// Release. Decrements outstanding counts for the valve ID.
+func (q *SelfContentionAwareCoDelQueue) lockedComplete(r *Request) {
+	q.codelq.lockedComplete(r)
+	q.decrementOutstanding(r.valveID)
+}
+
+// lockedFindFirstWaiting returns the first not-yet-done, not-yet-granted
+// request in the CoDel queue.
+func (q *SelfContentionAwareCoDelQueue) lockedFindFirstWaiting() *Request {
+	return q.codelq.lockedFindFirstWaiting()
 }
 
 // --- private helpers ---
