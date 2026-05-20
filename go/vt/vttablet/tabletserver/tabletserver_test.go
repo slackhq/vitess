@@ -1710,7 +1710,7 @@ func TestHandlePanicAndSendLogStatsMessageTruncation(t *testing.T) {
 		want := "Uncaught panic for Sql: \"select * from test_table_loooooooooooooooooooooooooooooooooooong\", BindVars: {bv1: \"type:INT64 value:\\\"1111111111\\\"\"bv2: \"type:INT64 value:\\\"2222222222\\\"\"bv3: \"type:INT64 value:\\\"3333333333\\\"\"bv4: \"type:INT64 value:\\\"4444444444\\\"\"}"
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), want)
-		want = "Uncaught panic for Sql: \"select * from test_t [TRUNCATED]\", BindVars: {bv1: \"typ [TRUNCATED]"
+		want = "Uncaught panic for Sql: \"select * fro [TRUNCATED] ooooong\", BindVars: {bv1: \"typ [TRUNCATED]"
 		gotWhatWeWant := false
 		for _, log := range tl.getLogs() {
 			if strings.HasPrefix(log, want) {
@@ -1740,7 +1740,7 @@ func TestQueryAsString(t *testing.T) {
 	require.NoError(t, err)
 
 	query := queryAsString(longSql, longBv, true, true, parser)
-	want := "Sql: \"select * from test_t [TRUNCATED]\", BindVars: {[REDACTED]}"
+	want := "Sql: \"select * fro [TRUNCATED] ooooong\", BindVars: {[REDACTED]}"
 	assert.Equal(t, want, query)
 
 	query = queryAsString(longSql, longBv, true, false, parser)
@@ -1748,7 +1748,7 @@ func TestQueryAsString(t *testing.T) {
 	assert.Equal(t, want, query)
 
 	query = queryAsString(longSql, longBv, false, true, parser)
-	want = "Sql: \"select * from test_t [TRUNCATED]\", BindVars: {bv1: \"typ [TRUNCATED]"
+	want = "Sql: \"select * fro [TRUNCATED] ooooong\", BindVars: {bv1: \"typ [TRUNCATED]"
 	assert.Equal(t, want, query)
 
 	query = queryAsString(longSql, longBv, false, false, parser)
@@ -2060,7 +2060,7 @@ func TestTruncateMessages(t *testing.T) {
 	}
 
 	// but log *is* truncated, and sanitized
-	wantLog := "sensitive message (errno 10) (sqlstate HY000): Sql: \"select * from test_table where xyz = :vt [TRUNCATED]\", BindVars: {[REDACTED]}"
+	wantLog := "sensitive message (errno 10) (sqlstate HY000): Sql: \"select * from test_table w [TRUNCATED] r by abc desc\", BindVars: {[REDACTED]}"
 	if wantLog != tl.getLog(0) {
 		t.Errorf("log got '%s', want '%s'", tl.getLog(0), wantLog)
 	}

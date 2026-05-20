@@ -26,15 +26,44 @@ func (p *Parser) GetTruncateErrLen() int {
 func TruncateQuery(query string, max int) string {
 	sql, comments := SplitMarginComments(query)
 
-	if max == 0 || len(sql) <= max || len(sql) < len(TruncationText) {
+	if max == 0 || len(sql) <= max {
 		return comments.Leading + sql + comments.Trailing
 	}
 
-	if max < len(TruncationText)+1 {
-		max = len(TruncationText) + 1
+	// The marker " [TRUNCATED] " needs at least len(TruncationText)+2 bytes (spaces on both sides).
+	minLen := len(TruncationText) + 2
+	if max < minLen {
+		max = minLen
 	}
 
-	return comments.Leading + sql[:max-(len(TruncationText)+1)] + " " + TruncationText + comments.Trailing
+	// After enforcing the minimum, the SQL may now fit without truncation.
+	if len(sql) <= max {
+		return comments.Leading + sql + comments.Trailing
+	}
+
+	return comments.Leading + truncateMiddle(sql, max) + comments.Trailing
+}
+
+// truncateMiddle removes content from the middle of s to fit within max bytes,
+// preserving both the beginning (query structure, table names) and the end
+// (WHERE clauses, trailing context). The removed section is replaced with
+// " [TRUNCATED] ".
+//
+// The split is 2/3 prefix, 1/3 suffix. This ratio favors the beginning of the
+// query (which contains SELECT/INSERT/UPDATE keywords and table names) while
+// still preserving meaningful trailing context (WHERE conditions, LIMIT, etc.).
+func truncateMiddle(s string, max int) string {
+	marker := " " + TruncationText + " "
+	available := max - len(marker)
+	if available <= 0 {
+		return marker
+	}
+
+	// 2/3 of available space goes to the prefix, 1/3 to the suffix.
+	prefixLen := (available * 2) / 3
+	suffixLen := available - prefixLen
+
+	return s[:prefixLen] + marker + s[len(s)-suffixLen:]
 }
 
 // TruncateForUI is used when displaying queries on various Vitess status pages
