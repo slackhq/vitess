@@ -22,6 +22,67 @@ type (
 	// time. Additional requests wait in per-ID "valve" queues and are promoted
 	// when the active request completes (dequeue, drop, or cancel).
 	//
+	// Context
+	//
+	// Application code may issue multiple lock acquires in parallel. One
+	// example is a fan-out (e.g. errgroup) at a high level in the request
+	// handler, written without cognizance of lower-level lock acquires for a
+	// shared resource needed by each goroutine (e.g. a database connection).
+	// Self-contention is artificial contention and doesn't represent true
+	// contention on the resource.
+	//
+	// That case has two downsides:
+	//   1. The context can become un-serviceable even in absence of other
+	//      clients of the lock. It self-contends and can push the queue into
+	//      a dropping state.
+	//   2. At best, it floods the queue with lock acquire requests that inflate
+	//      sojourn time for other clients of the lock (e.g. other requests).
+	//
+	// Loadshedding is the right call when genuinely overloaded, but here the
+	// load is self-inflicted and also not actual load since the gathered
+	// goroutines will end up executing serially anyway, as if they had been
+	// written in a for-loop with no fan-out at all.
+	//
+	// Design
+	//
+	// We control queue entry with valves so that the queue can only contain
+	// one request from a given valve ID at a time. The system supports an
+	// arbitrary notion of "valve ID", typically a request ID or job execution
+	// instance ID.
+	//
+	// This approach has a few benefits:
+	//   1. Pushes successive requests back to the end of the queue, which is
+	//      fairer to other requests.
+	//   2. No preferential treatment around dropping when the queue is under
+	//      contention.
+	//   3. Allows the queue to empty (assuming no other requests) between
+	//      enqueues, thus preventing drops due to self-contention.
+	//
+	// A valve is a FIFO queue of pending CoDel queue insertions, one per
+	// valve ID. An entry cannot exist in both the valve and the CoDel queue
+	// simultaneously. When attempting to acquire the lock, the request goes
+	// directly into the CoDel queue if there are no entries there for the
+	// valve ID. Otherwise, it is inserted into the valve.
+	//
+	// When a request leaves the CoDel queue (dequeue, drop, or cancel), the
+	// next pending request for that valve ID is promoted into the CoDel queue.
+	// All promotion runs under the parent mutex, so there is no race between
+	// removal and promotion.
+	//
+	// We are protected against valves entering an unpromotable state because
+	// entries are only inserted there if there is already an entry for that
+	// valve ID in the CoDel queue, and that entry will trigger promotion on
+	// exit.
+	//
+	// At first glance, it may appear that we're cheating ourselves in order to
+	// keep the queue healthy — perhaps these lock acquire requests are ones we
+	// should be loadshedding. To see why not, consider a hypothetical system
+	// with a single pending-insertions queue (not per-valve-ID) that ensures
+	// the queue never has two elements in it. That system would control
+	// ingestion to keep the queue healthy but could never loadshed. The
+	// self-contention-aware queue doesn't suffer the same flaw: the queue can
+	// still back up and shed load when multiple distinct valve IDs contend.
+	//
 	// All methods are prefixed locked* and assume the caller holds the parent
 	// mutex.
 	SelfContentionAwareCoDelQueue struct {
@@ -29,11 +90,14 @@ type (
 
 		// pendingRequests is the per-valve-ID queue. Requests here are
 		// waiting for the active request to complete before entering the CoDel
-		// queue.
+		// queue. There may be entries with the same valve ID in the CoDel queue.
 		pendingRequests map[string][]*Request
 
 		// outstandingCounts tracks the total number of outstanding requests
-		// per valve ID (in CoDel queue + in valve).
+		// per valve ID (in CoDel queue + in valve). We need this separate
+		// from len(pendingRequests[valveID]) because pendingRequests does not
+		// include the active request in the CoDel queue — without the count
+		// we couldn't tell whether to valve a new arrival.
 		outstandingCounts map[string]int
 
 		// activePerValve tracks which request is currently in the CoDel queue
@@ -42,13 +106,13 @@ type (
 	}
 )
 
-func newSelfContentionAwareCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(delayNs int64)) *SelfContentionAwareCoDelQueue {
+func newSelfContentionAwareCoDelQueue(cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *SelfContentionAwareCoDelQueue {
 	q := &SelfContentionAwareCoDelQueue{
 		pendingRequests:   make(map[string][]*Request),
 		outstandingCounts: make(map[string]int),
 		activePerValve:    make(map[string]*Request),
 	}
-	q.codelq = newCoDelQueue(cfg, now, scheduleDropTimer, q.onPeekCleanup)
+	q.codelq = newCoDelQueue(cfg, nowNs, scheduleDropTimer, stopDropTimer, q.onPeekCleanup)
 	return q
 }
 
@@ -108,7 +172,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
 // CoDel drop timer). Promotes the next pending request from the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedDropActive(req *Request) {
 	q.codelq.lockedRemove(req)
-	if !req.signaled.Load() {
+	if req.signaledValue == nil {
 		req.signal(&DroppedRequestError{})
 	}
 	q.lockedPromoteOnEvict(req)
@@ -116,15 +180,15 @@ func (q *SelfContentionAwareCoDelQueue) lockedDropActive(req *Request) {
 
 // lockedCancel cancels a request. If it's the active request in the CoDel
 // queue, it removes it and promotes the next from the valve. If it's pending
-// in the valve, it removes it from there.
+// in the valve, it signals it in place and lets clearDone handle removal
+// during the next promotion — this avoids an O(N) scan of the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
 	if req.elem != nil {
 		q.codelq.lockedRemove(req)
 		q.lockedPromoteOnEvict(req)
 		return
 	}
-	q.removeFromValve(req.valveID, req)
-	q.decrementOutstanding(req.valveID)
+	req.signal(&DroppedRequestError{})
 }
 
 // lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
@@ -153,7 +217,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedEnqueueToCoDel(req *Request, valve
 	if valveID != "" {
 		q.activePerValve[valveID] = req
 	}
-	q.codelq.lockedEnqueueRequest(req)
+	q.codelq.lockedEnqueue(req)
 }
 
 // lockedPromoteOnEvict handles involuntary removal of the active request
@@ -207,7 +271,7 @@ func (q *SelfContentionAwareCoDelQueue) clearDone(valveID string) {
 		return
 	}
 
-	for len(pending) > 0 && pending[0].signaled.Load() {
+	for len(pending) > 0 && pending[0].signaledValue != nil {
 		pending = pending[1:]
 		q.decrementOutstanding(valveID)
 	}
@@ -216,22 +280,6 @@ func (q *SelfContentionAwareCoDelQueue) clearDone(valveID string) {
 		delete(q.pendingRequests, valveID)
 	} else {
 		q.pendingRequests[valveID] = pending
-	}
-}
-
-func (q *SelfContentionAwareCoDelQueue) removeFromValve(valveID string, r *Request) {
-	pending, ok := q.pendingRequests[valveID]
-	if !ok {
-		return
-	}
-	for i, p := range pending {
-		if p == r {
-			q.pendingRequests[valveID] = append(pending[:i], pending[i+1:]...)
-			break
-		}
-	}
-	if len(q.pendingRequests[valveID]) == 0 {
-		delete(q.pendingRequests, valveID)
 	}
 }
 

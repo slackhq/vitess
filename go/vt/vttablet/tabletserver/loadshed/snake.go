@@ -76,7 +76,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		cfg:       cfg,
 		clockFunc: defaultClock,
 	}
-	s.q = newSelfContentionAwareCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer)
+	s.q = newSelfContentionAwareCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
 }
 
@@ -89,6 +89,15 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	priority := s.priority()
 
 	s.mu.Lock()
+	// The holder stays at the head of the queue rather than being removed on
+	// grant. This preserves CoDel's system-pressure signal: queue length
+	// reflects total system load (waiting + executing), not just waiting load.
+	// Without this, a slow holder would leave the queue empty, hiding
+	// backpressure and preventing CoDel from entering the dropping state.
+	// Additionally, aggressive dropping can reduce droppableLen to 0 while the
+	// queue is still unhealthy; the holder's presence keeps the queue non-empty
+	// so we don't falsely transition to healthy and lose accumulated drop
+	// intensity (count), which would force rediscovery from scratch.
 	isLocked := s.q.lockedPeek() != nil
 	req := s.q.lockedEnqueue(valveID, priority)
 
@@ -105,8 +114,8 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	s.mu.Unlock()
 
 	select {
-	case err := <-req.signalChan:
-		if err != nil {
+	case val := <-req.signalChan:
+		if val != grantSentinel {
 			return nil, s.acquireError()
 		}
 		s.mu.Lock()
@@ -116,9 +125,16 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 		return &SafeUnlock{s: s, nonce: nonce}, nil
 
 	case <-ctx.Done():
+		// Race: the context may cancel after the grant was already sent to
+		// signalChan (or is in-flight via lockedGrantNext). The inner select
+		// resolves this: if the signal is already buffered, consume it and
+		// release. If not, check under the mutex whether we were granted
+		// (holder == req) and wait for the in-flight signal before releasing.
+		// Without this double-select, we'd either leak a held lock or cancel
+		// a request that was already granted.
 		select {
-		case err := <-req.signalChan:
-			if err == nil {
+		case val := <-req.signalChan:
+			if val == grantSentinel {
 				s.releaseInternal()
 			}
 		default:
@@ -172,11 +188,10 @@ func (s *Snake) release(nonce uint64, excValue error) error {
 	}
 	s.lockedStopMaxAgeTimer()
 	next := s.lockedGrantNext()
-	s.mu.Unlock()
-
 	if next != nil {
-		next.signal(nil)
+		next.signal(grantSentinel)
 	}
+	s.mu.Unlock()
 
 	s.runReleaseCBs(excValue)
 	return nil
@@ -188,11 +203,10 @@ func (s *Snake) releaseInternal() {
 	s.mu.Lock()
 	s.lockedStopMaxAgeTimer()
 	next := s.lockedGrantNext()
-	s.mu.Unlock()
-
 	if next != nil {
-		next.signal(nil)
+		next.signal(grantSentinel)
 	}
+	s.mu.Unlock()
 }
 
 // lockedGrantNext dequeues the current holder, promotes from valve, and grants
@@ -247,6 +261,14 @@ func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
 	s.dropTimerArmed = true
 	delay := time.Duration(delayNs) * time.Nanosecond
 	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)
+}
+
+func (s *Snake) lockedStopDropTimer() {
+	if !s.dropTimerArmed {
+		return
+	}
+	s.dropTimerArmed = false
+	s.dropTimer.Stop()
 }
 
 func (s *Snake) runDropTimer() {

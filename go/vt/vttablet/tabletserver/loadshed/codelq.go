@@ -21,6 +21,73 @@ import (
 	"math"
 )
 
+/*
+    The main logic is in dequeue(), which acts as a modern state-space
+    controller between "no persistent queue" and "has persistent queue".
+    When it detects there is a persistent bad queue, it drops requests
+    using the well known non-linear relationship of drop rate vs. throughput
+    to achieve linear change in throughput (see lockedControlLaw()).
+
+    Consumers of this module are required to call peek()/dequeue() after the
+    queue is empty to signal that the underlying resource is available.
+
+    All time units are in ns.
+
+    Configuration:
+        INTERVAL: window of time controller acts on; should be roughly the
+            upper bound round trip time to detect persistent queue
+        TARGET: 5-10% of round trip time / interval time preferably since
+            a very small standing queue gives ~100% util of bottleneck link
+
+    Queue State Vars:
+        dropNextNs    int64 : when to drop next request. This may seem
+                              redundant since lockedRunScheduledDrop is scheduled
+                              to run at a particular time, but we need to track
+                              this because that coroutine may not actually run
+                              when it's supposed to, e.g. if the server is
+                              overloaded.
+        count           int : requests dropped in drop state
+        lastCount       int : count from previous iteration
+
+    Dropping/not-dropping state
+    ===========================
+
+        *---------------------------*
+        | healthy state             |
+        | * dropping: False         |
+        | * count: 1                |
+        *---------------------------*
+                      |  ^
+    scheduled drop    |  |
+    runs (wasn't      |  | dequeue & hit target
+    canceled or resch-|  |       - or -
+    eduled before it  |  | dequeue/peek on empty queue
+    got to run        v  |
+        *--------------------------*
+        | dropping state           |
+        | * dropping: True         |
+        | * count: >= 1            |
+        *--------------------------*
+
+    Drop timer
+    ==========
+
+      *----------------*  ----| re-schedules itself at
+      | drop scheduled |      | rate of queue health (
+      *----------------*  <---| which is current interval)
+               ^  |                        1. upon scheduled drop
+               |  |                        2. upon healthy dequeue
+ droppableLen  |  |                           (stop + reschedule)
+ goes 0 -> 1   |  | droppableLen == 0
+ during        |  | during any of:
+ enqueue()     |  | 1. drop timer runs
+               |  | 2. peek() on empty queue
+               |  v
+      *--------------------*
+      | drop not scheduled |
+      *--------------------*
+*/
+
 type (
 	// DroppedRequestError is returned when a request is dropped by the CoDel
 	// queue due to persistent queue buildup.
@@ -35,8 +102,9 @@ type (
 		MinDropDelayNs func() int64
 	}
 
-	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding algorithm.
-	// All methods are prefixed locked* and assume the caller holds the parent mutex.
+	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
+	// algorithm. All methods are prefixed locked* and assume the caller holds
+	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue struct {
 		queue        *list.List
 		dropping     bool
@@ -46,8 +114,9 @@ type (
 		droppableLen int
 
 		cfg               CoDelConfig
-		now               func() int64
+		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
+		stopDropTimer     func()
 		onPeekCleanup     func(*Request)
 	}
 )
@@ -56,41 +125,29 @@ func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
 }
 
-func newCoDelQueue(cfg CoDelConfig, now func() int64, scheduleDropTimer func(delayNs int64), onPeekCleanup func(*Request)) *CoDelQueue {
+func newCoDelQueue(cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func(), onPeekCleanup func(*Request)) *CoDelQueue {
 	return &CoDelQueue{
 		queue:             list.New(),
 		count:             1,
 		lastCount:         1,
 		cfg:               cfg,
-		now:               now,
+		nowNs:             nowNs,
 		scheduleDropTimer: scheduleDropTimer,
+		stopDropTimer:     stopDropTimer,
 		onPeekCleanup:     onPeekCleanup,
 	}
 }
 
-// lockedLen returns the number of requests in the queue.
 func (q *CoDelQueue) lockedLen() int {
 	return q.queue.Len()
 }
 
-// lockedIsHealthy reports whether the queue is in the healthy (not dropping)
-// state.
 func (q *CoDelQueue) lockedIsHealthy() bool {
 	return !q.dropping
 }
 
-// lockedEnqueue creates a new request and inserts it into the queue.
-func (q *CoDelQueue) lockedEnqueue(priority *float64) *Request {
-	req := newRequest(priority)
-	q.lockedEnqueueRequest(req)
-	return req
-}
-
-// lockedEnqueueRequest inserts an already-created request into the queue.
-// Used by SelfContentionAwareCoDelQueue to enqueue requests that were
-// created earlier and held in the valve.
-func (q *CoDelQueue) lockedEnqueueRequest(req *Request) {
-	req.enqueuedAtNs = q.now()
+func (q *CoDelQueue) lockedEnqueue(req *Request) {
+	req.codelqEnqueuedAtNs = q.nowNs()
 	req.elem = q.queue.PushBack(req)
 
 	if req.isDroppable() {
@@ -105,16 +162,13 @@ func (q *CoDelQueue) lockedDequeue() *Request {
 	if q.lockedPeek() == nil {
 		return nil
 	}
-	req := q.lockedPopElem(q.queue.Front(), nil)
+	req := q.lockedPopElem(q.queue.Front(), grantSentinel)
 
-	now := q.now()
-	sojournTime := now - req.enqueuedAtNs
+	sojournTime := q.nowNs() - req.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
-
-		if q.droppableLen > 0 {
-			q.lockedArmDropTimer()
-		}
+		q.stopDropTimer()
+		q.lockedArmDropTimer()
 	}
 
 	return req
@@ -127,10 +181,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 	for q.queue.Len() > 0 {
 		front := q.queue.Front()
 		req := front.Value.(*Request)
-		if !req.signaled.Load() {
-			return req
-		}
-		if req.signaledValue == nil {
+		if req.signaledValue == nil || req.signaledValue == grantSentinel {
 			return req
 		}
 		q.queue.Remove(front)
@@ -142,18 +193,21 @@ func (q *CoDelQueue) lockedPeek() *Request {
 			q.onPeekCleanup(req)
 		}
 	}
+	// Empty queue means the underlying resource is available.
 	q.dropping = false
 	return nil
 }
 
 // lockedPopElem removes the given element from the queue, signals the request's
-// result channel, and updates bookkeeping.
+// result channel, and updates bookkeeping. Use with care: this bypasses the
+// health-state transitions in peek/dequeue, so callers are responsible for
+// updating dropping state if appropriate.
 func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req := elem.Value.(*Request)
 	q.queue.Remove(elem)
 	req.elem = nil
 
-	if !req.signaled.Load() {
+	if req.signaledValue == nil {
 		req.signal(err)
 	}
 
@@ -203,7 +257,7 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 
 	for e := q.queue.Front(); e != nil; e = e.Next() {
 		req := e.Value.(*Request)
-		if req.signaled.Load() || !req.isDroppable() {
+		if req.signaledValue != nil || !req.isDroppable() {
 			continue
 		}
 		if req.priority != nil && *req.priority == 0 {
@@ -230,7 +284,7 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 		return
 	}
 
-	now := q.now()
+	now := q.nowNs()
 	if !q.dropping {
 		q.lockedEnterDroppingState()
 	}
@@ -241,6 +295,9 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 		if loopCount > 100 {
 			break
 		}
+		// Safe to break: the mutex serializes cancellation with the drop
+		// timer, so droppableLen > 0 reliably means the scan will find
+		// something. This can only fail on a bookkeeping bug.
 		if !dropFn() {
 			break
 		}
@@ -256,11 +313,17 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 // lockedEnterDroppingState transitions to the dropping state, possibly
 // restoring the drop count from a prior dropping period.
 func (q *CoDelQueue) lockedEnterDroppingState() {
-	now := q.now()
+	now := q.nowNs()
 	q.dropping = true
 	delta := q.count - q.lastCount
 	q.count = 1
 
+	// Restore prior dropping intensity if we recently left the dropping
+	// state and re-entered quickly. Without this, every transition back
+	// to dropping would ramp up from count=1 (i.e. one drop per full
+	// interval), losing the "memory" of how aggressive we needed to be.
+	// The 16x threshold is the staleness cutoff — if we've been healthy
+	// for much longer than the interval, the old state is irrelevant.
 	if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
 		q.count = delta
 	}
@@ -269,7 +332,10 @@ func (q *CoDelQueue) lockedEnterDroppingState() {
 	q.lastCount = q.count
 }
 
-// lockedControlLaw computes the next drop time.
+// lockedControlLaw computes the next drop time. The interval shrinks in
+// inverse proportion to count^exponent, exploiting the non-linear
+// relationship between drop rate and throughput to achieve linear change
+// in throughput.
 func (q *CoDelQueue) lockedControlLaw(t int64) int64 {
 	return t + q.lockedCurrentInterval()
 }
@@ -282,10 +348,8 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	}
 	exp := q.cfg.Exponent()
 	result := int64(float64(interval) / math.Pow(float64(q.count), exp))
-	if result < 100 {
-		return 100
-	}
-	return result
+	// Floor to avoid extreme cases and floating point precision issues.
+	return max(result, 100)
 }
 
 func (q *CoDelQueue) lockedArmDropTimer() {

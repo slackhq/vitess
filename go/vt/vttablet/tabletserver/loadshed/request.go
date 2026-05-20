@@ -18,23 +18,23 @@ package loadshed
 
 import (
 	"container/list"
+	"errors"
 	"math"
-	"sync/atomic"
 )
 
 type (
 	// Request represents an entry in the CoDel queue. Named a 'request' since
 	// it may be rejected(dropped) or granted. Each request owns a signalChan
 	// that receives nil on grant or a *DroppedRequestError on drop. The
-	// signaled flag and signaledValue field allow non-consuming inspection of the
-	// signaledValue (used by lockedPeek to avoid channel pop/push-back).
+	// signaledValue field allows non-consuming inspection of signal state
+	// (used by lockedPeek to avoid channel pop/push-back): nil means
+	// unsignaled, grantSentinel means granted, any other value means dropped.
 	Request struct {
-		priority      *float64
-		enqueuedAtNs  int64
-		signalChan    chan error
-		signaled      atomic.Bool
-		signaledValue error
-		elem          *list.Element
+		priority           *float64
+		codelqEnqueuedAtNs int64
+		signalChan         chan error
+		signaledValue      error
+		elem               *list.Element
 		// Needed so that cancel can look up the valve
 		valveID string
 	}
@@ -44,6 +44,8 @@ type (
 // be dropped by CoDel. We use negative infinity so it's distinguishable from
 // any real priority value.
 var priorityUndroppable = math.Inf(-1)
+
+var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
 
 func isUndroppable(priority *float64) bool {
 	return priority != nil && *priority == priorityUndroppable
@@ -65,14 +67,14 @@ func (r *Request) isDroppable() bool {
 	return !isUndroppable(r.priority)
 }
 
-// Pass nil on grant and *DroppedRequestError on drop. It must be called exactly
-// once per request.
-func (r *Request) signal(err error) {
-	if !r.signaled.CompareAndSwap(false, true) {
+// Pass grantSentinel on grant and *DroppedRequestError on drop. Must be called
+// exactly once per request.
+func (r *Request) signal(val error) {
+	if r.signaledValue != nil {
 		panic("loadshed: signal called more than once")
 	}
-	r.signaledValue = err
-	r.signalChan <- err
+	r.signaledValue = val
+	r.signalChan <- val
 }
 
 func NewPriority(v float64) *float64 { //nolint:modernize

@@ -25,7 +25,7 @@ import (
 
 func newTestSelfAware(clock *testClock) (*SelfContentionAwareCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newSelfContentionAwareCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule)
+	q := newSelfContentionAwareCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
 	return q, rec
 }
 
@@ -165,8 +165,11 @@ func TestSelfAware_CancelInValve(t *testing.T) {
 
 	assert.NotNil(t, r1.elem, "r1 still in CoDel queue")
 	assert.Equal(t, 1, sq.lockedLen())
-	assert.Len(t, sq.pendingRequests["id1"], 2) // r2 and r4 remain
-	assert.Equal(t, 3, sq.outstandingCounts["id1"])
+	// r3 is signaled in place but not removed from the slice until promotion
+	assert.Len(t, sq.pendingRequests["id1"], 3)
+	// outstanding count is not decremented until clearDone runs during promotion
+	assert.Equal(t, 4, sq.outstandingCounts["id1"])
+	assert.NotNil(t, r3.signaledValue, "r3 should be signaled")
 }
 
 func TestSelfAware_ClearDone_InValve(t *testing.T) {
@@ -185,6 +188,28 @@ func TestSelfAware_ClearDone_InValve(t *testing.T) {
 
 	assert.NotNil(t, r3.elem, "r3 promoted (r2 was skipped)")
 	assert.Equal(t, 1, sq.lockedLen())
+}
+
+func TestSelfAware_CancelInMiddle_EventualPromotion(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newTestSelfAware(clock)
+
+	sq.lockedEnqueue("id1", NewPriority(0))       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", NewPriority(0)) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", NewPriority(0)) // r3: valve[1]
+	r4 := sq.lockedEnqueue("id1", NewPriority(0)) // r4: valve[2]
+
+	// Cancel r3 in the middle of the valve
+	sq.lockedCancel(r3)
+
+	// Dequeue r1 → promotes r2 (r3 is in the middle, not at head)
+	sq.lockedDequeue()
+	assert.NotNil(t, r2.elem, "r2 promoted")
+
+	// Dequeue r2 → clearDone finds r3 (now at head), skips it, promotes r4
+	sq.lockedDequeue()
+	assert.NotNil(t, r4.elem, "r4 promoted (r3 skipped)")
+	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 // --- Outstanding count tests ---
