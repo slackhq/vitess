@@ -252,6 +252,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedPromote(valveID string) {
 	}
 
 	next := pending[0]
+	pending[0] = nil
 	s := pending[1:]
 	if len(s) == 0 {
 		delete(q.pendingRequests, valveID)
@@ -272,6 +273,7 @@ func (q *SelfContentionAwareCoDelQueue) clearDone(valveID string) {
 	}
 
 	for len(pending) > 0 && pending[0].signaledValue != nil {
+		pending[0] = nil
 		pending = pending[1:]
 		q.decrementOutstanding(valveID)
 	}
