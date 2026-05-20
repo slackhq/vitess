@@ -108,7 +108,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
 // CoDel drop timer). Promotes the next pending request from the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedDropActive(req *Request) {
 	q.codelq.lockedRemove(req)
-	if !req.isDone() {
+	if !req.signaled.Load() {
 		req.signal(&DroppedRequestError{})
 	}
 	q.lockedPromoteOnEvict(req)
@@ -207,7 +207,7 @@ func (q *SelfContentionAwareCoDelQueue) clearDone(valveID string) {
 		return
 	}
 
-	for len(pending) > 0 && pending[0].isDone() {
+	for len(pending) > 0 && pending[0].signaled.Load() {
 		pending = pending[1:]
 		q.decrementOutstanding(valveID)
 	}

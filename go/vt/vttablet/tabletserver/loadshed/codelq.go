@@ -127,10 +127,10 @@ func (q *CoDelQueue) lockedPeek() *Request {
 	for q.queue.Len() > 0 {
 		front := q.queue.Front()
 		req := front.Value.(*Request)
-		if !req.isDone() {
+		if !req.signaled.Load() {
 			return req
 		}
-		if req.outcome == nil {
+		if req.signaledValue == nil {
 			return req
 		}
 		q.queue.Remove(front)
@@ -153,7 +153,7 @@ func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	q.queue.Remove(elem)
 	req.elem = nil
 
-	if !req.isDone() {
+	if !req.signaled.Load() {
 		req.signal(err)
 	}
 
@@ -203,7 +203,7 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 
 	for e := q.queue.Front(); e != nil; e = e.Next() {
 		req := e.Value.(*Request)
-		if req.isDone() || !req.isDroppable() {
+		if req.signaled.Load() || !req.isDroppable() {
 			continue
 		}
 		if req.priority != nil && *req.priority == 0 {

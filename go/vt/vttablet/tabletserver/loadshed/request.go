@@ -23,19 +23,19 @@ import (
 )
 
 type (
-	// Request represents an entry in the CoDel queue. It may be granted (lock
-	// acquired) or dropped (load shed). Each request owns a result channel that
-	// receives nil on grant or a *DroppedRequestError on drop. The signaled
-	// flag and outcome field allow non-consuming inspection of the outcome
-	// (used by lockedPeek to avoid channel pop/push-back).
+	// Request represents an entry in the CoDel queue. Named a 'request' since
+	// it may be rejected(dropped) or granted. Each request owns a signalChan
+	// that receives nil on grant or a *DroppedRequestError on drop. The
+	// signaled flag and signaledValue field allow non-consuming inspection of the
+	// signaledValue (used by lockedPeek to avoid channel pop/push-back).
 	Request struct {
-		priority     *float64
-		enqueuedAtNs int64
-		result       chan error
-		signaled     atomic.Bool
-		outcome      error
-		elem         *list.Element
-		// valveID is stored so that cancel can look up the valve.
+		priority      *float64
+		enqueuedAtNs  int64
+		signalChan    chan error
+		signaled      atomic.Bool
+		signaledValue error
+		elem          *list.Element
+		// Needed so that cancel can look up the valve
 		valveID string
 	}
 )
@@ -56,8 +56,8 @@ func newUndroppablePriority() *float64 {
 
 func newRequest(priority *float64) *Request {
 	return &Request{
-		priority: priority,
-		result:   make(chan error, 1),
+		priority:   priority,
+		signalChan: make(chan error, 1),
 	}
 }
 
@@ -65,21 +65,16 @@ func (r *Request) isDroppable() bool {
 	return !isUndroppable(r.priority)
 }
 
-// signal writes the outcome to both the inspectable field and the blocking
-// channel. It must be called at most once per request.
+// Pass nil on grant and *DroppedRequestError on drop. It must be called exactly
+// once per request.
 func (r *Request) signal(err error) {
-	r.outcome = err
-	r.signaled.Store(true)
-	r.result <- err
+	if !r.signaled.CompareAndSwap(false, true) {
+		panic("loadshed: signal called more than once")
+	}
+	r.signaledValue = err
+	r.signalChan <- err
 }
 
-// isDone reports whether the request has been signaled.
-func (r *Request) isDone() bool {
-	return r.signaled.Load()
-}
-
-// NewPriority returns a pointer to the given float64, for use as a droppable
-// priority value.
 func NewPriority(v float64) *float64 { //nolint:modernize
 	return &v
 }

@@ -151,8 +151,8 @@ func TestCoDelQueue_Dequeue_SignalsNil(t *testing.T) {
 	q.lockedEnqueue(NewPriority(0))
 	req := q.lockedDequeue()
 
-	require.True(t, req.isDone())
-	err := <-req.result
+	require.True(t, req.signaled.Load())
+	err := <-req.signalChan
 	assert.NoError(t, err)
 }
 
@@ -264,7 +264,7 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 	assert.Equal(t, float64(1), *dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
 
-	err := <-dropped.result
+	err := <-dropped.signalChan
 	assert.IsType(t, &DroppedRequestError{}, err)
 }
 

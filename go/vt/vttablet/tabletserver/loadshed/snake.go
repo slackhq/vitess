@@ -105,7 +105,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	s.mu.Unlock()
 
 	select {
-	case err := <-req.result:
+	case err := <-req.signalChan:
 		if err != nil {
 			return nil, s.acquireError()
 		}
@@ -117,7 +117,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 
 	case <-ctx.Done():
 		select {
-		case err := <-req.result:
+		case err := <-req.signalChan:
 			if err == nil {
 				s.releaseInternal()
 			}
@@ -125,7 +125,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 			s.mu.Lock()
 			if s.holder == req {
 				s.mu.Unlock()
-				<-req.result
+				<-req.signalChan
 				s.releaseInternal()
 			} else {
 				s.q.lockedCancel(req)
