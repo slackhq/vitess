@@ -46,7 +46,6 @@ type (
 		mu sync.Mutex
 
 		q              *SelfContentionAwareCoDelQueue
-		nGranted       int
 		holders        map[*Request]struct{}
 		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
@@ -91,7 +90,7 @@ func (s *Snake) capacity() int {
 }
 
 func (s *Snake) hasCapacity() bool {
-	return s.nGranted < s.capacity()
+	return len(s.holders) < s.capacity()
 }
 
 // Acquire acquires a slot. It blocks until a slot is granted, the request
@@ -147,20 +146,6 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	}
 }
 
-// IsLocked reports whether any slot is currently held.
-func (s *Snake) IsLocked() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.nGranted > 0
-}
-
-// InFlight reports the number of currently held slots.
-func (s *Snake) InFlight() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.nGranted
-}
-
 // IsHealthy reports whether the CoDel queue is healthy.
 func (s *Snake) IsHealthy() bool {
 	s.mu.Lock()
@@ -193,7 +178,6 @@ func (s *Snake) release(req *Request, excValue error) error {
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.q.lockedComplete(req)
-	s.nGranted--
 	s.lockedTryGrantOne()
 	s.mu.Unlock()
 
@@ -206,13 +190,11 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.q.lockedComplete(req)
-	s.nGranted--
 	s.lockedTryGrantOne()
 	s.mu.Unlock()
 }
 
 func (s *Snake) lockedGrant(req *Request) {
-	s.nGranted++
 	s.holders[req] = struct{}{}
 	s.q.lockedOnGrant(req)
 	s.lockedStartMaxAgeTimer(req)

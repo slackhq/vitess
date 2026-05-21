@@ -44,12 +44,12 @@ func TestSnake_NHolder_ConcurrentGrants(t *testing.T) {
 				unlocks[i] = u
 			}
 
-			assert.Equal(t, cap, s.InFlight())
+			assert.Equal(t, cap, s.nGranted())
 
 			for _, u := range unlocks {
 				u.Release()
 			}
-			assert.Equal(t, 0, s.InFlight())
+			assert.Equal(t, 0, s.nGranted())
 		})
 	}
 }
@@ -116,7 +116,7 @@ func TestSnake_NHolder_ParallelThroughput(t *testing.T) {
 				if err != nil {
 					continue
 				}
-				cur := int64(s.InFlight())
+				cur := int64(s.nGranted())
 				for {
 					old := maxConcurrent.Load()
 					if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
@@ -191,7 +191,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 	}
 
 	cap.Store(2)
-	assert.Equal(t, 4, s.InFlight(), "existing holders are not evicted")
+	assert.Equal(t, 4, s.nGranted(), "existing holders are not evicted")
 
 	acquired := make(chan struct{})
 	go func() {
@@ -235,7 +235,7 @@ func TestSnake_NHolder_ValveSerialization(t *testing.T) {
 	require.NoError(t, err)
 	u3, err := s.Acquire(t.Context(), "valve-c")
 	require.NoError(t, err)
-	assert.Equal(t, 3, s.InFlight())
+	assert.Equal(t, 3, s.nGranted())
 
 	results := make(chan string, 6)
 	var wg sync.WaitGroup
@@ -266,12 +266,12 @@ func TestSnake_NHolder_ValveSerialization(t *testing.T) {
 		count++
 	}
 	assert.Equal(t, 6, count, "all valve-serialized requests should complete")
-	assert.Equal(t, 0, s.InFlight())
+	assert.Equal(t, 0, s.nGranted())
 }
 
-// --- N-holder: InFlight accuracy under concurrency ---
+// --- N-holder: NGranted accuracy under concurrency ---
 
-func TestSnake_NHolder_InFlightAccuracy(t *testing.T) {
+func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
 	const capacity = 5
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return capacity }
@@ -288,7 +288,7 @@ func TestSnake_NHolder_InFlightAccuracy(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if s.InFlight() > capacity {
+			if s.nGranted() > capacity {
 				violations.Add(1)
 			}
 			u.Release()
@@ -296,8 +296,8 @@ func TestSnake_NHolder_InFlightAccuracy(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.Zero(t, violations.Load(), "InFlight must never exceed capacity")
-	assert.Equal(t, 0, s.InFlight())
+	assert.Zero(t, violations.Load(), "NGranted must never exceed capacity")
+	assert.Equal(t, 0, s.nGranted())
 }
 
 // --- N-holder: context cancel frees slot for waiter ---
@@ -369,7 +369,7 @@ func TestSnake_NHolder_MaxAge_MultipleHolders(t *testing.T) {
 	u2.Release()
 
 	assert.Eventually(t, func() bool {
-		return s.InFlight() == 0
+		return s.nGranted() == 0
 	}, 1*time.Second, 5*time.Millisecond)
 }
 
@@ -419,7 +419,6 @@ func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	assert.Equal(t, 0, s.nGranted)
 	assert.Empty(t, s.holders)
 	assert.Equal(t, 0, s.q.lockedLen())
 	assert.Empty(t, s.q.pendingRequests)

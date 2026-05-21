@@ -74,10 +74,10 @@ func TestSnake_CancelVsGrant_Race(t *testing.T) {
 		if acquireErr != nil {
 			// B was cancelled. Verify the lock isn't stuck.
 			s.mu.Lock()
-			inFlightAfterCancel := s.nGranted
+			nGrantedAfterCancel := len(s.holders)
 			s.mu.Unlock()
 
-			if inFlightAfterCancel > 0 {
+			if nGrantedAfterCancel > 0 {
 				leaked.Add(1)
 			}
 

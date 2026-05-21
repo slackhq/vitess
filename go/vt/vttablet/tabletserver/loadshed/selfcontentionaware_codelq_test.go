@@ -23,17 +23,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestSelfAware(clock *testClock) (*SelfContentionAwareCoDelQueue, *testDropTimerRecorder) {
+func newTestSelfContentionAware(clock *testClock) (*SelfContentionAwareCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
 	q := newSelfContentionAwareCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
 	return q, rec
 }
 
-// testSelfAwareDequeue simulates the grant+complete lifecycle on the
+// testSelfContentionAwareDequeue simulates the grant+complete lifecycle on the
 // SelfContentionAwareCoDelQueue: gets the first waiting request, marks it
 // not droppable (which triggers eager valve promotion), signals it, and
 // completes it (removing from queue).
-func testSelfAwareDequeue(sq *SelfContentionAwareCoDelQueue) *Request {
+func testSelfContentionAwareDequeue(sq *SelfContentionAwareCoDelQueue) *Request {
 	req := sq.lockedFirstWaiting()
 	if req == nil {
 		return nil
@@ -46,9 +46,9 @@ func testSelfAwareDequeue(sq *SelfContentionAwareCoDelQueue) *Request {
 
 // --- Direct entry tests ---
 
-func TestSelfAware_FirstRequest_DirectEntry(t *testing.T) {
+func TestSelfContentionAware_FirstRequest_DirectEntry(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	req := sq.lockedEnqueue("id1", 0)
 
@@ -58,9 +58,9 @@ func TestSelfAware_FirstRequest_DirectEntry(t *testing.T) {
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_EmptyValveID_AlwaysDirect(t *testing.T) {
+func TestSelfContentionAware_EmptyValveID_AlwaysDirect(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("", 0)
 	r2 := sq.lockedEnqueue("", 0)
@@ -72,9 +72,9 @@ func TestSelfAware_EmptyValveID_AlwaysDirect(t *testing.T) {
 
 // --- Valve tests ---
 
-func TestSelfAware_SecondRequest_Valved(t *testing.T) {
+func TestSelfContentionAware_SecondRequest_Valved(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
@@ -87,9 +87,9 @@ func TestSelfAware_SecondRequest_Valved(t *testing.T) {
 	assert.Same(t, r2, sq.pendingRequests["id1"][0])
 }
 
-func TestSelfAware_DifferentIDs_Independent(t *testing.T) {
+func TestSelfContentionAware_DifferentIDs_Independent(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id2", 0)
@@ -99,9 +99,9 @@ func TestSelfAware_DifferentIDs_Independent(t *testing.T) {
 	assert.Equal(t, 2, sq.lockedLen())
 }
 
-func TestSelfAware_FourParallel_SameID(t *testing.T) {
+func TestSelfContentionAware_FourParallel_SameID(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
@@ -120,16 +120,16 @@ func TestSelfAware_FourParallel_SameID(t *testing.T) {
 
 // --- Promotion tests ---
 
-func TestSelfAware_Promotion_OnDequeue(t *testing.T) {
+func TestSelfContentionAware_Promotion_OnDequeue(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
 
 	assert.Nil(t, r2.codelqElem, "r2 in valve before dequeue")
 
-	d := testSelfAwareDequeue(sq)
+	d := testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, d)
 
 	assert.NotNil(t, r2.codelqElem, "r2 promoted to CoDel queue after dequeue")
@@ -138,9 +138,9 @@ func TestSelfAware_Promotion_OnDequeue(t *testing.T) {
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_Promotion_OnDrop(t *testing.T) {
+func TestSelfContentionAware_Promotion_OnDrop(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
@@ -151,9 +151,9 @@ func TestSelfAware_Promotion_OnDrop(t *testing.T) {
 	assert.Equal(t, 1, sq.lockedLen())
 }
 
-func TestSelfAware_Promotion_OnCancel(t *testing.T) {
+func TestSelfContentionAware_Promotion_OnCancel(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
@@ -167,9 +167,9 @@ func TestSelfAware_Promotion_OnCancel(t *testing.T) {
 
 // --- Cancel tests ---
 
-func TestSelfAware_CancelInValve(t *testing.T) {
+func TestSelfContentionAware_CancelInValve(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	sq.lockedEnqueue("id1", 0)
@@ -187,9 +187,9 @@ func TestSelfAware_CancelInValve(t *testing.T) {
 	assert.NotNil(t, r3.signaledValue, "r3 should be signaled")
 }
 
-func TestSelfAware_ClearDone_InValve(t *testing.T) {
+func TestSelfContentionAware_ClearDone_InValve(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
@@ -199,15 +199,15 @@ func TestSelfAware_ClearDone_InValve(t *testing.T) {
 	r2.signal(&DroppedRequestError{})
 
 	// dequeue r1 → promote should skip r2 (done) and promote r3
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 
 	assert.NotNil(t, r3.codelqElem, "r3 promoted (r2 was skipped)")
 	assert.Equal(t, 1, sq.lockedLen())
 }
 
-func TestSelfAware_CancelInMiddle_EventualPromotion(t *testing.T) {
+func TestSelfContentionAware_CancelInMiddle_EventualPromotion(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -218,18 +218,18 @@ func TestSelfAware_CancelInMiddle_EventualPromotion(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → promotes r2 (r3 is in the middle, not at head)
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r2.codelqElem, "r2 promoted")
 
 	// Dequeue r2 → clearDone finds r3 (now at head), skips it, promotes r4
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
+func TestSelfContentionAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -242,7 +242,7 @@ func TestSelfAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → clearDone should skip both r2 and r3, promote r4
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r2 and r3 skipped)")
 	assert.Nil(t, r2.codelqElem, "r2 never entered CoDel queue")
 	assert.Nil(t, r3.codelqElem, "r3 never entered CoDel queue")
@@ -250,14 +250,14 @@ func TestSelfAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
 	// Dequeue r4 → promotes r5
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r5.codelqElem, "r5 promoted")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_AllValveEntriesCancelled(t *testing.T) {
+func TestSelfContentionAware_AllValveEntriesCancelled(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -270,7 +270,7 @@ func TestSelfAware_AllValveEntriesCancelled(t *testing.T) {
 	sq.lockedCancel(r4)
 
 	// Dequeue r1 → clearDone drains the entire valve, nothing to promote
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 
 	assert.Equal(t, 0, sq.lockedLen(), "CoDel queue empty")
 	_, exists := sq.pendingRequests["id1"]
@@ -279,9 +279,9 @@ func TestSelfAware_AllValveEntriesCancelled(t *testing.T) {
 	assert.False(t, exists, "outstanding count should be cleaned up")
 }
 
-func TestSelfAware_InflatedOutstandingGatesNewArrivals(t *testing.T) {
+func TestSelfContentionAware_InflatedOutstandingGatesNewArrivals(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -297,9 +297,9 @@ func TestSelfAware_InflatedOutstandingGatesNewArrivals(t *testing.T) {
 	assert.Equal(t, 1, sq.lockedLen(), "still only r1 in CoDel queue")
 }
 
-func TestSelfAware_CancelAllThenNewArrival(t *testing.T) {
+func TestSelfContentionAware_CancelAllThenNewArrival(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -310,7 +310,7 @@ func TestSelfAware_CancelAllThenNewArrival(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → clearDone drains valve, queue empties
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.Equal(t, 0, sq.lockedLen())
 
 	// Fresh arrival for same valve ID should go directly to CoDel (no stale state)
@@ -319,9 +319,9 @@ func TestSelfAware_CancelAllThenNewArrival(t *testing.T) {
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_CancelInterleavedWithPromotions(t *testing.T) {
+func TestSelfContentionAware_CancelInterleavedWithPromotions(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
@@ -335,22 +335,22 @@ func TestSelfAware_CancelInterleavedWithPromotions(t *testing.T) {
 	sq.lockedCancel(r5)
 
 	// Dequeue r1 → promotes r2 (head is live)
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r2.codelqElem, "r2 promoted")
 
 	// Dequeue r2 → clearDone hits r3 (cancelled at head), skips it, promotes r4
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
 
 	// Dequeue r4 → clearDone hits r5 (cancelled at head), skips it, promotes r6
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, r6.codelqElem, "r6 promoted (r5 skipped)")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_MassCancel_OverloadScenario(t *testing.T) {
+func TestSelfContentionAware_MassCancel_OverloadScenario(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0) // r0: active in CoDel
 
@@ -369,13 +369,13 @@ func TestSelfAware_MassCancel_OverloadScenario(t *testing.T) {
 
 	// Dequeue the active entry → clearDone should efficiently skip the 45
 	// cancelled entries at the head and promote the first live one
-	testSelfAwareDequeue(sq)
+	testSelfContentionAwareDequeue(sq)
 	assert.NotNil(t, requests[45].codelqElem, "first surviving request promoted")
 	assert.Equal(t, 5, sq.outstandingCounts["id1"])
 
 	// Drain remaining 5
 	for i := 45; i < 50; i++ {
-		d := testSelfAwareDequeue(sq)
+		d := testSelfContentionAwareDequeue(sq)
 		assert.NotNil(t, d)
 		if i < 49 {
 			assert.NotNil(t, requests[i+1].codelqElem, "next request promoted")
@@ -388,9 +388,9 @@ func TestSelfAware_MassCancel_OverloadScenario(t *testing.T) {
 	assert.False(t, exists, "valve map cleaned up")
 }
 
-func TestSelfAware_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
+func TestSelfContentionAware_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	// Two valve IDs with parallel requests
 	sq.lockedEnqueue("id1", 0)        // id1 active
@@ -410,9 +410,9 @@ func TestSelfAware_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
 
 // --- Outstanding count tests ---
 
-func TestSelfAware_OutstandingCount_Lifecycle(t *testing.T) {
+func TestSelfContentionAware_OutstandingCount_Lifecycle(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
@@ -420,16 +420,16 @@ func TestSelfAware_OutstandingCount_Lifecycle(t *testing.T) {
 	sq.lockedEnqueue("id1", 0)
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
-	testSelfAwareDequeue(sq) // removes first, promotes second
+	testSelfContentionAwareDequeue(sq) // removes first, promotes second
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 
-	testSelfAwareDequeue(sq) // removes second
+	testSelfContentionAwareDequeue(sq) // removes second
 	assert.Equal(t, 0, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_OutstandingCount_SurvivesCancel(t *testing.T) {
+func TestSelfContentionAware_OutstandingCount_SurvivesCancel(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	sq.lockedEnqueue("id1", 0)
@@ -439,15 +439,15 @@ func TestSelfAware_OutstandingCount_SurvivesCancel(t *testing.T) {
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
-func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
+func TestSelfContentionAware_EmptyValve_MapCleanup(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	sq.lockedEnqueue("id1", 0)
 	sq.lockedEnqueue("id1", 0)
 
-	testSelfAwareDequeue(sq) // removes first, promotes second
-	testSelfAwareDequeue(sq) // removes second
+	testSelfContentionAwareDequeue(sq) // removes first, promotes second
+	testSelfContentionAwareDequeue(sq) // removes second
 
 	_, exists := sq.pendingRequests["id1"]
 	assert.False(t, exists, "empty valve should be removed from map")
@@ -455,12 +455,12 @@ func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
 
 // --- Peek cleanup tests ---
 
-// TestSelfAware_PeekCleanup_DecrementsOutstandingCount proves that when
+// TestSelfContentionAware_PeekCleanup_DecrementsOutstandingCount proves that when
 // lockedPeek defensively removes a done-with-error request from the CoDel
 // queue head, outstanding counts are decremented correctly.
-func TestSelfAware_PeekCleanup_DecrementsOutstandingCount(t *testing.T) {
+func TestSelfContentionAware_PeekCleanup_DecrementsOutstandingCount(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	sq.lockedEnqueue("id1", 0)
@@ -478,11 +478,11 @@ func TestSelfAware_PeekCleanup_DecrementsOutstandingCount(t *testing.T) {
 	assert.Equal(t, 1, sq.outstandingCounts["id1"], "outstanding should be decremented for cleaned-up request")
 }
 
-// TestSelfAware_PeekCleanup_DecrementsDroppableLen proves that when
+// TestSelfContentionAware_PeekCleanup_DecrementsDroppableLen proves that when
 // lockedPeek removes a done droppable request, droppableLen is decremented.
-func TestSelfAware_PeekCleanup_DecrementsDroppableLen(t *testing.T) {
+func TestSelfContentionAware_PeekCleanup_DecrementsDroppableLen(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id2", 0)
@@ -500,17 +500,17 @@ func TestSelfAware_PeekCleanup_DecrementsDroppableLen(t *testing.T) {
 
 // --- FIFO within contention ---
 
-func TestSelfAware_FIFO_WithinContention(t *testing.T) {
+func TestSelfContentionAware_FIFO_WithinContention(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newTestSelfAware(clock)
+	sq, _ := newTestSelfContentionAware(clock)
 
 	r1 := sq.lockedEnqueue("id1", 0)
 	r2 := sq.lockedEnqueue("id1", 0)
 	r3 := sq.lockedEnqueue("id1", 0)
 
-	d1 := testSelfAwareDequeue(sq)
-	d2 := testSelfAwareDequeue(sq)
-	d3 := testSelfAwareDequeue(sq)
+	d1 := testSelfContentionAwareDequeue(sq)
+	d2 := testSelfContentionAwareDequeue(sq)
+	d3 := testSelfContentionAwareDequeue(sq)
 
 	assert.Same(t, r1, d1)
 	assert.Same(t, r2, d2)
