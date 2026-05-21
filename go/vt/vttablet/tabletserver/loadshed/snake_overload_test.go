@@ -140,7 +140,7 @@ func TestSnake_Overload_MassCancel(t *testing.T) {
 
 	// Release original holder
 	unlock.Release()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 
 	// Verify the lock is still usable
 	u, err := s.Acquire(t.Context(), "mass-cancel")
@@ -183,57 +183,74 @@ func TestCoDelQueue_DropDelay_Decreasing(t *testing.T) {
 // --- Drop ONLY droppable, leaving undroppable untouched ---
 
 func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
-	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
-	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
+	// Verify that CoDel drops only affect droppable requests (LoadsheddingAllowed=true)
+	// and never undroppable requests (LoadsheddingAllowed=false). Uses two separate
+	// Snakes to avoid a shared-atomic race that can flip all requests to one category.
+	t.Run("droppable", func(t *testing.T) {
+		cfg := defaultSnakeConfig()
+		cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+		cfg.CoDel.TargetNs = func() int64 { return 1 }
+		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
+		cfg.LoadsheddingAllowed = func() bool { return true }
+		s := NewSnake(cfg)
 
-	droppableAllowed := &atomic.Bool{}
-	droppableAllowed.Store(true)
-	cfg.LoadsheddingAllowed = func() bool { return droppableAllowed.Load() }
-	s := NewSnake(cfg)
+		unlock, err := s.Acquire(t.Context(), "")
+		require.NoError(t, err)
 
-	unlock, err := s.Acquire(t.Context(), "")
-	require.NoError(t, err)
+		var wg sync.WaitGroup
+		var dropped atomic.Int64
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				u, err := s.Acquire(t.Context(), "")
+				if err != nil {
+					dropped.Add(1)
+					return
+				}
+				u.Release()
+			}()
+		}
 
-	var wg sync.WaitGroup
-	var droppableDropped, undroppableDropped atomic.Int64
+		time.Sleep(200 * time.Millisecond)
+		unlock.Release()
+		wg.Wait()
 
-	// Droppable requests
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			droppableAllowed.Store(true)
-			_, err := s.Acquire(t.Context(), "")
-			if err != nil {
-				droppableDropped.Add(1)
-			}
-		}()
-	}
+		assert.Greater(t, dropped.Load(), int64(0), "droppable requests should be dropped under overload")
+	})
 
-	time.Sleep(5 * time.Millisecond)
+	t.Run("undroppable", func(t *testing.T) {
+		cfg := defaultSnakeConfig()
+		cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+		cfg.CoDel.TargetNs = func() int64 { return 1 }
+		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
+		cfg.LoadsheddingAllowed = func() bool { return false }
+		s := NewSnake(cfg)
 
-	// Undroppable requests
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			droppableAllowed.Store(false)
-			u, err := s.Acquire(t.Context(), "")
-			if err != nil {
-				undroppableDropped.Add(1)
-				return
-			}
-			u.Release()
-		}()
-	}
+		unlock, err := s.Acquire(t.Context(), "")
+		require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-	unlock.Release()
-	wg.Wait()
+		var wg sync.WaitGroup
+		var dropped atomic.Int64
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				u, err := s.Acquire(t.Context(), "")
+				if err != nil {
+					dropped.Add(1)
+					return
+				}
+				u.Release()
+			}()
+		}
 
-	assert.Zero(t, undroppableDropped.Load(), "undroppable requests must never be dropped")
+		time.Sleep(200 * time.Millisecond)
+		unlock.Release()
+		wg.Wait()
+
+		assert.Zero(t, dropped.Load(), "undroppable requests must never be dropped")
+	})
 }
 
 // --- Successive timer fires with count increment ---
@@ -359,12 +376,12 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	assert.Nil(t, s.holder, "holder should be nil after all releases")
+	assert.Empty(t, s.holders, "holders map should be empty after all releases")
 	assert.Equal(t, 0, s.q.lockedLen(), "queue should be empty")
 	assert.Empty(t, s.q.pendingRequests, "pendingRequests map should be empty")
 	assert.Empty(t, s.q.outstandingCounts, "outstandingCounts map should be empty")
-	assert.Empty(t, s.q.activePerValve, "activePerValve map should be empty")
-	assert.Nil(t, s.maxAgeTimer, "max age timer should be nil")
+	assert.Empty(t, s.q.droppablePerValve, "droppablePerValve map should be empty")
+	assert.Empty(t, s.maxAgeTimers, "max age timers should be empty")
 	assert.False(t, s.q.codelq.dropping, "CoDel should not be in dropping state")
 }
 
@@ -385,7 +402,7 @@ func TestSnake_Memory_ManyDistinctValveIDs_Cleanup(t *testing.T) {
 
 	assert.Empty(t, s.q.pendingRequests, "pendingRequests should be empty after all releases")
 	assert.Empty(t, s.q.outstandingCounts, "outstandingCounts should be empty after all releases")
-	assert.Empty(t, s.q.activePerValve, "activePerValve should be empty after all releases")
+	assert.Empty(t, s.q.droppablePerValve, "droppablePerValve should be empty after all releases")
 }
 
 // --- CoDel state transition: healthy → unhealthy → healthy ---
@@ -457,7 +474,7 @@ func TestSnake_MaxAge_VsContextCancel_Race(t *testing.T) {
 		cancel()
 	}
 
-	assert.False(t, s.IsLocked(), "lock must not be stuck after max-age/cancel races")
+	assert.True(t, s.isIdle(), "lock must not be stuck after max-age/cancel races")
 }
 
 // --- Double-signal panic invariant ---
@@ -488,5 +505,5 @@ func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }

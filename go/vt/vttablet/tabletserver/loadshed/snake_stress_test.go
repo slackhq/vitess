@@ -59,7 +59,7 @@ func TestSnake_Stress_HighContention(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(200), completed.Load())
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Context cancellation under load ---
@@ -91,7 +91,7 @@ func TestSnake_Stress_ContextCancellation(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(100), acquired.Load()+cancelled.Load())
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Mixed droppable/undroppable ---
@@ -136,7 +136,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), droppableSuccess.Load()+droppableFailed.Load())
-	assert.False(t, droppableSnake.IsLocked())
+	assert.True(t, droppableSnake.isIdle())
 
 	unlock2, err := undroppableSnake.Acquire(t.Context(), "")
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(50), undroppableSuccess.Load(), "undroppable requests should never be dropped")
-	assert.False(t, undroppableSnake.IsLocked())
+	assert.True(t, undroppableSnake.isIdle())
 }
 
 // --- Self-contention ---
@@ -220,7 +220,7 @@ func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
 		assert.LessOrEqual(t, pid.max.Load(), int32(1),
 			"contention ID %d had concurrent holders", id)
 	}
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
@@ -260,7 +260,7 @@ func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 		expected[i] = i
 	}
 	assert.Equal(t, expected, order, "valve should preserve FIFO order within contention ID")
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
@@ -322,7 +322,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 			"contention ID %d: granted(%d) + dropped(%d) != total(%d)",
 			id, granted[id], dropped[id], perID)
 	}
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
@@ -380,7 +380,7 @@ func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
 			t.Fatalf("waiter %d did not return", i)
 		}
 	}
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
@@ -429,7 +429,7 @@ func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	g, d, c := granted.Load(), dropped.Load(), cancelled.Load()
 	assert.Equal(t, int64(total), g+d+c,
 		"granted(%d) + dropped(%d) + cancelled(%d) != total(%d)", g, d, c, total)
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
@@ -475,7 +475,7 @@ func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 	assert.LessOrEqual(t, globalMax.Load(), int32(1), "mutual exclusion violated")
 	assert.Greater(t, totalAcquires.Load(), int64(50),
 		"too few acquires — test may not be exercising contention")
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Rapid acquire/release ---
@@ -499,7 +499,7 @@ func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Cancel and grant race under load ---
@@ -527,7 +527,7 @@ func TestSnake_Stress_CancelAndGrant_Race(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, s.IsLocked(), "lock should not be orphaned")
+	assert.True(t, s.isIdle(), "lock should not be orphaned")
 }
 
 // --- Drop timer + cancel race ---
@@ -561,7 +561,7 @@ func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Max age under load ---
@@ -590,7 +590,7 @@ func TestSnake_Stress_MaxAge_UnderLoad(t *testing.T) {
 
 	wg.Wait()
 	assert.Equal(t, int64(50), completed.Load())
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Self-contention with drops ---
@@ -619,7 +619,7 @@ func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Goroutine leak detector ---
@@ -725,5 +725,5 @@ func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
