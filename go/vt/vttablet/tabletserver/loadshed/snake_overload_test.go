@@ -140,7 +140,7 @@ func TestSnake_Overload_MassCancel(t *testing.T) {
 
 	// Release original holder
 	unlock.Release()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 
 	// Verify the lock is still usable
 	u, err := s.Acquire(t.Context(), "mass-cancel")
@@ -376,7 +376,6 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	assert.Equal(t, 0, s.nGranted, "nGranted should be 0 after all releases")
 	assert.Empty(t, s.holders, "holders map should be empty after all releases")
 	assert.Equal(t, 0, s.q.lockedLen(), "queue should be empty")
 	assert.Empty(t, s.q.pendingRequests, "pendingRequests map should be empty")
@@ -475,7 +474,7 @@ func TestSnake_MaxAge_VsContextCancel_Race(t *testing.T) {
 		cancel()
 	}
 
-	assert.False(t, s.IsLocked(), "lock must not be stuck after max-age/cancel races")
+	assert.True(t, s.isIdle(), "lock must not be stuck after max-age/cancel races")
 }
 
 // --- Double-signal panic invariant ---
@@ -506,5 +505,5 @@ func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }

@@ -45,20 +45,30 @@ func newTestSnake(cfg SnakeConfig) *Snake {
 	return NewSnake(cfg)
 }
 
+func (s *Snake) nGranted() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.holders)
+}
+
+func (s *Snake) isIdle() bool {
+	return s.nGranted() == 0
+}
+
 // --- Basic acquire/release ---
 
 func TestSnake_AcquireRelease_Basic(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 
 	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
-	assert.True(t, s.IsLocked())
+	assert.False(t, s.isIdle())
 
 	err = unlock.Release()
 	assert.NoError(t, err)
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_AcquireRelease_Sequential(t *testing.T) {
@@ -67,11 +77,11 @@ func TestSnake_AcquireRelease_Sequential(t *testing.T) {
 	for range 10 {
 		unlock, err := s.Acquire(t.Context(), "")
 		require.NoError(t, err)
-		assert.True(t, s.IsLocked())
+		assert.False(t, s.isIdle())
 
 		err = unlock.Release()
 		assert.NoError(t, err)
-		assert.False(t, s.IsLocked())
+		assert.True(t, s.isIdle())
 	}
 }
 
@@ -101,7 +111,7 @@ func TestSnake_MutualExclusion(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- FIFO ordering ---
@@ -201,7 +211,7 @@ func TestSnake_ContextCancellation(t *testing.T) {
 	}
 
 	unlock.Release()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_ContextTimeout(t *testing.T) {
@@ -264,7 +274,7 @@ func TestSnake_ContextCancel_RaceWithGrant(t *testing.T) {
 		t.Fatal("waiter3 was orphaned — lock leaked after cancel-vs-grant race")
 	}
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Self-contention ---
@@ -452,7 +462,7 @@ func TestSnake_MaxAge_CancelledOnRelease(t *testing.T) {
 	unlock.Release()
 
 	time.Sleep(150 * time.Millisecond)
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
@@ -464,7 +474,7 @@ func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)
-	assert.True(t, s.IsLocked())
+	assert.False(t, s.isIdle())
 
 	unlock.Release()
 }
@@ -587,7 +597,7 @@ func TestSnake_ReleaseCallbacks_PanicRecovery(t *testing.T) {
 	err = unlock.Release()
 	assert.NoError(t, err)
 	assert.True(t, secondCalled.Load())
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 func TestSnake_ReleaseCallbacks_NoDeadlock(t *testing.T) {
@@ -613,22 +623,22 @@ func TestSnake_ReleaseCallbacks_NoDeadlock(t *testing.T) {
 	}
 }
 
-// --- IsLocked / IsHealthy ---
+// --- isIdle / IsHealthy ---
 
-func TestSnake_IsLocked_IsHealthy(t *testing.T) {
+func TestSnake_IsIdle_IsHealthy(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 	assert.True(t, s.IsHealthy())
 
 	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
 
-	assert.True(t, s.IsLocked())
+	assert.False(t, s.isIdle())
 	assert.True(t, s.IsHealthy())
 
 	unlock.Release()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }
 
 // --- Cancel in CoDel queue ---
@@ -863,8 +873,8 @@ func TestNewSnake_DefaultClock(t *testing.T) {
 
 	unlock, err := s.Acquire(t.Context(), "")
 	require.NoError(t, err)
-	assert.True(t, s.IsLocked())
+	assert.False(t, s.isIdle())
 
 	unlock.Release()
-	assert.False(t, s.IsLocked())
+	assert.True(t, s.isIdle())
 }

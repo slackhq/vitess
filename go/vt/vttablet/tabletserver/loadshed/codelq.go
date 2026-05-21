@@ -194,9 +194,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 		if req.signaledValue == nil || req.signaledValue == grantSentinel {
 			return req
 		}
-		if q.firstWaiting == front {
-			q.lockedAdvanceFirstWaiting()
-		}
+		q.lockedAdvanceFirstWaiting(front)
 		q.queue.Remove(front)
 		req.codelqElem = nil
 		if req.isDroppable() {
@@ -217,9 +215,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 // updating dropping state if appropriate.
 func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req := elem.Value.(*Request)
-	if q.firstWaiting == elem {
-		q.lockedAdvanceFirstWaiting()
-	}
+	q.lockedAdvanceFirstWaiting(elem)
 	q.queue.Remove(elem)
 	req.codelqElem = nil
 
@@ -242,9 +238,7 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	if r.codelqElem == nil {
 		return
 	}
-	if q.firstWaiting == r.codelqElem {
-		q.lockedAdvanceFirstWaiting()
-	}
+	q.lockedAdvanceFirstWaiting(r.codelqElem)
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
 
@@ -264,18 +258,17 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 			q.dropping = false
 		}
 	}
-	if q.firstWaiting == r.codelqElem {
-		q.lockedAdvanceFirstWaiting()
-	}
+	q.lockedAdvanceFirstWaiting(r.codelqElem)
 }
 
-// lockedAdvanceFirstWaiting moves the firstWaiting pointer to the next
-// unsignaled request in the queue, or nil if none remain.
-func (q *CoDelQueue) lockedAdvanceFirstWaiting() {
-	if q.firstWaiting == nil {
+// lockedAdvanceFirstWaiting advances the firstWaiting pointer past elem if
+// elem is the current firstWaiting. elem is a queue entry that is no longer
+// waiting — either because it was granted, removed, or dropped.
+func (q *CoDelQueue) lockedAdvanceFirstWaiting(elem *list.Element) {
+	if q.firstWaiting != elem {
 		return
 	}
-	for e := q.firstWaiting.Next(); e != nil; e = e.Next() {
+	for e := elem.Next(); e != nil; e = e.Next() {
 		if e.Value.(*Request).signaledValue == nil {
 			q.firstWaiting = e
 			return
