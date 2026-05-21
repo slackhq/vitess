@@ -165,14 +165,10 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 // Release. Checks sojourn time for CoDel state transition — if the completed
 // request spent less than TargetNs in the queue, the system is healthy.
 func (q *CoDelQueue) lockedComplete(r *Request) {
-	if r.codelqElem == nil {
-		return
-	}
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
 
-	now := q.nowNs()
-	sojournTime := now - r.codelqEnqueuedAtNs
+	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
 		q.stopDropTimer()
@@ -180,8 +176,7 @@ func (q *CoDelQueue) lockedComplete(r *Request) {
 	}
 }
 
-// lockedFirstWaiting returns the first not-yet-granted request in the queue
-// using the O(1) firstWaiting pointer.
+// lockedFirstWaiting returns the first not-yet-granted request in the queue.
 func (q *CoDelQueue) lockedFirstWaiting() *Request {
 	if q.firstWaiting == nil {
 		return nil
@@ -277,17 +272,14 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 // lockedAdvanceFirstWaiting moves the firstWaiting pointer to the next
 // unsignaled request in the queue, or nil if none remain.
 func (q *CoDelQueue) lockedAdvanceFirstWaiting() {
-	e := q.firstWaiting
-	if e != nil {
-		e = e.Next()
+	if q.firstWaiting == nil {
+		return
 	}
-	for e != nil {
-		req := e.Value.(*Request)
-		if req.signaledValue == nil {
+	for e := q.firstWaiting.Next(); e != nil; e = e.Next() {
+		if e.Value.(*Request).signaledValue == nil {
 			q.firstWaiting = e
 			return
 		}
-		e = e.Next()
 	}
 	q.firstWaiting = nil
 }

@@ -69,8 +69,8 @@ type (
 	// directly into the CoDel queue if there are no entries there for the
 	// valve ID. Otherwise, it is inserted into the valve.
 	//
-	// When a request leaves the CoDel queue (grant, drop, or cancel), the
-	// next pending request for that valve ID is promoted into the CoDel queue.
+	// When the droppable slot for a valve ID is freed (grant, drop, cancel,
+	// or release), the next pending request is promoted into the CoDel queue.
 	// All promotion runs under the parent mutex, so there is no race between
 	// removal and promotion.
 	//
@@ -96,10 +96,11 @@ type (
 		// we couldn't tell whether to valve a new arrival.
 		outstandingCounts map[string]int
 
-		// activePerValve tracks which request is currently the droppable
-		// entry in the CoDel queue for each valve ID, enabling O(1) lookup
-		// on promotion triggers.
-		activePerValve map[string]*Request
+		// droppablePerValve tracks which request is the current droppable
+		// representative in the CoDel queue for each valve ID. Maintains the
+		// invariant that each nonempty valve always has exactly one droppable
+		// entry in the CoDel queue.
+		droppablePerValve map[string]*Request
 	}
 )
 
@@ -107,7 +108,7 @@ func newSelfContentionAwareCoDelQueue(cfg CoDelConfig, nowNs func() int64, sched
 	q := &SelfContentionAwareCoDelQueue{
 		pendingRequests:   make(map[string][]*Request),
 		outstandingCounts: make(map[string]int),
-		activePerValve:    make(map[string]*Request),
+		droppablePerValve: make(map[string]*Request),
 	}
 	q.codelq = newCoDelQueue(cfg, nowNs, scheduleDropTimer, stopDropTimer, q.onPeekCleanup)
 	return q
@@ -160,7 +161,11 @@ func (q *SelfContentionAwareCoDelQueue) lockedComplete(req *Request) {
 	q.codelq.lockedComplete(req)
 	q.decrementOutstanding(req.valveID)
 	if req.valveID != "" {
-		if _, hasActive := q.activePerValve[req.valveID]; !hasActive {
+		// Promote if no droppable entry exists. This handles the case where
+		// the valve was empty at grant time (nothing to promote), but new
+		// requests arrived between grant and release — they're stranded in
+		// the valve with no droppable representative to trigger promotion.
+		if _, has := q.droppablePerValve[req.valveID]; !has {
 			q.lockedPromote(req.valveID)
 		}
 	}
@@ -174,10 +179,10 @@ func (q *SelfContentionAwareCoDelQueue) lockedDrop(req *Request) {
 	q.lockedPromoteOnEvict(req)
 }
 
-// lockedCancel cancels a request. If it's the active droppable request in the
-// CoDel queue, it removes it and promotes the next from the valve. If it's
-// pending in the valve, it signals it in place and lets clearDone handle
-// removal during the next promotion — this avoids an O(N) scan of the valve.
+// lockedCancel cancels a request. If it's in the CoDel queue, it removes it
+// and promotes the next from the valve. If it's pending in the valve, it
+// signals it in place and lets clearDone handle removal during the next
+// promotion — this avoids an O(N) scan of the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
 	if req.codelqElem != nil {
 		q.codelq.lockedRemove(req)
@@ -193,7 +198,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
 }
 
 // lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
-// lowest-priority request and handling valve promotion.
+// lowest-priority request and triggering valve promotion.
 func (q *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() {
 	dropFn := func() bool {
 		elem := q.codelq.lockedFindLowestPriorityDroppable()
@@ -210,7 +215,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() {
 func (q *SelfContentionAwareCoDelQueue) lockedOnGrant(r *Request) {
 	q.codelq.lockedOnGrant(r)
 	if r.valveID != "" {
-		delete(q.activePerValve, r.valveID)
+		delete(q.droppablePerValve, r.valveID)
 		q.lockedPromote(r.valveID)
 	}
 }
@@ -223,7 +228,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedFirstWaiting() *Request {
 
 func (q *SelfContentionAwareCoDelQueue) lockedEnqueueToCoDel(req *Request, valveID string) {
 	if valveID != "" {
-		q.activePerValve[valveID] = req
+		q.droppablePerValve[valveID] = req
 	}
 	q.codelq.lockedEnqueue(req)
 }
@@ -236,7 +241,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedPromoteOnEvict(req *Request) {
 		return
 	}
 	q.decrementOutstanding(valveID)
-	delete(q.activePerValve, valveID)
+	delete(q.droppablePerValve, valveID)
 	q.lockedPromote(valveID)
 }
 
