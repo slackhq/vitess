@@ -35,8 +35,7 @@ type (
 		signalChan         chan error
 		signaledValue      error
 		codelqElem         *list.Element
-		// Needed so that cancel can look up the valve
-		valveID string
+		valveID            string
 	}
 )
 

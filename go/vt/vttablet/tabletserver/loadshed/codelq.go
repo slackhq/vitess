@@ -107,6 +107,7 @@ type (
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue struct {
 		queue        *list.List
+		firstWaiting *list.Element
 		dropping     bool
 		dropNextNs   int64
 		count        int
@@ -150,28 +151,37 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 	req.codelqEnqueuedAtNs = q.nowNs()
 	req.codelqElem = q.queue.PushBack(req)
 
+	if q.firstWaiting == nil {
+		q.firstWaiting = req.codelqElem
+	}
+
 	if req.isDroppable() {
 		q.droppableLen++
 		q.lockedArmDropTimer()
 	}
 }
 
-// lockedDequeue pops the next eligible request from the head of the queue.
-// Returns nil if the queue is empty.
-func (q *CoDelQueue) lockedDequeue() *Request {
-	if q.lockedPeek() == nil {
-		return nil
-	}
-	req := q.lockedPopElem(q.queue.Front(), grantSentinel)
+// lockedComplete removes a granted (undroppable) request from the queue on
+// Release. Checks sojourn time for CoDel state transition — if the completed
+// request spent less than TargetNs in the queue, the system is healthy.
+func (q *CoDelQueue) lockedComplete(r *Request) {
+	q.queue.Remove(r.codelqElem)
+	r.codelqElem = nil
 
-	sojournTime := q.nowNs() - req.codelqEnqueuedAtNs
+	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
 		q.stopDropTimer()
 		q.lockedArmDropTimer()
 	}
+}
 
-	return req
+// lockedFirstWaiting returns the first not-yet-granted request in the queue.
+func (q *CoDelQueue) lockedFirstWaiting() *Request {
+	if q.firstWaiting == nil {
+		return nil
+	}
+	return q.firstWaiting.Value.(*Request)
 }
 
 // lockedPeek returns the head request without removing it. As a side effect,
@@ -184,6 +194,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 		if req.signaledValue == nil || req.signaledValue == grantSentinel {
 			return req
 		}
+		q.lockedAdvanceFirstWaiting(front)
 		q.queue.Remove(front)
 		req.codelqElem = nil
 		if req.isDroppable() {
@@ -204,6 +215,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 // updating dropping state if appropriate.
 func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req := elem.Value.(*Request)
+	q.lockedAdvanceFirstWaiting(elem)
 	q.queue.Remove(elem)
 	req.codelqElem = nil
 
@@ -226,6 +238,7 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	if r.codelqElem == nil {
 		return
 	}
+	q.lockedAdvanceFirstWaiting(r.codelqElem)
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
 
@@ -237,17 +250,31 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	}
 }
 
-// lockedOnGrant marks a request as undroppable. Uses the undroppable sentinel
-// priority.
 func (q *CoDelQueue) lockedOnGrant(r *Request) {
-	if !r.isDroppable() {
+	if r.isDroppable() {
+		r.priority = priorityUndroppable
+		q.droppableLen--
+		if q.droppableLen == 0 && q.dropping {
+			q.dropping = false
+		}
+	}
+	q.lockedAdvanceFirstWaiting(r.codelqElem)
+}
+
+// lockedAdvanceFirstWaiting advances the firstWaiting pointer past elem if
+// elem is the current firstWaiting. elem is a queue entry that is no longer
+// waiting — either because it was granted, removed, or dropped.
+func (q *CoDelQueue) lockedAdvanceFirstWaiting(elem *list.Element) {
+	if q.firstWaiting != elem {
 		return
 	}
-	r.priority = priorityUndroppable
-	q.droppableLen--
-	if q.droppableLen == 0 && q.dropping {
-		q.dropping = false
+	for e := elem.Next(); e != nil; e = e.Next() {
+		if e.Value.(*Request).signaledValue == nil {
+			q.firstWaiting = e
+			return
+		}
 	}
+	q.firstWaiting = nil
 }
 
 // lockedFindLowestPriorityDroppable finds the lowest-priority droppable
