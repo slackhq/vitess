@@ -69,7 +69,7 @@ func newTestQueue(cfg CoDelConfig, clock *testClock) (*CoDelQueue, *testDropTime
 	return q, rec
 }
 
-func testEnqueue(q *CoDelQueue, priority *float64) *Request {
+func testEnqueue(q *CoDelQueue, priority float64) *Request {
 	req := newRequest(priority)
 	q.lockedEnqueue(req)
 	return req
@@ -84,12 +84,12 @@ func TestCoDelQueue_Enqueue_Basic(t *testing.T) {
 	assert.Equal(t, 0, q.lockedLen())
 
 	clock.now = 1000
-	req := testEnqueue(q, NewPriority(0))
+	req := testEnqueue(q, 0)
 
 	assert.Equal(t, 1, q.lockedLen())
 	assert.NotNil(t, req)
 	assert.Equal(t, int64(1000), req.codelqEnqueuedAtNs)
-	assert.NotNil(t, req.elem)
+	assert.NotNil(t, req.codelqElem)
 }
 
 func TestCoDelQueue_Enqueue_RecordsEnqueueTime(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCoDelQueue_Enqueue_RecordsEnqueueTime(t *testing.T) {
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	clock.now = 42_000_000
-	req := testEnqueue(q, NewPriority(0))
+	req := testEnqueue(q, 0)
 
 	assert.Equal(t, int64(42_000_000), req.codelqEnqueuedAtNs)
 }
@@ -106,10 +106,10 @@ func TestCoDelQueue_Enqueue_DroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
 	assert.Equal(t, 1, q.droppableLen)
 
-	testEnqueue(q, newUndroppablePriority())
+	testEnqueue(q, priorityUndroppable)
 	assert.Equal(t, 1, q.droppableLen)
 	assert.Equal(t, 2, q.lockedLen())
 }
@@ -118,11 +118,11 @@ func TestCoDelQueue_Enqueue_SchedulesTimer(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
 	assert.True(t, rec.scheduled)
 
 	rec.scheduled = false
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
 	assert.True(t, rec.scheduled, "callback is always called; idempotency is the caller's concern")
 }
 
@@ -130,7 +130,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, newUndroppablePriority())
+	testEnqueue(q, priorityUndroppable)
 	assert.False(t, rec.scheduled)
 	assert.Equal(t, 0, q.droppableLen)
 }
@@ -141,9 +141,9 @@ func TestCoDelQueue_Dequeue_FIFO(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
-	r2 := testEnqueue(q, NewPriority(0))
-	r3 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
+	r2 := testEnqueue(q, 0)
+	r3 := testEnqueue(q, 0)
 
 	d1 := q.lockedDequeue()
 	d2 := q.lockedDequeue()
@@ -158,7 +158,7 @@ func TestCoDelQueue_Dequeue_SignalsNil(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
 	req := q.lockedDequeue()
 
 	require.NotNil(t, req.signaledValue)
@@ -170,8 +170,8 @@ func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(0))
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
+	testEnqueue(q, 0)
 	assert.Equal(t, 2, q.droppableLen)
 
 	q.lockedDequeue()
@@ -188,7 +188,7 @@ func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
 	q.count = 5
 
 	clock.now = 0
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
 	clock.now = 100
 
 	q.lockedDequeue()
@@ -221,8 +221,8 @@ func TestCoDelQueue_Peek_ReturnsHead(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
-	testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
+	testEnqueue(q, 0)
 
 	peeked := q.lockedPeek()
 	assert.Same(t, r1, peeked)
@@ -233,11 +233,11 @@ func TestCoDelQueue_Peek_CleansHeadCancelled(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
-	r2 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
+	r2 := testEnqueue(q, 0)
 
 	r1.signal(&DroppedRequestError{})
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 
 	peeked := q.lockedPeek()
 	assert.Same(t, r2, peeked)
@@ -248,10 +248,10 @@ func TestCoDelQueue_Peek_KeepsDoneNotCancelled(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
 
 	r1.signal(grantSentinel)
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 
 	peeked := q.lockedPeek()
 	assert.Same(t, r1, peeked)
@@ -264,14 +264,14 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(10))
-	testEnqueue(q, NewPriority(1))
-	testEnqueue(q, NewPriority(5))
+	testEnqueue(q, 10)
+	testEnqueue(q, 1)
+	testEnqueue(q, 5)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
 	dropped := q.lockedPopElem(elem, &DroppedRequestError{})
-	assert.Equal(t, float64(1), *dropped.priority)
+	assert.Equal(t, float64(1), dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
 
 	err := <-dropped.signalChan
@@ -282,9 +282,9 @@ func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(10))
-	r2 := testEnqueue(q, NewPriority(0))
-	testEnqueue(q, NewPriority(5))
+	testEnqueue(q, 10)
+	r2 := testEnqueue(q, 0)
+	testEnqueue(q, 5)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
@@ -295,8 +295,8 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, newUndroppablePriority())
-	droppable := testEnqueue(q, NewPriority(5))
+	testEnqueue(q, priorityUndroppable)
+	droppable := testEnqueue(q, 5)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
@@ -309,11 +309,11 @@ func TestCoDelQueue_DropSkipsDone(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
-	r2 := testEnqueue(q, NewPriority(5))
+	r1 := testEnqueue(q, 0)
+	r2 := testEnqueue(q, 5)
 
 	r1.signal(grantSentinel)
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
@@ -324,8 +324,8 @@ func TestCoDelQueue_DropAllUndroppable_ReturnsNil(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, newUndroppablePriority())
-	testEnqueue(q, newUndroppablePriority())
+	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, priorityUndroppable)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	assert.Nil(t, elem)
@@ -335,8 +335,8 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, newUndroppablePriority())
-	inf := testEnqueue(q, NewPriority(math.Inf(1))) //nolint:modernize
+	testEnqueue(q, priorityUndroppable)
+	inf := testEnqueue(q, math.Inf(1)) //nolint:modernize
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
@@ -347,8 +347,8 @@ func TestCoDelQueue_DropAllInf_NoPanic(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, NewPriority(math.Inf(1))) //nolint:modernize
-	testEnqueue(q, NewPriority(math.Inf(1))) //nolint:modernize
+	testEnqueue(q, math.Inf(1)) //nolint:modernize
+	testEnqueue(q, math.Inf(1)) //nolint:modernize
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	assert.NotNil(t, elem)
@@ -463,8 +463,8 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	cfg.TargetNs = func() int64 { return 100_000 }
 	q, rec := newTestQueue(cfg, clock)
 
-	testEnqueue(q, NewPriority(0))
-	testEnqueue(q, NewPriority(0))
+	testEnqueue(q, 0)
+	testEnqueue(q, 0)
 
 	clock.advance(2_000_000)
 
@@ -491,7 +491,7 @@ func TestCoDelQueue_RunScheduledDrop_MaxIterations(t *testing.T) {
 	q, _ := newTestQueue(cfg, clock)
 
 	for range 200 {
-		testEnqueue(q, NewPriority(0))
+		testEnqueue(q, 0)
 	}
 
 	clock.advance(1_000_000_000)
@@ -513,7 +513,7 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, newUndroppablePriority())
+	testEnqueue(q, priorityUndroppable)
 	clock.advance(2_000_000_000)
 
 	rec.scheduled = false
@@ -536,8 +536,8 @@ func TestCoDelQueue_Remove_RemovesRequest(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
-	testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
+	testEnqueue(q, 0)
 
 	q.lockedRemove(r1)
 
@@ -549,49 +549,49 @@ func TestCoDelQueue_Remove_AlreadyDone(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
 
 	r1.signal(grantSentinel)
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 
 	q.lockedRemove(r1)
 	assert.Equal(t, 0, q.lockedLen())
 }
 
-// --- MarkNotDroppable tests ---
+// --- OnGrant tests ---
 
-func TestCoDelQueue_MarkNotDroppable(t *testing.T) {
+func TestCoDelQueue_OnGrant(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
 	assert.Equal(t, 1, q.droppableLen)
 
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
 	assert.False(t, r1.isDroppable())
 }
 
-func TestCoDelQueue_MarkNotDroppable_AlreadyNotDroppable(t *testing.T) {
+func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, newUndroppablePriority())
+	r1 := testEnqueue(q, priorityUndroppable)
 	assert.Equal(t, 0, q.droppableLen)
 
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-func TestCoDelQueue_MarkNotDroppable_Idempotent(t *testing.T) {
+func TestCoDelQueue_OnGrant_Idempotent(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, NewPriority(0))
+	r1 := testEnqueue(q, 0)
 	assert.Equal(t, 1, q.droppableLen)
 
-	q.lockedMarkNotDroppable(r1)
-	q.lockedMarkNotDroppable(r1)
+	q.lockedOnGrant(r1)
+	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
 }
 
@@ -611,7 +611,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 	dequeued := 0
 	for range 40 {
 		clock.advance(5_000_000)
-		testEnqueue(q, NewPriority(0))
+		testEnqueue(q, 0)
 		enqueued++
 
 		clock.advance(4_000_000)
@@ -634,9 +634,9 @@ func TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit(t *testing.T) {
 	q, rec := newTestQueue(cfg, clock)
 
 	clock.now = 0
-	testEnqueue(q, NewPriority(1))
-	testEnqueue(q, NewPriority(2))
-	testEnqueue(q, NewPriority(3))
+	testEnqueue(q, 1)
+	testEnqueue(q, 2)
+	testEnqueue(q, 3)
 
 	q.dropping = true
 	q.count = 2
@@ -665,7 +665,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 	enqueued := 0
 	for range 20 {
 		clock.advance(2_000_000)
-		testEnqueue(q, NewPriority(0))
+		testEnqueue(q, 0)
 		enqueued++
 	}
 

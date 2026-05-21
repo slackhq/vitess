@@ -30,11 +30,11 @@ type (
 	// (used by lockedPeek to avoid channel pop/push-back): nil means
 	// unsignaled, grantSentinel means granted, any other value means dropped.
 	Request struct {
-		priority           *float64
+		priority           float64
 		codelqEnqueuedAtNs int64
 		signalChan         chan error
 		signaledValue      error
-		elem               *list.Element
+		codelqElem         *list.Element
 		// Needed so that cancel can look up the valve
 		valveID string
 	}
@@ -47,16 +47,7 @@ var priorityUndroppable = math.Inf(-1)
 
 var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
 
-func isUndroppable(priority *float64) bool {
-	return priority != nil && *priority == priorityUndroppable
-}
-
-func newUndroppablePriority() *float64 {
-	v := priorityUndroppable
-	return &v
-}
-
-func newRequest(priority *float64) *Request {
+func newRequest(priority float64) *Request {
 	return &Request{
 		priority:   priority,
 		signalChan: make(chan error, 1),
@@ -64,7 +55,7 @@ func newRequest(priority *float64) *Request {
 }
 
 func (r *Request) isDroppable() bool {
-	return !isUndroppable(r.priority)
+	return r.priority != priorityUndroppable
 }
 
 // Pass grantSentinel on grant and *DroppedRequestError on drop. Must be called
@@ -75,8 +66,4 @@ func (r *Request) signal(val error) {
 	}
 	r.signaledValue = val
 	r.signalChan <- val
-}
-
-func NewPriority(v float64) *float64 { //nolint:modernize
-	return &v
 }

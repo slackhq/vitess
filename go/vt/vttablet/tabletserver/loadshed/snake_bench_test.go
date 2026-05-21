@@ -168,7 +168,7 @@ func BenchmarkCoDelQueue_EnqueueDequeue(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		req := newRequest(NewPriority(0))
+		req := newRequest(0)
 		q.lockedEnqueue(req)
 		q.lockedDequeue()
 	}
@@ -181,7 +181,7 @@ func BenchmarkCoDelQueue_Enqueue_Only(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		req := newRequest(NewPriority(0))
+		req := newRequest(0)
 		q.lockedEnqueue(req)
 	}
 	b.StopTimer()
@@ -203,7 +203,7 @@ func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 			// Use varied priorities so the scan must traverse the full queue.
 			// The lowest priority is at position depth-1, forcing a full scan.
 			for i := range depth {
-				req := newRequest(NewPriority(float64(depth - i)))
+				req := newRequest(float64(depth - i))
 				q.lockedEnqueue(req)
 			}
 
@@ -223,7 +223,7 @@ func BenchmarkSelfAware_EnqueuePromote(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		r := sq.lockedEnqueue("bench-id", NewPriority(0))
+		r := sq.lockedEnqueue("bench-id", 0)
 		sq.lockedDequeue()
 		_ = r
 	}
@@ -238,7 +238,7 @@ func BenchmarkSelfAware_ValvePromotion_Chain(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				for range chainLen {
-					sq.lockedEnqueue("bench-id", NewPriority(0))
+					sq.lockedEnqueue("bench-id", 0)
 				}
 				for range chainLen {
 					sq.lockedDequeue()
