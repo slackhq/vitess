@@ -260,7 +260,7 @@ func TestCoDelQueue_SuccessiveDrops_IncrementCount(t *testing.T) {
 
 	// Verify that successive drops within a single timer fire increment count.
 	for range 10 {
-		testEnqueue(q, NewPriority(0))
+		testEnqueue(q, 0)
 	}
 
 	clock.advance(10_000_000) // 10ms — well past multiple intervals

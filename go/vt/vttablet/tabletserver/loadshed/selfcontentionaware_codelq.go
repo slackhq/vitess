@@ -140,7 +140,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedPeek() *Request {
 
 // lockedEnqueue enqueues a request. If the valve ID already has an active
 // request in the CoDel queue, the new request is placed in the valve instead.
-func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority *float64) *Request {
+func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority float64) *Request {
 	req := newRequest(priority)
 	req.valveID = valveID
 
@@ -168,9 +168,9 @@ func (q *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
 	return req
 }
 
-// lockedDropActive drops the active request for a valve ID (called by the
-// CoDel drop timer). Promotes the next pending request from the valve.
-func (q *SelfContentionAwareCoDelQueue) lockedDropActive(req *Request) {
+// lockedDrop drops a request (called by the CoDel drop timer). Promotes the
+// next pending request from the valve.
+func (q *SelfContentionAwareCoDelQueue) lockedDrop(req *Request) {
 	q.codelq.lockedRemove(req)
 	if req.signaledValue == nil {
 		req.signal(&DroppedRequestError{})
@@ -183,7 +183,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedDropActive(req *Request) {
 // in the valve, it signals it in place and lets clearDone handle removal
 // during the next promotion — this avoids an O(N) scan of the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
-	if req.elem != nil {
+	if req.codelqElem != nil {
 		q.codelq.lockedRemove(req)
 		q.lockedPromoteOnEvict(req)
 		return
@@ -200,15 +200,15 @@ func (q *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() {
 			return false
 		}
 		req := elem.Value.(*Request)
-		q.lockedDropActive(req)
+		q.lockedDrop(req)
 		return true
 	}
 	q.codelq.lockedRunScheduledDrop(dropFn)
 }
 
-// lockedMarkNotDroppable forwards to the CoDel queue.
-func (q *SelfContentionAwareCoDelQueue) lockedMarkNotDroppable(r *Request) {
-	q.codelq.lockedMarkNotDroppable(r)
+// lockedOnGrant forwards to the CoDel queue.
+func (q *SelfContentionAwareCoDelQueue) lockedOnGrant(r *Request) {
+	q.codelq.lockedOnGrant(r)
 }
 
 // --- private helpers ---
