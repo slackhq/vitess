@@ -46,7 +46,7 @@ type (
 		mu sync.Mutex
 
 		q              *SelfContentionAwareCoDelQueue
-		inFlight       int
+		nGranted       int
 		holders        map[*Request]struct{}
 		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
@@ -87,25 +87,23 @@ func (s *Snake) capacity() int {
 	if s.cfg.Capacity == nil {
 		return 1
 	}
-	c := s.cfg.Capacity()
-	if c < 1 {
-		return 1
-	}
-	return c
+	return max(s.cfg.Capacity(), 1)
+}
+
+func (s *Snake) hasCapacity() bool {
+	return s.nGranted < s.capacity()
 }
 
 // Acquire acquires a slot. It blocks until a slot is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
-// must be released via defer unlock.Release(). valveID controls self-contention
-// awareness: requests with the same non-empty ID are serialized through the
-// valve so at most one is in the CoDel queue at a time. Pass "" to bypass.
+// must be released via defer unlock.Release().
 func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error) {
 	priority := s.priority()
 
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
 
-	if s.inFlight < s.capacity() && req.codelqElem != nil {
+	if s.hasCapacity() && req.codelqElem != nil {
 		s.lockedGrant(req)
 		s.mu.Unlock()
 		return &SafeUnlock{s: s, req: req}, nil
@@ -121,6 +119,15 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 		return &SafeUnlock{s: s, req: req}, nil
 
 	case <-ctx.Done():
+		// Race: Go's select picks randomly when both signalChan and
+		// ctx.Done() are ready simultaneously. The grant may have already
+		// been sent (or be in-flight) by the time we land here. The inner
+		// select resolves this:
+		//   - If signalChan has a grant: we own the slot, release it.
+		//   - If signalChan is empty: the grant might still be in-flight
+		//     (releaser unlocked the mutex but hasn't sent the signal yet).
+		//     We re-acquire the mutex and check holders — if we're already
+		//     granted, release; otherwise cancel from the queue.
 		select {
 		case val := <-req.signalChan:
 			if val == grantSentinel {
@@ -144,14 +151,14 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 func (s *Snake) IsLocked() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inFlight > 0
+	return s.nGranted > 0
 }
 
 // InFlight reports the number of currently held slots.
 func (s *Snake) InFlight() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inFlight
+	return s.nGranted
 }
 
 // IsHealthy reports whether the CoDel queue is healthy.
@@ -176,14 +183,17 @@ func (u *SafeUnlock) Release(exc ...error) error {
 
 func (s *Snake) release(req *Request, excValue error) error {
 	s.mu.Lock()
+	// The max-age timer can race with a user release (both call release
+	// concurrently for the same req). The loser sees the req already gone
+	// from holders and no-ops.
 	if _, ok := s.holders[req]; !ok {
 		s.mu.Unlock()
 		return nil
 	}
-	delete(s.holders, req)
 	s.lockedStopMaxAgeTimer(req)
+	delete(s.holders, req)
 	s.q.lockedComplete(req)
-	s.inFlight--
+	s.nGranted--
 	s.lockedTryGrantOne()
 	s.mu.Unlock()
 
@@ -193,33 +203,30 @@ func (s *Snake) release(req *Request, excValue error) error {
 
 func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
-	delete(s.holders, req)
 	s.lockedStopMaxAgeTimer(req)
+	delete(s.holders, req)
 	s.q.lockedComplete(req)
-	s.inFlight--
+	s.nGranted--
 	s.lockedTryGrantOne()
 	s.mu.Unlock()
 }
 
 func (s *Snake) lockedGrant(req *Request) {
-	s.inFlight++
+	s.nGranted++
 	s.holders[req] = struct{}{}
 	s.q.lockedOnGrant(req)
 	s.lockedStartMaxAgeTimer(req)
-	if req.signaledValue == nil {
-		req.signal(grantSentinel)
-	}
+	req.signal(grantSentinel)
 }
 
 func (s *Snake) lockedTryGrantOne() {
-	if s.inFlight >= s.capacity() {
+	if !s.hasCapacity() {
 		return
 	}
 	next := s.q.lockedFirstWaiting()
-	if next == nil {
-		return
+	if next != nil {
+		s.lockedGrant(next)
 	}
-	s.lockedGrant(next)
 }
 
 // runReleaseCBs executes release callbacks outside the mutex.
@@ -277,7 +284,6 @@ func (s *Snake) runDropTimer() {
 	}
 	s.dropTimerArmed = false
 	s.q.lockedRunScheduledDrop()
-	s.lockedTryGrantOne()
 	s.mu.Unlock()
 }
 

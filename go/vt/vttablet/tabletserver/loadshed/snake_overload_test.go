@@ -376,7 +376,7 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	assert.Equal(t, 0, s.inFlight, "inFlight should be 0 after all releases")
+	assert.Equal(t, 0, s.nGranted, "nGranted should be 0 after all releases")
 	assert.Empty(t, s.holders, "holders map should be empty after all releases")
 	assert.Equal(t, 0, s.q.lockedLen(), "queue should be empty")
 	assert.Empty(t, s.q.pendingRequests, "pendingRequests map should be empty")

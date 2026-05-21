@@ -184,7 +184,12 @@ func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
 		q.lockedPromoteOnEvict(req)
 		return
 	}
-	req.signal(&DroppedRequestError{})
+	// The request may already have been signaled if it was promoted into
+	// the CoDel queue and dropped between the caller's default-branch
+	// (signalChan empty) and mutex acquisition.
+	if req.signaledValue == nil {
+		req.signal(&DroppedRequestError{})
+	}
 }
 
 // lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
