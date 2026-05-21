@@ -29,6 +29,21 @@ func newTestSelfAware(clock *testClock) (*SelfContentionAwareCoDelQueue, *testDr
 	return q, rec
 }
 
+// testSelfAwareDequeue simulates the grant+complete lifecycle on the
+// SelfContentionAwareCoDelQueue: gets the first waiting request, marks it
+// not droppable (which triggers eager valve promotion), signals it, and
+// completes it (removing from queue).
+func testSelfAwareDequeue(sq *SelfContentionAwareCoDelQueue) *Request {
+	req := sq.lockedFirstWaiting()
+	if req == nil {
+		return nil
+	}
+	sq.lockedOnGrant(req)
+	req.signal(grantSentinel)
+	sq.lockedComplete(req)
+	return req
+}
+
 // --- Direct entry tests ---
 
 func TestSelfAware_FirstRequest_DirectEntry(t *testing.T) {
@@ -114,7 +129,7 @@ func TestSelfAware_Promotion_OnDequeue(t *testing.T) {
 
 	assert.Nil(t, r2.codelqElem, "r2 in valve before dequeue")
 
-	d := sq.lockedDequeue()
+	d := testSelfAwareDequeue(sq)
 	assert.NotNil(t, d)
 
 	assert.NotNil(t, r2.codelqElem, "r2 promoted to CoDel queue after dequeue")
@@ -184,7 +199,7 @@ func TestSelfAware_ClearDone_InValve(t *testing.T) {
 	r2.signal(&DroppedRequestError{})
 
 	// dequeue r1 → promote should skip r2 (done) and promote r3
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 
 	assert.NotNil(t, r3.codelqElem, "r3 promoted (r2 was skipped)")
 	assert.Equal(t, 1, sq.lockedLen())
@@ -203,11 +218,11 @@ func TestSelfAware_CancelInMiddle_EventualPromotion(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → promotes r2 (r3 is in the middle, not at head)
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r2.codelqElem, "r2 promoted")
 
 	// Dequeue r2 → clearDone finds r3 (now at head), skips it, promotes r4
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
@@ -227,7 +242,7 @@ func TestSelfAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → clearDone should skip both r2 and r3, promote r4
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r2 and r3 skipped)")
 	assert.Nil(t, r2.codelqElem, "r2 never entered CoDel queue")
 	assert.Nil(t, r3.codelqElem, "r3 never entered CoDel queue")
@@ -235,7 +250,7 @@ func TestSelfAware_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
 	// Dequeue r4 → promotes r5
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r5.codelqElem, "r5 promoted")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
@@ -255,7 +270,7 @@ func TestSelfAware_AllValveEntriesCancelled(t *testing.T) {
 	sq.lockedCancel(r4)
 
 	// Dequeue r1 → clearDone drains the entire valve, nothing to promote
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 
 	assert.Equal(t, 0, sq.lockedLen(), "CoDel queue empty")
 	_, exists := sq.pendingRequests["id1"]
@@ -295,7 +310,7 @@ func TestSelfAware_CancelAllThenNewArrival(t *testing.T) {
 	sq.lockedCancel(r3)
 
 	// Dequeue r1 → clearDone drains valve, queue empties
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.Equal(t, 0, sq.lockedLen())
 
 	// Fresh arrival for same valve ID should go directly to CoDel (no stale state)
@@ -320,15 +335,15 @@ func TestSelfAware_CancelInterleavedWithPromotions(t *testing.T) {
 	sq.lockedCancel(r5)
 
 	// Dequeue r1 → promotes r2 (head is live)
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r2.codelqElem, "r2 promoted")
 
 	// Dequeue r2 → clearDone hits r3 (cancelled at head), skips it, promotes r4
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
 
 	// Dequeue r4 → clearDone hits r5 (cancelled at head), skips it, promotes r6
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, r6.codelqElem, "r6 promoted (r5 skipped)")
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
@@ -354,13 +369,13 @@ func TestSelfAware_MassCancel_OverloadScenario(t *testing.T) {
 
 	// Dequeue the active entry → clearDone should efficiently skip the 45
 	// cancelled entries at the head and promote the first live one
-	sq.lockedDequeue()
+	testSelfAwareDequeue(sq)
 	assert.NotNil(t, requests[45].codelqElem, "first surviving request promoted")
 	assert.Equal(t, 5, sq.outstandingCounts["id1"])
 
 	// Drain remaining 5
 	for i := 45; i < 50; i++ {
-		d := sq.lockedDequeue()
+		d := testSelfAwareDequeue(sq)
 		assert.NotNil(t, d)
 		if i < 49 {
 			assert.NotNil(t, requests[i+1].codelqElem, "next request promoted")
@@ -405,10 +420,10 @@ func TestSelfAware_OutstandingCount_Lifecycle(t *testing.T) {
 	sq.lockedEnqueue("id1", 0)
 	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
-	sq.lockedDequeue() // removes first, promotes second
+	testSelfAwareDequeue(sq) // removes first, promotes second
 	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 
-	sq.lockedDequeue() // removes second
+	testSelfAwareDequeue(sq) // removes second
 	assert.Equal(t, 0, sq.outstandingCounts["id1"])
 }
 
@@ -431,8 +446,8 @@ func TestSelfAware_EmptyValve_MapCleanup(t *testing.T) {
 	sq.lockedEnqueue("id1", 0)
 	sq.lockedEnqueue("id1", 0)
 
-	sq.lockedDequeue() // removes first, promotes second
-	sq.lockedDequeue() // removes second
+	testSelfAwareDequeue(sq) // removes first, promotes second
+	testSelfAwareDequeue(sq) // removes second
 
 	_, exists := sq.pendingRequests["id1"]
 	assert.False(t, exists, "empty valve should be removed from map")
@@ -493,9 +508,9 @@ func TestSelfAware_FIFO_WithinContention(t *testing.T) {
 	r2 := sq.lockedEnqueue("id1", 0)
 	r3 := sq.lockedEnqueue("id1", 0)
 
-	d1 := sq.lockedDequeue()
-	d2 := sq.lockedDequeue()
-	d3 := sq.lockedDequeue()
+	d1 := testSelfAwareDequeue(sq)
+	d2 := testSelfAwareDequeue(sq)
+	d3 := testSelfAwareDequeue(sq)
 
 	assert.Same(t, r1, d1)
 	assert.Same(t, r2, d2)

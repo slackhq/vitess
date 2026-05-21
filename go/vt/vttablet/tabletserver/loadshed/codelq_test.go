@@ -135,9 +135,22 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-// --- Dequeue tests ---
+// testDequeue simulates the old lockedDequeue behavior using the new primitives:
+// lockedFirstWaiting + lockedOnGrant + signal + lockedComplete.
+func testDequeue(q *CoDelQueue) *Request {
+	req := q.lockedFirstWaiting()
+	if req == nil {
+		return nil
+	}
+	q.lockedOnGrant(req)
+	req.signal(grantSentinel)
+	q.lockedComplete(req)
+	return req
+}
 
-func TestCoDelQueue_Dequeue_FIFO(t *testing.T) {
+// --- FirstWaiting / Complete tests (replaces old Dequeue tests) ---
+
+func TestCoDelQueue_FirstWaiting_FIFO(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
@@ -145,28 +158,16 @@ func TestCoDelQueue_Dequeue_FIFO(t *testing.T) {
 	r2 := testEnqueue(q, 0)
 	r3 := testEnqueue(q, 0)
 
-	d1 := q.lockedDequeue()
-	d2 := q.lockedDequeue()
-	d3 := q.lockedDequeue()
+	d1 := testDequeue(q)
+	d2 := testDequeue(q)
+	d3 := testDequeue(q)
 
 	assert.Same(t, r1, d1)
 	assert.Same(t, r2, d2)
 	assert.Same(t, r3, d3)
 }
 
-func TestCoDelQueue_Dequeue_SignalsNil(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	testEnqueue(q, 0)
-	req := q.lockedDequeue()
-
-	require.NotNil(t, req.signaledValue)
-	val := <-req.signalChan
-	assert.Equal(t, grantSentinel, val)
-}
-
-func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
+func TestCoDelQueue_OnGrant_DecrementsDroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
@@ -174,11 +175,11 @@ func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
 	testEnqueue(q, 0)
 	assert.Equal(t, 2, q.droppableLen)
 
-	q.lockedDequeue()
+	testDequeue(q)
 	assert.Equal(t, 1, q.droppableLen)
 }
 
-func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
+func TestCoDelQueue_Complete_ExitsDroppingOnTarget(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
 	cfg.TargetNs = func() int64 { return 1_000_000 }
@@ -191,16 +192,16 @@ func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
 	testEnqueue(q, 0)
 	clock.now = 100
 
-	q.lockedDequeue()
+	testDequeue(q)
 
 	assert.False(t, q.dropping)
 }
 
-func TestCoDelQueue_Dequeue_Empty(t *testing.T) {
+func TestCoDelQueue_FirstWaiting_Empty(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	req := q.lockedDequeue()
+	req := q.lockedFirstWaiting()
 	assert.Nil(t, req)
 }
 
@@ -615,7 +616,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 		enqueued++
 
 		clock.advance(4_000_000)
-		if req := q.lockedDequeue(); req != nil {
+		if req := testDequeue(q); req != nil {
 			dequeued++
 		}
 	}
@@ -623,7 +624,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 	assert.Equal(t, enqueued, dequeued, "fast-moving queue should not drop")
 }
 
-func TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit(t *testing.T) {
+func TestCoDelQueue_Complete_ReschedulesTimerAfterHealthyExit(t *testing.T) {
 	clock := newTestClock()
 	cfg := CoDelConfig{
 		IntervalNs:     func() int64 { return 1_000_000 },
@@ -634,7 +635,7 @@ func TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit(t *testing.T) {
 	q, rec := newTestQueue(cfg, clock)
 
 	clock.now = 0
-	testEnqueue(q, 1)
+	r1 := testEnqueue(q, 1)
 	testEnqueue(q, 2)
 	testEnqueue(q, 3)
 
@@ -642,11 +643,12 @@ func TestCoDelQueue_Dequeue_ReschedulesTimerAfterHealthyExit(t *testing.T) {
 	q.count = 2
 	q.dropNextNs = clock.now + cfg.IntervalNs()
 
+	// Grant r1 (mark not droppable) and then complete it with a fast sojourn
+	q.lockedOnGrant(r1)
 	clock.now = 100
 	rec.scheduled = false
-	req := q.lockedDequeue()
+	q.lockedComplete(r1)
 
-	require.NotNil(t, req)
 	assert.False(t, q.dropping, "should exit dropping state")
 	assert.True(t, rec.scheduled, "should reschedule via callback when droppable items remain")
 	assert.Greater(t, rec.delayNs, int64(0), "delay should be positive")

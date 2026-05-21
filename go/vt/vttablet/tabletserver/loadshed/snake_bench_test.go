@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -161,7 +162,7 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 
 // --- CoDel queue enqueue/dequeue (low-level, no Snake overhead) ---
 
-func BenchmarkCoDelQueue_EnqueueDequeue(b *testing.B) {
+func BenchmarkCoDelQueue_EnqueueComplete(b *testing.B) {
 	clock := newTestClock()
 	rec := &testDropTimerRecorder{}
 	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
@@ -170,7 +171,8 @@ func BenchmarkCoDelQueue_EnqueueDequeue(b *testing.B) {
 	for range b.N {
 		req := newRequest(0)
 		q.lockedEnqueue(req)
-		q.lockedDequeue()
+		q.lockedOnGrant(req)
+		q.lockedComplete(req)
 	}
 }
 
@@ -185,9 +187,8 @@ func BenchmarkCoDelQueue_Enqueue_Only(b *testing.B) {
 		q.lockedEnqueue(req)
 	}
 	b.StopTimer()
-	// drain
 	for q.lockedLen() > 0 {
-		q.lockedDequeue()
+		testDequeue(q)
 	}
 }
 
@@ -223,9 +224,8 @@ func BenchmarkSelfAware_EnqueuePromote(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		r := sq.lockedEnqueue("bench-id", 0)
-		sq.lockedDequeue()
-		_ = r
+		sq.lockedEnqueue("bench-id", 0)
+		testSelfAwareDequeue(sq)
 	}
 }
 
@@ -241,7 +241,7 @@ func BenchmarkSelfAware_ValvePromotion_Chain(b *testing.B) {
 					sq.lockedEnqueue("bench-id", 0)
 				}
 				for range chainLen {
-					sq.lockedDequeue()
+					testSelfAwareDequeue(sq)
 				}
 			}
 		})
@@ -325,6 +325,134 @@ func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
 					u.Release()
 				}
 			})
+		})
+	}
+}
+
+// --- N-holder: multi-slot throughput ---
+
+func BenchmarkSnake_NHolder_Throughput(b *testing.B) {
+	for _, capacity := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
+			cfg := defaultSnakeConfig()
+			cfg.Capacity = func() int { return capacity }
+			s := NewSnake(cfg)
+			ctx := context.Background()
+
+			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					u, err := s.Acquire(ctx, "")
+					if err != nil {
+						continue
+					}
+					u.Release()
+				}
+			})
+		})
+	}
+}
+
+// --- N-holder: uncontended multi-slot (fast path, no blocking) ---
+
+func BenchmarkSnake_NHolder_Uncontended(b *testing.B) {
+	for _, capacity := range []int{1, 4, 16} {
+		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
+			cfg := defaultSnakeConfig()
+			cfg.Capacity = func() int { return capacity }
+			s := NewSnake(cfg)
+			ctx := context.Background()
+
+			b.ResetTimer()
+			for range b.N {
+				u, err := s.Acquire(ctx, "")
+				if err != nil {
+					b.Fatal(err)
+				}
+				u.Release()
+			}
+		})
+	}
+}
+
+// --- N-holder: saturated (all slots filled, waiters queued) ---
+
+func BenchmarkSnake_NHolder_Saturated(b *testing.B) {
+	for _, capacity := range []int{1, 4, 8} {
+		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
+			cfg := defaultSnakeConfig()
+			cfg.Capacity = func() int { return capacity }
+			s := NewSnake(cfg)
+			ctx := context.Background()
+
+			b.SetParallelism(capacity * 4 / runtime.GOMAXPROCS(0))
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					u, err := s.Acquire(ctx, "")
+					if err != nil {
+						continue
+					}
+					u.Release()
+				}
+			})
+		})
+	}
+}
+
+// --- N-holder: valve + multi-slot (self-contention across multiple slots) ---
+
+func BenchmarkSnake_NHolder_WithValve(b *testing.B) {
+	for _, capacity := range []int{1, 4, 8} {
+		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
+			cfg := defaultSnakeConfig()
+			cfg.Capacity = func() int { return capacity }
+			s := NewSnake(cfg)
+			ctx := context.Background()
+
+			ids := make([]string, 4)
+			for i := range ids {
+				ids[i] = fmt.Sprintf("valve-%d", i)
+			}
+
+			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
+			b.ResetTimer()
+			var counter atomic.Int64
+			b.RunParallel(func(pb *testing.PB) {
+				idx := int(counter.Add(1) - 1)
+				id := ids[idx%len(ids)]
+				for pb.Next() {
+					u, err := s.Acquire(ctx, id)
+					if err != nil {
+						continue
+					}
+					u.Release()
+				}
+			})
+		})
+	}
+}
+
+// --- N-holder: allocation profile ---
+
+func BenchmarkSnake_NHolder_Allocs(b *testing.B) {
+	for _, capacity := range []int{1, 4, 16} {
+		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
+			cfg := defaultSnakeConfig()
+			cfg.Capacity = func() int { return capacity }
+			s := NewSnake(cfg)
+			ctx := context.Background()
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				u, err := s.Acquire(ctx, "")
+				if err != nil {
+					b.Fatal(err)
+				}
+				u.Release()
+			}
 		})
 	}
 }

@@ -18,7 +18,6 @@ package loadshed
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -30,37 +29,39 @@ type (
 	SnakeConfig struct {
 		Name                string
 		CoDel               CoDelConfig
+		Capacity            func() int
 		MaxAge              func() time.Duration
 		LoadsheddingAllowed func() bool
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
 	}
 
-	// Snake is a CoDel-based load-shedding gate. Acquire requests are either
+	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
+	// Capacity() concurrent holders are allowed. Acquire requests are either
 	// granted or dropped, each within a timely manner.
 	//
-	// Callers must use defer unlock.Release() to ensure the gate is always
-	// released.
+	// Granted requests stay in the CoDel queue as undroppable until Release,
+	// preserving the queue's system-pressure signal for accurate shedding.
 	Snake struct {
 		mu sync.Mutex
 
 		q              *SelfContentionAwareCoDelQueue
-		holder         *Request
-		lockNonce      uint64
+		inFlight       int
+		holders        map[*Request]struct{}
+		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
 		dropTimerArmed bool
-		maxAgeTimer    *time.Timer
 		cfg            SnakeConfig
 		clockFunc      func() int64
 	}
 
-	// SafeUnlock is a handle for releasing a gate. Only the goroutine that
-	// acquired the gate should call Release. Release is idempotent.
+	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
+	// acquired the slot should call Release. Release is idempotent.
 	SafeUnlock struct {
-		s     *Snake
-		nonce uint64
-		once  sync.Once
-		err   error
+		s    *Snake
+		req  *Request
+		once sync.Once
+		err  error
 	}
 )
 
@@ -73,14 +74,27 @@ func defaultClock() int64 {
 // NewSnake creates a new CoDel-based load-shedding gate.
 func NewSnake(cfg SnakeConfig) *Snake {
 	s := &Snake{
-		cfg:       cfg,
-		clockFunc: defaultClock,
+		cfg:          cfg,
+		clockFunc:    defaultClock,
+		holders:      make(map[*Request]struct{}),
+		maxAgeTimers: make(map[*Request]*time.Timer),
 	}
 	s.q = newSelfContentionAwareCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
 }
 
-// Acquire acquires the gate. It blocks until the gate is granted, the request
+func (s *Snake) capacity() int {
+	if s.cfg.Capacity == nil {
+		return 1
+	}
+	c := s.cfg.Capacity()
+	if c < 1 {
+		return 1
+	}
+	return c
+}
+
+// Acquire acquires a slot. It blocks until a slot is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
 // must be released via defer unlock.Release(). valveID controls self-contention
 // awareness: requests with the same non-empty ID are serialized through the
@@ -89,26 +103,12 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	priority := s.priority()
 
 	s.mu.Lock()
-	// The holder stays at the head of the queue rather than being removed on
-	// grant. This preserves CoDel's system-pressure signal: queue length
-	// reflects total system load (waiting + executing), not just waiting load.
-	// Without this, a slow holder would leave the queue empty, hiding
-	// backpressure and preventing CoDel from entering the dropping state.
-	// Additionally, aggressive dropping can reduce droppableLen to 0 while the
-	// queue is still unhealthy; the holder's presence keeps the queue non-empty
-	// so we don't falsely transition to healthy and lose accumulated drop
-	// intensity (count), which would force rediscovery from scratch.
-	isLocked := s.q.lockedPeek() != nil
 	req := s.q.lockedEnqueue(valveID, priority)
 
-	if !isLocked {
-		s.lockNonce++
-		nonce := s.lockNonce
-		s.holder = req
-		s.q.lockedOnGrant(req)
-		s.lockedStartMaxAgeTimer(req)
+	if s.inFlight < s.capacity() && req.codelqElem != nil {
+		s.lockedGrant(req)
 		s.mu.Unlock()
-		return &SafeUnlock{s: s, nonce: nonce}, nil
+		return &SafeUnlock{s: s, req: req}, nil
 	}
 
 	s.mu.Unlock()
@@ -118,31 +118,19 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 		if val != grantSentinel {
 			return nil, s.acquireError()
 		}
-		s.mu.Lock()
-		nonce := s.lockNonce
-		s.lockedStartMaxAgeTimer(req)
-		s.mu.Unlock()
-		return &SafeUnlock{s: s, nonce: nonce}, nil
+		return &SafeUnlock{s: s, req: req}, nil
 
 	case <-ctx.Done():
-		// Race: the context may cancel after the grant was already sent to
-		// signalChan (or is in-flight via lockedGrantNext). The inner select
-		// resolves this: if the signal is already buffered, consume it and
-		// release. If not, check under the mutex whether we were granted
-		// (holder == req) and wait for the in-flight signal before releasing.
-		// Without this double-select, we'd either leak a held lock or cancel
-		// a request that was already granted.
 		select {
 		case val := <-req.signalChan:
 			if val == grantSentinel {
-				s.releaseOnCancel()
+				s.releaseOnCancel(req)
 			}
 		default:
 			s.mu.Lock()
-			if s.holder == req {
+			if _, granted := s.holders[req]; granted {
 				s.mu.Unlock()
-				<-req.signalChan
-				s.releaseOnCancel()
+				s.releaseOnCancel(req)
 			} else {
 				s.q.lockedCancel(req)
 				s.mu.Unlock()
@@ -152,11 +140,18 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 	}
 }
 
-// IsLocked reports whether the gate is currently held.
+// IsLocked reports whether any slot is currently held.
 func (s *Snake) IsLocked() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.q.lockedPeek() != nil
+	return s.inFlight > 0
+}
+
+// InFlight reports the number of currently held slots.
+func (s *Snake) InFlight() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inFlight
 }
 
 // IsHealthy reports whether the CoDel queue is healthy.
@@ -166,7 +161,7 @@ func (s *Snake) IsHealthy() bool {
 	return s.q.lockedIsHealthy()
 }
 
-// Release releases the gate. exc is an optional error that caused the release
+// Release releases the slot. exc is an optional error that caused the release
 // (passed to release callbacks). Release is idempotent.
 func (u *SafeUnlock) Release(exc ...error) error {
 	u.once.Do(func() {
@@ -174,54 +169,57 @@ func (u *SafeUnlock) Release(exc ...error) error {
 		if len(exc) > 0 {
 			excValue = exc[0]
 		}
-		u.err = u.s.release(u.nonce, excValue)
+		u.err = u.s.release(u.req, excValue)
 	})
 	return u.err
 }
 
-func (s *Snake) release(nonce uint64, excValue error) error {
+func (s *Snake) release(req *Request, excValue error) error {
 	s.mu.Lock()
-	if nonce != s.lockNonce {
-		currentNonce := s.lockNonce
+	if _, ok := s.holders[req]; !ok {
 		s.mu.Unlock()
-		return fmt.Errorf("unauthorized release: nonce %d != %d", nonce, currentNonce)
+		return nil
 	}
-	s.lockedStopMaxAgeTimer()
-	next := s.lockedGrantNext()
-	if next != nil {
-		next.signal(grantSentinel)
-	}
+	delete(s.holders, req)
+	s.lockedStopMaxAgeTimer(req)
+	s.q.lockedComplete(req)
+	s.inFlight--
+	s.lockedTryGrantOne()
 	s.mu.Unlock()
 
 	s.runReleaseCBs(excValue)
 	return nil
 }
 
-// releaseOnCancel releases the gate without nonce verification or callbacks.
-// Used when the context is cancelled after the gate was already granted.
-func (s *Snake) releaseOnCancel() {
+func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
-	s.lockedStopMaxAgeTimer()
-	next := s.lockedGrantNext()
-	if next != nil {
-		next.signal(grantSentinel)
-	}
+	delete(s.holders, req)
+	s.lockedStopMaxAgeTimer(req)
+	s.q.lockedComplete(req)
+	s.inFlight--
+	s.lockedTryGrantOne()
 	s.mu.Unlock()
 }
 
-// lockedGrantNext dequeues the current holder, promotes from valve, and grants
-// to the next waiter. Returns the next request to signal, or nil.
-func (s *Snake) lockedGrantNext() *Request {
-	s.q.lockedDequeue()
-	next := s.q.lockedPeek()
-	if next != nil {
-		s.lockNonce++
-		s.holder = next
-		s.q.lockedOnGrant(next)
-	} else {
-		s.holder = nil
+func (s *Snake) lockedGrant(req *Request) {
+	s.inFlight++
+	s.holders[req] = struct{}{}
+	s.q.lockedOnGrant(req)
+	s.lockedStartMaxAgeTimer(req)
+	if req.signaledValue == nil {
+		req.signal(grantSentinel)
 	}
-	return next
+}
+
+func (s *Snake) lockedTryGrantOne() {
+	if s.inFlight >= s.capacity() {
+		return
+	}
+	next := s.q.lockedFirstWaiting()
+	if next == nil {
+		return
+	}
+	s.lockedGrant(next)
 }
 
 // runReleaseCBs executes release callbacks outside the mutex.
@@ -279,10 +277,11 @@ func (s *Snake) runDropTimer() {
 	}
 	s.dropTimerArmed = false
 	s.q.lockedRunScheduledDrop()
+	s.lockedTryGrantOne()
 	s.mu.Unlock()
 }
 
-func (s *Snake) lockedStartMaxAgeTimer(holder *Request) {
+func (s *Snake) lockedStartMaxAgeTimer(req *Request) {
 	if s.cfg.MaxAge == nil {
 		return
 	}
@@ -290,23 +289,22 @@ func (s *Snake) lockedStartMaxAgeTimer(holder *Request) {
 	if maxAge <= 0 {
 		return
 	}
-	s.maxAgeTimer = time.AfterFunc(maxAge, func() {
+	s.maxAgeTimers[req] = time.AfterFunc(maxAge, func() {
 		s.mu.Lock()
-		if s.holder != holder {
+		if _, ok := s.holders[req]; !ok {
 			s.mu.Unlock()
 			return
 		}
-		nonce := s.lockNonce
 		s.mu.Unlock()
 
-		log.Printf("loadshed: snake %s reached max age %v, force-releasing", s.cfg.Name, maxAge)
-		s.release(nonce, nil)
+		log.Printf("loadshed: snake %s slot reached max age %v, force-releasing", s.cfg.Name, maxAge)
+		s.release(req, nil)
 	})
 }
 
-func (s *Snake) lockedStopMaxAgeTimer() {
-	if s.maxAgeTimer != nil {
-		s.maxAgeTimer.Stop()
-		s.maxAgeTimer = nil
+func (s *Snake) lockedStopMaxAgeTimer(req *Request) {
+	if timer, ok := s.maxAgeTimers[req]; ok {
+		timer.Stop()
+		delete(s.maxAgeTimers, req)
 	}
 }

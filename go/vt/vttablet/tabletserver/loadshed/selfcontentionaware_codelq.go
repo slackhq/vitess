@@ -46,9 +46,14 @@ type (
 	// Design
 	//
 	// We control queue entry with valves so that the queue can only contain
-	// one request from a given valve ID at a time. The system supports an
-	// arbitrary notion of "valve ID", typically a request ID or job execution
-	// instance ID.
+	// one droppable request from a given valve ID at a time. The system
+	// supports an arbitrary notion of "valve ID", typically a request ID or
+	// job execution instance ID.
+	//
+	// Invariant: each nonempty valve always has exactly one droppable entry
+	// in the CoDel queue. A valve may also have one undroppable (granted)
+	// entry — but the droppable entry is always present so CoDel can measure
+	// sojourn time and shed load when necessary.
 	//
 	// This approach has a few benefits:
 	//   1. Pushes successive requests back to the end of the queue, which is
@@ -64,7 +69,7 @@ type (
 	// directly into the CoDel queue if there are no entries there for the
 	// valve ID. Otherwise, it is inserted into the valve.
 	//
-	// When a request leaves the CoDel queue (dequeue, drop, or cancel), the
+	// When a request leaves the CoDel queue (grant, drop, or cancel), the
 	// next pending request for that valve ID is promoted into the CoDel queue.
 	// All promotion runs under the parent mutex, so there is no race between
 	// removal and promotion.
@@ -73,15 +78,6 @@ type (
 	// entries are only inserted there if there is already an entry for that
 	// valve ID in the CoDel queue, and that entry will trigger promotion on
 	// exit.
-	//
-	// At first glance, it may appear that we're cheating ourselves in order to
-	// keep the queue healthy — perhaps these lock acquire requests are ones we
-	// should be loadshedding. To see why not, consider a hypothetical system
-	// with a single pending-insertions queue (not per-valve-ID) that ensures
-	// the queue never has two elements in it. That system would control
-	// ingestion to keep the queue healthy but could never loadshed. The
-	// self-contention-aware queue doesn't suffer the same flaw: the queue can
-	// still back up and shed load when multiple distinct valve IDs contend.
 	//
 	// All methods are prefixed locked* and assume the caller holds the parent
 	// mutex.
@@ -100,8 +96,9 @@ type (
 		// we couldn't tell whether to valve a new arrival.
 		outstandingCounts map[string]int
 
-		// activePerValve tracks which request is currently in the CoDel queue
-		// for each valve ID, enabling O(1) lookup on dequeue.
+		// activePerValve tracks which request is currently the droppable
+		// entry in the CoDel queue for each valve ID, enabling O(1) lookup
+		// on promotion triggers.
 		activePerValve map[string]*Request
 	}
 )
@@ -138,8 +135,6 @@ func (q *SelfContentionAwareCoDelQueue) lockedPeek() *Request {
 	return q.codelq.lockedPeek()
 }
 
-// lockedEnqueue enqueues a request. If the valve ID already has an active
-// request in the CoDel queue, the new request is placed in the valve instead.
 func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority float64) *Request {
 	req := newRequest(priority)
 	req.valveID = valveID
@@ -156,20 +151,21 @@ func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority f
 	return req
 }
 
-// lockedDequeue dequeues the head request from the CoDel queue. After removal,
-// promotes the next pending request for the same valve ID from the valve.
-func (q *SelfContentionAwareCoDelQueue) lockedDequeue() *Request {
-	req := q.codelq.lockedDequeue()
-	if req == nil {
-		return nil
-	}
+// lockedComplete removes a granted (undroppable) request from the queue on
+// Release. Decrements outstanding counts for the valve ID. Promotes the next
+// valve entry if this was the last active entry for the valve ID (i.e., the
+// eager promotion at grant time found nothing to promote, but requests arrived
+// in the valve between grant and release).
+func (q *SelfContentionAwareCoDelQueue) lockedComplete(req *Request) {
+	q.codelq.lockedComplete(req)
 	q.decrementOutstanding(req.valveID)
-	q.lockedClearActiveAndPromote(req.valveID)
-	return req
+	if req.valveID != "" {
+		if _, hasActive := q.activePerValve[req.valveID]; !hasActive {
+			q.lockedPromote(req.valveID)
+		}
+	}
 }
 
-// lockedDrop drops a request (called by the CoDel drop timer). Promotes the
-// next pending request from the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedDrop(req *Request) {
 	q.codelq.lockedRemove(req)
 	if req.signaledValue == nil {
@@ -178,10 +174,10 @@ func (q *SelfContentionAwareCoDelQueue) lockedDrop(req *Request) {
 	q.lockedPromoteOnEvict(req)
 }
 
-// lockedCancel cancels a request. If it's the active request in the CoDel
-// queue, it removes it and promotes the next from the valve. If it's pending
-// in the valve, it signals it in place and lets clearDone handle removal
-// during the next promotion — this avoids an O(N) scan of the valve.
+// lockedCancel cancels a request. If it's the active droppable request in the
+// CoDel queue, it removes it and promotes the next from the valve. If it's
+// pending in the valve, it signals it in place and lets clearDone handle
+// removal during the next promotion — this avoids an O(N) scan of the valve.
 func (q *SelfContentionAwareCoDelQueue) lockedCancel(req *Request) {
 	if req.codelqElem != nil {
 		q.codelq.lockedRemove(req)
@@ -206,9 +202,16 @@ func (q *SelfContentionAwareCoDelQueue) lockedRunScheduledDrop() {
 	q.codelq.lockedRunScheduledDrop(dropFn)
 }
 
-// lockedOnGrant forwards to the CoDel queue.
 func (q *SelfContentionAwareCoDelQueue) lockedOnGrant(r *Request) {
 	q.codelq.lockedOnGrant(r)
+	if r.valveID != "" {
+		delete(q.activePerValve, r.valveID)
+		q.lockedPromote(r.valveID)
+	}
+}
+
+func (q *SelfContentionAwareCoDelQueue) lockedFirstWaiting() *Request {
+	return q.codelq.lockedFirstWaiting()
 }
 
 // --- private helpers ---
@@ -221,29 +224,22 @@ func (q *SelfContentionAwareCoDelQueue) lockedEnqueueToCoDel(req *Request, valve
 }
 
 // lockedPromoteOnEvict handles involuntary removal of the active request
-// (drop or cancel). Decrements outstanding, then clears and promotes.
+// (drop or cancel). Decrements outstanding, then promotes.
 func (q *SelfContentionAwareCoDelQueue) lockedPromoteOnEvict(req *Request) {
 	valveID := req.valveID
 	if valveID == "" {
 		return
 	}
 	q.decrementOutstanding(valveID)
-	q.lockedClearActiveAndPromote(valveID)
-}
-
-// lockedClearActiveAndPromote removes the active tracking for a valve ID
-// and promotes the next pending request from the valve into the CoDel queue.
-// Empty valve ID is a no-op: it means the caller didn't provide one — requests
-// without a valve ID bypass the valve entirely rather than sharing one.
-func (q *SelfContentionAwareCoDelQueue) lockedClearActiveAndPromote(valveID string) {
-	if valveID == "" {
-		return
-	}
 	delete(q.activePerValve, valveID)
 	q.lockedPromote(valveID)
 }
 
 func (q *SelfContentionAwareCoDelQueue) lockedPromote(valveID string) {
+	if valveID == "" {
+		return
+	}
+
 	q.clearDone(valveID)
 
 	pending, ok := q.pendingRequests[valveID]
