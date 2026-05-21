@@ -37,7 +37,7 @@ import (
 // lockedCancel on itself (the holder), leaking the grant.
 //
 // With the fix, the default branch checks s.holder == req after acquiring the
-// mutex. If true, it calls releaseInternal to hand the lock to the next waiter.
+// mutex. If true, it calls releaseOnCancel to hand the lock to the next waiter.
 func TestSnake_CancelVsGrant_Race(t *testing.T) {
 	const iterations = 50000
 

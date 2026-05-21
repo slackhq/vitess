@@ -148,7 +148,7 @@ func (q *CoDelQueue) lockedIsHealthy() bool {
 
 func (q *CoDelQueue) lockedEnqueue(req *Request) {
 	req.codelqEnqueuedAtNs = q.nowNs()
-	req.elem = q.queue.PushBack(req)
+	req.codelqElem = q.queue.PushBack(req)
 
 	if req.isDroppable() {
 		q.droppableLen++
@@ -185,7 +185,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 			return req
 		}
 		q.queue.Remove(front)
-		req.elem = nil
+		req.codelqElem = nil
 		if req.isDroppable() {
 			q.droppableLen--
 		}
@@ -205,7 +205,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 	req := elem.Value.(*Request)
 	q.queue.Remove(elem)
-	req.elem = nil
+	req.codelqElem = nil
 
 	if req.signaledValue == nil {
 		req.signal(err)
@@ -223,11 +223,11 @@ func (q *CoDelQueue) lockedPopElem(elem *list.Element, err error) *Request {
 
 // lockedRemove removes a specific request from the queue without signaling it.
 func (q *CoDelQueue) lockedRemove(r *Request) {
-	if r.elem == nil {
+	if r.codelqElem == nil {
 		return
 	}
-	q.queue.Remove(r.elem)
-	r.elem = nil
+	q.queue.Remove(r.codelqElem)
+	r.codelqElem = nil
 
 	if r.isDroppable() {
 		q.droppableLen--
@@ -237,13 +237,13 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	}
 }
 
-// lockedMarkNotDroppable marks a request as not droppable (e.g., when it is
-// granted). Uses the undroppable sentinel priority.
-func (q *CoDelQueue) lockedMarkNotDroppable(r *Request) {
+// lockedOnGrant marks a request as undroppable. Uses the undroppable sentinel
+// priority.
+func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	if !r.isDroppable() {
 		return
 	}
-	r.priority = newUndroppablePriority()
+	r.priority = priorityUndroppable
 	q.droppableLen--
 	if q.droppableLen == 0 && q.dropping {
 		q.dropping = false
@@ -260,14 +260,14 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 		if req.signaledValue != nil || !req.isDroppable() {
 			continue
 		}
-		if req.priority != nil && *req.priority == 0 {
+		if req.priority == 0 {
 			return e
 		}
 		if best == nil {
 			best = e
 		} else {
 			bestReq := best.Value.(*Request)
-			if *req.priority < *bestReq.priority {
+			if req.priority < bestReq.priority {
 				best = e
 			}
 		}

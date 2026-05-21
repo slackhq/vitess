@@ -105,7 +105,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 		s.lockNonce++
 		nonce := s.lockNonce
 		s.holder = req
-		s.q.lockedMarkNotDroppable(req)
+		s.q.lockedOnGrant(req)
 		s.lockedStartMaxAgeTimer(req)
 		s.mu.Unlock()
 		return &SafeUnlock{s: s, nonce: nonce}, nil
@@ -135,14 +135,14 @@ func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error
 		select {
 		case val := <-req.signalChan:
 			if val == grantSentinel {
-				s.releaseInternal()
+				s.releaseOnCancel()
 			}
 		default:
 			s.mu.Lock()
 			if s.holder == req {
 				s.mu.Unlock()
 				<-req.signalChan
-				s.releaseInternal()
+				s.releaseOnCancel()
 			} else {
 				s.q.lockedCancel(req)
 				s.mu.Unlock()
@@ -197,9 +197,9 @@ func (s *Snake) release(nonce uint64, excValue error) error {
 	return nil
 }
 
-// releaseInternal releases the gate without nonce verification or callbacks.
+// releaseOnCancel releases the gate without nonce verification or callbacks.
 // Used when the context is cancelled after the gate was already granted.
-func (s *Snake) releaseInternal() {
+func (s *Snake) releaseOnCancel() {
 	s.mu.Lock()
 	s.lockedStopMaxAgeTimer()
 	next := s.lockedGrantNext()
@@ -217,7 +217,7 @@ func (s *Snake) lockedGrantNext() *Request {
 	if next != nil {
 		s.lockNonce++
 		s.holder = next
-		s.q.lockedMarkNotDroppable(next)
+		s.q.lockedOnGrant(next)
 	} else {
 		s.holder = nil
 	}
@@ -238,11 +238,11 @@ func (s *Snake) runReleaseCBs(excValue error) {
 	}
 }
 
-func (s *Snake) priority() *float64 {
+func (s *Snake) priority() float64 {
 	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
-		return newUndroppablePriority()
+		return priorityUndroppable
 	}
-	return NewPriority(0)
+	return 0
 }
 
 func (s *Snake) acquireError() error {
