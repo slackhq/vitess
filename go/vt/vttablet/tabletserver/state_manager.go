@@ -144,6 +144,9 @@ type stateManager struct {
 	unhealthyThreshold    atomic.Int64
 	shutdownGracePeriod   time.Duration
 	transitionGracePeriod time.Duration
+
+	startupTimings     *servenv.TimingsWrapper
+	logStartupDuration sync.Once
 }
 
 type (
@@ -667,6 +670,11 @@ func (sm *stateManager) setState(tabletType topodatapb.TabletType, state serving
 	defer logInitTime.Do(func() {
 		log.Info(fmt.Sprintf("Tablet Init took %d ms", time.Since(servenv.GetInitStartTime()).Milliseconds()))
 	})
+	if state == StateServing && sm.startupTimings != nil {
+		sm.logStartupDuration.Do(func() {
+			sm.startupTimings.Record("Serving", servenv.GetInitStartTime())
+		})
+	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if tabletType == topodatapb.TabletType_UNKNOWN {

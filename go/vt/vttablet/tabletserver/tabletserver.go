@@ -251,6 +251,8 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		return time.Duration(tsv.QueryTimeout.Load())
 	})
 
+	tsv.sm.startupTimings = tsv.exporter.NewTimings("StartupDuration", "Time from vttablet start to first entering serving state", "Status")
+
 	tsv.registerHealthzHealthHandler()
 	tsv.registerDebugHealthHandler()
 	tsv.registerQueryzHandler()
@@ -1163,7 +1165,8 @@ func (tsv *TabletServer) beginWaitForSameRangeTransactions(ctx context.Context, 
 			}
 
 			return waitErr
-		})
+		},
+	)
 	return txDone, err
 }
 
