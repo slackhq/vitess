@@ -52,6 +52,12 @@ func (tm *TabletManager) ReplicationStatus(ctx context.Context) (*replicationdat
 	protoStatus := replication.ReplicationStatusToProto(status)
 	protoStatus.BackupRunning = tm.IsBackupRunning()
 
+	if version, vErr := tm.MysqlDaemon.GetVersionString(ctx); vErr == nil {
+		protoStatus.ServerVersion = version
+	} else {
+		log.Warningf("failed to get MySQL version string: %v", vErr)
+	}
+
 	return protoStatus, nil
 }
 
@@ -1008,6 +1014,12 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	before := replication.ReplicationStatusToProto(rs)
 	before.BackupRunning = tm.IsBackupRunning()
 
+	if version, vErr := tm.MysqlDaemon.GetVersionString(ctx); vErr == nil {
+		before.ServerVersion = version
+	} else {
+		log.Warningf("failed to get MySQL version string: %v", vErr)
+	}
+
 	if stopReplicationMode == replicationdatapb.StopReplicationMode_IOTHREADONLY {
 		if !rs.IOHealthy() {
 			return StopReplicationAndGetStatusResponse{
@@ -1054,6 +1066,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	}
 	after := replication.ReplicationStatusToProto(rsAfter)
 	after.BackupRunning = tm.IsBackupRunning()
+	after.ServerVersion = before.ServerVersion
 
 	rs.Position = rsAfter.Position
 	rs.RelayLogPosition = rsAfter.RelayLogPosition

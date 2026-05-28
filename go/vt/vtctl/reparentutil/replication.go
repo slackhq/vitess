@@ -29,6 +29,7 @@ import (
 	"vitess.io/vitess/go/vt/concurrency"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
+	"vitess.io/vitess/go/vt/mysqlctl"
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/proto/vtrpc"
@@ -232,6 +233,7 @@ type replicationSnapshot struct {
 	primaryStatusMap   map[string]*replicationdatapb.PrimaryStatus
 	reachableTablets   []*topodatapb.Tablet
 	tabletsBackupState map[string]bool
+	mysqlVersions      map[string]mysqlctl.ServerVersion
 }
 
 // stopReplicationAndBuildStatusMaps stops replication on all replicas, then
@@ -261,6 +263,7 @@ func stopReplicationAndBuildStatusMaps(
 			primaryStatusMap:   map[string]*replicationdatapb.PrimaryStatus{},
 			reachableTablets:   []*topodatapb.Tablet{},
 			tabletsBackupState: map[string]bool{},
+			mysqlVersions:      map[string]mysqlctl.ServerVersion{},
 		}
 	)
 
@@ -316,6 +319,11 @@ func stopReplicationAndBuildStatusMaps(
 			res.tabletsBackupState[alias] = isTakingBackup
 			res.statusMap[alias] = stopReplicationStatus
 			res.reachableTablets = append(res.reachableTablets, tabletInfo.Tablet)
+			if stopReplicationStatus.Before != nil && stopReplicationStatus.Before.ServerVersion != "" {
+				if _, v, parseErr := mysqlctl.ParseVersionString(stopReplicationStatus.Before.ServerVersion); parseErr == nil {
+					res.mysqlVersions[alias] = v
+				}
+			}
 			m.Unlock()
 		}
 	}
