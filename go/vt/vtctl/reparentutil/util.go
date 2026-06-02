@@ -418,7 +418,7 @@ func findCandidate(
 			continue
 		}
 
-		if v.IsSameRelease(bestVersion) || v.ReleaseAtLeast(bestVersion) {
+		if v.ReleaseAtLeast(bestVersion) {
 			continue
 		}
 		best = candidate
