@@ -49,7 +49,6 @@ const (
 	defaultRunnerName = "ubuntu-24.04"
 )
 
-const goPrivate = ""
 
 const (
 	workflowConfigDir = "../.github/workflows"
@@ -171,7 +170,7 @@ var (
 )
 
 type unitTest struct {
-	Name, RunsOn, Platform, FileName, GoPrivate, Evalengine string
+	Name, RunsOn, Platform, FileName, Evalengine string
 	Race                                                    bool
 }
 
@@ -180,7 +179,6 @@ type clusterTest struct {
 	FileName                           string
 	BuildTag                           string
 	RunsOn                             string
-	GoPrivate                          string
 	MemoryCheck                        bool
 	MakeTools, InstallXtraBackup       bool
 	Docker                             bool
@@ -195,7 +193,6 @@ type vitessTesterTest struct {
 	FileName  string
 	Name      string
 	RunsOn    string
-	GoPrivate string
 	Path      string
 }
 
@@ -254,7 +251,6 @@ func generateVitessTesterWorkflows(mp map[string]string, tpl string) {
 		tt := &vitessTesterTest{
 			Name:      fmt.Sprintf("Vitess Tester (%v)", test),
 			RunsOn:    defaultRunnerName,
-			GoPrivate: goPrivate,
 			Path:      testPath,
 		}
 
@@ -277,8 +273,7 @@ func generateClusterWorkflows(list []string, tpl string) {
 				Shard:     cluster,
 				BuildTag:  buildTag[cluster],
 				RunsOn:    defaultRunnerName,
-				GoPrivate: goPrivate,
-			}
+				}
 			cores16Clusters := canonnizeList(clusterRequiring16CoresMachines)
 			for _, cores16Cluster := range cores16Clusters {
 				if cores16Cluster == cluster {
@@ -356,7 +351,6 @@ func generateUnitTestWorkflows() {
 				Name:       fmt.Sprintf("Unit Test (%s%s)", evalengineToString(evalengine), platform),
 				RunsOn:     defaultRunnerName,
 				Platform:   string(platform),
-				GoPrivate:  goPrivate,
 				Evalengine: evalengine,
 			}
 			test.FileName = fmt.Sprintf("unit_test_%s%s.yml", evalengineToString(evalengine), platform)
@@ -374,7 +368,6 @@ func generateUnitTestWorkflows() {
 			Name:       fmt.Sprintf("Unit Test (%sRace)", evalengineToRaceNamePrefix(evalengine)),
 			RunsOn:     cores16RunnerName,
 			Platform:   string(mysql80),
-			GoPrivate:  goPrivate,
 			Evalengine: evalengine,
 			Race:       true,
 		}

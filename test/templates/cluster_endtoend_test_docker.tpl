@@ -10,9 +10,6 @@ on:
 
 permissions: read-all
 
-env:
-{{if .GoPrivate}}  GOPRIVATE: "{{.GoPrivate}}"{{end}}
-
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
@@ -58,12 +55,6 @@ jobs:
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version-file: go.mod
-
-{{if .GoPrivate}}
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.end_to_end == 'true'
-      run: git config --global url.https://${{`{{ secrets.GH_ACCESS_TOKEN }}`}}@github.com/.insteadOf https://github.com/
-{{end}}
 
     - name: Tune the OS
       if: steps.changes.outputs.end_to_end == 'true'

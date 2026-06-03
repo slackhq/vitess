@@ -17,7 +17,6 @@ env:
   LAUNCHABLE_ORGANIZATION: "vitess"
   LAUNCHABLE_WORKSPACE: "vitess-app"
   GITHUB_PR_HEAD_SHA: "${{`{{ github.event.pull_request.head.sha }}`}}"
-{{if .GoPrivate}}  GOPRIVATE: "{{.GoPrivate}}"{{end}}
 
 jobs:
   test:
@@ -62,12 +61,6 @@ jobs:
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version-file: go.mod
-
-{{if .GoPrivate}}
-    - name: Setup GitHub access token
-      if: steps.changes.outputs.unit_tests == 'true'
-      run: git config --global url.https://${{`{{ secrets.GH_ACCESS_TOKEN }}`}}@github.com/.insteadOf https://github.com/
-{{end}}
 
     - name: Set up python
       if: steps.changes.outputs.unit_tests == 'true'
