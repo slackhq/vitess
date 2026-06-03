@@ -1,6 +1,6 @@
 package policy
 
-import "github.com/slackhq/vitess-addons/go/durability"
+import "vitess.io/vitess/go/durability"
 
 func init() {
 	RegisterDurability("slack_cross_cell", func() Durabler {
