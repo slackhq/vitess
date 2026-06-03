@@ -123,6 +123,8 @@ jobs:
     - name: Get dependencies for the last release
       if: steps.changes.outputs.end_to_end == 'true'
       run: |
+        go mod edit -droprequire github.com/slackhq/vitess-addons
+        go mod tidy -e
         go mod download
 
     - name: Building last release's binaries
