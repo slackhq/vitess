@@ -1030,6 +1030,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 
 	if stopReplicationMode == replicationdatapb.StopReplicationMode_IOTHREADONLY {
 		if !rs.IOHealthy() {
+			before.ServerVersion = tm.getMySQLVersion(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1038,6 +1039,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 			}, nil
 		}
 		if err := tm.stopIOThreadLocked(ctx); err != nil {
+			before.ServerVersion = tm.getMySQLVersion(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1047,6 +1049,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	} else {
 		if !rs.Healthy() {
 			// no replication is running, just return what we got
+			before.ServerVersion = tm.getMySQLVersion(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1055,6 +1058,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 			}, nil
 		}
 		if err := tm.stopReplicationLocked(ctx); err != nil {
+			before.ServerVersion = tm.getMySQLVersion(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1066,6 +1070,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	// Get the status after we stop replication so we have up to date position and relay log positions.
 	rsAfter, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
+		before.ServerVersion = tm.getMySQLVersion(ctx)
 		return StopReplicationAndGetStatusResponse{
 			Status: &replicationdatapb.StopReplicationStatus{
 				Before: before,

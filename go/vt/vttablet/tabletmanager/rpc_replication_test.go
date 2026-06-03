@@ -18,10 +18,12 @@ package tabletmanager
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
@@ -33,15 +35,34 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/semisyncmonitor"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
+
+func newTestReplicationTM(tablet *topodatapb.Tablet, mysqlDaemon *mysqlctl.FakeMysqlDaemon, ts *topo.Server) *TabletManager {
+	waitForGrantsComplete := make(chan struct{})
+	close(waitForGrantsComplete)
+
+	return &TabletManager{
+		actionSema:             semaphore.NewWeighted(1),
+		TopoServer:             ts,
+		MysqlDaemon:            mysqlDaemon,
+		tabletAlias:            tablet.Alias,
+		_waitForGrantsComplete: waitForGrantsComplete,
+		tmState: &tmState{
+			displayState: displayState{
+				tablet: tablet,
+			},
+		},
+	}
+}
 
 // TestWaitForGrantsToHaveApplied tests that waitForGrantsToHaveApplied only succeeds after waitForDBAGrants has been called.
 func TestWaitForGrantsToHaveApplied(t *testing.T) {
 	tm := &TabletManager{
 		_waitForGrantsComplete: make(chan struct{}),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	err := tm.waitForGrantsToHaveApplied(ctx)
 	require.ErrorContains(t, err, "deadline exceeded")
@@ -49,7 +70,7 @@ func TestWaitForGrantsToHaveApplied(t *testing.T) {
 	err = tm.waitForDBAGrants(nil, 0)
 	require.NoError(t, err)
 
-	secondContext, secondCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	secondContext, secondCancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer secondCancel()
 	err = tm.waitForGrantsToHaveApplied(secondContext)
 	require.NoError(t, err)
@@ -135,7 +156,7 @@ func TestDemotePrimaryStalled(t *testing.T) {
 	}
 
 	go func() {
-		tm.demotePrimary(context.Background(), false /* revertPartialFailure */, false /* force */)
+		tm.demotePrimary(t.Context(), false /* revertPartialFailure */, false /* force */)
 	}()
 	// We make IsServing stall by making it wait on a channel.
 	// This should cause the demote primary operation to be stalled.
@@ -155,7 +176,7 @@ func TestDemotePrimaryStalled(t *testing.T) {
 // TestDemotePrimaryWaitingForSemiSyncUnblock tests that demote primary unblocks if the primary is blocked on semi-sync ACKs
 // and doesn't issue the set super read-only query until all writes waiting on semi-sync ACKs have gone through.
 func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	tm := newTestTM(t, ts, 1, "ks", "0", nil)
@@ -187,7 +208,9 @@ func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
 	var demotePrimaryFinished atomic.Bool
 	go func() {
 		_, err := tm.demotePrimary(ctx, false /* revertPartialFailure */, false /* force */)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 		demotePrimaryFinished.Store(true)
 	}()
 
@@ -220,7 +243,7 @@ func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
 // TestDemotePrimaryWithSemiSyncProgressDetection tests that demote primary proceeds
 // without blocking when transactions are making progress (ackedTrxs increasing between checks).
 func TestDemotePrimaryWithSemiSyncProgressDetection(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	tm := newTestTM(t, ts, 1, "ks", "0", nil)
@@ -258,7 +281,9 @@ func TestDemotePrimaryWithSemiSyncProgressDetection(t *testing.T) {
 	var demotePrimaryFinished atomic.Bool
 	go func() {
 		_, err := tm.demotePrimary(ctx, false /* revertPartialFailure */, false /* force */)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 		demotePrimaryFinished.Store(true)
 	}()
 
@@ -280,7 +305,7 @@ func TestDemotePrimaryWithSemiSyncProgressDetection(t *testing.T) {
 // TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks tests that demote primary
 // proceeds immediately when waiting sessions drops to 0 between the two checks.
 func TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	tm := newTestTM(t, ts, 1, "ks", "0", nil)
@@ -316,7 +341,9 @@ func TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks(t *testing.T) {
 	var demotePrimaryFinished atomic.Bool
 	go func() {
 		_, err := tm.demotePrimary(ctx, false /* revertPartialFailure */, false /* force */)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 		demotePrimaryFinished.Store(true)
 	}()
 
@@ -338,7 +365,7 @@ func TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks(t *testing.T) {
 // if able to change the state of the tablet to Primary if there
 // is a mismatch with the tablet record.
 func TestUndoDemotePrimaryStateChange(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	tm := newTestTM(t, ts, 1, "ks", "0", nil)
@@ -362,4 +389,119 @@ func TestUndoDemotePrimaryStateChange(t *testing.T) {
 	isReadOnly, err := tm.MysqlDaemon.IsReadOnly(ctx)
 	require.NoError(t, err)
 	require.False(t, isReadOnly)
+}
+
+func TestStopReplicationAndGetStatus_ServerVersion(t *testing.T) {
+	tests := []struct {
+		name            string
+		mode            replicationdatapb.StopReplicationMode
+		replicating     bool
+		ioRunning       bool
+		expectedQueries []string
+		stopIOErr       error
+		stopReplErr     error
+		afterStatusErr  bool
+		expectErr       string
+	}{
+		{
+			name:            "IOTHREADONLY success",
+			mode:            replicationdatapb.StopReplicationMode_IOTHREADONLY,
+			replicating:     true,
+			ioRunning:       true,
+			expectedQueries: []string{"STOP REPLICA IO_THREAD"},
+		},
+		{
+			name:        "IOTHREADONLY with IO thread already stopped",
+			mode:        replicationdatapb.StopReplicationMode_IOTHREADONLY,
+			replicating: false,
+			ioRunning:   false,
+		},
+		{
+			name:        "IOTHREADONLY with stopIOThread failure",
+			mode:        replicationdatapb.StopReplicationMode_IOTHREADONLY,
+			replicating: true,
+			ioRunning:   true,
+			stopIOErr:   errors.New("injected IO stop error"),
+			expectErr:   "stop io thread failed",
+		},
+		{
+			name:            "IOTHREADONLY with after-status failure",
+			mode:            replicationdatapb.StopReplicationMode_IOTHREADONLY,
+			replicating:     true,
+			ioRunning:       true,
+			expectedQueries: []string{"STOP REPLICA IO_THREAD"},
+			afterStatusErr:  true,
+			expectErr:       "acquiring replication status failed",
+		},
+		{
+			name:            "IOANDSQLTHREAD success",
+			mode:            replicationdatapb.StopReplicationMode_IOANDSQLTHREAD,
+			replicating:     true,
+			ioRunning:       true,
+			expectedQueries: []string{"STOP REPLICA"},
+		},
+		{
+			name:        "IOANDSQLTHREAD with replication not healthy",
+			mode:        replicationdatapb.StopReplicationMode_IOANDSQLTHREAD,
+			replicating: false,
+			ioRunning:   false,
+		},
+		{
+			name:            "IOANDSQLTHREAD with after-status failure",
+			mode:            replicationdatapb.StopReplicationMode_IOANDSQLTHREAD,
+			replicating:     true,
+			ioRunning:       true,
+			expectedQueries: []string{"STOP REPLICA"},
+			afterStatusErr:  true,
+			expectErr:       "acquiring replication status failed",
+		},
+		{
+			name:        "IOANDSQLTHREAD with stopReplication failure",
+			mode:        replicationdatapb.StopReplicationMode_IOANDSQLTHREAD,
+			replicating: true,
+			ioRunning:   true,
+			stopReplErr: errors.New("injected stop error"),
+			expectErr:   "stop replication failed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeMysqlDaemon := newTestMysqlDaemon(t, 1)
+			fakeMysqlDaemon.Replicating = tc.replicating
+			fakeMysqlDaemon.IOThreadRunning = tc.ioRunning
+			fakeMysqlDaemon.Version = "Ver 8.0.35"
+
+			if tc.expectedQueries != nil {
+				fakeMysqlDaemon.ExpectedExecuteSuperQueryList = tc.expectedQueries
+			}
+			if tc.stopIOErr != nil {
+				fakeMysqlDaemon.ExecuteSuperQueryErrorMap = map[string]error{
+					"STOP REPLICA IO_THREAD": tc.stopIOErr,
+				}
+			}
+			if tc.stopReplErr != nil {
+				fakeMysqlDaemon.StopReplicationError = tc.stopReplErr
+			}
+			if tc.afterStatusErr {
+				// The callback fires during the stop query execution, which happens
+				// before the second ReplicationStatus call that fetches the "after" state.
+				fakeMysqlDaemon.ExecuteSuperQueryListCallback = func() {
+					fakeMysqlDaemon.ReplicationStatusError = errors.New("injected after-status error")
+				}
+			}
+
+			tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, nil)
+
+			resp, err := tm.StopReplicationAndGetStatus(t.Context(), tc.mode)
+			if tc.expectErr != "" {
+				require.ErrorContains(t, err, tc.expectErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.NotNil(t, resp.Status)
+			require.Equal(t, "Ver 8.0.35", resp.Status.Before.ServerVersion)
+		})
+	}
 }
