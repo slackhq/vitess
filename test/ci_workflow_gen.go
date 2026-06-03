@@ -49,11 +49,7 @@ const (
 	defaultRunnerName = "ubuntu-24.04"
 )
 
-// To support a private git repository, set goPrivate to a repo in
-// github.com/org/repo format. This assumes a GitHub PAT token is
-// set as a repo secret named GH_ACCESS_TOKEN. The GitHub PAT must
-// have read access to your vitess fork/repo.
-const goPrivate = "github.com/slackhq/vitess-addons"
+const goPrivate = ""
 
 const (
 	workflowConfigDir = "../.github/workflows"
