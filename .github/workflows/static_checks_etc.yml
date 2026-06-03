@@ -15,7 +15,6 @@ jobs:
   build:
     name: Static Code Checks Etc
     runs-on: vitess-ubuntu24-16cpu-1
-    env:
 
     steps:
       - name: Skip CI

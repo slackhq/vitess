@@ -23,7 +23,6 @@ jobs:
     timeout-minutes: 40
     name: Run Upgrade Downgrade Test - Backups - Manual - Next Release
     runs-on: vitess-ubuntu24-16cpu-1
-    env:
 
     steps:
     - name: Skip CI
