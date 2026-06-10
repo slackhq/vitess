@@ -171,6 +171,10 @@ func (tenv *testEnv) addTablet(t *testing.T, id int, keyspace, shard string) *fa
 
 	vrdbClient := binlogplayer.NewMockDBClient(t)
 	vrdbClient.Tag = fmt.Sprintf("tablet:%d", id)
+	vrdbClient.AddInvariant(vreplication.SqlMaxAllowedPacket, sqltypes.MakeTestResult(
+		sqltypes.MakeTestFields("max_allowed_packet", "int64"),
+		"65536",
+	))
 	tenv.tmc.tablets[id] = &fakeTabletConn{
 		tablet:     tablet,
 		vrdbClient: vrdbClient,
