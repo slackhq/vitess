@@ -142,7 +142,7 @@ func (q *SelfContentionAwareCoDelQueue) lockedEnqueue(valveID string, priority f
 
 	if valveID != "" {
 		q.outstandingCounts[valveID]++
-		if _, hasDroppable := q.droppablePerValve[valveID]; hasDroppable {
+		if q.droppablePerValve[valveID] != nil {
 			q.pendingRequests[valveID] = append(q.pendingRequests[valveID], req)
 			return req
 		}
