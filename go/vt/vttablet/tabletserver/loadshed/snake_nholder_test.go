@@ -398,6 +398,85 @@ func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {
 	assert.Equal(t, int64(3), count.Load(), "release callback should fire for each holder")
 }
 
+// --- N-holder: valve invariant under sufficient capacity ---
+
+func TestSnake_NHolder_ValveInvariant_AllGranted(t *testing.T) {
+	const capacity = 10
+	const M = 5
+
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return capacity }
+	s := NewSnake(cfg)
+
+	unlocks := make([]*SafeUnlock, M)
+	for i := range M {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		u, err := s.Acquire(ctx, "foo")
+		cancel()
+		require.NoError(t, err, "request %d should be granted (capacity=%d, holders=%d)", i, capacity, i)
+		unlocks[i] = u
+	}
+
+	assert.Equal(t, M, s.nGranted(), "all %d requests should be granted concurrently", M)
+
+	for _, u := range unlocks {
+		u.Release()
+	}
+	assert.Equal(t, 0, s.nGranted())
+}
+
+// --- N-holder: valve invariant under exhausted capacity ---
+
+func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
+	const capacity = 3
+
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return capacity }
+	s := NewSnake(cfg)
+
+	unlocks := make([]*SafeUnlock, capacity)
+	for i := range capacity {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		u, err := s.Acquire(ctx, "foo")
+		cancel()
+		require.NoError(t, err, "request %d should be granted", i)
+		unlocks[i] = u
+	}
+	assert.Equal(t, capacity, s.nGranted())
+
+	blocked := make(chan struct{})
+	granted := make(chan *SafeUnlock, 1)
+	go func() {
+		close(blocked)
+		u, err := s.Acquire(context.Background(), "foo")
+		if err == nil {
+			granted <- u
+		}
+	}()
+	<-blocked
+	time.Sleep(10 * time.Millisecond)
+
+	s.mu.Lock()
+	droppable, hasDroppable := s.q.droppablePerValve["foo"]
+	s.mu.Unlock()
+	assert.True(t, hasDroppable, "nonempty valve must have a droppable representative")
+	assert.NotNil(t, droppable)
+
+	unlocks[0].Release()
+
+	select {
+	case u := <-granted:
+		assert.Equal(t, capacity, s.nGranted())
+		u.Release()
+	case <-time.After(2 * time.Second):
+		t.Fatal("blocked request should have been granted after release")
+	}
+
+	for i := 1; i < capacity; i++ {
+		unlocks[i].Release()
+	}
+}
+
 // --- N-holder: memory cleanup with multi-slot ---
 
 func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
