@@ -896,10 +896,6 @@ func Test_stopReplicationAndBuildStatusMaps(t *testing.T) {
 					},
 				},
 			},
-			primaryAlias: &topodatapb.TabletAlias{
-				Cell: "zone1",
-				Uid:  100,
-			},
 			ignoredTablets: sets.New[string](),
 			expectedStatusMap: map[string]*replicationdatapb.StopReplicationStatus{
 				"zone1-0000000101": {
