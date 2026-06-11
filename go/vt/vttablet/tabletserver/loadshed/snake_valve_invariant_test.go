@@ -25,34 +25,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSnake_ValveInvariant_SecondRequestGrantedAfterFirst verifies that a
-// second request for the same valve ID is granted immediately when capacity
-// is available — not stranded in the valve. This guards against a regression
-// where the valve gate condition used outstandingCounts > 1 (which stays
-// elevated after grant) instead of checking droppablePerValve.
-func TestSnake_ValveInvariant_SecondRequestGrantedAfterFirst(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.Capacity = func() int { return 10 }
-	s := NewSnake(cfg)
-
-	u1, err := s.Acquire(t.Context(), "foo")
-	require.NoError(t, err)
-	assert.Equal(t, 1, s.nGranted())
-
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-
-	u2, err := s.Acquire(ctx, "foo")
-	require.NoError(t, err, "second request should be granted immediately — not stranded in valve")
-	assert.Equal(t, 2, s.nGranted())
-
-	u1.Release()
-	u2.Release()
-}
-
-// TestSnake_ValveInvariant_AllGrantedWhenCapacitySufficient verifies the
-// desired behavior: with capacity=10 and M=5 requests on the same valve ID,
-// all 5 should be granted concurrently.
+// TestSnake_ValveInvariant_AllGrantedWhenCapacitySufficient verifies that with
+// capacity=10 and M=5 requests on the same valve ID, all 5 are granted
+// concurrently — not serialized through the valve.
 func TestSnake_ValveInvariant_AllGrantedWhenCapacitySufficient(t *testing.T) {
 	const capacity = 10
 	const M = 5
