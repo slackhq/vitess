@@ -418,7 +418,6 @@ func (erp *EmergencyReparenter) findMostAdvanced(
 			v = unknownVersion
 		}
 		mysqlVersions[i] = v
-		log.Infof("finding intermediate source - candidate %v has MySQL version %d.%d.%d", tablet.Alias, v.Major, v.Minor, v.Patch)
 	}
 
 	// sort the tablets for finding the best intermediate source in ERS — position first to minimize data loss

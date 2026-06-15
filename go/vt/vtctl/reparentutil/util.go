@@ -173,12 +173,6 @@ func ElectNewPrimary(
 		return nil, vterrors.Errorf(vtrpc.Code_INTERNAL, "cannot find a tablet to reparent to%v", reasonsToInvalidate.String())
 	}
 
-	for i, tablet := range validTablets {
-		if i < len(mysqlVersions) {
-			log.Infof("ElectNewPrimary: candidate %v has MySQL version %d.%d.%d", topoproto.TabletAliasString(tablet.Alias), mysqlVersions[i].Major, mysqlVersions[i].Minor, mysqlVersions[i].Patch)
-		}
-	}
-
 	// sort preferred tablets for finding the best primary — PRS prefers version over position
 	// because it always catches the elected tablet up to the old primary's exact position.
 	err = sortTabletsForReparent(validTablets, tabletPositions, innodbBufferPool, mysqlVersions, opts.durability, SortForPRS)
@@ -186,7 +180,6 @@ func ElectNewPrimary(
 		return nil, err
 	}
 
-	log.Infof("ElectNewPrimary: elected %v as new primary candidate", topoproto.TabletAliasString(validTablets[0].Alias))
 	return validTablets[0].Alias, nil
 }
 
@@ -438,16 +431,11 @@ func findCandidate(
 	if sourceVersion.IsSameRelease(bestVersion) {
 		for _, candidate := range possibleCandidates {
 			if topoproto.TabletAliasEqual(intermediateSource.Alias, candidate.Alias) {
-				log.Infof("findCandidate: preferring intermediate source %v (version %d.%d) over lowest-version candidate %v (version %d.%d) — same release",
-					topoproto.TabletAliasString(candidate.Alias), sourceVersion.Major, sourceVersion.Minor,
-					topoproto.TabletAliasString(best.Alias), bestVersion.Major, bestVersion.Minor)
 				return candidate
 			}
 		}
 	}
 
-	log.Infof("findCandidate: selected %v with lowest MySQL version %d.%d",
-		topoproto.TabletAliasString(best.Alias), bestVersion.Major, bestVersion.Minor)
 	return best
 }
 
