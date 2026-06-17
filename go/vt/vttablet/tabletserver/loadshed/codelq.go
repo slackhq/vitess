@@ -22,14 +22,11 @@ import (
 )
 
 /*
-    The main logic is in dequeue(), which acts as a modern state-space
+    The main logic is in lockedRunTimer(), which acts as a modern state-space
     controller between "no persistent queue" and "has persistent queue".
     When it detects there is a persistent bad queue, it drops requests
     using the well known non-linear relationship of drop rate vs. throughput
     to achieve linear change in throughput (see lockedControlLaw()).
-
-    Consumers of this module are required to call peek()/dequeue() after the
-    queue is empty to signal that the underlying resource is available.
 
     All time units are in ns.
 
@@ -41,51 +38,76 @@ import (
 
     Queue State Vars:
         dropNextNs    int64 : when to drop next request. This may seem
-                              redundant since lockedRunScheduledDrop is scheduled
+                              redundant since lockedRunTimer is scheduled
                               to run at a particular time, but we need to track
                               this because that coroutine may not actually run
                               when it's supposed to, e.g. if the server is
                               overloaded.
-        count           int : requests dropped in drop state
-        lastCount       int : count from previous iteration
+        count           int : drop intensity. Determines the timer interval
+                              via interval/count^exp. Increases during dropping,
+                              halves during easing, until it reaches 1 (idle).
+        lastCount       int : count from previous dropping entry
 
-    Dropping/not-dropping state
-    ===========================
+    CoDel states
+    ============
 
         *---------------------------*
-        | healthy state             |
-        | * dropping: False         |
+        | idle                      |       fully relaxed
+        | * dropping: false         |
         | * count: 1                |
+        | * timer: not armed        |
         *---------------------------*
                       |  ^
-    scheduled drop    |  |
-    runs (wasn't      |  | dequeue & hit target
-    canceled or resch-|  |       - or -
-    eduled before it  |  | dequeue/peek on empty queue
-    got to run        v  |
-        *--------------------------*
-        | dropping state           |
-        | * dropping: True         |
-        | * count: >= 1            |
-        *--------------------------*
+    timer fires w/    |  |  timer fires w/ droppableLen==0
+    droppableLen > 0  |  |  and count halved to 1
+                      v  |
+        *---------------------------*
+        | easing                    |       gradually relaxing
+        | * dropping: false         |
+        | * count: > 1 (halving)    |
+        | * timer: armed            |
+        *---------------------------*
+              |  ^            ^
+    timer     |  |            | lockedComplete() w/ sojourn < target
+    fires w/  |  |            | (sets dropping=false, timer stays armed)
+    droppable |  | timer fires w/
+    Len > 0   |  | droppableLen==0
+              v  |
+        *---------------------------*
+        | dropping                  |       actively shedding
+        | * dropping: true          |
+        | * count: >= 1 (growing)   |
+        | * timer: armed            |
+        *---------------------------*
 
-    Drop timer
-    ==========
+    Timer lifecycle
+    ===============
 
-      *----------------*  ----| re-schedules itself at
-      | drop scheduled |      | rate of queue health (
-      *----------------*  <---| which is current interval)
-               ^  |                        1. upon scheduled drop
-               |  |                        2. upon healthy dequeue
- droppableLen  |  |                           (stop + reschedule)
- goes 0 -> 1   |  | droppableLen == 0
- during        |  | during any of:
- enqueue()     |  | 1. drop timer runs
-               |  | 2. peek() on empty queue
-               |  v
-      *--------------------*
-      | drop not scheduled |
-      *--------------------*
+      *-------------*  ----| re-arms itself at interval/count^exp:
+      | timer armed |      |   dropping: after each drop (shorter intervals)
+      *-------------*  <---|   easing: after each count halving (longer intervals)
+               ^  |
+               |  |
+ droppableLen  |  | droppableLen==0 AND count==1
+ goes 0 → 1   |  | (fully relaxed, nothing to do)
+ during        |  |
+ enqueue()     |  v
+      *-----------------*
+      | timer not armed |
+      *-----------------*
+
+    The timer fires (lockedRunTimer) and branches on state:
+
+      droppableLen==0:
+        set dropping=false, halve count.
+        if count > 1: re-arm (easing continues)
+        if count == 1: stop (→ idle)
+
+      droppableLen > 0, dropping=false (mid-ease-out, new load arrived):
+        re-enter dropping with current count, then drop.
+
+      droppableLen > 0, dropping=true:
+        drop lowest-priority entry, increment count, re-arm.
 */
 
 type (
@@ -100,19 +122,21 @@ type (
 		TargetNs       func() int64
 		Exponent       func() float64
 		MinDropDelayNs func() int64
+		EasingDivisor  func() float64
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
 	// algorithm. All methods are prefixed locked* and assume the caller holds
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue struct {
-		queue        *list.List
-		firstWaiting *list.Element
-		dropping     bool
-		dropNextNs   int64
-		count        int
-		lastCount    int
-		droppableLen int
+		queue           *list.List
+		firstWaiting    *list.Element
+		dropping        bool
+		dropNextNs      int64
+		count           int
+		lastCount       int
+		droppableLen    int
+		lastDropsPerRun int
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -164,6 +188,9 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 // lockedComplete removes a granted (undroppable) request from the queue on
 // Release. Checks sojourn time for CoDel state transition — if the completed
 // request spent less than TargetNs in the queue, the system is healthy.
+// Rather than hard-stopping the timer, we enter an easing phase
+// (!dropping, count > 1) where the timer continues to fire, halving count
+// each time until fully relaxed.
 func (q *CoDelQueue) lockedComplete(r *Request) {
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
@@ -171,8 +198,6 @@ func (q *CoDelQueue) lockedComplete(r *Request) {
 	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
-		q.stopDropTimer()
-		q.lockedArmDropTimer()
 	}
 }
 
@@ -304,29 +329,45 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 	return best
 }
 
-// lockedRunScheduledDrop executes the CoDel drop logic. The dropFn is called
+// lockedRunTimer executes the CoDel drop logic. The dropFn is called
 // for each drop; it should remove the request from the queue and handle any
 // promotion.
-func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
+func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	if q.droppableLen == 0 {
+		// Nothing to drop — transition to easing if we were dropping,
+		// or continue easing if already in that phase.
+		q.dropping = false
+		if q.count > 1 {
+			divisor := 2.0
+			if q.cfg.EasingDivisor != nil {
+				divisor = q.cfg.EasingDivisor()
+			}
+			q.count = max(int(float64(q.count)/divisor), 1)
+			if q.count > 1 {
+				q.dropNextNs = q.lockedControlLaw(q.nowNs())
+				q.lockedArmDropTimer()
+			}
+		}
 		return
 	}
 
-	now := q.nowNs()
+	// Easing phase with droppable entries: re-enter dropping using current count.
 	if !q.dropping {
 		q.lockedEnterDroppingState()
 	}
 
+	now := q.nowNs()
+
+	loopCount := 0
 	for q.droppableLen > 0 && now >= q.dropNextNs {
-		// Safe to break: the mutex serializes cancellation with the drop
-		// timer, so droppableLen > 0 reliably means the scan will find
-		// something. This can only fail on a bookkeeping bug.
+		loopCount++
 		if !dropFn() {
 			break
 		}
 		q.count++
 		q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 	}
+	q.lastDropsPerRun = loopCount
 
 	if q.droppableLen > 0 {
 		q.lockedArmDropTimer()
@@ -338,17 +379,22 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 func (q *CoDelQueue) lockedEnterDroppingState() {
 	now := q.nowNs()
 	q.dropping = true
-	delta := q.count - q.lastCount
-	q.count = 1
 
-	// Restore prior dropping intensity if we recently left the dropping
-	// state and re-entered quickly. Without this, every transition back
-	// to dropping would ramp up from count=1 (i.e. one drop per full
-	// interval), losing the "memory" of how aggressive we needed to be.
-	// The 16x threshold is the staleness cutoff — if we've been healthy
-	// for much longer than the interval, the old state is irrelevant.
-	if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
-		q.count = delta
+	// If re-entering mid-ease-out, count is still > 1 — use it as-is.
+	// Otherwise, apply the memory heuristic from standard CoDel.
+	if q.count <= 1 {
+		delta := q.count - q.lastCount
+		q.count = 1
+
+		// Restore prior dropping intensity if we recently left the dropping
+		// state and re-entered quickly. Without this, every transition back
+		// to dropping would ramp up from count=1 (i.e. one drop per full
+		// interval), losing the "memory" of how aggressive we needed to be.
+		// The 16x threshold is the staleness cutoff — if we've been healthy
+		// for much longer than the interval, the old state is irrelevant.
+		if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
+			q.count = delta
+		}
 	}
 
 	q.dropNextNs = q.lockedControlLaw(now)
@@ -364,9 +410,12 @@ func (q *CoDelQueue) lockedControlLaw(t int64) int64 {
 }
 
 // lockedCurrentInterval returns the current interval for the control law.
+// The interval is compressed whenever count > 1 — both in the dropping state
+// and during easing (!dropping, count > 1), so that the ease-out timer fires
+// at progressively longer intervals as count halves toward 1.
 func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	interval := q.cfg.IntervalNs()
-	if !q.dropping {
+	if q.count <= 1 {
 		return interval
 	}
 	exp := q.cfg.Exponent()
