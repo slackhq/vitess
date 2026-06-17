@@ -21,6 +21,7 @@ import { useSchemas } from '../../hooks/api';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useSyncedURLParam } from '../../hooks/useSyncedURLParam';
 import { filterNouns } from '../../util/filterNouns';
+import { SearchTokenTypes, tokenizeSearch } from '../../util/tokenize';
 import { formatBytes } from '../../util/formatBytes';
 import { getTableDefinitions } from '../../util/tableDefinitions';
 import { DataCell } from '../dataTable/DataCell';
@@ -92,7 +93,41 @@ export const Schemas = () => {
         }));
 
         const filtered = filterNouns(filter, mapped);
-        return orderBy(filtered, ['cluster', 'keyspace', 'table']);
+
+        if (!filter) {
+            return orderBy(filtered, ['cluster', 'keyspace', 'table']);
+        }
+
+        const tokens = tokenizeSearch(filter);
+        const fuzzyTerms = tokens
+            .filter((t) => t.type === SearchTokenTypes.FUZZY)
+            .map((t) => t.value.toLowerCase());
+        const searchTerm = fuzzyTerms.join(' ').toLowerCase();
+
+        if (!searchTerm) {
+            return orderBy(filtered, ['cluster', 'keyspace', 'table']);
+        }
+
+        return filtered.sort((a, b) => {
+            const aTable = (a.table || '').toLowerCase();
+            const bTable = (b.table || '').toLowerCase();
+
+            const aExact = aTable === searchTerm;
+            const bExact = bTable === searchTerm;
+            if (aExact !== bExact) return aExact ? -1 : 1;
+
+            const aPrefix = aTable.startsWith(searchTerm);
+            const bPrefix = bTable.startsWith(searchTerm);
+            if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+
+            const aContains = aTable.includes(searchTerm);
+            const bContains = bTable.includes(searchTerm);
+            if (aContains !== bContains) return aContains ? -1 : 1;
+
+            const aKey = `${a.cluster}\0${a.keyspace}\0${a.table}`;
+            const bKey = `${b.cluster}\0${b.keyspace}\0${b.table}`;
+            return aKey.localeCompare(bKey);
+        });
     }, [schemasQuery.data, filter]);
 
     const renderRows = (rows: typeof filteredData) =>
