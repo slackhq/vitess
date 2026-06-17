@@ -34,6 +34,7 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txlimiter"
@@ -115,6 +116,19 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 	}
 	limiter := txlimiter.New(env)
 	te.txPool = NewTxPool(env, limiter)
+	if config.SnakeEnabled {
+		te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+			Name: "dml",
+			CoDel: loadshed.CoDelConfig{
+				TargetNs:       func() int64 { return config.SnakeTarget.Nanoseconds() },
+				IntervalNs:     func() int64 { return config.SnakeInterval.Nanoseconds() },
+				Exponent:       func() float64 { return 0.5 },
+				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
+			},
+			Capacity:            func() int { return config.TxPool.Size },
+			LoadsheddingAllowed: func() bool { return true },
+		})
+	}
 	// We initially allow twoPC (handles vttablet restarts).
 	// We will disallow them for a few reasons -
 	//	1. When a new tablet is promoted if semi-sync is turned off.
