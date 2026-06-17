@@ -291,7 +291,7 @@ func TestCoDelQueue_SuccessiveDrops_IncrementCount(t *testing.T) {
 		return true
 	}
 
-	q.lockedRunScheduledDrop(dropFn)
+	q.lockedRunTimer(dropFn)
 	finalCount := q.count
 
 	assert.Greater(t, finalCount, 3,

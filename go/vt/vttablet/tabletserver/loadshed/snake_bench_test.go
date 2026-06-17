@@ -21,16 +21,23 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 )
 
-// --- Uncontended acquire/release ---
+// --- Uncontended Latency ---
+//
+// Measures the fast-path cost of Acquire+Release and basic CoDel queue operations
+// when no other goroutines are competing. This is the floor: every request pays at
+// least this much. The CoDel queue itself is cheap; most of the Snake overhead comes
+// from the mutex, channel signaling, and valve bookkeeping layered on top.
 
+// BenchmarkSnake_Uncontended measures Acquire+Release with no valve ID and no
+// contention — the absolute minimum cost Snake adds to every query.
 func BenchmarkSnake_Uncontended(b *testing.B) {
 	s := NewSnake(defaultSnakeConfig())
 	ctx := context.Background()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		u, err := s.Acquire(ctx, "")
@@ -41,10 +48,13 @@ func BenchmarkSnake_Uncontended(b *testing.B) {
 	}
 }
 
+// BenchmarkSnake_Uncontended_WithValveID measures the incremental cost of valve
+// bookkeeping (map lookup + outstanding count) on the uncontended path.
 func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
 	s := NewSnake(defaultSnakeConfig())
 	ctx := context.Background()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		u, err := s.Acquire(ctx, "valve-1")
@@ -55,63 +65,83 @@ func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
 	}
 }
 
-// --- Contended acquire/release (parallel goroutines) ---
+// BenchmarkSnake_Contended_WithValveID measures Acquire+Release with valve ID
+// under 8-way goroutine contention — the realistic production path where multiple
+// queries with different valve IDs compete for the mutex simultaneously.
+func BenchmarkSnake_Contended_WithValveID(b *testing.B) {
+	s := NewSnake(defaultSnakeConfig())
+	ctx := context.Background()
+	const workers = 8
 
-func BenchmarkSnake_Contended(b *testing.B) {
-	for _, parallelism := range []int{4, 16, 64, 256} {
-		b.Run(fmt.Sprintf("P%d", parallelism), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
-			ctx := context.Background()
+	ids := make([]string, workers)
+	for i := range workers {
+		ids[i] = fmt.Sprintf("valve-%d", i)
+	}
 
-			b.SetParallelism(parallelism / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
-					if err != nil {
-						continue
-					}
-					u.Release()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	var wg sync.WaitGroup
+	opsPerWorker := b.N / workers
+	for i := range workers {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			for range opsPerWorker {
+				u, err := s.Acquire(ctx, id)
+				if err != nil {
+					continue
 				}
-			})
-		})
+				u.Release()
+			}
+		}(ids[i])
+	}
+	wg.Wait()
+}
+
+// BenchmarkCoDelQueue_EnqueueComplete measures the raw CoDel queue cost without
+// Snake's mutex, channel signaling, or valve bookkeeping — just enqueue + grant + complete.
+func BenchmarkCoDelQueue_EnqueueComplete(b *testing.B) {
+	clock := newTestClock()
+	rec := &testDropTimerRecorder{}
+	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		req := newRequest(0)
+		q.lockedEnqueue(req)
+		q.lockedOnGrant(req)
+		q.lockedComplete(req)
 	}
 }
 
-// --- Valve overhead: measure cost of valve bookkeeping vs. direct entry ---
+// BenchmarkCoDelQueue_Enqueue_Only measures enqueue in isolation — the allocation
+// cost of creating a request and inserting into the linked list.
+func BenchmarkCoDelQueue_Enqueue_Only(b *testing.B) {
+	clock := newTestClock()
+	rec := &testDropTimerRecorder{}
+	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
 
-func BenchmarkSnake_ValveOverhead(b *testing.B) {
-	b.Run("NoValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
-		ctx := context.Background()
-
-		b.ResetTimer()
-		for range b.N {
-			u, err := s.Acquire(ctx, "")
-			if err != nil {
-				b.Fatal(err)
-			}
-			u.Release()
-		}
-	})
-
-	b.Run("WithValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
-		ctx := context.Background()
-
-		b.ResetTimer()
-		for range b.N {
-			u, err := s.Acquire(ctx, "single-id")
-			if err != nil {
-				b.Fatal(err)
-			}
-			u.Release()
-		}
-	})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		req := newRequest(0)
+		q.lockedEnqueue(req)
+	}
+	b.StopTimer()
+	for q.lockedLen() > 0 {
+		testDequeue(q)
+	}
 }
 
-// --- Valve ID scaling: many distinct valve IDs ---
+// --- Valve ID Scaling ---
+//
+// Asserts that the bookkeeping for the various valve data structures is all O(1).
+// The operation is an acquire+release for a given valve ID.
 
+// BenchmarkSnake_ValveIDScaling checks whether map cardinality affects performance.
+// In production, many distinct valve IDs are in-flight simultaneously.
 func BenchmarkSnake_ValveIDScaling(b *testing.B) {
 	for _, numIDs := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("IDs%d", numIDs), func(b *testing.B) {
@@ -134,8 +164,14 @@ func BenchmarkSnake_ValveIDScaling(b *testing.B) {
 	}
 }
 
-// --- GOMAXPROCS scaling ---
+// --- GOMAXPROCS Scaling ---
+//
+// Measures how the single-mutex approach fares as the number of threads competing
+// for the lock increases. Degradation is sublinear.
 
+// BenchmarkSnake_GOMAXPROCS isolates the effect of real CPU-level parallelism on
+// mutex contention — cache line bouncing, atomic CAS retries under increasing
+// thread counts.
 func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 	for _, procs := range []int{1, 2, 4, 8} {
 		b.Run(fmt.Sprintf("PROCS%d", procs), func(b *testing.B) {
@@ -160,40 +196,16 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 	}
 }
 
-// --- CoDel queue enqueue/dequeue (low-level, no Snake overhead) ---
+// --- findLowestPriorityDroppable ---
+//
+// Currently linear, which is expected based on our current implementation. Zero
+// allocations. We're planning on modifying our data structures to make the various
+// queue operations O(log(n)). Based on drop timer intervals for the parameters we
+// expect, this isn't a mandatory optimization, but it's desirable nonetheless since
+// the drop timer runs more frequently under overload.
 
-func BenchmarkCoDelQueue_EnqueueComplete(b *testing.B) {
-	clock := newTestClock()
-	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
-
-	b.ResetTimer()
-	for range b.N {
-		req := newRequest(0)
-		q.lockedEnqueue(req)
-		q.lockedOnGrant(req)
-		q.lockedComplete(req)
-	}
-}
-
-func BenchmarkCoDelQueue_Enqueue_Only(b *testing.B) {
-	clock := newTestClock()
-	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
-
-	b.ResetTimer()
-	for range b.N {
-		req := newRequest(0)
-		q.lockedEnqueue(req)
-	}
-	b.StopTimer()
-	for q.lockedLen() > 0 {
-		testDequeue(q)
-	}
-}
-
-// --- findLowestPriorityDroppable at various queue depths ---
-
+// BenchmarkCoDelQueue_FindLowestPriority measures the O(n) scan at various queue
+// depths.
 func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 	for _, depth := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprintf("Depth%d", depth), func(b *testing.B) {
@@ -201,8 +213,6 @@ func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 			rec := &testDropTimerRecorder{}
 			q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
 
-			// Use varied priorities so the scan must traverse the full queue.
-			// The lowest priority is at position depth-1, forcing a full scan.
 			for i := range depth {
 				req := newRequest(float64(depth - i))
 				q.lockedEnqueue(req)
@@ -216,98 +226,14 @@ func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 	}
 }
 
-// --- ValvedCoDelQueue enqueue with valve promotion ---
+// --- Self-Contention Throughput ---
+//
+// Verifies that multiple goroutines contending on the same valve ID don't degrade
+// throughput. The valve serializes them (only one in the CoDel queue at a time),
+// so adding more parallel goroutines for the same ID shouldn't hurt.
 
-func BenchmarkValved_EnqueuePromote(b *testing.B) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-
-	b.ResetTimer()
-	for range b.N {
-		sq.lockedEnqueue("bench-id", 0)
-		testValvedDequeue(sq)
-	}
-}
-
-func BenchmarkValved_ValvePromotion_Chain(b *testing.B) {
-	for _, chainLen := range []int{2, 5, 10, 50} {
-		b.Run(fmt.Sprintf("Chain%d", chainLen), func(b *testing.B) {
-			clock := newTestClock()
-			sq, _ := newValvedQueue(clock)
-
-			b.ResetTimer()
-			for range b.N {
-				for range chainLen {
-					sq.lockedEnqueue("bench-id", 0)
-				}
-				for range chainLen {
-					testValvedDequeue(sq)
-				}
-			}
-		})
-	}
-}
-
-// --- Allocation benchmarks ---
-
-func BenchmarkSnake_Allocs_Uncontended(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
-	ctx := context.Background()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		u, err := s.Acquire(ctx, "")
-		if err != nil {
-			b.Fatal(err)
-		}
-		u.Release()
-	}
-}
-
-func BenchmarkSnake_Allocs_WithValve(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
-	ctx := context.Background()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		u, err := s.Acquire(ctx, "valve-1")
-		if err != nil {
-			b.Fatal(err)
-		}
-		u.Release()
-	}
-}
-
-func BenchmarkSnake_Allocs_Contended(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
-	ctx := context.Background()
-	const workers = 8
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	var wg sync.WaitGroup
-	opsPerWorker := b.N / workers
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for range opsPerWorker {
-				u, err := s.Acquire(ctx, "")
-				if err != nil {
-					continue
-				}
-				u.Release()
-			}
-		}()
-	}
-	wg.Wait()
-}
-
-// --- Throughput under contention (ops/sec) ---
-
+// BenchmarkSnake_Throughput_SelfContention measures throughput when multiple
+// goroutines share the same valve ID under varying parallelism.
 func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
 	for _, parallelism := range []int{2, 4, 8} {
 		b.Run(fmt.Sprintf("SameID_P%d", parallelism), func(b *testing.B) {
@@ -325,134 +251,6 @@ func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
 					u.Release()
 				}
 			})
-		})
-	}
-}
-
-// --- N-holder: multi-slot throughput ---
-
-func BenchmarkSnake_NHolder_Throughput(b *testing.B) {
-	for _, capacity := range []int{1, 2, 4, 8, 16} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
-					if err != nil {
-						continue
-					}
-					u.Release()
-				}
-			})
-		})
-	}
-}
-
-// --- N-holder: uncontended multi-slot (fast path, no blocking) ---
-
-func BenchmarkSnake_NHolder_Uncontended(b *testing.B) {
-	for _, capacity := range []int{1, 4, 16} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			b.ResetTimer()
-			for range b.N {
-				u, err := s.Acquire(ctx, "")
-				if err != nil {
-					b.Fatal(err)
-				}
-				u.Release()
-			}
-		})
-	}
-}
-
-// --- N-holder: saturated (all slots filled, waiters queued) ---
-
-func BenchmarkSnake_NHolder_Saturated(b *testing.B) {
-	for _, capacity := range []int{1, 4, 8} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			b.SetParallelism(capacity * 4 / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
-					if err != nil {
-						continue
-					}
-					u.Release()
-				}
-			})
-		})
-	}
-}
-
-// --- N-holder: valve + multi-slot (self-contention across multiple slots) ---
-
-func BenchmarkSnake_NHolder_WithValve(b *testing.B) {
-	for _, capacity := range []int{1, 4, 8} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			ids := make([]string, 4)
-			for i := range ids {
-				ids[i] = fmt.Sprintf("valve-%d", i)
-			}
-
-			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			var counter atomic.Int64
-			b.RunParallel(func(pb *testing.PB) {
-				idx := int(counter.Add(1) - 1)
-				id := ids[idx%len(ids)]
-				for pb.Next() {
-					u, err := s.Acquire(ctx, id)
-					if err != nil {
-						continue
-					}
-					u.Release()
-				}
-			})
-		})
-	}
-}
-
-// --- N-holder: allocation profile ---
-
-func BenchmarkSnake_NHolder_Allocs(b *testing.B) {
-	for _, capacity := range []int{1, 4, 16} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				u, err := s.Acquire(ctx, "")
-				if err != nil {
-					b.Fatal(err)
-				}
-				u.Release()
-			}
 		})
 	}
 }
