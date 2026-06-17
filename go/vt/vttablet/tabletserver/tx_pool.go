@@ -31,6 +31,7 @@ import (
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txlimiter"
@@ -68,6 +69,7 @@ type (
 		scp     *StatefulConnectionPool
 		ticks   *timer.Timer
 		limiter txlimiter.TxLimiter
+		snake   *loadshed.Snake
 
 		logMu   sync.Mutex
 		lastLog time.Time
@@ -235,6 +237,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 
 	var conn *StatefulConnection
 	var err error
+	var snakeRelease func()
 	if reservedID != 0 {
 		conn, err = tp.scp.GetAndLock(reservedID, "start transaction on reserve conn")
 		if err != nil {
@@ -249,12 +252,27 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 		if !tp.limiter.Get(immediateCaller, effectiveCaller) {
 			return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "per-user transaction pool connection limit exceeded")
 		}
+
+		if tp.snake != nil {
+			if contentionID := options.GetUniqueId(); contentionID != "" {
+				unlock, snakeErr := tp.snake.Acquire(ctx, contentionID)
+				if snakeErr != nil {
+					tp.limiter.Release(immediateCaller, effectiveCaller)
+					return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed: %v", snakeErr)
+				}
+				snakeRelease = func() { unlock.Release() }
+			}
+		}
+
 		conn, err = tp.createConn(ctx, options, setting)
 		defer func() {
 			if err != nil {
 				// The transaction limiter frees transactions on rollback or commit. If we fail to create the transaction,
 				// release immediately since there will be no rollback or commit.
 				tp.limiter.Release(immediateCaller, effectiveCaller)
+				if snakeRelease != nil {
+					snakeRelease()
+				}
 			}
 		}()
 	}
@@ -272,6 +290,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 	if setting != nil {
 		conn.TxProperties().RecordQueryDetail(setting.ApplyQuery(), nil)
 	}
+	conn.TxProperties().SnakeRelease = snakeRelease
 	return conn, sql, sessionStateChanges, nil
 }
 
@@ -444,6 +463,9 @@ func (tp *TxPool) LogActive() {
 
 func (tp *TxPool) txComplete(conn *StatefulConnection, reason tx.ReleaseReason) {
 	conn.LogTransaction(reason)
+	if release := conn.TxProperties().SnakeRelease; release != nil {
+		release()
+	}
 	tp.limiter.Release(conn.TxProperties().ImmediateCaller, conn.TxProperties().EffectiveCaller)
 	conn.CleanTxState()
 }
