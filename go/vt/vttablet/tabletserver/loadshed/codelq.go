@@ -316,12 +316,7 @@ func (q *CoDelQueue) lockedRunScheduledDrop(dropFn func() bool) {
 		q.lockedEnterDroppingState()
 	}
 
-	loopCount := 0
 	for q.droppableLen > 0 && now >= q.dropNextNs {
-		loopCount++
-		if loopCount > 100 {
-			break
-		}
 		// Safe to break: the mutex serializes cancellation with the drop
 		// timer, so droppableLen > 0 reliably means the scan will find
 		// something. This can only fail on a bookkeeping bug.
