@@ -45,7 +45,7 @@ import (
                               overloaded.
         count           int : drop intensity. Determines the timer interval
                               via interval/count^exp. Increases during dropping,
-                              halves during easing, until it reaches 1 (idle).
+                              decays during easing, until it reaches 1 (idle).
         lastCount       int : count from previous dropping entry
 
     CoDel states
@@ -59,13 +59,13 @@ import (
         *---------------------------*
                       |  ^
     timer fires w/    |  |  easing timer fires, healthy,
-    droppableLen > 0  |  |  count halved to 1
+    droppableLen > 0  |  |  count decayed to 1
     (standard entry)  |  |
                       v  |
         *---------------------------*
         | easing                    |       gradually relaxing
         | * dropping: false         |
-        | * count: > 1 (halving)    |
+        | * count: > 1 (decaying)   |
         | * timer: armed            |
         *---------------------------*
               |  ^            ^
@@ -91,7 +91,7 @@ import (
 
       *-------------*  ----| re-arms itself at interval/count^exp:
       | timer armed |      |   dropping: after each drop (shorter intervals)
-      *-------------*  <---|   easing: after each count halving (longer intervals)
+      *-------------*  <---|   easing: after each count decay (longer intervals)
                ^  |
                |  |
  droppableLen  |  | easing, healthy, count==1
@@ -109,7 +109,7 @@ import (
         re-arm if droppableLen > 0.
 
       dropping=false (easing), healthy:
-        halve count by EasingDivisor.
+        decay count by EasingDivisor.
         if count > 1: re-arm (easing continues)
         if count == 1: stop (→ idle)
 
@@ -143,8 +143,7 @@ type (
 		count           int
 		lastCount       int
 		droppableLen    int
-		lastDropsPerRun int
-		sawHealthy      bool
+		sawHealthy bool
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -197,7 +196,7 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 // Release. Checks sojourn time for CoDel state transition — if the completed
 // request spent less than TargetNs in the queue, the system is healthy.
 // Rather than hard-stopping the timer, we enter an easing phase
-// (!dropping, count > 1) where the timer continues to fire, halving count
+// (!dropping, count > 1) where the timer continues to fire, decaying count
 // each time until fully relaxed.
 func (q *CoDelQueue) lockedComplete(r *Request) {
 	q.queue.Remove(r.codelqElem)
@@ -346,16 +345,13 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	if q.dropping {
 		now := q.nowNs()
 
-		loopCount := 0
 		for q.droppableLen > 0 && now >= q.dropNextNs {
-			loopCount++
 			if !dropFn() {
 				break
 			}
 			q.count++
 			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
-		q.lastDropsPerRun = loopCount
 
 		if q.droppableLen > 0 {
 			q.lockedArmDropTimer()
@@ -399,16 +395,13 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 
 	now := q.nowNs()
 
-	loopCount := 0
 	for q.droppableLen > 0 && now >= q.dropNextNs {
-		loopCount++
 		if !dropFn() {
 			break
 		}
 		q.count++
 		q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 	}
-	q.lastDropsPerRun = loopCount
 
 	if q.droppableLen > 0 {
 		q.lockedArmDropTimer()
@@ -457,7 +450,7 @@ func (q *CoDelQueue) lockedControlLaw(t int64) int64 {
 // lockedCurrentInterval returns the current interval for the control law.
 // The interval is compressed whenever count > 1 — both in the dropping state
 // and during easing (!dropping, count > 1), so that the ease-out timer fires
-// at progressively longer intervals as count halves toward 1.
+// at progressively longer intervals as the count decays toward 1.
 func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	interval := q.cfg.IntervalNs()
 	if q.count <= 1 {

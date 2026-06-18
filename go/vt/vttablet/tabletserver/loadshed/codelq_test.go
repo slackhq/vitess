@@ -418,32 +418,8 @@ func TestCoDelQueue_EnterDroppingState_RestoresLargerDelta(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	// count=1 (fully eased), lastCount was 5 from prior drop round
-	// delta = 1 - 5 = -4 → not > 1, no restore
-	// To test restore: we need count > lastCount. Set count=1
-	// and simulate: lastCount was set to a prior count value.
-	// The heuristic: delta = count - lastCount > 1 and recent.
-	// For delta > 1: count must be > lastCount + 1.
-	// But count is 1 here and lastCount >= 1, so delta <= 0.
-	// Let's test the *actual* restore path correctly:
-	// count=1, lastCount=0 → delta=1, not > 1 → no restore.
-	// Actually the memory heuristic was: the LAST dropping round had
-	// count reach N, so on re-entry we restore to delta = count - lastCount.
-	// With easing, if count is already > 1, we skip the whole heuristic
-	// and use count as-is. The heuristic only fires when count==1.
-	// So the restore scenario: count was 6 at last exit, lastCount was 1,
-	// easing ran count all the way down to 1, then we re-enter dropping.
-	// delta = 1 - 1 = 0. Hmm, that doesn't restore either.
-	// Oh wait — lastCount is saved at entry to dropping, not at exit.
-	// Let's trace: enter dropping with count=1 → lastCount set to 1.
-	// Drop things → count goes to 6. Exit dropping (sojourn < target).
-	// Ease: 6 → 3 → 1. Now re-enter dropping: count=1, lastCount=1.
-	// delta = 1 - 1 = 0. No restore. But we WERE just at count=6!
-	//
-	// The issue is that lastCount is stale. Before easing, lastCount
-	// was set to count at entry. We need to track the peak count.
-	// For now, test the mid-ease-out path which IS the restore:
-	// if count > 1 on entry to dropping, we use it directly.
+	// When count > 1 on re-entry (partially eased), the restore heuristic
+	// is skipped and the current count is used directly.
 	q.count = 6
 	q.lastCount = 2
 	q.dropNextNs = 5_000_000_000

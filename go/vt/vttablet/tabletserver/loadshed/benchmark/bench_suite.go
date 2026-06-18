@@ -32,7 +32,6 @@ type statsSnapshot struct {
 	dropping        bool
 	dropCount       int
 	currentInterval int64 // ns
-	lastDropsPerRun int
 }
 
 // loadProfile returns the load fraction [0,1] at a given elapsed time.
@@ -109,7 +108,6 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 					dropping:        s.Dropping,
 					dropCount:       s.DropCount,
 					currentInterval: s.CurrentInterval,
-					lastDropsPerRun: s.LastDropsPerRun,
 				})
 			}
 		}
@@ -363,7 +361,7 @@ func main() {
 		}
 		csvS := csv.NewWriter(sf)
 		csvS.Comma = '\t'
-		csvS.Write([]string{"ts_ms", "queue_len", "droppable_len", "holder_count", "dropping", "drop_count", "current_interval_ns", "last_drops_per_run"})
+		csvS.Write([]string{"ts_ms", "queue_len", "droppable_len", "holder_count", "dropping", "drop_count", "current_interval_ns"})
 		for _, s := range r.stats {
 			dropping := "0"
 			if s.dropping {
@@ -377,7 +375,6 @@ func main() {
 				dropping,
 				fmt.Sprintf("%d", s.dropCount),
 				fmt.Sprintf("%d", s.currentInterval),
-				fmt.Sprintf("%d", s.lastDropsPerRun),
 			})
 		}
 		csvS.Flush()
