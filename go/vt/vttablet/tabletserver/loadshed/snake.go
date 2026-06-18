@@ -153,6 +153,30 @@ func (s *Snake) IsHealthy() bool {
 	return s.q.lockedIsHealthy()
 }
 
+// SnakeStats is a point-in-time snapshot of Snake's internal state.
+type SnakeStats struct {
+	QueueLen        int
+	DroppableLen    int
+	HolderCount     int
+	Dropping        bool
+	DropCount       int
+	CurrentInterval int64 // ns
+}
+
+// Stats returns a point-in-time snapshot of Snake's internal state.
+func (s *Snake) Stats() SnakeStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return SnakeStats{
+		QueueLen:        s.q.codelq.lockedLen(),
+		DroppableLen:    s.q.codelq.droppableLen,
+		HolderCount:     len(s.holders),
+		Dropping:        s.q.codelq.dropping,
+		DropCount:       s.q.codelq.count,
+		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
+	}
+}
+
 // Release releases the slot. exc is an optional error that caused the release
 // (passed to release callbacks). Release is idempotent.
 func (u *SafeUnlock) Release(exc ...error) error {
