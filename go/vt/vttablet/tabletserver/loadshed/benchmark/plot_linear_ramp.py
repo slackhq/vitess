@@ -2,11 +2,14 @@
 """Plot linear ramp test results from snake-22 with Stats() data (7 rows).
 
 Usage:
-    python plot_linear_ramp.py [TSV_DIR]
+    python plot_linear_ramp.py [--capacity N] [--work-ms N] [--target-ms N]
+                               [--interval-ms N] [--exponent F] [--peak-mult N]
+                               [TSV_DIR]
 
 TSV_DIR defaults to the most recent run under ~/snake-load-test-charts/tsv/.
 """
 
+import argparse
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -30,8 +33,18 @@ def find_latest_run():
                 return r
     return None
 
-if len(sys.argv) > 1:
-    RUN_DIR = sys.argv[1]
+parser = argparse.ArgumentParser(description="Plot Snake linear ramp benchmark results")
+parser.add_argument("tsv_dir", nargs="?", default=None, help="TSV directory (default: most recent run)")
+parser.add_argument("--capacity", type=int, default=10, help="Semaphore capacity used in the run (default: 10)")
+parser.add_argument("--work-ms", type=int, default=2, help="Work duration per request in ms (default: 2)")
+parser.add_argument("--target-ms", type=int, default=5, help="CoDel target in ms (default: 5)")
+parser.add_argument("--interval-ms", type=int, default=100, help="CoDel interval in ms (default: 100)")
+parser.add_argument("--exponent", type=float, default=1.0, help="CoDel exponent (default: 1.0)")
+parser.add_argument("--peak-mult", type=int, default=80, help="Peak arrival rate multiplier (default: 80)")
+args = parser.parse_args()
+
+if args.tsv_dir:
+    RUN_DIR = args.tsv_dir
 else:
     latest = find_latest_run()
     if latest is None:
@@ -43,13 +56,12 @@ KEY = "linear_ramp__0_to_80x_cap__work_half_target"
 DUR_MS = 20000
 NUM_ROWS = 7
 
-# Config embedded for chart verification
-CAPACITY = 10
-WORK_MS = 2
-TARGET_MS = 5
-INTERVAL_MS = 100
-EXPONENT = 1.0
-PEAK_MULT = 80
+CAPACITY = args.capacity
+WORK_MS = args.work_ms
+TARGET_MS = args.target_ms
+INTERVAL_MS = args.interval_ms
+EXPONENT = args.exponent
+PEAK_MULT = args.peak_mult
 
 
 def compute_hz_series(df, event_type, bin_ms, max_ts):
