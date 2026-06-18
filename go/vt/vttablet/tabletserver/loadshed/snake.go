@@ -160,8 +160,7 @@ type SnakeStats struct {
 	HolderCount     int
 	Dropping        bool
 	DropCount       int
-	CurrentInterval int64 // ns — CoDel's current drop interval (decreases as drops accelerate)
-	LastDropsPerRun int
+	CurrentInterval int64 // ns
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -175,7 +174,6 @@ func (s *Snake) Stats() SnakeStats {
 		Dropping:        s.q.codelq.dropping,
 		DropCount:       s.q.codelq.count,
 		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
-		LastDropsPerRun: s.q.codelq.lastDropsPerRun,
 	}
 }
 

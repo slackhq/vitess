@@ -79,7 +79,7 @@ def plot_single(ax, df, duration_ms=None, dual_yaxis=False):
 
 
 def plot_stats_panels(axes_row, stats_df, duration_ms):
-    """Plot CoDel internals on a row of 4 axes: queue depth, dropping state, current interval, drops per run."""
+    """Plot CoDel internals on a row of 3 axes: queue depth, dropping state, current interval."""
     t = stats_df["ts_ms"].values / 1000  # seconds
     xlim = duration_ms / 1000 * 1.02
 
@@ -98,7 +98,6 @@ def plot_stats_panels(axes_row, stats_df, duration_ms):
     # Panel 2: CoDel dropping state + drop count
     ax = axes_row[1]
     dropping = stats_df["dropping"].values.astype(float)
-    # Shade dropping periods
     ax.fill_between(t, 0, dropping * stats_df["drop_count"].max() if stats_df["drop_count"].max() > 0 else 1,
                     alpha=0.15, color="red", label="dropping state")
     ax.plot(t, stats_df["drop_count"].values, color="purple", linewidth=1, label="drop count")
@@ -119,16 +118,6 @@ def plot_stats_panels(axes_row, stats_df, duration_ms):
     ax.grid(True, alpha=0.3)
     ax.axhline(y=100, color="grey", linestyle="--", linewidth=0.7, alpha=0.5)
     ax.text(xlim * 0.98, 100, "configured interval", ha="right", va="bottom", fontsize=7, color="grey")
-    ax.ticklabel_format(useOffset=False, style='plain', axis='y')
-
-    # Panel 4: Drops per timer run
-    ax = axes_row[3]
-    if "last_drops_per_run" in stats_df.columns:
-        ax.plot(t, stats_df["last_drops_per_run"].values, color="darkred", linewidth=1)
-    ax.set_ylabel("drops")
-    ax.set_title("Drops per lockedRunTimer()", fontsize=9)
-    ax.set_xlim(0, xlim)
-    ax.grid(True, alpha=0.3)
     ax.ticklabel_format(useOffset=False, style='plain', axis='y')
 
 
@@ -223,10 +212,10 @@ for prefix, title, dur_ms in profile_configs:
     if not has_profile_data:
         continue
 
-    fig, axes = plt.subplots(5, 2, figsize=(14, 17), squeeze=False)
+    fig, axes = plt.subplots(4, 2, figsize=(14, 14), squeeze=False)
     fig.suptitle(
         f"Snake Bench: {title} (capacity=10, target=5ms, interval=100ms)\n"
-        f"Top row: throughput Hz | Rows 2-5: CoDel internals",
+        f"Top row: throughput Hz | Rows 2-4: CoDel internals",
         fontsize=12, y=0.99
     )
 
@@ -244,15 +233,15 @@ for prefix, title, dur_ms in profile_configs:
         if col_idx == 0:
             ax.legend(loc="upper left", fontsize=8)
 
-        # Rows 1-4: Stats panels
+        # Rows 1-3: Stats panels
         if key in stats_files:
             stats_df = pd.read_csv(stats_files[key], sep="\t")
             stats_df = stats_df[stats_df["ts_ms"] <= dur_ms]
-            plot_stats_panels([axes[1][col_idx], axes[2][col_idx], axes[3][col_idx], axes[4][col_idx]], stats_df, dur_ms)
+            plot_stats_panels([axes[1][col_idx], axes[2][col_idx], axes[3][col_idx]], stats_df, dur_ms)
 
     # X labels on bottom row only
     for col_idx in range(2):
-        axes[4][col_idx].set_xlabel("time (s)")
+        axes[3][col_idx].set_xlabel("time (s)")
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     out_path = os.path.join(OUTPUT_DIR, f"snake_{prefix.split('__')[0]}_with_codel.png")
