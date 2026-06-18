@@ -381,20 +381,24 @@ func (q *CoDelQueue) lockedEnterDroppingState() {
 	q.dropping = true
 
 	// If re-entering mid-ease-out, count is still > 1 — use it as-is.
-	// Otherwise, apply the memory heuristic from standard CoDel.
-	if q.count <= 1 {
-		delta := q.count - q.lastCount
-		q.count = 1
+	if q.count > 1 {
+		q.dropNextNs = q.lockedControlLaw(now)
+		q.lastCount = q.count
+		return
+	}
 
-		// Restore prior dropping intensity if we recently left the dropping
-		// state and re-entered quickly. Without this, every transition back
-		// to dropping would ramp up from count=1 (i.e. one drop per full
-		// interval), losing the "memory" of how aggressive we needed to be.
-		// The 16x threshold is the staleness cutoff — if we've been healthy
-		// for much longer than the interval, the old state is irrelevant.
-		if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
-			q.count = delta
-		}
+	// Otherwise, apply the memory heuristic from standard CoDel.
+	delta := q.count - q.lastCount
+	q.count = 1
+
+	// Restore prior dropping intensity if we recently left the dropping
+	// state and re-entered quickly. Without this, every transition back
+	// to dropping would ramp up from count=1 (i.e. one drop per full
+	// interval), losing the "memory" of how aggressive we needed to be.
+	// The 16x threshold is the staleness cutoff — if we've been healthy
+	// for much longer than the interval, the old state is irrelevant.
+	if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
+		q.count = delta
 	}
 
 	q.dropNextNs = q.lockedControlLaw(now)
