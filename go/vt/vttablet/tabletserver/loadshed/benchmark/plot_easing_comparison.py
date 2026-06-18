@@ -78,7 +78,7 @@ def parse_args():
     parser.add_argument("--run", action="store_true",
                         help="Run Go bench suite for all divisors in parallel before plotting")
     parser.add_argument("--bench-go", type=str,
-                        default=str(Path(__file__).parent.parent / "snakeserver" / "bench_suite.go"),
+                        default=str(Path(__file__).parent / "bench_suite.go"),
                         help="Path to bench_suite.go with -easing flag")
     parser.add_argument("--filter", type=str, default=KEY,
                         help="Only run tests whose label contains this substring")
