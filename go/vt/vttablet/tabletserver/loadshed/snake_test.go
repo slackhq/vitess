@@ -36,6 +36,7 @@ func defaultSnakeConfig() SnakeConfig {
 			TargetNs:       func() int64 { return int64(1e9) },
 			Exponent:       func() float64 { return 1.0 },
 			MinDropDelayNs: func() int64 { return 100 },
+			EasingDivisor:  func() float64 { return 2.0 },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	}

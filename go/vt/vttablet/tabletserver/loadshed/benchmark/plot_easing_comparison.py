@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Plot 6-column comparison of easing divisor values (work=2ms)."""
+"""Plot 6-column comparison of easing divisor values (work=2ms).
 
+Optionally runs the Go bench suite in parallel before plotting (--run).
+"""
+
+import argparse
 import os
+import subprocess
+import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -12,19 +18,85 @@ from datetime import datetime
 BASE = Path.home() / "snake-load-test-charts"
 EASING_BASE = BASE / "tsv" / "easing-comparison"
 
-EASING_RUNS = [
-    (1.0, str(EASING_BASE / "easing_1.0")),
-    (1.2, str(EASING_BASE / "easing_1.2")),
-    (2.0, str(EASING_BASE / "easing_2.0")),
-    (4.0, str(EASING_BASE / "easing_4.0")),
-    (8.0, str(EASING_BASE / "easing_8.0")),
-    (16.0, str(EASING_BASE / "easing_16.0")),
-]
+DIVISORS = sorted([1.0, 2**(1/4), 2**(1/3), 2**(1/2), 2.0, 4.0, 8.0, 16.0])
+
+
+def divisor_label(div):
+    """Human-readable label for a divisor value."""
+    import math
+    if div == 1.0:
+        return "1 (no decay)"
+    for denom in [2, 3, 4]:
+        if abs(div - 2**(1/denom)) < 1e-9:
+            return f"2^(1/{denom}) ≈ {div:.3f}"
+    if div == int(div):
+        return str(int(div))
+    return f"{div:.3f}"
+
+
+def divisor_dirname(div):
+    """Stable directory name for a divisor value."""
+    import math
+    for denom in [2, 3, 4]:
+        if abs(div - 2**(1/denom)) < 1e-9:
+            return f"easing_2pow1over{denom}"
+    if div == int(div):
+        return f"easing_{int(div)}"
+    return f"easing_{div:.4f}"
+
 
 KEY = "linear_ramp__0_to_80x_cap__work_half_target"
 DUR_MS = 20000
-NUM_COLS = len(EASING_RUNS)
 NUM_ROWS = 7  # grant rate, issued/shed Hz, queue depth, codel state, interval, cumulative unfilled, latency
+
+
+def run_benchmarks(bench_go_path: str, filter_label: str):
+    """Run all easing divisor benchmarks in parallel."""
+    procs = []
+    for div in DIVISORS:
+        out_dir = str(EASING_BASE / divisor_dirname(div))
+        os.makedirs(out_dir, exist_ok=True)
+        cmd = [
+            "go", "run", bench_go_path,
+            "-easing", str(div),
+            "-filter", filter_label,
+            "-out", out_dir,
+        ]
+        print(f"  Starting easing={divisor_label(div)} ...")
+        procs.append((div, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)))
+
+    for div, proc in procs:
+        stdout, _ = proc.communicate()
+        status = "OK" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"
+        print(f"  easing={divisor_label(div)}: {status}")
+        if proc.returncode != 0:
+            print(stdout.decode(), file=sys.stderr)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Plot easing divisor comparison.")
+    parser.add_argument("--run", action="store_true",
+                        help="Run Go bench suite for all divisors in parallel before plotting")
+    parser.add_argument("--bench-go", type=str,
+                        default=str(Path(__file__).parent.parent / "snakeserver" / "bench_suite.go"),
+                        help="Path to bench_suite.go with -easing flag")
+    parser.add_argument("--filter", type=str, default=KEY,
+                        help="Only run tests whose label contains this substring")
+    return parser.parse_args()
+
+
+args = parse_args()
+
+if args.run:
+    print(f"Running {len(DIVISORS)} easing benchmarks in parallel...")
+    run_benchmarks(args.bench_go, args.filter)
+    print()
+
+BASE_BRANCH_RUN = str(Path.home() / "snake-load-test-charts/tsv/2026-06-18/2026-06-18_11-26-05")
+EASING_RUNS = [
+    (None, BASE_BRANCH_RUN),  # base branch, no easing machinery at all
+] + [(div, str(EASING_BASE / divisor_dirname(div))) for div in DIVISORS]
+NUM_COLS = len(EASING_RUNS)
 
 
 def compute_hz_series(df, event_type, bin_ms, max_ts):
@@ -68,8 +140,7 @@ def compute_latency_percentiles(df, bin_ms, max_ts):
     return centers, p50, p95, p99
 
 
-fig, axes = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(30, 22), squeeze=False,
-                         sharey='row')
+fig, axes = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(45, 22), squeeze=False)
 fig.suptitle(
     "CoDel Easing Divisor Comparison — Linear Ramp 0→80× capacity, work=2ms\n"
     "capacity=10, target=5ms, interval=100ms, exponent=1",
@@ -77,9 +148,13 @@ fig.suptitle(
 )
 
 for col_idx, (divisor, run_dir) in enumerate(EASING_RUNS):
-    tsv_dir = Path(run_dir)
+    # Base branch data is directly in the dir; easing runs use tsv/ subdir.
+    tsv_dir = Path(run_dir) / "tsv" if divisor is not None else Path(run_dir)
+    if not tsv_dir.exists():
+        tsv_dir = Path(run_dir)
     events_file = tsv_dir / f"{KEY}.tsv"
     stats_file = tsv_dir / f"{KEY}_stats.tsv"
+    col_label = "base branch\n(no easing)" if divisor is None else f"divisor = {divisor_label(divisor)}"
 
     if not events_file.exists():
         for row in range(NUM_ROWS):
@@ -104,14 +179,14 @@ for col_idx, (divisor, run_dir) in enumerate(EASING_RUNS):
     ax = axes[0][col_idx]
     ax.plot(t_granted, hz_granted, color="green", linewidth=1.3)
     ax.fill_between(t_granted, hz_granted, alpha=0.15, color="green")
-    ax.set_title(f"easing divisor = {divisor}", fontsize=11, fontweight="bold")
+    ax.set_title(col_label, fontsize=11, fontweight="bold")
     ax.set_xlim(0, xlim)
     ax.yaxis.set_major_locator(mticker.MaxNLocator(5))
     ax.grid(True, alpha=0.3)
     ax.ticklabel_format(useOffset=False, style='plain', axis='y')
     if col_idx == 0:
         ax.set_ylabel("Hz")
-        ax.set_title("Grant Rate\n" + f"easing divisor = {divisor}", fontsize=10, fontweight="bold")
+        ax.set_title("Grant Rate\n" + col_label, fontsize=10, fontweight="bold")
 
     # Row 1: Hz chart (issued + shed)
     ax = axes[1][col_idx]

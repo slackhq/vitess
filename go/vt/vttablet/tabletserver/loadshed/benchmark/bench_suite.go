@@ -55,6 +55,7 @@ func runTest(cfg testConfig) ([]event, []statsSnapshot) {
 			IntervalNs:     func() int64 { return int64(intervalMs) * 1_000_000 },
 			MinDropDelayNs: func() int64 { return 1_000_000 },
 			Exponent:       func() float64 { return exponent },
+			EasingDivisor:  func() float64 { return 1.2 },
 		},
 		Capacity:            func() int { return capacity },
 		MaxAge:              func() time.Duration { return 30 * time.Second },

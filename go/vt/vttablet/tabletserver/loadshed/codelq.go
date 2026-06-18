@@ -58,8 +58,9 @@ import (
         | * timer: not armed        |
         *---------------------------*
                       |  ^
-    timer fires w/    |  |  timer fires w/ droppableLen==0
-    droppableLen > 0  |  |  and count halved to 1
+    timer fires w/    |  |  easing timer fires, healthy,
+    droppableLen > 0  |  |  count halved to 1
+    (standard entry)  |  |
                       v  |
         *---------------------------*
         | easing                    |       gradually relaxing
@@ -69,9 +70,9 @@ import (
         *---------------------------*
               |  ^            ^
     timer     |  |            | lockedComplete() w/ sojourn < target
-    fires w/  |  |            | (sets dropping=false, timer stays armed)
-    droppable |  | timer fires w/
-    Len > 0   |  | droppableLen==0
+    fires,    |  |            | (sets dropping=false, sets sawHealthy)
+    NOT       |  | timer fires,
+    healthy   |  | healthy (sawHealthy OR droppableLen==0)
               v  |
         *---------------------------*
         | dropping                  |       actively shedding
@@ -79,6 +80,11 @@ import (
         | * count: >= 1 (growing)   |
         | * timer: armed            |
         *---------------------------*
+
+    Health condition (checked each easing timer fire):
+      healthy = sawHealthy OR droppableLen==0
+      sawHealthy is set by lockedComplete() when sojourn < target,
+      cleared each timer fire.
 
     Timer lifecycle
     ===============
@@ -88,7 +94,7 @@ import (
       *-------------*  <---|   easing: after each count halving (longer intervals)
                ^  |
                |  |
- droppableLen  |  | droppableLen==0 AND count==1
+ droppableLen  |  | easing, healthy, count==1
  goes 0 → 1   |  | (fully relaxed, nothing to do)
  during        |  |
  enqueue()     |  v
@@ -98,16 +104,17 @@ import (
 
     The timer fires (lockedRunTimer) and branches on state:
 
-      droppableLen==0:
-        set dropping=false, halve count.
+      dropping=true:
+        drop loop: while droppableLen>0 && now>=dropNextNs, drop+count++.
+        re-arm if droppableLen > 0.
+
+      dropping=false (easing), healthy:
+        halve count by EasingDivisor.
         if count > 1: re-arm (easing continues)
         if count == 1: stop (→ idle)
 
-      droppableLen > 0, dropping=false (mid-ease-out, new load arrived):
-        re-enter dropping with current count, then drop.
-
-      droppableLen > 0, dropping=true:
-        drop lowest-priority entry, increment count, re-arm.
+      dropping=false (easing), NOT healthy:
+        re-enter dropping at current count, then drop.
 */
 
 type (
@@ -137,6 +144,7 @@ type (
 		lastCount       int
 		droppableLen    int
 		lastDropsPerRun int
+		sawHealthy      bool
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -198,6 +206,7 @@ func (q *CoDelQueue) lockedComplete(r *Request) {
 	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
+		q.sawHealthy = true
 	}
 }
 
@@ -333,16 +342,31 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 // for each drop; it should remove the request from the queue and handle any
 // promotion.
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
-	if q.droppableLen == 0 {
-		// Nothing to drop — transition to easing if we were dropping,
-		// or continue easing if already in that phase.
-		q.dropping = false
-		if q.count > 1 {
-			divisor := 2.0
-			if q.cfg.EasingDivisor != nil {
-				divisor = q.cfg.EasingDivisor()
+	// Dropping: actively shed load.
+	if q.dropping {
+		now := q.nowNs()
+
+		loopCount := 0
+		for q.droppableLen > 0 && now >= q.dropNextNs {
+			loopCount++
+			if !dropFn() {
+				break
 			}
-			q.count = max(int(float64(q.count)/divisor), 1)
+			q.count++
+			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
+		}
+		q.lastDropsPerRun = loopCount
+
+		if q.droppableLen > 0 {
+			q.lockedArmDropTimer()
+			return
+		}
+
+		// Queue drained — transition to easing.
+		q.dropping = false
+		q.sawHealthy = true
+		if q.count > 1 {
+			q.count = max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
 			if q.count > 1 {
 				q.dropNextNs = q.lockedControlLaw(q.nowNs())
 				q.lockedArmDropTimer()
@@ -351,10 +375,27 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 		return
 	}
 
-	// Easing phase with droppable entries: re-enter dropping using current count.
-	if !q.dropping {
-		q.lockedEnterDroppingState()
+	// Easing: check if health was observed since last timer fire.
+	// Health means either (a) a completion had sojourn < target, or
+	// (b) droppableLen is 0 (nothing waiting = healthy).
+	healthy := q.sawHealthy || q.droppableLen == 0
+	q.sawHealthy = false
+
+	if healthy {
+		// System is healthy this interval — continue easing down.
+		if q.count > 1 {
+			q.count = max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
+		}
+		if q.count > 1 {
+			q.dropNextNs = q.lockedControlLaw(q.nowNs())
+			q.lockedArmDropTimer()
+		}
+		// count == 1: fully relaxed, timer not re-armed → idle.
+		return
 	}
+
+	// Unhealthy during easing: re-enter dropping at current count.
+	q.lockedEnterDroppingState()
 
 	now := q.nowNs()
 

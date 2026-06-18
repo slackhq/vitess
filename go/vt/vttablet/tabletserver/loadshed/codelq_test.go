@@ -386,7 +386,6 @@ func TestCoDelQueue_CurrentInterval_Dropping(t *testing.T) {
 	interval := q.lockedCurrentInterval()
 	assert.Equal(t, int64(250_000_000), interval)
 }
-
 func TestCoDelQueue_EnterDroppingState_Fresh(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
@@ -622,6 +621,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 		TargetNs:       func() int64 { return 5_000_000 },
 		Exponent:       func() float64 { return 1.0 },
 		MinDropDelayNs: func() int64 { return 100 },
+		EasingDivisor:  func() float64 { return 2.0 },
 	}
 	q, _ := newTestQueue(cfg, clock)
 
@@ -648,6 +648,7 @@ func TestCoDelQueue_Complete_TransitionsToEasing(t *testing.T) {
 		TargetNs:       func() int64 { return 500_000 },
 		Exponent:       func() float64 { return 1.0 },
 		MinDropDelayNs: func() int64 { return 100 },
+		EasingDivisor:  func() float64 { return 2.0 },
 	}
 	q, _ := newTestQueue(cfg, clock)
 
@@ -846,6 +847,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 		TargetNs:       func() int64 { return 5_000_000 },
 		Exponent:       func() float64 { return 1.0 },
 		MinDropDelayNs: func() int64 { return 100 },
+		EasingDivisor:  func() float64 { return 2.0 },
 	}
 	q, _ := newTestQueue(cfg, clock)
 

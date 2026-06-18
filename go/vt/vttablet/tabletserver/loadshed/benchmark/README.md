@@ -37,15 +37,24 @@ Output PNG goes to `~/snake-load-test-charts/`.
 
 ## Easing comparison
 
-To compare multiple exponent values side-by-side:
+Compares CoDel ease-out behavior across divisor values (how aggressively count
+decays when the queue drains). Runs all 6 divisors in parallel, then plots:
 
 ```bash
-for exp in 0.25 0.5 0.75 1.0 1.5 2.0; do
-  go run bench_suite.go --exponent $exp --out ~/snake-load-test-charts/tsv/easing-comparison/easing_${exp}
-done
+python3 plot_easing_comparison.py --run
+```
 
+Or plot from existing TSVs without re-running benchmarks:
+
+```bash
 python3 plot_easing_comparison.py
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--run` | off | Run Go bench suite for all divisors in parallel before plotting |
+| `--bench-go` | `../snakeserver/bench_suite.go` | Path to bench_suite.go with `-easing` flag |
+| `--filter` | `linear_ramp__0_to_80x_cap__work_half_target` | Only run tests matching this label |
 
 ## Flags
 
