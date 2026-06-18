@@ -177,6 +177,9 @@ type testConfig struct {
 
 func main() {
 	outDir := flag.String("out", "", "Output directory for TSVs (default: ~/snake-load-test-charts/tsv/<date>/<timestamp>/)")
+	exponent := flag.Float64("exponent", 1.0, "CoDel exponent (production default: 1.0)")
+	targetMs := flag.Int("target-ms", 5, "CoDel target in ms (production default: 5)")
+	intervalMs := flag.Int("interval-ms", 100, "CoDel interval in ms (production default: 100)")
 	flag.Parse()
 
 	if *outDir == "" {
@@ -195,9 +198,9 @@ func main() {
 			peakArrivalRateMultiplier: 80,
 			durationMs:                20000,
 			workMs:                    2,
-			targetMs:                  5,
-			intervalMs:                100,
-			exponent:                  0.5,
+			targetMs:                  *targetMs,
+			intervalMs:                *intervalMs,
+			exponent:                  *exponent,
 			profile:                   linearRamp,
 		},
 	}
