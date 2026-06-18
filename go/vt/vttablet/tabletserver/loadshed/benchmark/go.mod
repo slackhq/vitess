@@ -1,4 +1,4 @@
-module snakeserver
+module benchmark
 
 go 1.24.13
 

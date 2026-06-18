@@ -111,7 +111,7 @@ def plot_stats_panels(axes_row, stats_df, duration_ms):
 
     # Panel 3: Current interval (the control law output)
     ax = axes_row[2]
-    interval_ms = stats_df["current_interval_ns"].values / 1_000_000  # ns → ms
+    interval_ms = stats_df["current_interval_ns"].values / 1_000_000  # ns -> ms
     ax.plot(t, interval_ms, color="darkblue", linewidth=1)
     ax.set_ylabel("interval (ms)")
     ax.set_title("CoDel Current Interval", fontsize=9)
@@ -191,7 +191,7 @@ for work in work_order:
                 period_ms = {"2x_interval": "200ms", "10x_interval": "1000ms", "20x_interval": "2000ms"}[period]
                 ax.set_title(f"period={period_ms}", fontsize=10)
             if col_idx == 0:
-                peak_val = {"20x_cap": "20×", "100x_cap": "100×", "300x_cap": "300×"}[peak]
+                peak_val = {"20x_cap": "20x", "100x_cap": "100x", "300x_cap": "300x"}[peak]
                 ax.set_ylabel(f"peak={peak_val}\ngranted/shed Hz", fontsize=9)
             if row_idx == len(peak_order) - 1:
                 ax.set_xlabel("time (s)")
@@ -205,13 +205,13 @@ for work in work_order:
     print(f"Saved: {out_path}")
 
 # --- Constant + Linear Ramp: with CoDel internals ---
-# Layout: 4 rows × 2 cols per profile+work combo
+# Layout: 4 rows x 2 cols per profile+work combo
 # Row 1: Hz chart, Row 2-4: queue depth, dropping state, interval
 # Two figures: one per profile, each with 2 work durations stacked
 
 profile_configs = [
-    ("constant__5x_cap", "Constant 5× capacity", 20000),
-    ("linear_ramp__0_to_80x_cap", "Linear ramp 0→80× capacity", 20000),
+    ("constant__5x_cap", "Constant 5x capacity", 20000),
+    ("linear_ramp__0_to_80x_cap", "Linear ramp 0->80x capacity", 20000),
 ]
 
 for prefix, title, dur_ms in profile_configs:
