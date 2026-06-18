@@ -9,36 +9,46 @@ scripts.
 ```bash
 cd go/vt/vttablet/tabletserver/loadshed/benchmark
 
-# With production defaults (exponent=1.0, target=5ms, interval=100ms):
+# With defaults:
 go run bench_suite.go
 
-# Override CoDel parameters:
-go run bench_suite.go --exponent 0.5 --target-ms 10 --interval-ms 200
+# Override easing divisor:
+go run bench_suite.go -easing 1.2
 
-# Custom output directory:
-go run bench_suite.go --out /tmp/my-run
+# Only run linear ramp tests:
+go run bench_suite.go -filter linear_ramp
+
+# Custom output directory + parallelism:
+go run bench_suite.go -out /tmp/my-run -j 4
 ```
 
-Output lands in `~/snake-load-test-charts/tsv/<date>/<timestamp>/` by default.
+Output lands in `~/snake-load-test-charts/<timestamp>/tsv/` by default.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-out` | auto | Output directory for TSVs |
+| `-j` | 8 | Max parallel benchmarks |
+| `-filter` | (none) | Only run tests whose label contains this substring |
+| `-easing` | 2.0 | Easing divisor for CoDel count decay |
 
 ## Plotting
 
-Requires Python 3 with matplotlib and pandas:
+Requires Python 3 with matplotlib, pandas, and numpy:
 
 ```bash
-# Plot the most recent run:
-python3 plot_linear_ramp.py
+# Plot the full suite (sine, constant, linear ramp with CoDel internals):
+python3 plot_suite.py ~/snake-load-test-charts/<timestamp>
 
-# Plot a specific run:
-python3 plot_linear_ramp.py ~/snake-load-test-charts/tsv/2026-06-17/2026-06-17_14-30-00/
+# Plot a linear ramp run:
+python3 plot_linear_ramp.py ~/snake-load-test-charts/<timestamp>/tsv/
 ```
-
-Output PNG goes to `~/snake-load-test-charts/`.
 
 ## Easing comparison
 
 Compares CoDel ease-out behavior across divisor values (how aggressively count
-decays when the queue drains). Runs all 6 divisors in parallel, then plots:
+decays when the queue drains). Runs all divisors in parallel, then plots:
 
 ```bash
 python3 plot_easing_comparison.py --run
@@ -53,17 +63,5 @@ python3 plot_easing_comparison.py
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--run` | off | Run Go bench suite for all divisors in parallel before plotting |
-| `--bench-go` | `../snakeserver/bench_suite.go` | Path to bench_suite.go with `-easing` flag |
+| `--bench-go` | `bench_suite.go` | Path to bench_suite.go |
 | `--filter` | `linear_ramp__0_to_80x_cap__work_half_target` | Only run tests matching this label |
-
-## Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--out` | auto | Output directory for TSVs |
-| `--exponent` | 1.0 | CoDel control law exponent |
-| `--target-ms` | 5 | CoDel target delay (ms) |
-| `--interval-ms` | 100 | CoDel observation interval (ms) |
-
-Defaults match production vttablet values (`--loadshed-exponent`, `--loadshed-target`,
-`--loadshed-interval`). Override to experiment with alternative tuning.
