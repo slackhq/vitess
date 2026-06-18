@@ -16,9 +16,12 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
+var easingDiv *float64
+
 type event struct {
-	tsMs int64
-	kind string // "issued", "granted", "shed"
+	tsMs      int64
+	kind      string // "issued", "granted", "shed"
+	latencyMs float64
 }
 
 type statsSnapshot struct {
@@ -64,7 +67,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			IntervalNs:     func() int64 { return int64(intervalMs) * 1_000_000 },
 			MinDropDelayNs: func() int64 { return 1_000_000 },
 			Exponent:       func() float64 { return 1 },
-			EasingDivisor:  func() float64 { return 4.0 },
+			EasingDivisor:  func() float64 { return *easingDiv },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -78,10 +81,10 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	var mu sync.Mutex
 	var events []event
 
-	record := func(kind string) {
+	record := func(kind string, latencyMs float64) {
 		ts := time.Since(start).Milliseconds()
 		mu.Lock()
-		events = append(events, event{tsMs: ts, kind: kind})
+		events = append(events, event{tsMs: ts, kind: kind, latencyMs: latencyMs})
 		mu.Unlock()
 	}
 
@@ -148,16 +151,18 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 				go func() {
 					defer wg.Done()
 
-					record("issued")
+					reqStart := time.Now()
+					record("issued", 0)
 
 					unlock, err := snake.Acquire(ctx, "")
 					if err != nil {
-						record("shed")
+						record("shed", 0)
 						return
 					}
 					time.Sleep(workDur)
 					unlock.Release()
-					record("granted")
+					latency := float64(time.Since(reqStart).Microseconds()) / 1000.0
+					record("granted", latency)
 				}()
 			}
 		}
@@ -192,6 +197,7 @@ func main() {
 	outDir := flag.String("out", "", "Output directory (default: timestamped under ~/claude-context-store/snake-load-test-charts/)")
 	parallel := flag.Int("j", 8, "Max parallel benchmarks")
 	filter := flag.String("filter", "", "Only run tests whose label contains this substring")
+	easingDiv = flag.Float64("easing", 2.0, "Easing divisor for CoDel count decay")
 	flag.Parse()
 
 	if *outDir == "" {
@@ -342,9 +348,9 @@ func main() {
 		}
 		csvW := csv.NewWriter(f)
 		csvW.Comma = '\t'
-		csvW.Write([]string{"ts_ms", "event"})
+		csvW.Write([]string{"ts_ms", "event", "latency_ms"})
 		for _, ev := range r.events {
-			csvW.Write([]string{fmt.Sprintf("%d", ev.tsMs), ev.kind})
+			csvW.Write([]string{fmt.Sprintf("%d", ev.tsMs), ev.kind, fmt.Sprintf("%.3f", ev.latencyMs)})
 		}
 		csvW.Flush()
 		f.Close()
