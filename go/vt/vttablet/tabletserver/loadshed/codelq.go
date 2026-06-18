@@ -370,8 +370,8 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 	}
 	exp := q.cfg.Exponent()
 	result := int64(float64(interval) / math.Pow(float64(q.count), exp))
-	// Floor to avoid extreme cases and floating point precision issues.
-	return max(result, 100)
+	// Floor of 1ns ensures lockedControlLaw always makes forward progress.
+	return max(result, 1)
 }
 
 func (q *CoDelQueue) lockedArmDropTimer() {
