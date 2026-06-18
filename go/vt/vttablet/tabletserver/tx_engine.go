@@ -123,6 +123,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 				IntervalNs:     func() int64 { return config.SnakeInterval.Nanoseconds() },
 				Exponent:       func() float64 { return 1.0 },
 				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
+				EasingDivisor:  func() float64 { return 1.2 },
 			},
 			Capacity:            func() int { return config.TxPool.Size },
 			LoadsheddingAllowed: func() bool { return true },

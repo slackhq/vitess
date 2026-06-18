@@ -157,6 +157,7 @@ func TestCoDelQueue_DropDelay_Decreasing(t *testing.T) {
 		TargetNs:       func() int64 { return 1 },             // 1ns
 		MinDropDelayNs: func() int64 { return 100 },
 		Exponent:       func() float64 { return 1.0 },
+		EasingDivisor:  func() float64 { return 2.0 },
 	}
 	q, _ := newTestQueue(cfg, clock)
 
@@ -262,6 +263,7 @@ func TestCoDelQueue_SuccessiveDrops_IncrementCount(t *testing.T) {
 		TargetNs:       func() int64 { return 100_000 },   // 0.1ms
 		MinDropDelayNs: func() int64 { return 100 },
 		Exponent:       func() float64 { return 1.0 },
+		EasingDivisor:  func() float64 { return 2.0 },
 	}
 	q, _ := newTestQueue(cfg, clock)
 
