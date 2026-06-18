@@ -212,8 +212,8 @@ for col_idx in range(NUM_COLS):
     axes[NUM_ROWS - 1][col_idx].set_xlabel("time (s)")
 
 plt.tight_layout(rect=[0, 0, 1, 0.96])
-date_prefix = datetime.now().strftime("%Y-%m-%d")
-out_path = str(BASE / f"{date_prefix}_easing_divisor_comparison.png")
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+out_path = str(BASE / f"{timestamp}_easing_divisor_comparison.png")
 plt.savefig(out_path, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"Saved: {out_path}")

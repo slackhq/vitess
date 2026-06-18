@@ -48,7 +48,7 @@ CAPACITY = 10
 WORK_MS = 2
 TARGET_MS = 5
 INTERVAL_MS = 100
-EXPONENT = 0.5
+EXPONENT = 1.0
 PEAK_MULT = 80
 
 
@@ -229,8 +229,8 @@ ax.legend(fontsize=7, loc="upper left")
 
 plt.tight_layout(rect=[0, 0, 1, 0.97])
 
-date_prefix = datetime.now().strftime("%Y-%m-%d")
-out_path = str(BASE / f"{date_prefix}_snake22_linear_ramp.png")
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+out_path = str(BASE / f"{timestamp}_snake22_linear_ramp.png")
 plt.savefig(out_path, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"Saved: {out_path}")
