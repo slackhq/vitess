@@ -41,6 +41,14 @@ type query struct {
 
 var _ queryservicepb.QueryServer = (*query)(nil)
 
+// consolidatedResponseLimiter is optionally implemented by the underlying query
+// service to pace serialization of consolidated query responses under a global
+// soft memory budget. Implementations that don't provide it (fakes, sandboxconn)
+// simply skip the gate.
+type consolidatedResponseLimiter interface {
+	AcquireConsolidatedResponseMemory(ctx context.Context, size int64) func()
+}
+
 // Execute is part of the queryservice.QueryServer interface
 func (q *query) Execute(ctx context.Context, request *querypb.ExecuteRequest) (response *querypb.ExecuteResponse, err error) {
 	defer q.server.HandlePanic(&err)
@@ -51,6 +59,21 @@ func (q *query) Execute(ctx context.Context, request *querypb.ExecuteRequest) (r
 	result, err := q.server.Execute(ctx, nil, request.Target, request.Query.Sql, request.Query.BindVariables, request.TransactionId, request.ReservedId, request.Options)
 	if err != nil {
 		return nil, vterrors.ToGRPC(err)
+	}
+	// Pace the simultaneous fan-out of consolidated responses under the global
+	// soft memory budget. Reserve before building the proto so the per-waiter copy
+	// is also covered: 2x the data when proto3 rows aren't cached (proto copy plus
+	// wire buffer), 1x when they are. The budget is released once the RPC context
+	// is cancelled, which gRPC does right after the response is sent.
+	if result.FromConsolidator() {
+		if limiter, ok := q.server.(consolidatedResponseLimiter); ok {
+			weight := result.ResponseBytesEstimate()
+			if !result.HasProto3Rows() {
+				weight *= 2
+			}
+			release := limiter.AcquireConsolidatedResponseMemory(ctx, weight)
+			context.AfterFunc(ctx, release)
+		}
 	}
 	return &querypb.ExecuteResponse{
 		Result: sqltypes.ResultToProto3(result),

@@ -762,8 +762,15 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 			} else {
 				defer conn.Recycle()
 				res, err := qre.execDBConn(conn.Conn, sql, true)
-				if qre.tsv.config.ConsolidatorCacheProto3Rows && q.HasWaiters() {
-					res.CacheProto3Rows()
+				if q.HasWaiters() {
+					if qre.tsv.config.ConsolidatorCacheProto3Rows {
+						res.CacheProto3Rows()
+					}
+					// When a global response-memory budget is configured, mark
+					// the shared result so its fan-out serialization is paced.
+					if qre.tsv.config.ConsolidatorQueryTotalSize > 0 && res != nil {
+						res.SetFromConsolidator()
+					}
 				}
 				q.SetResult(res)
 				q.SetErr(err)

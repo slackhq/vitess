@@ -39,9 +39,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"vitess.io/vitess/go/mysql/fakesqldb"
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/streamlog"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/tableacl"
@@ -894,4 +896,200 @@ func TestPlanPoolUnsafe(t *testing.T) {
 			require.EqualError(t, err, tcase.err)
 		})
 	}
+}
+
+func TestAcquireConsolidatedResponseMemoryDisabled(t *testing.T) {
+	// With no limit configured, the gate must be a no-op and never block.
+	qe := &QueryEngine{}
+	release := qe.AcquireConsolidatedResponseMemory(context.Background(), 1<<30)
+	require.NotNil(t, release)
+	release()
+}
+
+func TestAcquireConsolidatedResponseMemoryBlocks(t *testing.T) {
+	const limit = 100
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	release1 := qe.AcquireConsolidatedResponseMemory(context.Background(), limit)
+
+	acquired := make(chan struct{})
+	go func() {
+		release2 := qe.AcquireConsolidatedResponseMemory(context.Background(), limit)
+		close(acquired)
+		release2()
+	}()
+
+	// The second acquisition must block while the budget is fully held.
+	select {
+	case <-acquired:
+		assert.Fail(t, "second acquisition should have blocked while budget was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Releasing the first unblocks the second.
+	release1()
+	assert.Eventually(t, func() bool {
+		select {
+		case <-acquired:
+			return true
+		default:
+			return false
+		}
+	}, 30*time.Second, 5*time.Millisecond)
+
+	// The blocked acquisition was counted as a wait.
+	assert.GreaterOrEqual(t, qe.consolidatorResponseMemWaits.Get(), int64(1))
+}
+
+func TestAcquireConsolidatedResponseMemoryOversizedClamps(t *testing.T) {
+	const limit = 100
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	// A result larger than the whole budget must still proceed (clamped),
+	// rather than deadlock.
+	release := qe.AcquireConsolidatedResponseMemory(context.Background(), limit*10)
+	require.NotNil(t, release)
+
+	// While the oversized response holds the clamped full budget, another
+	// acquisition blocks.
+	acquired := make(chan struct{})
+	go func() {
+		r := qe.AcquireConsolidatedResponseMemory(context.Background(), 1)
+		close(acquired)
+		r()
+	}()
+	select {
+	case <-acquired:
+		assert.Fail(t, "acquisition should have blocked while oversized response held the budget")
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+	assert.Eventually(t, func() bool {
+		select {
+		case <-acquired:
+			return true
+		default:
+			return false
+		}
+	}, 30*time.Second, 5*time.Millisecond)
+}
+
+func TestAcquireConsolidatedResponseMemoryNoLeak(t *testing.T) {
+	const limit = 1000
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			release := qe.AcquireConsolidatedResponseMemory(context.Background(), 50)
+			release()
+		}()
+	}
+	wg.Wait()
+
+	// After all acquisitions drained, the full budget must be available again.
+	assert.True(t, qe.consolidatorResponseMem.TryAcquire(limit), "budget leaked: full capacity not available after drain")
+	assert.Equal(t, int64(0), qe.consolidatorResponseMemInUse.Load(), "in-use gauge leaked")
+}
+
+func TestAcquireConsolidatedResponseMemoryReleaseIdempotent(t *testing.T) {
+	const limit = 100
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	release := qe.AcquireConsolidatedResponseMemory(context.Background(), 40)
+	assert.Equal(t, int64(40), qe.consolidatorResponseMemInUse.Load())
+
+	// Calling release multiple times must release exactly once (no over-release
+	// panic from the underlying semaphore, in-use returns to 0 not negative).
+	release()
+	release()
+	release()
+	assert.Equal(t, int64(0), qe.consolidatorResponseMemInUse.Load())
+	// Full budget is available, proving we released exactly 40 (not 120).
+	assert.True(t, qe.consolidatorResponseMem.TryAcquire(limit))
+}
+
+func TestAcquireConsolidatedResponseMemoryLargeNotStarved(t *testing.T) {
+	// Documents the verified x/sync/semaphore fairness: once a large waiter is
+	// queued, later small requests queue behind it (the fast path requires an
+	// empty waiter list), so the large request is not starved.
+	const limit = 10
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	// A holds 1 of 10.
+	releaseA := qe.AcquireConsolidatedResponseMemory(context.Background(), 1)
+
+	// B wants the full 10 → must wait (9 free < 10), enqueues as the sole waiter.
+	// B holds the budget until released via bRelease so we can observe C blocked.
+	bAcquired := make(chan struct{})
+	bRelease := make(chan struct{})
+	go func() {
+		r := qe.AcquireConsolidatedResponseMemory(context.Background(), limit)
+		close(bAcquired)
+		<-bRelease
+		r()
+	}()
+	// Give B time to enqueue before C arrives.
+	assert.Eventually(t, func() bool {
+		return qe.consolidatorResponseMemWaits.Get() >= 1
+	}, 30*time.Second, time.Millisecond)
+
+	// C wants only 1; 9 are free, but B is queued ahead, so C must NOT jump in.
+	cAcquired := make(chan struct{})
+	go func() {
+		r := qe.AcquireConsolidatedResponseMemory(context.Background(), 1)
+		close(cAcquired)
+		r()
+	}()
+
+	// Release A: B becomes satisfiable (10 free >= 10) and acquires; C stays
+	// blocked behind it because B holds the entire budget.
+	releaseA()
+	assert.Eventually(t, func() bool {
+		select {
+		case <-bAcquired:
+			return true
+		default:
+			return false
+		}
+	}, 30*time.Second, time.Millisecond)
+	// While B holds the full budget, C cannot have acquired (no tokens free) —
+	// and, crucially, C never jumped ahead of B while A's token was free.
+	select {
+	case <-cAcquired:
+		assert.Fail(t, "C should not acquire before B; large request must not be starved")
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Once B releases, C proceeds.
+	close(bRelease)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-cAcquired:
+			return true
+		default:
+			return false
+		}
+	}, 30*time.Second, time.Millisecond)
 }

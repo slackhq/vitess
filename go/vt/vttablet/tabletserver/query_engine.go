@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/cache/theine"
 	"vitess.io/vitess/go/mysql/sqlerror"
@@ -166,6 +168,12 @@ type QueryEngine struct {
 	// Services
 	consolidator       sync2.Consolidator
 	streamConsolidator *StreamConsolidator
+	// consolidatorResponseMem is a global soft byte budget that paces the
+	// serialization of consolidated (non-streaming) query responses. It is nil
+	// when consolidator-query-total-size is 0 (unlimited).
+	consolidatorResponseMem      *semaphore.Weighted
+	consolidatorResponseMemLimit int64
+	consolidatorResponseMemInUse atomic.Int64
 	// txSerializer protects vttablet from applications which try to concurrently
 	// UPDATE (or DELETE) a "hot" row (or range of rows).
 	// Such queries would be serialized by MySQL anyway. This serializer prevents
@@ -193,6 +201,7 @@ type QueryEngine struct {
 	// Note: queryErrorCountsWithCode is similar to queryErrorCounts except it contains error code as an additional dimension
 	queryCounts, queryCountsWithTabletType, queryTimes, queryErrorCounts, queryErrorCountsWithCode, queryRowsAffected, queryRowsReturned, queryTextCharsProcessed *stats.CountersWithMultiLabels
 	queryEnginePlanCacheHits, queryEnginePlanCacheMisses                                                                                                          *stats.CounterFunc
+	consolidatorResponseMemWaits                                                                                                                                  *stats.Counter
 
 	// stats flags
 	enablePerWorkloadTableMetrics bool
@@ -236,6 +245,10 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	qe.streamConns = connpool.NewPool(env, "StreamConnPool", config.OlapReadPool)
 	qe.consolidatorMode.Store(config.Consolidator)
 	qe.consolidator = sync2.NewConsolidator()
+	if config.ConsolidatorQueryTotalSize > 0 {
+		qe.consolidatorResponseMemLimit = config.ConsolidatorQueryTotalSize
+		qe.consolidatorResponseMem = semaphore.NewWeighted(config.ConsolidatorQueryTotalSize)
+	}
 	if config.ConsolidatorStreamTotalSize > 0 && config.ConsolidatorStreamQuerySize > 0 {
 		log.Info(fmt.Sprintf("Stream consolidator is enabled with query size set to %d and total size set to %d.", config.ConsolidatorStreamQuerySize, config.ConsolidatorStreamTotalSize))
 		qe.streamConsolidator = NewStreamConsolidator(config.ConsolidatorStreamTotalSize, config.ConsolidatorStreamQuerySize, returnStreamResult)
@@ -273,6 +286,11 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	env.Exporter().NewGaugeFunc("MaxResultSize", "Query engine max result size", qe.maxResultSize.Load)
 	env.Exporter().NewGaugeFunc("WarnResultSize", "Query engine warn result size", qe.warnResultSize.Load)
 	env.Exporter().NewGaugeFunc("StreamBufferSize", "Query engine stream buffer size", qe.streamBufferSize.Load)
+	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryLimit", "Soft byte limit on in-flight consolidated query responses (0 = unlimited)", func() int64 {
+		return qe.consolidatorResponseMemLimit
+	})
+	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryInUse", "Bytes currently reserved for in-flight consolidated query responses", qe.consolidatorResponseMemInUse.Load)
+	qe.consolidatorResponseMemWaits = env.Exporter().NewCounter("ConsolidatorQueryResponseMemoryWaits", "Number of consolidated query responses that blocked on the response memory budget")
 	env.Exporter().NewCounterFunc("TableACLExemptCount", "Query engine table ACL exempt count", qe.tableaclExemptCount.Load)
 
 	env.Exporter().NewGaugeFunc("QueryEnginePlanCacheLength", "Query engine query plan cache length", func() int64 {
@@ -321,6 +339,39 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	env.Exporter().HandleFunc("/debug/acl", qe.handleHTTPAclJSON)
 
 	return qe
+}
+
+// AcquireConsolidatedResponseMemory blocks until size bytes are available in the
+// consolidated-response budget, pacing the fan-out of large shared results, and
+// returns a release func to call once serialization completes. The weight is
+// clamped to the total budget so an oversized result still proceeds alone instead
+// of deadlocking. It is a soft limit: acquire and release are no-ops when the
+// limit is disabled or the context is cancelled, and it never fails a query.
+func (qe *QueryEngine) AcquireConsolidatedResponseMemory(ctx context.Context, size int64) func() {
+	if qe.consolidatorResponseMem == nil {
+		return func() {}
+	}
+	w := min(size, qe.consolidatorResponseMemLimit)
+	if w <= 0 {
+		return func() {}
+	}
+	if !qe.consolidatorResponseMem.TryAcquire(w) {
+		qe.consolidatorResponseMemWaits.Add(1)
+		if err := qe.consolidatorResponseMem.Acquire(ctx, w); err != nil {
+			// Context cancelled before we could acquire; proceed without
+			// throttling rather than failing the query.
+			return func() {}
+		}
+	}
+	qe.consolidatorResponseMemInUse.Add(w)
+	// Guard against a double-release over-releasing the semaphore.
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			qe.consolidatorResponseMemInUse.Add(-w)
+			qe.consolidatorResponseMem.Release(w)
+		})
+	}
 }
 
 // Open must be called before sending requests to QueryEngine.

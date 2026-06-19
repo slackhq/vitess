@@ -206,6 +206,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.Int64Var(&currentConfig.ConsolidatorStreamTotalSize, "consolidator-stream-total-size", defaultConfig.ConsolidatorStreamTotalSize, "Configure the stream consolidator total size in bytes. Setting to 0 disables the stream consolidator.")
 
 	fs.Int64Var(&currentConfig.ConsolidatorQueryWaiterCap, "consolidator-query-waiter-cap", 0, "Configure the maximum number of clients allowed to wait on the consolidator.")
+	fs.Int64Var(&currentConfig.ConsolidatorQueryTotalSize, "consolidator-query-total-size", defaultConfig.ConsolidatorQueryTotalSize, "Soft global limit, in bytes, on in-flight consolidated (non-streaming) query responses being serialized. 0 = unlimited.")
 	fs.BoolVar(&currentConfig.ConsolidatorCacheProto3Rows, "consolidator-cache-proto3-rows", defaultConfig.ConsolidatorCacheProto3Rows, "If true, the consolidation leader pre-caches proto3-encoded rows so that waiters avoid redundant encoding work.")
 	utils.SetFlagDurationVar(fs, &healthCheckInterval, "health-check-interval", defaultConfig.Healthcheck.Interval, "Interval between health checks")
 	utils.SetFlagDurationVar(fs, &degradedThreshold, "degraded-threshold", defaultConfig.Healthcheck.DegradedThreshold, "replication lag after which a replica is considered degraded")
@@ -342,6 +343,7 @@ type TabletConfig struct {
 	ConsolidatorStreamTotalSize int64         `json:"consolidatorStreamTotalSize,omitempty"`
 	ConsolidatorStreamQuerySize int64         `json:"consolidatorStreamQuerySize,omitempty"`
 	ConsolidatorQueryWaiterCap  int64         `json:"consolidatorMaxQueryWait,omitempty"`
+	ConsolidatorQueryTotalSize  int64         `json:"consolidatorQueryTotalSize,omitempty"`
 	ConsolidatorCacheProto3Rows bool          `json:"consolidatorCacheProto3Rows,omitempty"`
 	QueryCacheMemory            int64         `json:"queryCacheMemory,omitempty"`
 	QueryCacheDoorkeeper        bool          `json:"queryCacheDoorkeeper,omitempty"`

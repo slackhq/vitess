@@ -2058,6 +2058,14 @@ func (tsv *TabletServer) HandlePanic(err *error) {
 	}
 }
 
+// AcquireConsolidatedResponseMemory reserves response-serialization memory for a
+// consolidated query response under the global soft byte budget, returning a
+// release func that must be called once serialization completes. It is a no-op
+// when the budget is disabled. See QueryEngine.AcquireConsolidatedResponseMemory.
+func (tsv *TabletServer) AcquireConsolidatedResponseMemory(ctx context.Context, size int64) func() {
+	return tsv.qe.AcquireConsolidatedResponseMemory(ctx, size)
+}
+
 // Close shuts down any remaining go routines
 func (tsv *TabletServer) Close(ctx context.Context) error {
 	tsv.sm.closeAll()

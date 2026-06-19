@@ -506,3 +506,58 @@ func TestIncludeFieldsOrDefault(t *testing.T) {
 	r = IncludeFieldsOrDefault(&querypb.ExecuteOptions{IncludedFields: querypb.ExecuteOptions_TYPE_ONLY})
 	assert.Equal(t, querypb.ExecuteOptions_TYPE_ONLY, r)
 }
+
+func TestFromConsolidatorFlag(t *testing.T) {
+	r := &Result{
+		Fields: []*querypb.Field{{Name: "col1", Type: querypb.Type_VARCHAR}},
+		Rows:   [][]Value{{TestValue(querypb.Type_VARCHAR, "a")}},
+	}
+	assert.False(t, r.FromConsolidator())
+
+	r.SetFromConsolidator()
+	assert.True(t, r.FromConsolidator())
+
+	// StripMetadata copies the struct (r := *result), so the flag must survive.
+	stripped := r.StripMetadata(querypb.ExecuteOptions_TYPE_AND_NAME)
+	assert.True(t, stripped.FromConsolidator())
+
+	// The flag is internal and must not leak into the serialized proto3 form.
+	p3 := ResultToProto3(r)
+	assert.Equal(t, len(r.Rows), len(p3.Rows))
+}
+
+func TestHasProto3Rows(t *testing.T) {
+	r := &Result{
+		Fields: []*querypb.Field{{Name: "col1", Type: querypb.Type_VARCHAR}},
+		Rows:   [][]Value{{TestValue(querypb.Type_VARCHAR, "a")}},
+	}
+	assert.False(t, r.HasProto3Rows())
+
+	r.CacheProto3Rows()
+	assert.True(t, r.HasProto3Rows())
+
+	// An empty result never caches proto3 rows.
+	empty := &Result{}
+	empty.CacheProto3Rows()
+	assert.False(t, empty.HasProto3Rows())
+}
+
+func TestResponseBytesEstimate(t *testing.T) {
+	empty := &Result{}
+	assert.Zero(t, empty.ResponseBytesEstimate())
+
+	small := &Result{
+		Rows: [][]Value{{TestValue(querypb.Type_VARCHAR, "ab")}},
+	}
+	large := &Result{
+		Rows: [][]Value{{TestValue(querypb.Type_VARCHAR, "abcdefghij")}},
+	}
+	assert.Greater(t, small.ResponseBytesEstimate(), int64(0))
+	assert.Greater(t, large.ResponseBytesEstimate(), small.ResponseBytesEstimate())
+
+	// Caching proto3 rows must not change the estimate: it measures the row
+	// payload, not the shared cached encoding.
+	before := large.ResponseBytesEstimate()
+	large.CacheProto3Rows()
+	assert.Equal(t, before, large.ResponseBytesEstimate())
+}

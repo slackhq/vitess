@@ -1697,6 +1697,66 @@ func TestQueryExecutorConsolidatorWaiterCapFallback(t *testing.T) {
 	db.VerifyAllExecutedOrFail()
 }
 
+func TestQueryExecutorConsolidatorResponseMemoryFlag(t *testing.T) {
+	// The leader of a consolidation marks its shared result as
+	// fromConsolidator only when there are waiters AND a response-memory budget
+	// is configured. The flag gates response serialization pacing downstream.
+	testCases := []struct {
+		name        string
+		totalSize   int64
+		waiterCount int64
+		expectFlag  bool
+	}{
+		{name: "limit set, has waiters", totalSize: 1 << 20, waiterCount: 3, expectFlag: true},
+		{name: "limit unset, has waiters", totalSize: 0, waiterCount: 3, expectFlag: false},
+		{name: "limit set, no waiters", totalSize: 1 << 20, waiterCount: 0, expectFlag: false},
+	}
+	for _, tcase := range testCases {
+		t.Run(tcase.name, func(t *testing.T) {
+			db := setUpQueryExecutorTest(t)
+			defer db.Close()
+
+			ctx := t.Context()
+			tsv := newTestTabletServer(ctx, enableConsolidator, db)
+			defer tsv.StopService()
+
+			tsv.config.ConsolidatorQueryTotalSize = tcase.totalSize
+
+			fakeConsolidator := sync2.NewFakeConsolidator()
+			tsv.qe.consolidator = fakeConsolidator
+
+			input := "select * from t limit 10001"
+			result := &sqltypes.Result{
+				Fields: getTestTableFields(),
+				Rows: [][]sqltypes.Value{{
+					sqltypes.NewInt32(1),
+					sqltypes.NewInt32(100),
+					sqltypes.NewInt32(200),
+				}},
+			}
+
+			// Leader path: Created=true. Simulate waiters via WaiterCount.
+			fakePendingResult := &sync2.FakePendingResult{Consolidator: fakeConsolidator}
+			fakePendingResult.WaiterCount = tcase.waiterCount
+			fakeConsolidator.CreateReturn = &sync2.FakeConsolidatorCreateReturn{
+				Created:       true,
+				PendingResult: fakePendingResult,
+			}
+
+			db.AddQuery(input, result)
+
+			qre := newTestQueryExecutor(ctx, tsv, input, 0)
+			qre.options = &querypb.ExecuteOptions{Consolidator: querypb.ExecuteOptions_CONSOLIDATOR_ENABLED}
+
+			actualResult, err := qre.Execute()
+			require.NoError(t, err)
+			require.NotNil(t, actualResult)
+
+			assert.Equal(t, tcase.expectFlag, actualResult.FromConsolidator())
+		})
+	}
+}
+
 func TestGetConnectionLogStats(t *testing.T) {
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()

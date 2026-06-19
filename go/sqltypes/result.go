@@ -43,6 +43,11 @@ type Result struct {
 	// query consolidation). Not populated for the non-consolidation flow;
 	// don't depend on it being present.
 	proto3Rows []*querypb.Row
+
+	// fromConsolidator marks a Result that was produced by the query
+	// consolidator and shared across multiple waiting requests. It is used to
+	// gate response serialization under a global memory budget. Not serialized.
+	fromConsolidator bool
 }
 
 //goland:noinspection GoUnusedConst
@@ -143,6 +148,44 @@ func (result *Result) ShallowCopy() *Result {
 		Rows:                result.Rows,
 		// proto3Rows is intentionally not propagated: callers may modify Rows
 	}
+}
+
+// FromConsolidator reports whether this Result was produced by the query
+// consolidator and shared across multiple waiting requests.
+func (result *Result) FromConsolidator() bool {
+	return result != nil && result.fromConsolidator
+}
+
+// SetFromConsolidator marks this Result as produced by the query consolidator.
+func (result *Result) SetFromConsolidator() {
+	result.fromConsolidator = true
+}
+
+// HasProto3Rows reports whether the proto3-encoded rows have already been cached
+// on this Result (see CacheProto3Rows). When cached, serializing the result
+// reuses the shared encoding instead of copying the rows per consumer.
+func (result *Result) HasProto3Rows() bool {
+	return len(result.proto3Rows) > 0
+}
+
+// ResponseBytesEstimate returns an approximate byte size of the row payload that
+// will be copied when this Result is serialized to proto3. It sums the raw value
+// lengths across Rows (the bytes RowToProto3Inplace copies) plus a small constant
+// per value for proto framing. It intentionally excludes the cached proto3Rows
+// (which is shared, not per-consumer). It is meant as a cheap pre-serialization
+// estimate, not an exact wire size.
+func (result *Result) ResponseBytesEstimate() int64 {
+	if result == nil {
+		return 0
+	}
+	var size int64
+	for _, row := range result.Rows {
+		for _, v := range row {
+			// +1 approximates the per-value length prefix in the proto encoding.
+			size += int64(v.Len()) + 1
+		}
+	}
+	return size
 }
 
 func (result *Result) CacheProto3Rows() {
