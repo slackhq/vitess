@@ -272,7 +272,10 @@ func TestCoDelQueue_SuccessiveDrops_IncrementCount(t *testing.T) {
 	// the control law shrinks the inter-drop interval. This test verifies
 	// count increases across multiple timer fires.
 
-	// Pre-condition: manually enter dropping state with a known count.
+	// Pre-condition: manually enter dropping state with a known count. The
+	// timer is scheduled to fire at dropNextNs=now; it then fires a few
+	// intervals late, so the control law catches up by dropping several
+	// requests in one pass while leaving a backlog (queue stays in dropping).
 	q.dropping = true
 	q.count = 3
 	q.dropNextNs = clock.now
@@ -282,7 +285,7 @@ func TestCoDelQueue_SuccessiveDrops_IncrementCount(t *testing.T) {
 		testEnqueue(q, 0)
 	}
 
-	clock.advance(10_000_000) // 10ms — well past multiple intervals
+	clock.advance(1_000_000) // 1ms — a few intervals late
 
 	dropFn := func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()

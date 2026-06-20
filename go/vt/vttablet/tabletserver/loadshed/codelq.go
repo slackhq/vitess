@@ -42,11 +42,12 @@ import (
                               to run at a particular time, but we need to track
                               this because that coroutine may not actually run
                               when it's supposed to, e.g. if the server is
-                              overloaded.
+                              overloaded. Seeded to now+interval on each fresh
+                              dropping episode's first fire so the first fire
+                              paces drops rather than draining the backlog.
         count           int : drop intensity. Determines the timer interval
                               via interval/count^exp. Increases during dropping,
                               decays during easing, until it reaches 1 (idle).
-        lastCount       int : count from previous dropping entry
 
     CoDel states
     ============
@@ -64,15 +65,15 @@ import (
                       v  |
         *---------------------------*
         | easing                    |       gradually relaxing
-        | * dropping: false         |
-        | * count: > 1 (decaying)   |
+        | * dropping: false         |       (transiently true after each
+        | * count: > 1 (decaying)   |        re-arm; next fire re-checks health)
         | * timer: armed            |
         *---------------------------*
               |  ^            ^
     timer     |  |            | lockedComplete() w/ sojourn < target
-    fires,    |  |            | (sets dropping=false, sets sawHealthy)
+    fires,    |  |            | or queue emptied (sets dropping=false)
     NOT       |  | timer fires,
-    healthy   |  | healthy (sawHealthy OR droppableLen==0)
+    healthy   |  | healthy (dropping=false)
               v  |
         *---------------------------*
         | dropping                  |       actively shedding
@@ -82,9 +83,10 @@ import (
         *---------------------------*
 
     Health condition (checked each easing timer fire):
-      healthy = sawHealthy OR droppableLen==0
-      sawHealthy is set by lockedComplete() when sojourn < target,
-      cleared each timer fire.
+      healthy = dropping=false
+      dropping is unset by lockedComplete() when sojourn < target or droppableLen=0,
+      reset each timer fire. Note: while easing, each re-arm transiently re-marks
+      dropping=true; the next fire re-evaluates health.
 
     Timer lifecycle
     ===============
@@ -129,21 +131,26 @@ type (
 		TargetNs       func() int64
 		Exponent       func() float64
 		MinDropDelayNs func() int64
-		EasingDivisor  func() float64
+
+		// Easing controls how the drop count decays each easing timer fire.
+		// EasingMode selects the strategy: "subtract" decrements count by
+		// EasingSubtractor; anything else (default "divide") divides count by
+		// EasingDivisor. Either way the count is floored at 1.
+		EasingMode       func() string
+		EasingDivisor    func() float64
+		EasingSubtractor func() int
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
 	// algorithm. All methods are prefixed locked* and assume the caller holds
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue struct {
-		queue           *list.List
-		firstWaiting    *list.Element
-		dropping        bool
-		dropNextNs      int64
-		count           int
-		lastCount       int
-		droppableLen    int
-		sawHealthy bool
+		queue        *list.List
+		firstWaiting *list.Element
+		dropping     bool
+		dropNextNs   int64
+		count        int
+		droppableLen int
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -161,7 +168,6 @@ func newCoDelQueue(cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(d
 	return &CoDelQueue{
 		queue:             list.New(),
 		count:             1,
-		lastCount:         1,
 		cfg:               cfg,
 		nowNs:             nowNs,
 		scheduleDropTimer: scheduleDropTimer,
@@ -179,7 +185,9 @@ func (q *CoDelQueue) lockedIsHealthy() bool {
 }
 
 func (q *CoDelQueue) lockedEnqueue(req *Request) {
-	req.codelqEnqueuedAtNs = q.nowNs()
+	now := q.nowNs()
+
+	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
 
 	if q.firstWaiting == nil {
@@ -188,6 +196,9 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 
 	if req.isDroppable() {
 		q.droppableLen++
+		if q.dropNextNs == 0 {
+			q.dropNextNs = q.lockedControlLaw(now)
+		}
 		q.lockedArmDropTimer()
 	}
 }
@@ -205,7 +216,6 @@ func (q *CoDelQueue) lockedComplete(r *Request) {
 	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
 	if sojournTime < q.cfg.TargetNs() {
 		q.dropping = false
-		q.sawHealthy = true
 	}
 }
 
@@ -287,7 +297,7 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	if r.isDroppable() {
 		r.priority = priorityUndroppable
 		q.droppableLen--
-		if q.droppableLen == 0 && q.dropping {
+		if q.droppableLen == 0 {
 			q.dropping = false
 		}
 	}
@@ -341,10 +351,10 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 // for each drop; it should remove the request from the queue and handle any
 // promotion.
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
+	now := q.nowNs()
+
 	// Dropping: actively shed load.
 	if q.dropping {
-		now := q.nowNs()
-
 		for q.droppableLen > 0 && now >= q.dropNextNs {
 			if !dropFn() {
 				break
@@ -352,91 +362,40 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 			q.count++
 			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
-
-		if q.droppableLen > 0 {
-			q.lockedArmDropTimer()
-			return
+		// If we cleared the queue, immediately ease out
+		if q.droppableLen == 0 {
+			q.dropping = false
 		}
-
-		// Queue drained — transition to easing.
-		q.dropping = false
-		q.sawHealthy = true
-		if q.count > 1 {
-			q.count = max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
-			if q.count > 1 {
-				q.dropNextNs = q.lockedControlLaw(q.nowNs())
-				q.lockedArmDropTimer()
-			}
-		}
-		return
 	}
 
-	// Easing: check if health was observed since last timer fire.
-	// Health means either (a) a completion had sojourn < target, or
-	// (b) droppableLen is 0 (nothing waiting = healthy).
-	healthy := q.sawHealthy || q.droppableLen == 0
-	q.sawHealthy = false
-
-	if healthy {
+	if !q.dropping {
 		// System is healthy this interval — continue easing down.
-		if q.count > 1 {
-			q.count = max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
+		for now >= q.dropNextNs {
+			q.count = q.lockedEaseCount()
+			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
-		if q.count > 1 {
-			q.dropNextNs = q.lockedControlLaw(q.nowNs())
-			q.lockedArmDropTimer()
-		}
-		// count == 1: fully relaxed, timer not re-armed → idle.
-		return
 	}
 
-	// Unhealthy during easing: re-enter dropping at current count.
-	q.lockedEnterDroppingState()
-
-	now := q.nowNs()
-
-	for q.droppableLen > 0 && now >= q.dropNextNs {
-		if !dropFn() {
-			break
-		}
-		q.count++
-		q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
-	}
-
-	if q.droppableLen > 0 {
+	// count == 1: fully relaxed, timer not re-armed → idle.
+	if q.droppableLen > 0 || q.count > 1 {
 		q.lockedArmDropTimer()
+	} else {
+		q.dropNextNs = 0
 	}
 }
 
-// lockedEnterDroppingState transitions to the dropping state, possibly
-// restoring the drop count from a prior dropping period.
-func (q *CoDelQueue) lockedEnterDroppingState() {
-	now := q.nowNs()
-	q.dropping = true
-
-	// If re-entering mid-ease-out, count is still > 1 — use it as-is.
-	if q.count > 1 {
-		q.dropNextNs = q.lockedControlLaw(now)
-		q.lastCount = q.count
-		return
+// lockedEaseCount returns the next drop count during easing, applying the
+// configured easing strategy and flooring at 1. "subtract" decrements count by
+// EasingSubtractor; the default "divide" divides count by EasingDivisor.
+func (q *CoDelQueue) lockedEaseCount() int {
+	if q.cfg.EasingMode != nil && q.cfg.EasingMode() == "subtract" {
+		sub := 1
+		if q.cfg.EasingSubtractor != nil {
+			sub = q.cfg.EasingSubtractor()
+		}
+		return max(q.count-sub, 1)
 	}
-
-	// Otherwise, apply the memory heuristic from standard CoDel.
-	delta := q.count - q.lastCount
-	q.count = 1
-
-	// Restore prior dropping intensity if we recently left the dropping
-	// state and re-entered quickly. Without this, every transition back
-	// to dropping would ramp up from count=1 (i.e. one drop per full
-	// interval), losing the "memory" of how aggressive we needed to be.
-	// The 16x threshold is the staleness cutoff — if we've been healthy
-	// for much longer than the interval, the old state is irrelevant.
-	if delta > 1 && (now-q.dropNextNs < 16*q.cfg.IntervalNs()) {
-		q.count = delta
-	}
-
-	q.dropNextNs = q.lockedControlLaw(now)
-	q.lastCount = q.count
+	return max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
 }
 
 // lockedControlLaw computes the next drop time. The interval shrinks in
@@ -463,10 +422,11 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 }
 
 func (q *CoDelQueue) lockedArmDropTimer() {
-	delay := q.lockedCurrentInterval()
+	// guilty until proven innocent
+	q.dropping = true
+
+	delay := q.dropNextNs - q.nowNs()
 	minDelay := q.cfg.MinDropDelayNs()
-	if delay < minDelay {
-		delay = minDelay
-	}
+	delay = max(delay, minDelay)
 	q.scheduleDropTimer(delay)
 }

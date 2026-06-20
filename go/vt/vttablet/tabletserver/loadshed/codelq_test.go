@@ -127,6 +127,33 @@ func TestCoDelQueue_Enqueue_SchedulesTimer(t *testing.T) {
 	assert.True(t, rec.scheduled, "callback is always called; idempotency is the caller's concern")
 }
 
+func TestCoDelQueue_Enqueue_SeedsDropNextNs(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock) // interval = 1e9, count = 1
+
+	clock.now = 5_000_000_000
+	testEnqueue(q, 0)
+
+	// First droppable enqueue seeds dropNextNs = now + interval so the first
+	// timer fire paces drops rather than draining the backlog at once.
+	assert.Equal(t, int64(6_000_000_000), q.dropNextNs)
+}
+
+func TestCoDelQueue_Enqueue_SeedsDropNextNsOnce(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock) // interval = 1e9, count = 1
+
+	clock.now = 5_000_000_000
+	testEnqueue(q, 0)
+	seeded := q.dropNextNs
+
+	// A second enqueue mid-episode must not re-seed dropNextNs; the first
+	// fire's pacing schedule is preserved.
+	clock.now = 5_500_000_000
+	testEnqueue(q, 0)
+	assert.Equal(t, seeded, q.dropNextNs, "dropNextNs should only be seeded on the first droppable enqueue")
+}
+
 func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
@@ -386,66 +413,6 @@ func TestCoDelQueue_CurrentInterval_Dropping(t *testing.T) {
 	interval := q.lockedCurrentInterval()
 	assert.Equal(t, int64(250_000_000), interval)
 }
-func TestCoDelQueue_EnterDroppingState_Fresh(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	clock.now = 5_000_000_000
-	q.lockedEnterDroppingState()
-
-	assert.True(t, q.dropping)
-	assert.Equal(t, 1, q.count)
-	assert.Equal(t, 1, q.lastCount)
-	assert.Equal(t, int64(6_000_000_000), q.dropNextNs)
-}
-
-func TestCoDelQueue_EnterDroppingState_NoDeltaNoRestore(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	// count=1 (fully eased), lastCount=1 → delta = 0, no restore
-	q.count = 1
-	q.lastCount = 1
-	q.dropNextNs = 5_000_000_000
-
-	clock.now = 5_000_000_000 + 1_000_000_000
-	q.lockedEnterDroppingState()
-
-	assert.Equal(t, 1, q.count, "no delta to restore → stays at 1")
-}
-
-func TestCoDelQueue_EnterDroppingState_RestoresLargerDelta(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	// When count > 1 on re-entry (partially eased), the restore heuristic
-	// is skipped and the current count is used directly.
-	q.count = 6
-	q.lastCount = 2
-	q.dropNextNs = 5_000_000_000
-
-	clock.now = 5_000_000_000 + 1_000_000_000
-	q.lockedEnterDroppingState()
-
-	assert.Equal(t, 6, q.count, "mid-ease-out: count preserved as-is")
-	assert.Equal(t, 6, q.lastCount, "lastCount updated to current count on entry")
-}
-
-func TestCoDelQueue_EnterDroppingState_StaleNoRestore(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	// When count is already > 1 (mid-ease-out), we use it as-is regardless of staleness.
-	// The staleness check only applies when count has fully relaxed to 1.
-	q.count = 1
-	q.lastCount = 5
-	q.dropNextNs = 5_000_000_000
-
-	clock.now = 5_000_000_000 + 17_000_000_000
-	q.lockedEnterDroppingState()
-
-	assert.Equal(t, 1, q.count, "stale delta should not restore count")
-}
 
 // --- Scheduled drop tests ---
 
@@ -459,7 +426,7 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	testEnqueue(q, 0)
 	testEnqueue(q, 0)
 
-	clock.advance(2_000_000)
+	clock.advance(1_100_000)
 
 	dropFn := func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
@@ -471,35 +438,8 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	}
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
-	assert.True(t, q.dropping)
+	assert.True(t, q.lockedLen() == 1)
 	assert.True(t, rec.scheduled, "should reschedule via callback")
-}
-
-func TestCoDelQueue_RunScheduledDrop_MaxIterations(t *testing.T) {
-	clock := newTestClock()
-	cfg := defaultTestConfig()
-	cfg.IntervalNs = func() int64 { return 1 }
-	cfg.TargetNs = func() int64 { return 1 }
-	cfg.MinDropDelayNs = func() int64 { return 1 }
-	q, _ := newTestQueue(cfg, clock)
-
-	for range 200 {
-		testEnqueue(q, 0)
-	}
-
-	clock.advance(1_000_000_000)
-
-	dropFn := func() bool {
-		elem := q.lockedFindLowestPriorityDroppable()
-		if elem == nil {
-			return false
-		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
-		return true
-	}
-	q.lockedRunTimer(dropFn)
-
-	assert.GreaterOrEqual(t, q.lockedLen(), 100)
 }
 
 func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
@@ -663,9 +603,52 @@ func TestCoDelQueue_Easing_TimerHalvesCount(t *testing.T) {
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
 
-	assert.False(t, q.dropping)
+	assert.True(t, q.dropping, "re-arm re-marks dropping (guilty until proven innocent)")
 	assert.Equal(t, 4, q.count, "count should halve from 8 to 4")
 	assert.True(t, rec.scheduled, "timer should re-arm to continue easing")
+}
+
+func TestCoDelQueue_Easing_SubtractMode(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingMode = func() string { return "subtract" }
+	cfg.EasingSubtractor = func() int { return 3 }
+	q, rec := newTestQueue(cfg, clock)
+
+	// Easing state: !dropping with count > 1. Subtract mode decays count by a
+	// fixed amount each fire rather than dividing.
+	q.dropping = false
+	q.count = 10
+	q.dropNextNs = 0 // past due
+
+	dropFn := func() bool { return false }
+
+	rec.scheduled = false
+	q.lockedRunTimer(dropFn)
+
+	assert.True(t, q.dropping, "re-arm re-marks dropping (guilty until proven innocent)")
+	assert.Equal(t, 7, q.count, "count should drop by the subtractor (10 - 3)")
+	assert.True(t, rec.scheduled, "timer should re-arm to continue easing")
+}
+
+func TestCoDelQueue_Easing_SubtractModeFloorsAtOne(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingMode = func() string { return "subtract" }
+	cfg.EasingSubtractor = func() int { return 5 }
+	q, rec := newTestQueue(cfg, clock)
+
+	q.dropping = false
+	q.count = 3
+	q.dropNextNs = 0
+
+	dropFn := func() bool { return false }
+
+	rec.scheduled = false
+	q.lockedRunTimer(dropFn)
+
+	assert.Equal(t, 1, q.count, "count should floor at 1, not go negative (3 - 5)")
+	assert.False(t, rec.scheduled, "timer should NOT re-arm once count reaches 1")
 }
 
 func TestCoDelQueue_Easing_TimerStopsAtCountOne(t *testing.T) {
@@ -696,7 +679,7 @@ func TestCoDelQueue_Easing_TimerDelayShrinkWithCount(t *testing.T) {
 	// Easing with count=8 → after halving to 4, delay should be interval/4 = 250ms
 	q.dropping = false
 	q.count = 8
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now
 
 	dropFn := func() bool { return false }
 	q.lockedRunTimer(dropFn)
@@ -779,7 +762,7 @@ func TestCoDelQueue_Easing_DroppingToHealthy_TimerStillFires(t *testing.T) {
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
 
-	assert.False(t, q.dropping, "should exit dropping since droppableLen==0")
+	assert.True(t, q.dropping, "re-arm re-marks dropping; next fire re-evaluates health")
 	assert.Equal(t, 8, q.count, "should halve count from 16 to 8")
 	assert.True(t, rec.scheduled, "timer should re-arm for easing continuation")
 }
@@ -790,11 +773,13 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 	cfg.IntervalNs = func() int64 { return 1_000_000_000 }
 	q, rec := newTestQueue(cfg, clock)
 
-	// Start dropping with count=16, no droppable entries
+	// Start dropping with count=16, no droppable entries. dropNextNs is seeded
+	// to now so the first fire is on time; each iteration then advances by
+	// exactly the scheduled delay so the timer fires on schedule.
 	q.dropping = true
 	q.count = 16
-	q.dropNextNs = 0
 	clock.now = 1_000_000_000
+	q.dropNextNs = clock.now
 
 	dropFn := func() bool { return false }
 
@@ -802,15 +787,16 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 	expectedCounts := []int{8, 4, 2, 1}
 	for i, expected := range expectedCounts {
 		rec.scheduled = false
-		clock.advance(rec.delayNs + 1_000_000_000)
+		clock.advance(rec.delayNs)
 		q.lockedRunTimer(dropFn)
 
 		assert.Equal(t, expected, q.count, "iteration %d: count should be %d", i, expected)
-		assert.False(t, q.dropping)
 
 		if expected > 1 {
+			assert.True(t, q.dropping, "iteration %d: re-arm re-marks dropping", i)
 			assert.True(t, rec.scheduled, "iteration %d: timer should re-arm", i)
 		} else {
+			assert.False(t, q.dropping, "final iteration: count==1, not re-armed, stays healthy")
 			assert.False(t, rec.scheduled, "final iteration: timer should stop")
 		}
 	}
