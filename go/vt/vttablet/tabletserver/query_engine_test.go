@@ -991,13 +991,11 @@ func TestAcquireConsolidatedResponseMemoryNoLeak(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 200; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 200 {
+		wg.Go(func() {
 			release := qe.AcquireConsolidatedResponseMemory(context.Background(), 50)
 			release()
-		}()
+		})
 	}
 	wg.Wait()
 
