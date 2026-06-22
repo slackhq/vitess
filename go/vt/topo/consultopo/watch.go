@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/spf13/pflag"
 
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
 )
@@ -75,6 +76,8 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 
 		defer cancelGetCtx()
 
+		var watchRetries int
+
 		for {
 			// Wait/poll until we get a new version.
 			// Get with a WaitIndex and WaitTime will return
@@ -97,13 +100,32 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 
 			pair, _, err = s.kv.Get(nodePath, opts.WithContext(getCtx))
 			if err != nil {
-				// Serious error or context timeout/cancelled.
+				if isTransientError(err) && watchRetries < 10 {
+					watchRetries++
+					backoff := time.Duration(watchRetries) * consulRetryInterval
+					if backoff > 2*time.Second {
+						backoff = 2 * time.Second
+					}
+					log.Warningf("consultopo: watch %v got transient error (retry %d): %v", nodePath, watchRetries, err)
+					select {
+					case <-ctx.Done():
+						notifications <- &topo.WatchData{
+							Err: convertError(ctx.Err(), nodePath),
+						}
+						cancelGetCtx()
+						return
+					case <-time.After(backoff):
+						continue
+					}
+				}
 				notifications <- &topo.WatchData{
 					Err: convertError(err, nodePath),
 				}
 				cancelGetCtx()
 				return
 			}
+
+			watchRetries = 0
 
 			// If the node disappeared, pair is nil.
 			if pair == nil {
