@@ -83,7 +83,7 @@ import (
         *---------------------------*
 
     Health condition (checked each easing timer fire):
-      healthy = dropping=false
+      healthy := dropping=false
       dropping is unset by lockedComplete() when sojourn < target or droppableLen=0,
       reset each timer fire. Note: while easing, each re-arm transiently re-marks
       dropping=true; the next fire re-evaluates health.
@@ -97,7 +97,7 @@ import (
                ^  |
                |  |
  droppableLen  |  | easing, healthy, count==1
- goes 0 → 1   |  | (fully relaxed, nothing to do)
+ goes 0 → 1    |  | (fully relaxed, nothing to do)
  during        |  |
  enqueue()     |  v
       *-----------------*
