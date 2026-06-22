@@ -226,8 +226,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
 	fs.BoolVar(&enableSnake, "snake-enabled", false, "If true, enables CoDel-based load shedding (Snake) on the OLTP read pool.")
-	fs.DurationVar(&currentConfig.SnakeTarget, "snake-target", 5*time.Millisecond, "CoDel target delay for the Snake load shedder.")
-	fs.DurationVar(&currentConfig.SnakeInterval, "snake-interval", 100*time.Millisecond, "CoDel interval for the Snake load shedder.")
+	fs.DurationVar(&currentConfig.SnakeTarget, "snake-target", defaultConfig.SnakeTarget, "CoDel target delay for the Snake load shedder.")
+	fs.DurationVar(&currentConfig.SnakeInterval, "snake-interval", defaultConfig.SnakeInterval, "CoDel interval for the Snake load shedder.")
 }
 
 var (
@@ -1148,6 +1148,9 @@ var defaultConfig = TabletConfig{
 	EnablePerWorkloadTableMetrics: false,
 
 	TwoPCAbandonAge: 15 * time.Minute,
+
+	SnakeTarget:   5 * time.Millisecond,
+	SnakeInterval: 100 * time.Millisecond,
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on
