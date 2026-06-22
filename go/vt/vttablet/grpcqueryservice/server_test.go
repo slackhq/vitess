@@ -70,7 +70,7 @@ func TestExecuteConsolidatedResponseAcquiresAndReleasesOnCtxDone(t *testing.T) {
 	fake := &limiterFakeQueryService{result: result}
 	q := &query{server: fake}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	resp, err := q.Execute(ctx, &querypb.ExecuteRequest{Query: &querypb.BoundQuery{Sql: "select 1"}})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -99,9 +99,7 @@ func TestExecuteConsolidatedResponseCachedProto3RowsWeight(t *testing.T) {
 	fake := &limiterFakeQueryService{result: result}
 	q := &query{server: fake}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	resp, err := q.Execute(ctx, &querypb.ExecuteRequest{Query: &querypb.BoundQuery{Sql: "select 1"}})
+	resp, err := q.Execute(t.Context(), &querypb.ExecuteRequest{Query: &querypb.BoundQuery{Sql: "select 1"}})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -118,9 +116,7 @@ func TestExecuteNonConsolidatedResponseSkipsBudget(t *testing.T) {
 	fake := &limiterFakeQueryService{result: result}
 	q := &query{server: fake}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	resp, err := q.Execute(ctx, &querypb.ExecuteRequest{Query: &querypb.BoundQuery{Sql: "select 1"}})
+	resp, err := q.Execute(t.Context(), &querypb.ExecuteRequest{Query: &querypb.BoundQuery{Sql: "select 1"}})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
