@@ -16,7 +16,11 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-var easingDiv *float64
+var (
+	easingDiv  *float64
+	easingMode *string
+	easingSub  *int
+)
 
 type event struct {
 	tsMs      int64
@@ -56,17 +60,43 @@ func linearRampProfile() loadProfile {
 	}
 }
 
+func linearRampDownProfile() loadProfile {
+	return func(elapsed, totalDuration time.Duration) float64 {
+		return 1 - float64(elapsed)/float64(totalDuration)
+	}
+}
+
+// buildProfile constructs a loadProfile from a name and (for sine) a period.
+func buildProfile(name string, periodMs int) loadProfile {
+	switch name {
+	case "sine":
+		return sineProfile(time.Duration(periodMs) * time.Millisecond)
+	case "constant":
+		return constantProfile()
+	case "linear_ramp":
+		return linearRampProfile()
+	case "linear_ramp_down":
+		return linearRampDownProfile()
+	default:
+		fmt.Printf("unknown profile %q (expected sine|constant|linear_ramp|linear_ramp_down)\n", name)
+		os.Exit(1)
+		return nil
+	}
+}
+
 func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workMs, targetMs, intervalMs int, profile loadProfile) ([]event, []statsSnapshot) {
 	snake := loadshed.NewSnake(loadshed.SnakeConfig{
 		Name:     "bench",
 		Capacity: func() int { return capacity },
 		MaxAge:   func() time.Duration { return 30 * time.Second },
 		CoDel: loadshed.CoDelConfig{
-			TargetNs:       func() int64 { return int64(targetMs) * 1_000_000 },
-			IntervalNs:     func() int64 { return int64(intervalMs) * 1_000_000 },
-			MinDropDelayNs: func() int64 { return 1_000_000 },
-			Exponent:       func() float64 { return 1 },
-			EasingDivisor:  func() float64 { return *easingDiv },
+			TargetNs:         func() int64 { return int64(targetMs) * 1_000_000 },
+			IntervalNs:       func() int64 { return int64(intervalMs) * 1_000_000 },
+			MinDropDelayNs:   func() int64 { return 1_000_000 },
+			Exponent:         func() float64 { return 1 },
+			EasingMode:       func() string { return *easingMode },
+			EasingDivisor:    func() float64 { return *easingDiv },
+			EasingSubtractor: func() int { return *easingSub },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -194,7 +224,22 @@ func main() {
 	outDir := flag.String("out", "", "Output directory (default: timestamped under ~/snake-load-test-charts/)")
 	parallel := flag.Int("j", 8, "Max parallel benchmarks")
 	filter := flag.String("filter", "", "Only run tests whose label contains this substring")
-	easingDiv = flag.Float64("easing", 2.0, "Easing divisor for CoDel count decay")
+	easingDiv = flag.Float64("easing", 2.0, "Easing divisor for CoDel count decay (divide mode)")
+	easingMode = flag.String("easing-mode", "divide", "Easing strategy: divide|subtract")
+	easingSub = flag.Int("easing-sub", 1, "Easing subtractor for CoDel count decay (subtract mode)")
+
+	// Custom single-workload flags. When -profile is set, the workload described
+	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
+	// preset matrix (with its built-in defaults) runs as before.
+	wProfile := flag.String("profile", "", "Custom workload profile: sine|constant|linear_ramp|linear_ramp_down (replaces preset matrix when set)")
+	wLabel := flag.String("label", "", "Custom workload label (default: derived from profile)")
+	wCapacity := flag.Int("capacity", 10, "Custom workload: slot capacity")
+	wPeak := flag.Float64("peak", 80, "Custom workload: peak arrival rate as multiple of system throughput")
+	wDurationMs := flag.Int("duration-ms", 20000, "Custom workload: total duration in ms")
+	wWorkMs := flag.Int("work-ms", 2, "Custom workload: per-request work duration in ms")
+	wTargetMs := flag.Int("target-ms", 5, "Custom workload: CoDel target in ms")
+	wIntervalMs := flag.Int("interval-ms", 100, "Custom workload: CoDel interval in ms")
+	wPeriodMs := flag.Int("period-ms", 1000, "Custom workload: sine period in ms (sine profile only)")
 	flag.Parse()
 
 	if *outDir == "" {
@@ -216,6 +261,26 @@ func main() {
 	}
 
 	var configs []testConfig
+
+	// Custom single workload (replaces the preset matrix below).
+	if *wProfile != "" {
+		label := *wLabel
+		if label == "" {
+			label = *wProfile
+		}
+		configs = append(configs, testConfig{
+			label:                     label,
+			capacity:                  *wCapacity,
+			peakArrivalRateMultiplier: *wPeak,
+			durationMs:                *wDurationMs,
+			workMs:                    *wWorkMs,
+			targetMs:                  *wTargetMs,
+			intervalMs:                *wIntervalMs,
+			profile:                   buildProfile(*wProfile, *wPeriodMs),
+		})
+		runConfigs(configs, *outDir, *parallel)
+		return
+	}
 
 	// Sine wave tests: 3 periods × 3 peaks × 2 work durations, duration = 2 full periods
 	periods := []struct {
@@ -294,10 +359,16 @@ func main() {
 		configs = filtered
 	}
 
-	fmt.Printf("Running %d benchmarks (parallelism=%d)...\n", len(configs), *parallel)
+	runConfigs(configs, *outDir, *parallel)
+}
+
+// runConfigs runs the given benchmark configs in parallel and writes their
+// event/stats TSVs under outDir/tsv/.
+func runConfigs(configs []testConfig, outDir string, parallel int) {
+	fmt.Printf("Running %d benchmarks (parallelism=%d)...\n", len(configs), parallel)
 
 	results := make([]testResult, len(configs))
-	sem := make(chan struct{}, *parallel)
+	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 
 	for i, cfg := range configs {
@@ -334,7 +405,7 @@ func main() {
 	wg.Wait()
 
 	// Write TSV files into a tsv/ subdirectory
-	tsvDir := fmt.Sprintf("%s/tsv", *outDir)
+	tsvDir := fmt.Sprintf("%s/tsv", outDir)
 	os.MkdirAll(tsvDir, 0755)
 	for _, r := range results {
 		path := fmt.Sprintf("%s/%s.tsv", tsvDir, r.cfg.label)
@@ -381,6 +452,6 @@ func main() {
 		sf.Close()
 	}
 
-	fmt.Printf("\nDone. TSV files in %s\n", *outDir)
-	fmt.Printf("To generate charts: python3 plot_suite.py %s\n", *outDir)
+	fmt.Printf("\nDone. TSV files in %s\n", outDir)
+	fmt.Printf("To generate charts: python3 plot_suite.py %s\n", outDir)
 }

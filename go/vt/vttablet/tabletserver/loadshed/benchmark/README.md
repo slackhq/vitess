@@ -33,6 +33,29 @@ Output lands in `~/snake-load-test-charts/<timestamp>/tsv/` by default.
 | `-filter` | (none) | Only run tests whose label contains this substring |
 | `-easing` | 2.0 | Easing divisor for CoDel count decay |
 
+### Custom single workload
+
+When `-profile` is set, the named workload **replaces** the preset
+sine/constant/ramp matrix. Otherwise the preset matrix runs with its built-in
+defaults (unchanged behavior).
+
+```bash
+go run bench_suite.go -profile linear_ramp -peak 80 -duration-ms 20000 \
+  -work-ms 2 -target-ms 5 -interval-ms 100 -label my_ramp
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-profile` | (none) | `sine`, `constant`, `linear_ramp`, or `linear_ramp_down` (replaces preset matrix when set) |
+| `-label` | profile name | TSV label for the workload |
+| `-capacity` | 10 | Slot capacity |
+| `-peak` | 80 | Peak arrival rate as multiple of system throughput |
+| `-duration-ms` | 20000 | Total duration |
+| `-work-ms` | 2 | Per-request work duration |
+| `-target-ms` | 5 | CoDel target |
+| `-interval-ms` | 100 | CoDel interval |
+| `-period-ms` | 1000 | Sine period (sine profile only) |
+
 ## Plotting
 
 Requires Python 3 with matplotlib, pandas, and numpy:
@@ -65,3 +88,26 @@ python3 plot_easing_comparison.py
 | `--run` | off | Run Go bench suite for all divisors in parallel before plotting |
 | `--bench-go` | `bench_suite.go` | Path to bench_suite.go |
 | `--filter` | `linear_ramp__0_to_80x_cap__work_half_target` | Only run tests matching this label |
+| `--config` | (none) | JSON file describing `divisors` + `workloads` (see below) |
+
+### Config-driven comparison
+
+With `--config <file.json>`, the script runs every (divisor × workload)
+combination in parallel, then emits one comparison figure per workload. Any
+workload field omitted falls back to the defaults. See
+`easing_config.example.json`.
+
+```bash
+python3 plot_easing_comparison.py --config easing_config.example.json
+```
+
+```json
+{
+  "divisors": [1.189, 1.260, 1.414, 2.0],
+  "workloads": [
+    {"label": "ramp", "profile": "linear_ramp", "peak": 80, "duration_ms": 20000,
+     "work_ms": 2, "target_ms": 5, "interval_ms": 100},
+    {"label": "sine", "profile": "sine", "peak": 100, "period_ms": 1000}
+  ]
+}
+```

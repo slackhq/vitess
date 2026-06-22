@@ -1,0 +1,26 @@
+{
+  "divisors": [1.189207115002721, 1.2599210498948732, 1.4142135623730951, 2.0],
+  "workloads": [
+    {
+      "label": "linear_ramp_0_to_80x",
+      "profile": "linear_ramp",
+      "capacity": 10,
+      "peak": 80,
+      "duration_ms": 20000,
+      "work_ms": 2,
+      "target_ms": 5,
+      "interval_ms": 100
+    },
+    {
+      "label": "sine_period_1s_peak_100x",
+      "profile": "sine",
+      "capacity": 10,
+      "peak": 100,
+      "duration_ms": 20000,
+      "work_ms": 2,
+      "target_ms": 5,
+      "interval_ms": 100,
+      "period_ms": 1000
+    }
+  ]
+}
