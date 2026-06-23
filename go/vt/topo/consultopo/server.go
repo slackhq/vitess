@@ -56,6 +56,10 @@ func registerServerFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&consulConfig.Transport.MaxConnsPerHost, "topo_consul_max_conns_per_host", consulConfig.Transport.MaxConnsPerHost, "Maximum number of consul connections per host.")
 	fs.IntVar(&consulConfig.Transport.MaxIdleConns, "topo_consul_max_idle_conns", consulConfig.Transport.MaxIdleConns, "Maximum number of idle consul connections.")
 	fs.DurationVar(&consulConfig.Transport.IdleConnTimeout, "topo_consul_idle_conn_timeout", consulConfig.Transport.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
+	fs.IntVar(&consulRetryCount, "topo_consul_retry_count", consulRetryCount, "Maximum number of attempts for consul operations on transient errors (set to 1 to disable retries).")
+	fs.DurationVar(&consulRetryBaseDelay, "topo_consul_retry_base_delay", consulRetryBaseDelay, "Base delay between consul retry attempts (exponential backoff).")
+	fs.DurationVar(&consulRetryMaxDelay, "topo_consul_retry_max_delay", consulRetryMaxDelay, "Maximum delay between consul retry attempts.")
+	fs.BoolVar(&consulRetryEnabled, "topo_consul_retry_enabled", consulRetryEnabled, "Enable retry logic for transient consul errors.")
 }
 
 // ClientAuthCred credential to use for consul clusters
@@ -103,7 +107,7 @@ func getClientCreds() (creds map[string]*ClientAuthCred, err error) {
 type Server struct {
 	// client is the consul api client.
 	client *api.Client
-	kv     *api.KV
+	kv     kvClient
 
 	// root is the root path for this client.
 	root string
@@ -151,7 +155,7 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 
 	return &Server{
 		client:     client,
-		kv:         client.KV(),
+		kv:         newRetryKV(client.KV(), consulRetryCount, consulRetryBaseDelay, consulRetryMaxDelay, consulRetryEnabled),
 		root:       root,
 		locks:      make(map[string]*lockInstance),
 		lockChecks: parseConsulLockSessionChecks(consulLockSessionChecks),
