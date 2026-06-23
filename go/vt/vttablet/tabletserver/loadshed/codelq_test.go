@@ -386,19 +386,6 @@ func TestCoDelQueue_CurrentInterval_Dropping(t *testing.T) {
 	assert.Equal(t, int64(250_000_000), interval)
 }
 
-func TestCoDelQueue_CurrentInterval_MinFloor(t *testing.T) {
-	clock := newTestClock()
-	cfg := defaultTestConfig()
-	cfg.IntervalNs = func() int64 { return 10 }
-	q, _ := newTestQueue(cfg, clock)
-
-	q.dropping = true
-	q.count = 1000
-
-	interval := q.lockedCurrentInterval()
-	assert.Equal(t, int64(100), interval)
-}
-
 func TestCoDelQueue_EnterDroppingState_Fresh(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)

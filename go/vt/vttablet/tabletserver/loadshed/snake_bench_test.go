@@ -216,24 +216,24 @@ func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 	}
 }
 
-// --- SelfContentionAwareCoDelQueue enqueue with valve promotion ---
+// --- ValvedCoDelQueue enqueue with valve promotion ---
 
-func BenchmarkSelfContentionAware_EnqueuePromote(b *testing.B) {
+func BenchmarkValved_EnqueuePromote(b *testing.B) {
 	clock := newTestClock()
-	sq, _ := newTestSelfContentionAware(clock)
+	sq, _ := newValvedQueue(clock)
 
 	b.ResetTimer()
 	for range b.N {
 		sq.lockedEnqueue("bench-id", 0)
-		testSelfContentionAwareDequeue(sq)
+		testValvedDequeue(sq)
 	}
 }
 
-func BenchmarkSelfContentionAware_ValvePromotion_Chain(b *testing.B) {
+func BenchmarkValved_ValvePromotion_Chain(b *testing.B) {
 	for _, chainLen := range []int{2, 5, 10, 50} {
 		b.Run(fmt.Sprintf("Chain%d", chainLen), func(b *testing.B) {
 			clock := newTestClock()
-			sq, _ := newTestSelfContentionAware(clock)
+			sq, _ := newValvedQueue(clock)
 
 			b.ResetTimer()
 			for range b.N {
@@ -241,7 +241,7 @@ func BenchmarkSelfContentionAware_ValvePromotion_Chain(b *testing.B) {
 					sq.lockedEnqueue("bench-id", 0)
 				}
 				for range chainLen {
-					testSelfContentionAwareDequeue(sq)
+					testValvedDequeue(sq)
 				}
 			}
 		})

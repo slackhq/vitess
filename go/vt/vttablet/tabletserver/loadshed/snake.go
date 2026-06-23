@@ -45,7 +45,7 @@ type (
 	Snake struct {
 		mu sync.Mutex
 
-		q              *SelfContentionAwareCoDelQueue
+		q              *ValvedCoDelQueue
 		holders        map[*Request]struct{}
 		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
@@ -78,7 +78,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		holders:      make(map[*Request]struct{}),
 		maxAgeTimers: make(map[*Request]*time.Timer),
 	}
-	s.q = newSelfContentionAwareCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
+	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
 }
 
