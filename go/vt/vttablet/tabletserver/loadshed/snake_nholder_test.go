@@ -500,7 +500,7 @@ func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 	defer s.mu.Unlock()
 	assert.Empty(t, s.holders)
 	assert.Equal(t, 0, s.q.lockedLen())
-	assert.Empty(t, s.q.pendingRequests)
+	assert.Empty(t, s.q.valves)
 	assert.Empty(t, s.q.outstandingCounts)
 	assert.Empty(t, s.q.droppablePerValve)
 }

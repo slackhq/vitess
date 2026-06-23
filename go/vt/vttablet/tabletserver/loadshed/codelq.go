@@ -278,7 +278,8 @@ func (q *CoDelQueue) lockedAdvanceFirstWaiting(elem *list.Element) {
 }
 
 // lockedFindLowestPriorityDroppable finds the lowest-priority droppable
-// element in the queue. Returns nil if none exists.
+// element in the queue. Returns nil if none exists. Currently O(n); we
+// are planning on an optimization to make this O(log(n)).
 func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 	var best *list.Element
 

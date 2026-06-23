@@ -378,7 +378,7 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 
 	assert.Empty(t, s.holders, "holders map should be empty after all releases")
 	assert.Equal(t, 0, s.q.lockedLen(), "queue should be empty")
-	assert.Empty(t, s.q.pendingRequests, "pendingRequests map should be empty")
+	assert.Empty(t, s.q.valves, "valves map should be empty")
 	assert.Empty(t, s.q.outstandingCounts, "outstandingCounts map should be empty")
 	assert.Empty(t, s.q.droppablePerValve, "droppablePerValve map should be empty")
 	assert.Empty(t, s.maxAgeTimers, "max age timers should be empty")
@@ -400,7 +400,7 @@ func TestSnake_Memory_ManyDistinctValveIDs_Cleanup(t *testing.T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	assert.Empty(t, s.q.pendingRequests, "pendingRequests should be empty after all releases")
+	assert.Empty(t, s.q.valves, "valves should be empty after all releases")
 	assert.Empty(t, s.q.outstandingCounts, "outstandingCounts should be empty after all releases")
 	assert.Empty(t, s.q.droppablePerValve, "droppablePerValve should be empty after all releases")
 }
