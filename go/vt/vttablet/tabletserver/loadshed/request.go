@@ -44,6 +44,19 @@ type (
 // any real priority value.
 var priorityUndroppable = math.Inf(-1)
 
+const (
+	// maxProtoPriority mirrors sqlparser.MaxPriorityValue, the upper bound of
+	// the Vitess ExecuteOptions priority range. It is duplicated here rather
+	// than imported to keep the loadshed package free of a sqlparser
+	// dependency. Kept in sync with vitessio/vitess.
+	maxProtoPriority = 100
+
+	// defaultProtoPriority is the priority assumed for callers that do not
+	// supply one. It matches tabletserver's TxThrottlerDefaultPriority default
+	// (sqlparser.MaxPriorityValue): unmarked traffic is the most sheddable.
+	defaultProtoPriority = maxProtoPriority
+)
+
 var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
 
 func newRequest(priority float64) *Request {

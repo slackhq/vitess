@@ -93,11 +93,19 @@ func (s *Snake) hasCapacity() bool {
 	return len(s.holders) < s.capacity()
 }
 
-// Acquire acquires a slot. It blocks until a slot is granted, the request
-// is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
-// must be released via defer unlock.Release().
+// Acquire acquires a slot using the default (most-sheddable) priority. It
+// blocks until a slot is granted, the request is dropped by CoDel, or the
+// context is cancelled. The returned SafeUnlock must be released via defer
+// unlock.Release().
 func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error) {
-	priority := s.priority()
+	return s.AcquireWithPriority(ctx, valveID, defaultProtoPriority)
+}
+
+// AcquireWithPriority is Acquire with an explicit Vitess ExecuteOptions
+// priority (0–100, where 0 is the most important / shed last). Under
+// contention, lower-priority requests are shed before higher-priority ones.
+func (s *Snake) AcquireWithPriority(ctx context.Context, valveID string, protoPriority int) (*SafeUnlock, error) {
+	priority := s.priority(protoPriority)
 
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
@@ -249,11 +257,27 @@ func (s *Snake) runReleaseCBs(excValue error) {
 	}
 }
 
-func (s *Snake) priority() float64 {
+// priority maps a Vitess ExecuteOptions priority into the CoDel queue's
+// internal drop key. This is the single boundary between the two conventions,
+// which run in OPPOSITE directions:
+//
+//   - Vitess proto convention: 0 is the HIGHEST priority (shed last) and
+//     maxProtoPriority is the LOWEST (shed first). See vitessio/vitess
+//     go/vt/sqlparser/comments.go (DirectivePriority):
+//     https://github.com/vitessio/vitess/blob/57c1e593824bc24723b5b778cfa279da721f9892/go/vt/sqlparser/comments.go#L68
+//
+//   - CoDel internal convention: lockedFindLowestPriorityDroppable sheds the
+//     LOWEST key first, so a higher key means shed last.
+//
+// Inverting here (key = maxProtoPriority - protoPriority) makes Snake honor
+// the established proto direction. Getting it backwards would silently shed
+// the MOST important traffic first under load. The inversion lives only here
+// so the CoDel layer keeps its self-consistent "lower key = shed first" rule.
+func (s *Snake) priority(protoPriority int) float64 {
 	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
 		return priorityUndroppable
 	}
-	return 0
+	return float64(maxProtoPriority - protoPriority)
 }
 
 func (s *Snake) acquireError() error {
