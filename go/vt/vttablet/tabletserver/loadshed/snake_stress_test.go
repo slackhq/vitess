@@ -43,7 +43,7 @@ func TestSnake_Stress_HighContention(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -78,7 +78,7 @@ func TestSnake_Stress_ContextCancellation(t *testing.T) {
 				time.Duration(1+rand.IntN(5))*time.Millisecond)
 			defer cancel()
 
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err != nil {
 				cancelled.Add(1)
 				return
@@ -111,7 +111,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	undroppableCfg.LoadsheddingAllowed = func() bool { return false }
 	undroppableSnake := NewSnake(undroppableCfg)
 
-	unlock, err := droppableSnake.Acquire(t.Context(), "")
+	unlock, err := droppableSnake.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -121,7 +121,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := droppableSnake.Acquire(t.Context(), "")
+			u, err := droppableSnake.Acquire(t.Context(), "", 0)
 			if err != nil {
 				droppableFailed.Add(1)
 				return
@@ -138,7 +138,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	assert.Equal(t, int64(50), droppableSuccess.Load()+droppableFailed.Load())
 	assert.True(t, droppableSnake.isIdle())
 
-	unlock2, err := undroppableSnake.Acquire(t.Context(), "")
+	unlock2, err := undroppableSnake.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var undroppableSuccess atomic.Int64
@@ -146,7 +146,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := undroppableSnake.Acquire(t.Context(), "")
+			u, err := undroppableSnake.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -189,7 +189,7 @@ func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), cid)
+				u, err := s.Acquire(t.Context(), cid, 0)
 				if err != nil {
 					return
 				}
@@ -226,7 +226,7 @@ func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
 func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "order-test")
+	unlock, err := s.Acquire(t.Context(), "order-test", 0)
 	require.NoError(t, err)
 
 	const n = 20
@@ -240,7 +240,7 @@ func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "order-test")
+			u, err := s.Acquire(t.Context(), "order-test", 0)
 			if err != nil {
 				return
 			}
@@ -270,7 +270,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
 	s := NewSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "holder")
+	unlock, err := s.Acquire(t.Context(), "holder", 0)
 	require.NoError(t, err)
 
 	const numIDs = 5
@@ -289,7 +289,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), cid)
+				u, err := s.Acquire(t.Context(), cid, 0)
 				if err != nil {
 					results <- result{id: idx, granted: false}
 					return
@@ -328,7 +328,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "cancel-test")
+	unlock, err := s.Acquire(t.Context(), "cancel-test", 0)
 	require.NoError(t, err)
 
 	const n = 20
@@ -344,7 +344,7 @@ func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(ctxs[idx], "cancel-test")
+			u, err := s.Acquire(ctxs[idx], "cancel-test", 0)
 			if err != nil {
 				results[idx] <- err
 				return
@@ -408,7 +408,7 @@ func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), timeout)
 				defer cancel()
 
-				u, err := s.Acquire(ctx, cid)
+				u, err := s.Acquire(ctx, cid, 0)
 				if err != nil {
 					if ctx.Err() != nil {
 						cancelled.Add(1)
@@ -451,7 +451,7 @@ func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for time.Now().Before(deadline) {
-					u, err := s.Acquire(t.Context(), cid)
+					u, err := s.Acquire(t.Context(), cid, 0)
 					if err != nil {
 						continue
 					}
@@ -489,7 +489,7 @@ func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 100 {
-				u, err := s.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "", 0)
 				if err != nil {
 					continue
 				}
@@ -518,7 +518,7 @@ func TestSnake_Stress_CancelAndGrant_Race(t *testing.T) {
 				cancel()
 			}()
 
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err == nil {
 				time.Sleep(100 * time.Microsecond)
 				u.Release()
@@ -539,7 +539,7 @@ func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
 	s := NewSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -550,7 +550,7 @@ func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 			defer cancel()
 
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err == nil {
 				u.Release()
 			}
@@ -578,7 +578,7 @@ func TestSnake_Stress_MaxAge_UnderLoad(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -609,7 +609,7 @@ func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), cid)
+			u, err := s.Acquire(t.Context(), cid, 0)
 			if err != nil {
 				return
 			}
@@ -636,7 +636,7 @@ func TestSnake_Stress_GoroutineLeakDetector(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			defer cancel()
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err == nil {
 				time.Sleep(time.Millisecond)
 				u.Release()
@@ -669,7 +669,7 @@ func TestSnake_Stress_NoStarvation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err != nil {
 				return
 			}
@@ -695,7 +695,7 @@ func TestSnake_Stress_NoStarvation(t *testing.T) {
 func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "id1")
+	unlock, err := s.Acquire(t.Context(), "id1", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -707,7 +707,7 @@ func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(ctx, "id1")
+			u, err := s.Acquire(ctx, "id1", 0)
 			if err == nil {
 				time.Sleep(time.Millisecond)
 				u.Release()

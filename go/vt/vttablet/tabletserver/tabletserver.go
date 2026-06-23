@@ -597,7 +597,15 @@ func (tsv *TabletServer) begin(
 }
 
 func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
-	priority := tsv.config.TxThrottlerDefaultPriority
+	return priorityFromOptions(options, tsv.config.TxThrottlerDefaultPriority)
+}
+
+// priorityFromOptions resolves the ExecuteOptions priority, falling back to
+// defaultPriority when no usable value is present. It is shared by callers that
+// cannot reach a TabletServer (e.g. TxPool), so the parse-and-default logic
+// lives in one place.
+func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) int {
+	priority := defaultPriority
 	if options == nil {
 		return priority
 	}

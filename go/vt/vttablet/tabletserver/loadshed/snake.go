@@ -96,8 +96,17 @@ func (s *Snake) hasCapacity() bool {
 // Acquire acquires a slot. It blocks until a slot is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
 // must be released via defer unlock.Release().
-func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error) {
-	priority := s.priority()
+//
+// priority is in Snake's own convention: under contention the LOWEST priority
+// is shed first and the highest is shed last. Snake is agnostic to any caller's
+// priority scheme — callers translate their convention into this one before
+// calling. For Vitess ExecuteOptions priorities (0 = most important,
+// sqlparser.MaxPriorityValue = least important) the caller passes
+// MaxPriorityValue - protoPriority, so the most important traffic gets the
+// highest priority and is shed last. When LoadsheddingAllowed() reports false,
+// the supplied priority is ignored and the request is made undroppable.
+func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
+	priority = s.priority(priority)
 
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
@@ -249,11 +258,15 @@ func (s *Snake) runReleaseCBs(excValue error) {
 	}
 }
 
-func (s *Snake) priority() float64 {
+// priority returns the priority Snake will enqueue for a request. It honors the
+// caller-supplied priority unless load shedding is disallowed, in which case the
+// request is made undroppable. This is the one place the LoadsheddingAllowed
+// gate is applied; the caller's priority convention is otherwise opaque to Snake.
+func (s *Snake) priority(priority float64) float64 {
 	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
 		return priorityUndroppable
 	}
-	return 0
+	return priority
 }
 
 func (s *Snake) acquireError() error {

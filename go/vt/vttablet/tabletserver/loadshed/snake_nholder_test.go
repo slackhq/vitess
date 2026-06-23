@@ -39,7 +39,7 @@ func TestSnake_NHolder_ConcurrentGrants(t *testing.T) {
 
 			unlocks := make([]*SafeUnlock, cap)
 			for i := range cap {
-				u, err := s.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "", 0)
 				require.NoError(t, err, "acquire %d should succeed (capacity=%d)", i, cap)
 				unlocks[i] = u
 			}
@@ -63,14 +63,14 @@ func TestSnake_NHolder_BlocksAtCapacity(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 3)
 	for i := range 3 {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -112,7 +112,7 @@ func TestSnake_NHolder_ParallelThroughput(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerWorker {
-				u, err := s.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "", 0)
 				if err != nil {
 					continue
 				}
@@ -145,12 +145,12 @@ func TestSnake_NHolder_DynamicCapacityIncrease(t *testing.T) {
 	cfg.Capacity = func() int { return int(cap.Load()) }
 	s := NewSnake(cfg)
 
-	u1, err := s.Acquire(t.Context(), "")
+	u1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -185,7 +185,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 4)
 	for i := range 4 {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
@@ -195,7 +195,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -229,11 +229,11 @@ func TestSnake_NHolder_ValveSerialization(t *testing.T) {
 	cfg.Capacity = func() int { return 3 }
 	s := NewSnake(cfg)
 
-	u1, err := s.Acquire(t.Context(), "valve-a")
+	u1, err := s.Acquire(t.Context(), "valve-a", 0)
 	require.NoError(t, err)
-	u2, err := s.Acquire(t.Context(), "valve-b")
+	u2, err := s.Acquire(t.Context(), "valve-b", 0)
 	require.NoError(t, err)
-	u3, err := s.Acquire(t.Context(), "valve-c")
+	u3, err := s.Acquire(t.Context(), "valve-c", 0)
 	require.NoError(t, err)
 	assert.Equal(t, 3, s.nGranted())
 
@@ -245,7 +245,7 @@ func TestSnake_NHolder_ValveSerialization(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), vid)
+				u, err := s.Acquire(t.Context(), vid, 0)
 				if err == nil {
 					results <- vid
 					u.Release()
@@ -284,7 +284,7 @@ func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -308,15 +308,15 @@ func TestSnake_NHolder_ContextCancelFreesSlot(t *testing.T) {
 	s := NewSnake(cfg)
 
 	ctx1, cancel1 := context.WithCancel(t.Context())
-	u1, err := s.Acquire(ctx1, "")
+	u1, err := s.Acquire(ctx1, "", 0)
 	require.NoError(t, err)
 
-	u2, err := s.Acquire(t.Context(), "")
+	u2, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	waiterDone := make(chan error, 1)
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			u.Release()
 		}
@@ -345,14 +345,14 @@ func TestSnake_NHolder_MaxAge_MultipleHolders(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
 	s := NewSnake(cfg)
 
-	u1, err := s.Acquire(t.Context(), "")
+	u1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
-	u2, err := s.Acquire(t.Context(), "")
+	u2, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	waiterDone := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(waiterDone)
 			u.Release()
@@ -386,7 +386,7 @@ func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 3)
 	for i := range 3 {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
@@ -411,7 +411,7 @@ func TestSnake_NHolder_ValveInvariant_AllGranted(t *testing.T) {
 	unlocks := make([]*SafeUnlock, M)
 	for i := range M {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-		u, err := s.Acquire(ctx, "foo")
+		u, err := s.Acquire(ctx, "foo", 0)
 		cancel()
 		require.NoError(t, err, "request %d should be granted (capacity=%d, holders=%d)", i, capacity, i)
 		unlocks[i] = u
@@ -437,7 +437,7 @@ func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
 	unlocks := make([]*SafeUnlock, capacity)
 	for i := range capacity {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-		u, err := s.Acquire(ctx, "foo")
+		u, err := s.Acquire(ctx, "foo", 0)
 		cancel()
 		require.NoError(t, err, "request %d should be granted", i)
 		unlocks[i] = u
@@ -448,7 +448,7 @@ func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
 	granted := make(chan *SafeUnlock, 1)
 	go func() {
 		close(blocked)
-		u, err := s.Acquire(context.Background(), "foo")
+		u, err := s.Acquire(context.Background(), "foo", 0)
 		if err == nil {
 			granted <- u
 		}
@@ -487,7 +487,7 @@ func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 	for range 500 {
 		unlocks := make([]*SafeUnlock, 5)
 		for i := range 5 {
-			u, err := s.Acquire(t.Context(), fmt.Sprintf("id-%d", i))
+			u, err := s.Acquire(t.Context(), fmt.Sprintf("id-%d", i), 0)
 			require.NoError(t, err)
 			unlocks[i] = u
 		}
