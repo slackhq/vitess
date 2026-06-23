@@ -477,6 +477,54 @@ func TestSnake_MaxAge_VsContextCancel_Race(t *testing.T) {
 	assert.True(t, s.isIdle(), "lock must not be stuck after max-age/cancel races")
 }
 
+// --- Grant stall: shedding continues with zero grants and zero releases ---
+
+func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
+	// MaxAge left unset so the holder is never force-released.
+	s := NewSnake(cfg)
+
+	// Acquire the only slot (capacity defaults to 1). Once granted, this
+	// holder becomes undroppable and never releases — a stuck in-flight query
+	// that pins the semaphore.
+	holder, err := s.Acquire(t.Context(), "")
+	require.NoError(t, err)
+
+	// Enqueue droppable waiters that can never be granted (capacity pinned)
+	// nor completed (nothing releases). Their only possible exit is a CoDel
+	// drop driven by the timer.
+	var wg sync.WaitGroup
+	var dropped atomic.Int64
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u, err := s.Acquire(t.Context(), "")
+			if err != nil {
+				dropped.Add(1)
+				return
+			}
+			u.Release()
+		}()
+	}
+
+	assert.Eventually(t, func() bool {
+		return dropped.Load() > 0
+	}, 2*time.Second, 5*time.Millisecond, "droppable waiters should be shed during a grant stall")
+
+	assert.Equal(t, 1, s.nGranted(), "stuck holder must still occupy the slot")
+
+	wg.Wait()
+	assert.Equal(t, int64(10), dropped.Load(), "all droppable waiters should be shed")
+	assert.Equal(t, 1, s.nGranted(), "holder must remain after all waiters are shed")
+
+	require.NoError(t, holder.Release())
+	assert.True(t, s.isIdle())
+}
+
 // --- Double-signal panic invariant ---
 
 func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
