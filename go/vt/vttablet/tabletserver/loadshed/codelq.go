@@ -395,7 +395,11 @@ func (q *CoDelQueue) lockedEaseCount() int {
 		}
 		return max(q.count-sub, 1)
 	}
-	return max(int(float64(q.count)/q.cfg.EasingDivisor()), 1)
+	divisor := 2.0
+	if q.cfg.EasingDivisor != nil {
+		divisor = q.cfg.EasingDivisor()
+	}
+	return max(int(float64(q.count)/divisor), 1)
 }
 
 // lockedControlLaw computes the next drop time. The interval shrinks in
