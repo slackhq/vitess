@@ -72,7 +72,15 @@ func (q *query) Execute(ctx context.Context, request *querypb.ExecuteRequest) (r
 				weight *= 2
 			}
 			release := limiter.AcquireConsolidatedResponseMemory(ctx, weight)
-			context.AfterFunc(ctx, release)
+			if ctx.Done() == nil {
+				// A non-cancelable context would never trigger context.AfterFunc,
+				// leaking the reservation forever. Release when the handler returns
+				// instead; that is slightly early (before the marshal completes) but
+				// never leaks, which is the right tradeoff for a soft limit.
+				defer release()
+			} else {
+				context.AfterFunc(ctx, release)
+			}
 		}
 	}
 	return &querypb.ExecuteResponse{
