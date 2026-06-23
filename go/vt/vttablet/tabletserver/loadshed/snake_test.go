@@ -879,10 +879,10 @@ func TestNewSnake_DefaultClock(t *testing.T) {
 	assert.True(t, s.isIdle())
 }
 
-// TestSnake_Priority_HonorsCallerKey confirms Snake enqueues the caller's
+// TestSnake_Priority_HonorsCallerPriority confirms Snake enqueues the caller's
 // priority unchanged when shedding is allowed. Snake is agnostic to the
 // caller's priority scheme; it only applies the LoadsheddingAllowed gate.
-func TestSnake_Priority_HonorsCallerKey(t *testing.T) {
+func TestSnake_Priority_HonorsCallerPriority(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
 	for _, priority := range []float64{0, 50, 100} {
