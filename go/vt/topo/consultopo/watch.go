@@ -98,7 +98,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 			cancelGetCtx()
 			getCtx, cancelGetCtx = context.WithTimeout(ctx, 2*opts.WaitTime)
 
-			pair, _, err = s.kv.Get(nodePath, opts.WithContext(getCtx))
+			newPair, _, err := s.kv.Get(nodePath, opts.WithContext(getCtx))
 			if err != nil {
 				if isTransientError(err) && watchRetries < 10 {
 					watchRetries++
@@ -124,6 +124,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 				cancelGetCtx()
 				return
 			}
+			pair = newPair
 
 			watchRetries = 0
 
