@@ -96,8 +96,11 @@ func (s *Snake) hasCapacity() bool {
 // Acquire acquires a slot. It blocks until a slot is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
 // must be released via defer unlock.Release().
-func (s *Snake) Acquire(ctx context.Context, valveID string) (*SafeUnlock, error) {
-	priority := s.priority()
+//
+// The priority ordering convention is that lower-valued priorities indicate
+// less important requests. Lower values are shed first.
+func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
+	priority = s.priority(priority)
 
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
@@ -249,11 +252,11 @@ func (s *Snake) runReleaseCBs(excValue error) {
 	}
 }
 
-func (s *Snake) priority() float64 {
+func (s *Snake) priority(priority float64) float64 {
 	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
 		return priorityUndroppable
 	}
-	return 0
+	return priority
 }
 
 func (s *Snake) acquireError() error {

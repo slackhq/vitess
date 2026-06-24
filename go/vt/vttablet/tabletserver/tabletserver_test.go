@@ -2784,3 +2784,45 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 		}},
 	})
 }
+
+func TestPriorityFromOptions(t *testing.T) {
+	const defaultPriority = 100
+
+	tests := []struct {
+		name    string
+		options *querypb.ExecuteOptions
+		want    int
+	}{
+		{
+			name:    "nil options uses default",
+			options: nil,
+			want:    defaultPriority,
+		},
+		{
+			name:    "empty priority string uses default",
+			options: &querypb.ExecuteOptions{Priority: ""},
+			want:    defaultPriority,
+		},
+		{
+			name:    "valid priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "0"},
+			want:    0,
+		},
+		{
+			name:    "valid mid-range priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "30"},
+			want:    30,
+		},
+		{
+			name:    "non-numeric priority falls back to default",
+			options: &querypb.ExecuteOptions{Priority: "not-a-number"},
+			want:    defaultPriority,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, priorityFromOptions(tt.options, defaultPriority))
+		})
+	}
+}
