@@ -196,9 +196,9 @@ func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
 	}
 }
 
-// lockedRunScheduledDrop runs the CoDel drop logic, finding and dropping the
+// lockedRunTimer runs the CoDel drop logic, finding and dropping the
 // lowest-priority request and triggering valve promotion.
-func (q *ValvedCoDelQueue) lockedRunScheduledDrop() {
+func (q *ValvedCoDelQueue) lockedRunTimer() {
 	dropFn := func() bool {
 		elem := q.codelq.lockedFindLowestPriorityDroppable()
 		if elem == nil {
@@ -208,7 +208,7 @@ func (q *ValvedCoDelQueue) lockedRunScheduledDrop() {
 		q.lockedDrop(req)
 		return true
 	}
-	q.codelq.lockedRunScheduledDrop(dropFn)
+	q.codelq.lockedRunTimer(dropFn)
 }
 
 func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {

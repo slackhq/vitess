@@ -292,7 +292,7 @@ func (s *Snake) runDropTimer() {
 		return
 	}
 	s.dropTimerArmed = false
-	s.q.lockedRunScheduledDrop()
+	s.q.lockedRunTimer()
 	s.mu.Unlock()
 }
 
