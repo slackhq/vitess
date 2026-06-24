@@ -82,7 +82,7 @@ var (
 	transitionGracePeriod               time.Duration
 	enableReplicationReporter           bool
 	queryThrottlerConfigRefreshInterval time.Duration
-	enableSnake                         bool
+	enableLoadshed                      bool
 )
 
 func init() {
@@ -230,9 +230,10 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
-	fs.BoolVar(&enableSnake, "snake-enabled", false, "If true, enables CoDel-based load shedding (Snake) on the OLTP read pool.")
-	fs.DurationVar(&currentConfig.SnakeTarget, "snake-target", defaultConfig.SnakeTarget, "CoDel target delay for the Snake load shedder.")
-	fs.DurationVar(&currentConfig.SnakeInterval, "snake-interval", defaultConfig.SnakeInterval, "CoDel interval for the Snake load shedder.")
+	fs.BoolVar(&enableLoadshed, "loadshed-enabled", false, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
+	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
+	fs.DurationVar(&currentConfig.LoadshedInterval, "loadshed-interval", defaultConfig.LoadshedInterval, "CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target.")
+	fs.Float64Var(&currentConfig.LoadshedExponent, "loadshed-exponent", defaultConfig.LoadshedExponent, "CoDel control law exponent for the load shedder.")
 }
 
 var (
@@ -297,7 +298,7 @@ func Init() {
 
 	currentConfig.QueryThrottlerConfigRefreshInterval = queryThrottlerConfigRefreshInterval
 
-	currentConfig.SnakeEnabled = enableSnake
+	currentConfig.LoadshedEnabled = enableLoadshed
 	logFormat := streamlog.GetQueryLogConfig().Format
 	switch logFormat {
 	case streamlog.QueryLogFormatText:
@@ -393,9 +394,10 @@ type TabletConfig struct {
 	SkipUserMetrics                     bool          `json:"-"`
 	QueryThrottlerConfigRefreshInterval time.Duration `json:"-"`
 
-	SnakeEnabled  bool          `json:"-"`
-	SnakeTarget   time.Duration `json:"-"`
-	SnakeInterval time.Duration `json:"-"`
+	LoadshedEnabled  bool          `json:"-"`
+	LoadshedTarget   time.Duration `json:"-"`
+	LoadshedInterval time.Duration `json:"-"`
+	LoadshedExponent float64       `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1154,8 +1156,9 @@ var defaultConfig = TabletConfig{
 
 	QueryThrottlerConfigRefreshInterval: time.Minute,
 
-	SnakeTarget:   5 * time.Millisecond,
-	SnakeInterval: 100 * time.Millisecond,
+	LoadshedTarget:   20 * time.Millisecond,
+	LoadshedInterval: 400 * time.Millisecond,
+	LoadshedExponent: 1.0,
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on

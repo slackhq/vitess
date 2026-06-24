@@ -248,13 +248,13 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	}
 	qe.txSerializer = txserializer.New(env)
 
-	if config.SnakeEnabled {
+	if config.LoadshedEnabled {
 		qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: "oltp-read",
 			CoDel: loadshed.CoDelConfig{
-				TargetNs:       func() int64 { return config.SnakeTarget.Nanoseconds() },
-				IntervalNs:     func() int64 { return config.SnakeInterval.Nanoseconds() },
-				Exponent:       func() float64 { return 1.0 },
+				TargetNs:       func() int64 { return config.LoadshedTarget.Nanoseconds() },
+				IntervalNs:     func() int64 { return config.LoadshedInterval.Nanoseconds() },
+				Exponent:       func() float64 { return config.LoadshedExponent },
 				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
 			},
 			Capacity:            func() int { return config.OltpReadPool.Size },
