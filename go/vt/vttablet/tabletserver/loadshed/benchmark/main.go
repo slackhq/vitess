@@ -96,7 +96,7 @@ func main() {
 
 		valveID := r.URL.Query().Get("valve_id")
 
-		unlock, err := snake.Acquire(context.Background(), valveID)
+		unlock, err := snake.Acquire(context.Background(), valveID, 0)
 		if err != nil {
 			if logPath != "" {
 				mu.Lock()

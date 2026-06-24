@@ -226,7 +226,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 					reqStart := time.Now()
 					record("issued", 0)
 
-					unlock, err := snake.Acquire(ctx, "")
+					unlock, err := snake.Acquire(ctx, "", 0)
 					if err != nil {
 						record("shed", 0)
 						return
