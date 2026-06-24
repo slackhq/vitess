@@ -1149,8 +1149,8 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	SnakeTarget:   5 * time.Millisecond,
-	SnakeInterval: 100 * time.Millisecond,
+	SnakeTarget:   20 * time.Millisecond,
+	SnakeInterval: 400 * time.Millisecond,
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on
