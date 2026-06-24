@@ -1658,9 +1658,9 @@ func TestGetConnSnakeBypassed(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.OltpReadPool.Size = 2
 	cfg.TxPool.Size = 100
-	cfg.SnakeEnabled = true
-	cfg.SnakeTarget = 5 * time.Millisecond
-	cfg.SnakeInterval = 100 * time.Millisecond
+	cfg.LoadshedEnabled = true
+	cfg.LoadshedTarget = 5 * time.Millisecond
+	cfg.LoadshedInterval = 100 * time.Millisecond
 	cfg.DB = newDBConfigs(db)
 
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
@@ -1691,9 +1691,9 @@ func TestGetConnWithSnake(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.OltpReadPool.Size = 2
 	cfg.TxPool.Size = 100
-	cfg.SnakeEnabled = true
-	cfg.SnakeTarget = 5 * time.Millisecond
-	cfg.SnakeInterval = 100 * time.Millisecond
+	cfg.LoadshedEnabled = true
+	cfg.LoadshedTarget = 5 * time.Millisecond
+	cfg.LoadshedInterval = 100 * time.Millisecond
 	cfg.DB = newDBConfigs(db)
 
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
@@ -1703,7 +1703,7 @@ func TestGetConnWithSnake(t *testing.T) {
 	require.NoError(t, err)
 	defer tsv.StopService()
 
-	require.NotNil(t, tsv.qe.snake, "snake should be initialized when SnakeEnabled=true")
+	require.NotNil(t, tsv.qe.snake, "snake should be initialized when LoadshedEnabled=true")
 
 	input := "select * from test_table limit 1"
 
@@ -1725,7 +1725,7 @@ func TestGetConnSnakeDisabled(t *testing.T) {
 	tsv := newTestTabletServer(ctx, noFlags, db)
 	defer tsv.StopService()
 
-	assert.Nil(t, tsv.qe.snake, "snake should be nil when SnakeEnabled=false")
+	assert.Nil(t, tsv.qe.snake, "snake should be nil when LoadshedEnabled=false")
 
 	input := "select * from test_table limit 1"
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
