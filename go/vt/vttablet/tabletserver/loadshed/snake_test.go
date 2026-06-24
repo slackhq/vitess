@@ -62,7 +62,7 @@ func TestSnake_AcquireRelease_Basic(t *testing.T) {
 
 	assert.True(t, s.isIdle())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 	assert.False(t, s.isIdle())
 
@@ -75,7 +75,7 @@ func TestSnake_AcquireRelease_Sequential(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
 	for range 10 {
-		unlock, err := s.Acquire(t.Context(), "")
+		unlock, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 		assert.False(t, s.isIdle())
 
@@ -97,7 +97,7 @@ func TestSnake_MutualExclusion(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			unlock, err := s.Acquire(t.Context(), "")
+			unlock, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -119,7 +119,7 @@ func TestSnake_MutualExclusion(t *testing.T) {
 func TestSnake_FIFO_Order(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -132,7 +132,7 @@ func TestSnake_FIFO_Order(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				return
 			}
@@ -156,12 +156,12 @@ func TestSnake_FIFO_Order(t *testing.T) {
 func TestSnake_ReleaseWakesNext(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -188,14 +188,14 @@ func TestSnake_ReleaseWakesNext(t *testing.T) {
 func TestSnake_ContextCancellation(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := s.Acquire(ctx, "")
+		_, err := s.Acquire(ctx, "", 0)
 		errCh <- err
 	}()
 
@@ -217,13 +217,13 @@ func TestSnake_ContextCancellation(t *testing.T) {
 func TestSnake_ContextTimeout(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err = s.Acquire(ctx, "")
+	_, err = s.Acquire(ctx, "", 0)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	unlock.Release()
@@ -234,14 +234,14 @@ func TestSnake_ContextTimeout(t *testing.T) {
 func TestSnake_ContextCancel_RaceWithGrant(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
 	waiter2Done := make(chan error, 1)
 	go func() {
-		u, err := s.Acquire(ctx, "")
+		u, err := s.Acquire(ctx, "", 0)
 		if err == nil {
 			u.Release()
 		}
@@ -250,7 +250,7 @@ func TestSnake_ContextCancel_RaceWithGrant(t *testing.T) {
 
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			u.Release()
 		}
@@ -282,7 +282,7 @@ func TestSnake_ContextCancel_RaceWithGrant(t *testing.T) {
 func TestSnake_SelfContention_Serialized(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1", 0)
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -295,7 +295,7 @@ func TestSnake_SelfContention_Serialized(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "id1")
+			u, err := s.Acquire(t.Context(), "id1", 0)
 			if err != nil {
 				return
 			}
@@ -316,7 +316,7 @@ func TestSnake_SelfContention_Serialized(t *testing.T) {
 func TestSnake_SelfContention_DifferentIDs_Independent(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	acquired := make(chan struct{}, 2)
@@ -326,7 +326,7 @@ func TestSnake_SelfContention_DifferentIDs_Independent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), valveID)
+			u, err := s.Acquire(t.Context(), valveID, 0)
 			if err != nil {
 				return
 			}
@@ -351,13 +351,13 @@ func TestSnake_DroppedRequest(t *testing.T) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	errCh := make(chan error, 5)
 	for range 5 {
 		go func() {
-			_, err := s.Acquire(t.Context(), "")
+			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
 		}()
 	}
@@ -393,13 +393,13 @@ func TestSnake_SelfContention_NoDrop(t *testing.T) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000_000 } // 1ms
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "same-id")
+	unlock, err := s.Acquire(t.Context(), "same-id", 0)
 	require.NoError(t, err)
 
 	results := make(chan error, 3)
 	for range 3 {
 		go func() {
-			u, err := s.Acquire(t.Context(), "same-id")
+			u, err := s.Acquire(t.Context(), "same-id", 0)
 			if err == nil {
 				time.Sleep(1 * time.Millisecond)
 				u.Release()
@@ -428,12 +428,12 @@ func TestSnake_MaxAge_Timeout(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
 	s := newTestSnake(cfg)
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -456,7 +456,7 @@ func TestSnake_MaxAge_CancelledOnRelease(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 100 * time.Millisecond }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -470,7 +470,7 @@ func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
 	cfg.MaxAge = func() time.Duration { return 0 }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)
@@ -484,7 +484,7 @@ func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
 func TestSnake_SafeUnlock_DoubleRelease(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	err = unlock.Release()
@@ -497,12 +497,12 @@ func TestSnake_SafeUnlock_DoubleRelease(t *testing.T) {
 func TestSnake_SafeUnlock_StaleNonce(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	acquired := make(chan *SafeUnlock, 1)
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			acquired <- u
 		}
@@ -534,7 +534,7 @@ func TestSnake_ReleaseCallbacks_Executed(t *testing.T) {
 	}
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -549,7 +549,7 @@ func TestSnake_ReleaseCallbacks_ReceiveError(t *testing.T) {
 	}
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	myErr := errors.New("test error")
@@ -574,7 +574,7 @@ func TestSnake_ReleaseCallbacks_NilOnNormalRelease(t *testing.T) {
 	}
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	unlock.Release()
@@ -591,7 +591,7 @@ func TestSnake_ReleaseCallbacks_PanicRecovery(t *testing.T) {
 	}
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	err = unlock.Release()
@@ -607,7 +607,7 @@ func TestSnake_ReleaseCallbacks_NoDeadlock(t *testing.T) {
 	}
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -631,7 +631,7 @@ func TestSnake_IsIdle_IsHealthy(t *testing.T) {
 	assert.True(t, s.isIdle())
 	assert.True(t, s.IsHealthy())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	assert.False(t, s.isIdle())
@@ -646,19 +646,19 @@ func TestSnake_IsIdle_IsHealthy(t *testing.T) {
 func TestSnake_CancelInCoDelQueue(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "")
+	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	ctx2, cancel2 := context.WithCancel(t.Context())
 	waiter2Done := make(chan error, 1)
 	go func() {
-		_, err := s.Acquire(ctx2, "")
+		_, err := s.Acquire(ctx2, "", 0)
 		waiter2Done <- err
 	}()
 
 	waiter3Done := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "")
+		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
 			close(waiter3Done)
 			u.Release()
@@ -690,14 +690,14 @@ func TestSnake_CancelInCoDelQueue(t *testing.T) {
 func TestSnake_CancelInValve(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
-	unlock1, err := s.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1", 0)
 	require.NoError(t, err)
 
 	ctx3, cancel3 := context.WithCancel(t.Context())
 
 	waiter2Done := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "id1")
+		u, err := s.Acquire(t.Context(), "id1", 0)
 		if err == nil {
 			u.Release()
 		}
@@ -708,7 +708,7 @@ func TestSnake_CancelInValve(t *testing.T) {
 
 	waiter3Done := make(chan error, 1)
 	go func() {
-		_, err := s.Acquire(ctx3, "id1")
+		_, err := s.Acquire(ctx3, "id1", 0)
 		waiter3Done <- err
 	}()
 
@@ -716,7 +716,7 @@ func TestSnake_CancelInValve(t *testing.T) {
 
 	waiter4Done := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "id1")
+		u, err := s.Acquire(t.Context(), "id1", 0)
 		if err == nil {
 			u.Release()
 		}
@@ -759,13 +759,13 @@ func TestSnake_Undroppable_NeverDropped(t *testing.T) {
 	cfg.LoadsheddingAllowed = func() bool { return false }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	results := make(chan error, 5)
 	for range 5 {
 		go func() {
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err == nil {
 				u.Release()
 			}
@@ -797,13 +797,13 @@ func TestSnake_AcquireError_Custom(t *testing.T) {
 	cfg.AcquireError = func() error { return myErr }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	errCh := make(chan error, 3)
 	for range 3 {
 		go func() {
-			_, err := s.Acquire(t.Context(), "")
+			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
 		}()
 	}
@@ -838,7 +838,7 @@ func TestSnake_SelfContention_WithExceptions(t *testing.T) {
 	var mu sync.Mutex
 	var order []int
 
-	unlock1, err := s.Acquire(t.Context(), "id1")
+	unlock1, err := s.Acquire(t.Context(), "id1", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -848,7 +848,7 @@ func TestSnake_SelfContention_WithExceptions(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "id1")
+			u, err := s.Acquire(t.Context(), "id1", 0)
 			if err != nil {
 				return
 			}
@@ -871,10 +871,36 @@ func TestSnake_SelfContention_WithExceptions(t *testing.T) {
 func TestNewSnake_DefaultClock(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 	assert.False(t, s.isIdle())
 
 	unlock.Release()
 	assert.True(t, s.isIdle())
+}
+
+// TestSnake_Priority_HonorsCallerPriority confirms Snake enqueues the caller's
+// priority unchanged when shedding is allowed. Snake is agnostic to the
+// caller's priority scheme; it only applies the LoadsheddingAllowed gate.
+func TestSnake_Priority_HonorsCallerPriority(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
+
+	for _, priority := range []float64{0, 50, 100} {
+		assert.Equal(t, priority, s.priority(priority),
+			"caller priority must pass through untouched when shedding is allowed")
+	}
+}
+
+// TestSnake_Priority_GateOverridesToUndroppable confirms that when shedding is
+// disallowed the caller's priority is ignored and the request is made
+// undroppable, regardless of how important the caller marked it.
+func TestSnake_Priority_GateOverridesToUndroppable(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.LoadsheddingAllowed = func() bool { return false }
+	s := newTestSnake(cfg)
+
+	for _, priority := range []float64{0, 50, 100} {
+		assert.Equal(t, priorityUndroppable, s.priority(priority),
+			"a closed shedding gate must override any caller priority to undroppable")
+	}
 }

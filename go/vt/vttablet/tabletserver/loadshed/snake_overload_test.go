@@ -38,7 +38,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 	s := NewSnake(cfg)
 
 	// Phase 1: overload — hold lock for a long time with waiters
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -46,7 +46,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err == nil {
 				u.Release()
 			}
@@ -66,7 +66,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 	// Phase 3: verify function — uncontended acquires should succeed immediately
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	u, err := s.Acquire(ctx, "")
+	u, err := s.Acquire(ctx, "", 0)
 	require.NoError(t, err, "post-recovery acquire should succeed quickly")
 	u.Release()
 }
@@ -76,7 +76,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 func TestSnake_Overload_HolderKeepsQueueNonEmpty(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	// The holder stays at the head — queue length should be 1 even though
@@ -99,7 +99,7 @@ func TestSnake_Overload_HolderKeepsQueueNonEmpty(t *testing.T) {
 func TestSnake_Overload_MassCancel(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "mass-cancel")
+	unlock, err := s.Acquire(t.Context(), "mass-cancel", 0)
 	require.NoError(t, err)
 
 	const n = 30
@@ -115,7 +115,7 @@ func TestSnake_Overload_MassCancel(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(ctxs[idx], "mass-cancel")
+			u, err := s.Acquire(ctxs[idx], "mass-cancel", 0)
 			if err == nil {
 				u.Release()
 			}
@@ -143,7 +143,7 @@ func TestSnake_Overload_MassCancel(t *testing.T) {
 	assert.True(t, s.isIdle())
 
 	// Verify the lock is still usable
-	u, err := s.Acquire(t.Context(), "mass-cancel")
+	u, err := s.Acquire(t.Context(), "mass-cancel", 0)
 	require.NoError(t, err)
 	u.Release()
 }
@@ -194,7 +194,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 		cfg.LoadsheddingAllowed = func() bool { return true }
 		s := NewSnake(cfg)
 
-		unlock, err := s.Acquire(t.Context(), "")
+		unlock, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 
 		var wg sync.WaitGroup
@@ -203,7 +203,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "", 0)
 				if err != nil {
 					dropped.Add(1)
 					return
@@ -227,7 +227,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 		cfg.LoadsheddingAllowed = func() bool { return false }
 		s := NewSnake(cfg)
 
-		unlock, err := s.Acquire(t.Context(), "")
+		unlock, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
 
 		var wg sync.WaitGroup
@@ -236,7 +236,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), "")
+				u, err := s.Acquire(t.Context(), "", 0)
 				if err != nil {
 					dropped.Add(1)
 					return
@@ -309,7 +309,7 @@ func TestSnake_Overload_SelfContention_CrossIDDrops(t *testing.T) {
 	s := NewSnake(cfg)
 
 	// Hold the lock
-	unlock, err := s.Acquire(t.Context(), "holder")
+	unlock, err := s.Acquire(t.Context(), "holder", 0)
 	require.NoError(t, err)
 
 	const numIDs = 10
@@ -330,7 +330,7 @@ func TestSnake_Overload_SelfContention_CrossIDDrops(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				u, err := s.Acquire(t.Context(), results[idx].valveID)
+				u, err := s.Acquire(t.Context(), results[idx].valveID, 0)
 				if err != nil {
 					atomic.AddInt64(&results[idx].dropped, 1)
 					return
@@ -367,7 +367,7 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 
 	// Run many acquire/release cycles
 	for range 1000 {
-		u, err := s.Acquire(t.Context(), "cycle-id")
+		u, err := s.Acquire(t.Context(), "cycle-id", 0)
 		require.NoError(t, err)
 		u.Release()
 	}
@@ -392,7 +392,7 @@ func TestSnake_Memory_ManyDistinctValveIDs_Cleanup(t *testing.T) {
 
 	// Use many distinct valve IDs
 	for i := range 500 {
-		u, err := s.Acquire(t.Context(), fmt.Sprintf("distinct-%d", i))
+		u, err := s.Acquire(t.Context(), fmt.Sprintf("distinct-%d", i), 0)
 		require.NoError(t, err)
 		u.Release()
 	}
@@ -418,7 +418,7 @@ func TestSnake_Memory_CoDelStateTransition(t *testing.T) {
 	assert.True(t, s.IsHealthy())
 
 	// Create overload
-	unlock, err := s.Acquire(t.Context(), "")
+	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -426,7 +426,7 @@ func TestSnake_Memory_CoDelStateTransition(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err == nil {
 				u.Release()
 			}
@@ -446,7 +446,7 @@ func TestSnake_Memory_CoDelStateTransition(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "should recover to healthy after overload resolves")
 
 	// And still usable
-	u, err := s.Acquire(t.Context(), "")
+	u, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 	u.Release()
 }
@@ -462,7 +462,7 @@ func TestSnake_MaxAge_VsContextCancel_Race(t *testing.T) {
 	for range iterations {
 		ctx, cancel := context.WithTimeout(t.Context(), 4*time.Millisecond)
 
-		u, err := s.Acquire(ctx, "")
+		u, err := s.Acquire(ctx, "", 0)
 		if err != nil {
 			cancel()
 			continue
@@ -490,7 +490,7 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 	// Acquire the only slot (capacity defaults to 1). Once granted, this
 	// holder becomes undroppable and never releases — a stuck in-flight query
 	// that pins the semaphore.
-	holder, err := s.Acquire(t.Context(), "")
+	holder, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
 	// Enqueue droppable waiters that can never be granted (capacity pinned)
@@ -502,7 +502,7 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "")
+			u, err := s.Acquire(t.Context(), "", 0)
 			if err != nil {
 				dropped.Add(1)
 				return
@@ -530,7 +530,7 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
-	unlock, err := s.Acquire(t.Context(), "no-panic")
+	unlock, err := s.Acquire(t.Context(), "no-panic", 0)
 	require.NoError(t, err)
 
 	const n = 50
@@ -542,7 +542,7 @@ func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Millisecond)
 			defer cancel()
-			u, err := s.Acquire(ctx, "no-panic")
+			u, err := s.Acquire(ctx, "no-panic", 0)
 			if err == nil {
 				u.Release()
 			}

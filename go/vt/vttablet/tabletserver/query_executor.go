@@ -820,7 +820,10 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	if snake != nil {
 		contentionID := qre.options.GetUniqueId()
 		if contentionID != "" {
-			unlock, err := snake.Acquire(ctx, contentionID)
+			// Translate the Vitess proto priority (0 = most important) into
+			// Snake's convention (higher priority shed last).
+			snakePriority := float64(sqlparser.MaxPriorityValue - qre.tsv.getPriorityFromOptions(qre.options))
+			unlock, err := snake.Acquire(ctx, contentionID, snakePriority)
 			if err != nil {
 				return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
 			}

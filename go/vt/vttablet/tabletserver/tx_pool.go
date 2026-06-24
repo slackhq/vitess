@@ -255,7 +255,11 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 
 		if tp.snake != nil {
 			if contentionID := options.GetUniqueId(); contentionID != "" {
-				unlock, snakeErr := tp.snake.Acquire(ctx, contentionID)
+				// Translate the Vitess proto priority (0 = most important) into
+				// Snake's convention (higher priority shed last).
+				protoPriority := priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)
+				snakePriority := float64(sqlparser.MaxPriorityValue - protoPriority)
+				unlock, snakeErr := tp.snake.Acquire(ctx, contentionID, snakePriority)
 				if snakeErr != nil {
 					tp.limiter.Release(immediateCaller, effectiveCaller)
 					return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed: %v", snakeErr)

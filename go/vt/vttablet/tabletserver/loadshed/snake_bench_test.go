@@ -33,7 +33,7 @@ func BenchmarkSnake_Uncontended(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "")
+		u, err := s.Acquire(ctx, "", 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "valve-1")
+		u, err := s.Acquire(ctx, "valve-1", 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -67,7 +67,7 @@ func BenchmarkSnake_Contended(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
+					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {
 						continue
 					}
@@ -87,7 +87,7 @@ func BenchmarkSnake_ValveOverhead(b *testing.B) {
 
 		b.ResetTimer()
 		for range b.N {
-			u, err := s.Acquire(ctx, "")
+			u, err := s.Acquire(ctx, "", 0)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func BenchmarkSnake_ValveOverhead(b *testing.B) {
 
 		b.ResetTimer()
 		for range b.N {
-			u, err := s.Acquire(ctx, "single-id")
+			u, err := s.Acquire(ctx, "single-id", 0)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -124,7 +124,7 @@ func BenchmarkSnake_ValveIDScaling(b *testing.B) {
 
 			b.ResetTimer()
 			for i := range b.N {
-				u, err := s.Acquire(ctx, ids[i%numIDs])
+				u, err := s.Acquire(ctx, ids[i%numIDs], 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -149,7 +149,7 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
+					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {
 						continue
 					}
@@ -257,7 +257,7 @@ func BenchmarkSnake_Allocs_Uncontended(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "")
+		u, err := s.Acquire(ctx, "", 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -272,7 +272,7 @@ func BenchmarkSnake_Allocs_WithValve(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "valve-1")
+		u, err := s.Acquire(ctx, "valve-1", 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -295,7 +295,7 @@ func BenchmarkSnake_Allocs_Contended(b *testing.B) {
 		go func() {
 			defer wg.Done()
 			for range opsPerWorker {
-				u, err := s.Acquire(ctx, "")
+				u, err := s.Acquire(ctx, "", 0)
 				if err != nil {
 					continue
 				}
@@ -318,7 +318,7 @@ func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "shared-id")
+					u, err := s.Acquire(ctx, "shared-id", 0)
 					if err != nil {
 						continue
 					}
@@ -343,7 +343,7 @@ func BenchmarkSnake_NHolder_Throughput(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
+					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {
 						continue
 					}
@@ -366,7 +366,7 @@ func BenchmarkSnake_NHolder_Uncontended(b *testing.B) {
 
 			b.ResetTimer()
 			for range b.N {
-				u, err := s.Acquire(ctx, "")
+				u, err := s.Acquire(ctx, "", 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -390,7 +390,7 @@ func BenchmarkSnake_NHolder_Saturated(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "")
+					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {
 						continue
 					}
@@ -423,7 +423,7 @@ func BenchmarkSnake_NHolder_WithValve(b *testing.B) {
 				idx := int(counter.Add(1) - 1)
 				id := ids[idx%len(ids)]
 				for pb.Next() {
-					u, err := s.Acquire(ctx, id)
+					u, err := s.Acquire(ctx, id, 0)
 					if err != nil {
 						continue
 					}
@@ -447,7 +447,7 @@ func BenchmarkSnake_NHolder_Allocs(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				u, err := s.Acquire(ctx, "")
+				u, err := s.Acquire(ctx, "", 0)
 				if err != nil {
 					b.Fatal(err)
 				}

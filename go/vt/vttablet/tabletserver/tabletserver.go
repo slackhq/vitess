@@ -597,7 +597,11 @@ func (tsv *TabletServer) begin(
 }
 
 func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
-	priority := tsv.config.TxThrottlerDefaultPriority
+	return priorityFromOptions(options, tsv.config.TxThrottlerDefaultPriority)
+}
+
+func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) int {
+	priority := defaultPriority
 	if options == nil {
 		return priority
 	}
