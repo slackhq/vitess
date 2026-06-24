@@ -18,108 +18,45 @@ from datetime import datetime
 BASE = Path.home() / "snake-load-test-charts"
 EASING_BASE = BASE / "tsv" / "easing-comparison"
 
-DIVISORS = sorted([2**(1/4), 2**(1/3), 2**(1/2), 2.0])
-
-
-def divisor_label(div):
-    """Human-readable label for a divisor value."""
-    import math
-    if div == 1.0:
-        return "1 (no decay)"
-    for denom in [2, 3, 4]:
-        if abs(div - 2**(1/denom)) < 1e-9:
-            return f"2^(1/{denom}) ≈ {div:.3f}"
-    if div == int(div):
-        return str(int(div))
-    return f"{div:.3f}"
-
-
-def divisor_dirname(div):
-    """Stable directory name for a divisor value."""
-    import math
-    for denom in [2, 3, 4]:
-        if abs(div - 2**(1/denom)) < 1e-9:
-            return f"easing_2pow1over{denom}"
-    if div == int(div):
-        return f"easing_{int(div)}"
-    return f"easing_{div:.4f}"
-
-
 def normalize_easing(entry):
-    """Normalize a config easing entry into {mode, divisor|amount}.
+    """Normalize a config easing entry into a {base} spec.
 
-    A bare number means divide mode with that divisor (back-compat); an object
-    selects the strategy: {"mode": "subtract", "amount": N} or
-    {"mode": "divide", "divisor": X}."""
+    Easing is always logbase decay; an entry is either a bare number (the base)
+    or an object {"base": N}. Base defaults to 2."""
     if isinstance(entry, (int, float)):
-        return {"mode": "divide", "divisor": float(entry)}
-    mode = entry.get("mode", "divide")
-    if mode == "subtract":
-        return {"mode": "subtract", "amount": int(entry.get("amount", 1))}
-    return {"mode": "divide", "divisor": float(entry.get("divisor", 2.0))}
+        return {"base": float(entry)}
+    return {"base": float(entry.get("base", 2.0))}
 
 
 def easing_label(spec):
     """Human-readable column label for a normalized easing spec."""
-    if spec["mode"] == "subtract":
-        return f"subtract {spec['amount']}"
-    return divisor_label(spec["divisor"])
+    return f"logbase {spec['base']:g}"
 
 
 def easing_dirname(spec):
     """Stable output directory name for a normalized easing spec."""
-    if spec["mode"] == "subtract":
-        return f"easing_sub{spec['amount']}"
-    return divisor_dirname(spec["divisor"])
+    return f"easing_logbase{spec['base']:g}"
 
 
 def easing_flags(spec):
     """bench_suite.go flags that select this easing spec."""
-    if spec["mode"] == "subtract":
-        return ["-easing-mode", "subtract", "-easing-sub", str(spec["amount"])]
-    return ["-easing-mode", "divide", "-easing", str(spec["divisor"])]
+    return ["-easing-log-base", str(spec["base"])]
 
 
-KEY = "linear_ramp__0_to_80x_cap__work_half_target"
-DUR_MS = 20000
 NUM_ROWS = 7  # grant rate, issued/shed Hz, queue depth, codel state, interval, cumulative unfilled, latency
 
 
-def run_benchmarks(bench_go_path: str, filter_label: str):
-    """Run all easing divisor benchmarks in parallel."""
-    procs = []
-    for div in DIVISORS:
-        out_dir = str(EASING_BASE / divisor_dirname(div))
-        os.makedirs(out_dir, exist_ok=True)
-        cmd = [
-            "go", "run", bench_go_path,
-            "-easing", str(div),
-            "-filter", filter_label,
-            "-out", out_dir,
-        ]
-        print(f"  Starting easing={divisor_label(div)} ...")
-        procs.append((div, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)))
-
-    for div, proc in procs:
-        stdout, _ = proc.communicate()
-        status = "OK" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"
-        print(f"  easing={divisor_label(div)}: {status}")
-        if proc.returncode != 0:
-            print(stdout.decode(), file=sys.stderr)
-
-
 def parse_args():
-    parser = argparse.ArgumentParser(description="Plot easing divisor comparison.")
-    parser.add_argument("--run", action="store_true",
-                        help="Run Go bench suite for all divisors in parallel before plotting")
+    parser = argparse.ArgumentParser(description="Plot CoDel logbase easing comparison.")
     parser.add_argument("--bench-go", type=str,
                         default=str(Path(__file__).parent / "bench_suite.go"),
-                        help="Path to bench_suite.go with -easing flag")
-    parser.add_argument("--filter", type=str, default=KEY,
-                        help="Only run tests whose label contains this substring")
-    parser.add_argument("--config", type=str, default=None,
-                        help="JSON file describing divisors + workloads. When set, "
-                             "always runs benchmarks then plots one figure per workload.")
+                        help="Path to bench_suite.go")
+    parser.add_argument("--config", type=str, required=True,
+                        help="JSON file describing easings + workloads. Runs the "
+                             "benchmarks then plots per the chosen comparison axis.")
+    parser.add_argument("--jobs", "-j", type=int, default=0,
+                        help="Max concurrent benchmark processes (0 = unlimited). "
+                             "Use 1 for serial runs to minimize contention noise.")
     return parser.parse_args()
 
 
@@ -134,22 +71,27 @@ WORKLOAD_DEFAULTS = {
     "target_ms": 5,
     "interval_ms": 100,
     "period_ms": 1000,
+    "sine_floor": 0,
+    "brown_seed": 1,
+    "brown_step": 0.05,
+    "brown_sample_ms": 100,
 }
 
 
 def load_config(path):
-    """Read a JSON config of {divisors|easings: [...], workloads: [{...}]}.
+    """Read a JSON config of {easings: [...], workloads: [{...}]}.
 
-    'easings' (or legacy 'divisors') is a list where each entry is either a bare
-    number (divide mode) or an object {"mode": "subtract", "amount": N} /
-    {"mode": "divide", "divisor": X}. Each workload is merged over
-    WORKLOAD_DEFAULTS and must have a unique label (defaults to its profile
-    name). Returns (easings, workloads) where easings are normalized specs."""
+    'easings' is a list where each entry is either a bare number (the logbase)
+    or an object {"base": N}. Each workload is merged over WORKLOAD_DEFAULTS and
+    must have a unique label (defaults to its profile name). Returns
+    (easings, workloads, compare) where easings are normalized specs."""
     import json
     with open(path) as f:
         cfg = json.load(f)
 
-    raw_easings = cfg.get("easings") or cfg.get("divisors") or DIVISORS
+    raw_easings = cfg.get("easings")
+    if not raw_easings:
+        raise SystemExit(f"config {path}: 'easings' must be a non-empty list")
     easings = [normalize_easing(e) for e in raw_easings]
 
     raw_workloads = cfg.get("workloads")
@@ -182,13 +124,14 @@ def load_config(path):
     return easings, workloads, compare
 
 
-def run_config_benchmarks(bench_go_path, easings, workloads):
-    """Run every (easing x workload) combination in parallel.
+def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
+    """Run every (easing x workload) combination, up to `jobs` at a time.
 
     Each easing spec gets its own output dir. bench_suite.go runs one custom
     workload per invocation, so we spawn one process per (easing, workload)
-    and rely on distinct workload labels to keep TSVs separate within a dir."""
-    procs = []
+    and rely on distinct workload labels to keep TSVs separate within a dir.
+    jobs<=0 means unlimited concurrency; jobs==1 runs serially."""
+    cmds = []  # (spec, label, cmd)
     for spec in easings:
         out_dir = str(EASING_BASE / easing_dirname(spec))
         os.makedirs(out_dir, exist_ok=True)
@@ -205,17 +148,29 @@ def run_config_benchmarks(bench_go_path, easings, workloads):
                 "-target-ms", str(w["target_ms"]),
                 "-interval-ms", str(w["interval_ms"]),
                 "-period-ms", str(w["period_ms"]),
+                "-sine-floor", str(w["sine_floor"]),
+                "-brown-seed", str(w["brown_seed"]),
+                "-brown-step", str(w["brown_step"]),
+                "-brown-sample-ms", str(w["brown_sample_ms"]),
             ] + easing_flags(spec)
-            print(f"  Starting easing={easing_label(spec)} workload={w['label']} ...")
-            procs.append((spec, w["label"], subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)))
+            cmds.append((spec, w["label"], cmd))
 
-    for spec, label, proc in procs:
-        stdout, _ = proc.communicate()
-        status = "OK" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"
-        print(f"  easing={easing_label(spec)} workload={label}: {status}")
-        if proc.returncode != 0:
-            print(stdout.decode(), file=sys.stderr)
+    limit = jobs if jobs and jobs > 0 else len(cmds)
+    i = 0
+    while i < len(cmds):
+        batch = cmds[i:i + limit]
+        procs = []
+        for spec, label, cmd in batch:
+            print(f"  Starting easing={easing_label(spec)} workload={label} ...")
+            procs.append((spec, label, subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)))
+        for spec, label, proc in procs:
+            stdout, _ = proc.communicate()
+            status = "OK" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"
+            print(f"  easing={easing_label(spec)} workload={label}: {status}")
+            if proc.returncode != 0:
+                print(stdout.decode(), file=sys.stderr)
+        i += limit
 
 
 def compute_hz_series(df, event_type, bin_ms, max_ts):
@@ -391,13 +346,12 @@ def plot_comparison(columns, suptitle, dur_ms, capacity, out_suffix):
             ax.plot(t_lat, p95, color="orange", linewidth=1, label="p95")
             ax.plot(t_lat, p99, color="red", linewidth=1, label="p99")
         ax.set_xlim(0, xlim)
-        ax.set_ylim(bottom=0)
-        ax.grid(True, alpha=0.3)
-        ax.ticklabel_format(useOffset=False, style='plain', axis='y')
+        ax.set_yscale("log")
+        ax.grid(True, which="both", alpha=0.3)
         if col_idx == 0:
-            ax.set_ylabel("ms")
+            ax.set_ylabel("ms (log)")
             ax.legend(fontsize=7, loc="upper left")
-            ax.set_title("Request Latency (granted only)", fontsize=9)
+            ax.set_title("Request Latency (granted only, log)", fontsize=9)
 
     # X labels on bottom row
     for col_idx in range(num_cols):
@@ -424,8 +378,9 @@ if args.config:
     # Config-driven: run benchmarks for every (easing x workload) in parallel,
     # then plot per the chosen comparison axis.
     easings, workloads, compare = load_config(args.config)
-    print(f"Running {len(easings)} easings x {len(workloads)} workloads in parallel...")
-    run_config_benchmarks(args.bench_go, easings, workloads)
+    jobdesc = "serially" if args.jobs == 1 else (f"{args.jobs} at a time" if args.jobs > 0 else "in parallel")
+    print(f"Running {len(easings)} easings x {len(workloads)} workloads {jobdesc}...")
+    run_config_benchmarks(args.bench_go, easings, workloads, jobs=args.jobs)
     print()
 
     if compare == "workload":
@@ -466,21 +421,3 @@ if args.config:
                 capacity=w["capacity"],
                 out_suffix=f"easing_comparison_{w['label']}",
             )
-else:
-    # Default behavior: fixed linear-ramp workload across DIVISORS.
-    if args.run:
-        print(f"Running {len(DIVISORS)} easing benchmarks in parallel...")
-        run_benchmarks(args.bench_go, args.filter)
-        print()
-
-    columns = [(f"divisor = {divisor_label(div)}", str(EASING_BASE / divisor_dirname(div)), KEY) for div in DIVISORS]
-    plot_comparison(
-        columns=columns,
-        suptitle=(
-            "CoDel Easing Divisor Comparison — Linear Ramp 0→80× capacity, work=2ms\n"
-            "capacity=10, target=5ms, interval=100ms, exponent=1"
-        ),
-        dur_ms=DUR_MS,
-        capacity=10,
-        out_suffix="easing_divisor_comparison",
-    )

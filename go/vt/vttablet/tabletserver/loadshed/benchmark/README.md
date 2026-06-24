@@ -12,8 +12,8 @@ cd go/vt/vttablet/tabletserver/loadshed/benchmark
 # With defaults:
 go run bench_suite.go
 
-# Override easing divisor:
-go run bench_suite.go -easing 1.2
+# Override easing log base:
+go run bench_suite.go -easing-log-base 3
 
 # Only run linear ramp tests:
 go run bench_suite.go -filter linear_ramp
@@ -31,7 +31,7 @@ Output lands in `~/snake-load-test-charts/<timestamp>/tsv/` by default.
 | `-out` | auto | Output directory for TSVs |
 | `-j` | 8 | Max parallel benchmarks |
 | `-filter` | (none) | Only run tests whose label contains this substring |
-| `-easing` | 2.0 | Easing divisor for CoDel count decay |
+| `-easing-log-base` | 3.0 | Log base for CoDel easing count decay: `count -= floor(log_base(count)/base)` |
 
 ### Custom single workload
 
@@ -46,7 +46,7 @@ go run bench_suite.go -profile linear_ramp -peak 80 -duration-ms 20000 \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-profile` | (none) | `sine`, `constant`, `linear_ramp`, or `linear_ramp_down` (replaces preset matrix when set) |
+| `-profile` | (none) | `sine`, `constant`, `linear_ramp`, `linear_ramp_down`, or `brown_noise` (replaces preset matrix when set) |
 | `-label` | profile name | TSV label for the workload |
 | `-capacity` | 10 | Slot capacity |
 | `-peak` | 80 | Peak arrival rate as multiple of system throughput |
@@ -55,6 +55,10 @@ go run bench_suite.go -profile linear_ramp -peak 80 -duration-ms 20000 \
 | `-target-ms` | 5 | CoDel target |
 | `-interval-ms` | 100 | CoDel interval |
 | `-period-ms` | 1000 | Sine period (sine profile only) |
+| `-sine-floor` | 0 | Sine trough as a fraction of peak, e.g. `0.5` => trough at half peak (sine only) |
+| `-brown-seed` | 1 | RNG seed for `brown_noise`; same seed => same offered-load trace |
+| `-brown-step` | 0.05 | `brown_noise` per-sample volatility (random-walk increment) |
+| `-brown-sample-ms` | 100 | `brown_noise` walk sample resolution |
 
 ## Plotting
 
@@ -70,40 +74,32 @@ python3 plot_linear_ramp.py ~/snake-load-test-charts/<timestamp>/tsv/
 
 ## Easing comparison
 
-Compares CoDel ease-out behavior across divisor values (how aggressively count
-decays when the queue drains). Runs all divisors in parallel, then plots:
-
-```bash
-python3 plot_easing_comparison.py --run
-```
-
-Or plot from existing TSVs without re-running benchmarks:
-
-```bash
-python3 plot_easing_comparison.py
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--run` | off | Run Go bench suite for all divisors in parallel before plotting |
-| `--bench-go` | `bench_suite.go` | Path to bench_suite.go |
-| `--filter` | `linear_ramp__0_to_80x_cap__work_half_target` | Only run tests matching this label |
-| `--config` | (none) | JSON file describing `divisors` + `workloads` (see below) |
-
-### Config-driven comparison
-
-With `--config <file.json>`, the script runs every (divisor × workload)
-combination in parallel, then emits one comparison figure per workload. Any
-workload field omitted falls back to the defaults. See
-`easing_config.example.json`.
+Compares CoDel ease-out behavior across log bases (how aggressively count
+decays when the queue drains: `count -= floor(log_base(count)/base)`; a larger
+base = gentler ease-out). Config-driven via `--config`: the script runs every
+(easing × workload) combination, then plots one comparison figure per workload.
 
 ```bash
 python3 plot_easing_comparison.py --config easing_config.example.json
 ```
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | (required) | JSON file describing `easings` + `workloads` (see below) |
+| `--bench-go` | `bench_suite.go` | Path to bench_suite.go |
+| `--jobs` / `-j` | 0 (unlimited) | Max concurrent benchmark processes; use `1` for serial runs to minimize contention noise |
+
+### Config format
+
+Each `easings` entry is a bare number (the log base) or `{"base": N}`. Any
+workload field omitted falls back to the defaults. An optional top-level
+`"compare"` is `"easing"` (default — one figure per workload, columns = bases)
+or `"workload"` (one figure per profile, columns = workloads, single easing).
+See `easing_config.example.json`.
+
 ```json
 {
-  "divisors": [1.189, 1.260, 1.414, 2.0],
+  "easings": [2, {"base": 2.5}, 3],
   "workloads": [
     {"label": "ramp", "profile": "linear_ramp", "peak": 80, "duration_ms": 20000,
      "work_ms": 2, "target_ms": 5, "interval_ms": 100},

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"strings"
 	"sync"
@@ -16,11 +17,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-var (
-	easingDiv  *float64
-	easingMode *string
-	easingSub  *int
-)
+var easingLogBase *float64
 
 type event struct {
 	tsMs      int64
@@ -41,10 +38,13 @@ type statsSnapshot struct {
 // loadProfile returns the load fraction [0,1] at a given elapsed time.
 type loadProfile func(elapsed, totalDuration time.Duration) float64
 
-func sineProfile(period time.Duration) loadProfile {
+// sineProfile oscillates the load fraction between floor and 1.0 over each
+// period. floor=0 spans the full [0,1]; floor=0.5 spans [0.5,1] (so with
+// peak=4x the load swings between a 2x trough and a 4x peak).
+func sineProfile(period time.Duration, floor float64) loadProfile {
 	return func(elapsed, _ time.Duration) float64 {
 		phase := float64(elapsed) / float64(period) * 2 * math.Pi
-		return (1 - math.Cos(phase)) / 2
+		return floor + (1-floor)*(1-math.Cos(phase))/2
 	}
 }
 
@@ -66,19 +66,65 @@ func linearRampDownProfile() loadProfile {
 	}
 }
 
-// buildProfile constructs a loadProfile from a name and (for sine) a period.
-func buildProfile(name string, periodMs int) loadProfile {
+// brownNoiseProfile returns a repeatable brown-noise (random-walk) load
+// fraction in [0,1]. The walk is fully determined by seed, so the same seed
+// reproduces the same offered-load trace. step controls volatility (the
+// per-sample increment magnitude); the value reflects off the [0,1] bounds to
+// stay in range. The walk is pre-sampled at sampleMs resolution and the
+// profile interpolates between samples by elapsed time, so the trace is
+// independent of how often the profile is queried.
+func brownNoiseProfile(seed int64, step float64, sampleMs, durationMs int) loadProfile {
+	rng := rand.New(rand.NewSource(seed))
+	n := durationMs/sampleMs + 2
+	samples := make([]float64, n)
+	v := 0.5 // start mid-range
+	for i := range samples {
+		samples[i] = v
+		v += (rng.Float64()*2 - 1) * step
+		// reflect off [0,1] so the walk stays in range without clipping flat
+		if v < 0 {
+			v = -v
+		} else if v > 1 {
+			v = 2 - v
+		}
+	}
+	sample := time.Duration(sampleMs) * time.Millisecond
+	return func(elapsed, _ time.Duration) float64 {
+		pos := float64(elapsed) / float64(sample)
+		i := int(pos)
+		if i >= len(samples)-1 {
+			return samples[len(samples)-1]
+		}
+		frac := pos - float64(i)
+		return samples[i]*(1-frac) + samples[i+1]*frac
+	}
+}
+
+// profileOpts carries per-profile knobs for buildProfile.
+type profileOpts struct {
+	periodMs      int     // sine
+	sineFloor     float64 // sine
+	durationMs    int     // brown_noise (walk length)
+	brownSeed     int64   // brown_noise
+	brownStep     float64 // brown_noise volatility
+	brownSampleMs int     // brown_noise sample resolution
+}
+
+// buildProfile constructs a loadProfile from a name and per-profile options.
+func buildProfile(name string, o profileOpts) loadProfile {
 	switch name {
 	case "sine":
-		return sineProfile(time.Duration(periodMs) * time.Millisecond)
+		return sineProfile(time.Duration(o.periodMs)*time.Millisecond, o.sineFloor)
 	case "constant":
 		return constantProfile()
 	case "linear_ramp":
 		return linearRampProfile()
 	case "linear_ramp_down":
 		return linearRampDownProfile()
+	case "brown_noise":
+		return brownNoiseProfile(o.brownSeed, o.brownStep, o.brownSampleMs, o.durationMs)
 	default:
-		fmt.Printf("unknown profile %q (expected sine|constant|linear_ramp|linear_ramp_down)\n", name)
+		fmt.Printf("unknown profile %q (expected sine|constant|linear_ramp|linear_ramp_down|brown_noise)\n", name)
 		os.Exit(1)
 		return nil
 	}
@@ -90,13 +136,11 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 		Capacity: func() int { return capacity },
 		MaxAge:   func() time.Duration { return 30 * time.Second },
 		CoDel: loadshed.CoDelConfig{
-			TargetNs:         func() int64 { return int64(targetMs) * 1_000_000 },
-			IntervalNs:       func() int64 { return int64(intervalMs) * 1_000_000 },
-			MinDropDelayNs:   func() int64 { return 1_000_000 },
-			Exponent:         func() float64 { return 1 },
-			EasingMode:       func() string { return *easingMode },
-			EasingDivisor:    func() float64 { return *easingDiv },
-			EasingSubtractor: func() int { return *easingSub },
+			TargetNs:       func() int64 { return int64(targetMs) * 1_000_000 },
+			IntervalNs:     func() int64 { return int64(intervalMs) * 1_000_000 },
+			MinDropDelayNs: func() int64 { return 1_000_000 },
+			Exponent:       func() float64 { return 1 },
+			EasingLogBase:  func() float64 { return *easingLogBase },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -224,14 +268,12 @@ func main() {
 	outDir := flag.String("out", "", "Output directory (default: timestamped under ~/snake-load-test-charts/)")
 	parallel := flag.Int("j", 8, "Max parallel benchmarks")
 	filter := flag.String("filter", "", "Only run tests whose label contains this substring")
-	easingDiv = flag.Float64("easing", 2.0, "Easing divisor for CoDel count decay (divide mode)")
-	easingMode = flag.String("easing-mode", "divide", "Easing strategy: divide|subtract")
-	easingSub = flag.Int("easing-sub", 1, "Easing subtractor for CoDel count decay (subtract mode)")
+	easingLogBase = flag.Float64("easing-log-base", 3.0, "Log base for CoDel easing count decay")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
 	// preset matrix (with its built-in defaults) runs as before.
-	wProfile := flag.String("profile", "", "Custom workload profile: sine|constant|linear_ramp|linear_ramp_down (replaces preset matrix when set)")
+	wProfile := flag.String("profile", "", "Custom workload profile: sine|constant|linear_ramp|linear_ramp_down|brown_noise (replaces preset matrix when set)")
 	wLabel := flag.String("label", "", "Custom workload label (default: derived from profile)")
 	wCapacity := flag.Int("capacity", 10, "Custom workload: slot capacity")
 	wPeak := flag.Float64("peak", 80, "Custom workload: peak arrival rate as multiple of system throughput")
@@ -240,6 +282,10 @@ func main() {
 	wTargetMs := flag.Int("target-ms", 5, "Custom workload: CoDel target in ms")
 	wIntervalMs := flag.Int("interval-ms", 100, "Custom workload: CoDel interval in ms")
 	wPeriodMs := flag.Int("period-ms", 1000, "Custom workload: sine period in ms (sine profile only)")
+	wSineFloor := flag.Float64("sine-floor", 0, "Custom workload: sine trough as a fraction of peak (sine profile only); e.g. 0.5 => trough at half the peak load")
+	wBrownSeed := flag.Int64("brown-seed", 1, "Custom workload: RNG seed for brown_noise profile (same seed => same trace)")
+	wBrownStep := flag.Float64("brown-step", 0.05, "Custom workload: brown_noise per-sample volatility (random-walk increment magnitude)")
+	wBrownSampleMs := flag.Int("brown-sample-ms", 100, "Custom workload: brown_noise walk sample resolution in ms")
 	flag.Parse()
 
 	if *outDir == "" {
@@ -276,7 +322,14 @@ func main() {
 			workMs:                    *wWorkMs,
 			targetMs:                  *wTargetMs,
 			intervalMs:                *wIntervalMs,
-			profile:                   buildProfile(*wProfile, *wPeriodMs),
+			profile: buildProfile(*wProfile, profileOpts{
+				periodMs:      *wPeriodMs,
+				sineFloor:     *wSineFloor,
+				durationMs:    *wDurationMs,
+				brownSeed:     *wBrownSeed,
+				brownStep:     *wBrownStep,
+				brownSampleMs: *wBrownSampleMs,
+			}),
 		})
 		runConfigs(configs, *outDir, *parallel)
 		return
@@ -313,7 +366,7 @@ func main() {
 					workMs:                    w.ms,
 					targetMs:                  targetMs,
 					intervalMs:                intervalMs,
-					profile:                   sineProfile(time.Duration(p.ms) * time.Millisecond),
+					profile:                   sineProfile(time.Duration(p.ms)*time.Millisecond, 0),
 				})
 			}
 		}
