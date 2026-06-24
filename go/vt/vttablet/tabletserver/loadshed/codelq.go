@@ -111,7 +111,7 @@ import (
         re-arm if droppableLen > 0.
 
       dropping=false (easing), healthy:
-        decay count by EasingDivisor.
+        decay count via lockedEaseCount (log_EasingLogBase based).
         if count > 1: re-arm (easing continues)
         if count == 1: stop (→ idle)
 
@@ -132,13 +132,11 @@ type (
 		Exponent       func() float64
 		MinDropDelayNs func() int64
 
-		// Easing controls how the drop count decays each easing timer fire.
-		// EasingMode selects the strategy: "subtract" decrements count by
-		// EasingSubtractor; anything else (default "divide") divides count by
-		// EasingDivisor. Either way the count is floored at 1.
-		EasingMode       func() string
-		EasingDivisor    func() float64
-		EasingSubtractor func() int
+		// EasingLogBase controls how the drop count decays each easing timer
+		// fire: count -= floor(log_base(count) / base), floored at 1. A larger
+		// base yields a smaller step (gentler ease-out). Defaults to 3 when
+		// unset or <= 1.
+		EasingLogBase func() float64
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
@@ -384,22 +382,19 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	}
 }
 
-// lockedEaseCount returns the next drop count during easing, applying the
-// configured easing strategy and flooring at 1. "subtract" decrements count by
-// EasingSubtractor; the default "divide" divides count by EasingDivisor.
+// lockedEaseCount returns the next drop count during easing:
+// count -= floor(log_base(count) / base), floored at 1. A larger base yields a
+// smaller step (gentler ease-out); base defaults to 3 when unset or <= 1.
 func (q *CoDelQueue) lockedEaseCount() int {
-	if q.cfg.EasingMode != nil && q.cfg.EasingMode() == "subtract" {
-		sub := 1
-		if q.cfg.EasingSubtractor != nil {
-			sub = q.cfg.EasingSubtractor()
-		}
-		return max(q.count-sub, 1)
+	base := 3.0
+	if q.cfg.EasingLogBase != nil {
+		base = q.cfg.EasingLogBase()
 	}
-	divisor := 2.0
-	if q.cfg.EasingDivisor != nil {
-		divisor = q.cfg.EasingDivisor()
+	if base <= 1 {
+		base = 3.0
 	}
-	return max(int(float64(q.count)/divisor), 1)
+	step := int(math.Log(float64(q.count)) / math.Log(base) / base)
+	return max(q.count-max(step, 1), 1)
 }
 
 // lockedControlLaw computes the next drop time. The interval shrinks in
