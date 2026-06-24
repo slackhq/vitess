@@ -216,6 +216,10 @@ Flags:
       --keep_logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
+      --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools.
+      --loadshed-exponent float                                          CoDel control law exponent for the load shedder. (default 1)
+      --loadshed-interval duration                                       CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target. (default 400ms)
+      --loadshed-target duration                                         CoDel target delay for the load shedder. (default 20ms)
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_tables_timeout duration                                     How long to keep the table locked before timing out (default 1m0s)
       --log_backtrace_at traceLocations                                  when logging hits line file:N, emit a stack trace
@@ -339,9 +343,6 @@ Flags:
       --serving_state_grace_period duration                              how long to pause after broadcasting health to vtgate, before enforcing a new serving state
       --shard_sync_retry_delay duration                                  delay between retries of updates to keep the tablet and its shard record in sync (default 30s)
       --shutdown_grace_period duration                                   how long to wait for queries and transactions to complete during graceful shutdown. (default 3s)
-      --snake-enabled                                                    If true, enables CoDel-based load shedding (Snake) on the OLTP read pool.
-      --snake-interval duration                                          CoDel interval for the Snake load shedder. (default 100ms)
-      --snake-target duration                                            CoDel target delay for the Snake load shedder. (default 5ms)
       --sql-max-length-errors int                                        truncate queries in error logs to the given length (default unlimited)
       --sql-max-length-ui int                                            truncate queries in debug UIs to the given length (default 512) (default 512)
       --srv_topo_cache_refresh duration                                  how frequently to refresh the topology for cached entries (default 1s)
