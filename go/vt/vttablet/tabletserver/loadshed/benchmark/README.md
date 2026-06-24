@@ -9,52 +9,101 @@ scripts.
 ```bash
 cd go/vt/vttablet/tabletserver/loadshed/benchmark
 
-# With production defaults (exponent=1.0, target=5ms, interval=100ms):
+# With defaults:
 go run bench_suite.go
 
-# Override CoDel parameters:
-go run bench_suite.go --exponent 0.5 --target-ms 10 --interval-ms 200
+# Override easing log base:
+go run bench_suite.go -easing-log-base 3
 
-# Custom output directory:
-go run bench_suite.go --out /tmp/my-run
+# Only run linear ramp tests:
+go run bench_suite.go -filter linear_ramp
+
+# Custom output directory + parallelism:
+go run bench_suite.go -out /tmp/my-run -j 4
 ```
 
-Output lands in `~/snake-load-test-charts/tsv/<date>/<timestamp>/` by default.
-
-## Plotting
-
-Requires Python 3 with matplotlib and pandas:
-
-```bash
-# Plot the most recent run:
-python3 plot_linear_ramp.py
-
-# Plot a specific run:
-python3 plot_linear_ramp.py ~/snake-load-test-charts/tsv/2026-06-17/2026-06-17_14-30-00/
-```
-
-Output PNG goes to `~/snake-load-test-charts/`.
-
-## Easing comparison
-
-To compare multiple exponent values side-by-side:
-
-```bash
-for exp in 0.25 0.5 0.75 1.0 1.5 2.0; do
-  go run bench_suite.go --exponent $exp --out ~/snake-load-test-charts/tsv/easing-comparison/easing_${exp}
-done
-
-python3 plot_easing_comparison.py
-```
+Output lands in `~/snake-load-test-charts/<timestamp>/tsv/` by default.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--out` | auto | Output directory for TSVs |
-| `--exponent` | 1.0 | CoDel control law exponent |
-| `--target-ms` | 5 | CoDel target delay (ms) |
-| `--interval-ms` | 100 | CoDel observation interval (ms) |
+| `-out` | auto | Output directory for TSVs |
+| `-j` | 8 | Max parallel benchmarks |
+| `-filter` | (none) | Only run tests whose label contains this substring |
+| `-easing-log-base` | 3.0 | Log base for CoDel easing count decay: `count -= floor(log_base(count)/base)` |
 
-Defaults match production vttablet values (`--loadshed-exponent`, `--loadshed-target`,
-`--loadshed-interval`). Override to experiment with alternative tuning.
+### Custom single workload
+
+When `-profile` is set, the named workload **replaces** the preset
+sine/constant/ramp matrix. Otherwise the preset matrix runs with its built-in
+defaults (unchanged behavior).
+
+```bash
+go run bench_suite.go -profile linear_ramp -peak 80 -duration-ms 20000 \
+  -work-ms 2 -target-ms 5 -interval-ms 100 -label my_ramp
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-profile` | (none) | `sine`, `constant`, `linear_ramp`, `linear_ramp_down`, or `brown_noise` (replaces preset matrix when set) |
+| `-label` | profile name | TSV label for the workload |
+| `-capacity` | 10 | Slot capacity |
+| `-peak` | 80 | Peak arrival rate as multiple of system throughput |
+| `-duration-ms` | 20000 | Total duration |
+| `-work-ms` | 2 | Per-request work duration |
+| `-target-ms` | 5 | CoDel target |
+| `-interval-ms` | 100 | CoDel interval |
+| `-period-ms` | 1000 | Sine period (sine profile only) |
+| `-sine-floor` | 0 | Sine trough as a fraction of peak, e.g. `0.5` => trough at half peak (sine only) |
+| `-brown-seed` | 1 | RNG seed for `brown_noise`; same seed => same offered-load trace |
+| `-brown-step` | 0.05 | `brown_noise` per-sample volatility (random-walk increment) |
+| `-brown-sample-ms` | 100 | `brown_noise` walk sample resolution |
+
+## Plotting
+
+Requires Python 3 with matplotlib, pandas, and numpy:
+
+```bash
+# Plot the full suite (sine, constant, linear ramp with CoDel internals):
+python3 plot_suite.py ~/snake-load-test-charts/<timestamp>
+
+# Plot a linear ramp run:
+python3 plot_linear_ramp.py ~/snake-load-test-charts/<timestamp>/tsv/
+```
+
+## Easing comparison
+
+Compares CoDel ease-out behavior across log bases (how aggressively count
+decays when the queue drains: `count -= floor(log_base(count)/base)`; a larger
+base = gentler ease-out). Config-driven via `--config`: the script runs every
+(easing × workload) combination, then plots one comparison figure per workload.
+
+```bash
+python3 plot_easing_comparison.py --config easing_config.example.json
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | (required) | JSON file describing `easings` + `workloads` (see below) |
+| `--bench-go` | `bench_suite.go` | Path to bench_suite.go |
+| `--jobs` / `-j` | 0 (unlimited) | Max concurrent benchmark processes; use `1` for serial runs to minimize contention noise |
+
+### Config format
+
+Each `easings` entry is a bare number (the log base) or `{"base": N}`. Any
+workload field omitted falls back to the defaults. An optional top-level
+`"compare"` is `"easing"` (default — one figure per workload, columns = bases)
+or `"workload"` (one figure per profile, columns = workloads, single easing).
+See `easing_config.example.json`.
+
+```json
+{
+  "easings": [2, {"base": 2.5}, 3],
+  "workloads": [
+    {"label": "ramp", "profile": "linear_ramp", "peak": 80, "duration_ms": 20000,
+     "work_ms": 2, "target_ms": 5, "interval_ms": 100},
+    {"label": "sine", "profile": "sine", "peak": 100, "period_ms": 1000}
+  ]
+}
+```
