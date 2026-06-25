@@ -257,6 +257,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 			Capacity:            func() int { return config.OltpReadPool.Size },
 			LoadsheddingAllowed: func() bool { return true },
 		})
+		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 	}
 
 	qe.strictTableACL = config.StrictTableACL
