@@ -384,6 +384,10 @@ Flags:
       --topo_consul_lock_session_ttl string                              TTL for consul session.
       --topo_consul_max_conns_per_host int                               Maximum number of consul connections per host.
       --topo_consul_max_idle_conns int                                   Maximum number of idle consul connections. (default 100)
+      --topo_consul_retry_base_delay duration                            Base delay between consul retry attempts (exponential backoff). (default 250ms)
+      --topo_consul_retry_count int                                      Maximum number of attempts for consul operations on transient errors (set to 1 to disable retries). (default 3)
+      --topo_consul_retry_enabled                                        Enable retry logic for transient consul errors. (default true)
+      --topo_consul_retry_max_delay duration                             Maximum delay between consul retry attempts. (default 5s)
       --topo_consul_watch_poll_duration duration                         time of the long poll for watch queries. (default 30s)
       --topo_etcd_lease_ttl int                                          Lease TTL for locks and leader election. The client will use KeepAlive to keep the lease going. (default 30)
       --topo_etcd_tls_ca string                                          path to the ca to use to validate the server cert when connecting to the etcd topo server
