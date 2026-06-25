@@ -225,7 +225,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
-	fs.BoolVar(&enableLoadshed, "loadshed-enabled", false, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
+	fs.BoolVar(&enableLoadshed, "loadshed-enabled", true, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
 	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
 	fs.DurationVar(&currentConfig.LoadshedInterval, "loadshed-interval", defaultConfig.LoadshedInterval, "CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target.")
 	fs.Float64Var(&currentConfig.LoadshedExponent, "loadshed-exponent", defaultConfig.LoadshedExponent, "CoDel control law exponent for the load shedder.")

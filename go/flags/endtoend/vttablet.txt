@@ -216,7 +216,7 @@ Flags:
       --keep_logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
-      --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools.
+      --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools. (default true)
       --loadshed-exponent float                                          CoDel control law exponent for the load shedder. (default 1)
       --loadshed-interval duration                                       CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target. (default 400ms)
       --loadshed-target duration                                         CoDel target delay for the load shedder. (default 20ms)
