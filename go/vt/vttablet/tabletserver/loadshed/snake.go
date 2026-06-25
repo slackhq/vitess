@@ -20,6 +20,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,6 +53,11 @@ type (
 		dropTimerArmed bool
 		cfg            SnakeConfig
 		clockFunc      func() int64
+
+		// shedCount counts requests this Snake has shed (rejected by the CoDel
+		// gate). It excludes context cancellations, which are the caller giving
+		// up rather than the gate shedding. Read lock-free via ShedCount.
+		shedCount atomic.Int64
 	}
 
 	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
@@ -260,10 +266,17 @@ func (s *Snake) priority(priority float64) float64 {
 }
 
 func (s *Snake) acquireError() error {
+	s.shedCount.Add(1)
 	if s.cfg.AcquireError != nil {
 		return s.cfg.AcquireError()
 	}
 	return &DroppedRequestError{}
+}
+
+// ShedCount returns the cumulative number of requests this Snake has shed.
+// Context cancellations are not counted — only gate-driven drops.
+func (s *Snake) ShedCount() int64 {
+	return s.shedCount.Load()
 }
 
 // --- timer management (must be called with s.mu held) ---

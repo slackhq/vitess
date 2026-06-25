@@ -26,6 +26,7 @@ import (
 // throwaway exporter.
 type statsExporter interface {
 	NewGaugeFunc(name, help string, f func() int64) *stats.GaugeFunc
+	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
 }
 
 // PublishStats registers one GaugeFunc per SnakeStats field, each name prefixed
@@ -58,5 +59,8 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	})
 	exporter.NewGaugeFunc(prefix+"CurrentIntervalNs", "Snake CoDel current control interval in nanoseconds", func() int64 {
 		return s.Stats().CurrentInterval
+	})
+	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
+		return s.ShedCount()
 	})
 }

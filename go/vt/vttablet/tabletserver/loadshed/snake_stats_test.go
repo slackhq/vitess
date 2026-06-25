@@ -17,7 +17,9 @@ limitations under the License.
 package loadshed
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,18 +27,28 @@ import (
 	"vitess.io/vitess/go/stats"
 )
 
-// fakeExporter captures the GaugeFuncs registered by PublishStats so the test
-// can invoke them directly, without touching global stats registration.
+// fakeExporter captures the GaugeFuncs and CounterFuncs registered by
+// PublishStats so the test can invoke them directly, without touching global
+// stats registration.
 type fakeExporter struct {
-	gauges map[string]func() int64
+	gauges   map[string]func() int64
+	counters map[string]func() int64
 }
 
 func newFakeExporter() *fakeExporter {
-	return &fakeExporter{gauges: make(map[string]func() int64)}
+	return &fakeExporter{
+		gauges:   make(map[string]func() int64),
+		counters: make(map[string]func() int64),
+	}
 }
 
 func (e *fakeExporter) NewGaugeFunc(name, _ string, f func() int64) *stats.GaugeFunc {
 	e.gauges[name] = f
+	return nil
+}
+
+func (e *fakeExporter) NewCounterFunc(name, _ string, f func() int64) *stats.CounterFunc {
+	e.counters[name] = f
 	return nil
 }
 
@@ -78,4 +90,73 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 	assert.Contains(t, exp.gauges, "SnakeOltpReadQueueLen")
 	assert.Contains(t, exp.gauges, "SnakeDmlQueueLen")
 	assert.Len(t, exp.gauges, 12, "expected 6 gauges per snake, two snakes")
+
+	assert.Contains(t, exp.counters, "SnakeOltpReadShedCount")
+	assert.Contains(t, exp.counters, "SnakeDmlShedCount")
+	assert.Len(t, exp.counters, 2, "expected 1 shed counter per snake, two snakes")
+}
+
+func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	s := newTestSnake(cfg)
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	shedGauge := exp.counters["SnakeOltpReadShedCount"]
+	require.NotNil(t, shedGauge)
+
+	assert.Equal(t, int64(0), shedGauge(), "no sheds before any contention")
+
+	// Hold the single slot, then pile on contending acquires so CoDel drops some.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+
+	errCh := make(chan error, 5)
+	for range 5 {
+		go func() {
+			_, err := s.Acquire(t.Context(), "", 0)
+			errCh <- err
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	unlock.Release()
+
+	dropped := 0
+	for range 5 {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				dropped++
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("goroutine did not return")
+		}
+	}
+	require.Greater(t, dropped, 0, "CoDel should have dropped some requests")
+	assert.Equal(t, int64(dropped), shedGauge(), "shed counter should equal the number of dropped requests")
+}
+
+func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig()) // capacity 1
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	shedGauge := exp.counters["SnakeOltpReadShedCount"]
+
+	// Occupy the only slot so the next acquire must wait.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	defer unlock.Release()
+
+	// A second acquire whose context is cancelled returns ctx.Err(), which is
+	// the caller giving up — not a gate shed — so it must not be counted.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = s.Acquire(ctx, "", 0)
+	require.Error(t, err)
+
+	assert.Equal(t, int64(0), shedGauge(), "context cancellation must not count as a shed")
 }
