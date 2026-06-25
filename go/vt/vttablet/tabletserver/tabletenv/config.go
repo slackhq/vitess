@@ -1151,6 +1151,7 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
+	LoadshedEnabled:  true,
 	LoadshedTarget:   20 * time.Millisecond,
 	LoadshedInterval: 400 * time.Millisecond,
 	LoadshedExponent: 1.0,
