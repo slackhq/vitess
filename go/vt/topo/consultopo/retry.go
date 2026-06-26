@@ -101,6 +101,13 @@ func (r *retryKV) Keys(prefix string, separator string, q *api.QueryOptions) ([]
 	return keys, meta, err
 }
 
+// Txn retries transient errors, which means a CAS transaction that commits on
+// the server but whose response is lost (e.g. TCP RST) will be re-submitted.
+// The second attempt will observe the already-written state and return a
+// consul-level conflict (manifesting as NodeExists, BadVersion, or NoNode to
+// callers). This is the same outcome as no retry layer at all — the lost
+// response would surface as a network error, and the caller's own retry would
+// hit the same conflict — so retrying here doesn't worsen the window.
 func (r *retryKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnResponse, *api.QueryMeta, error) {
 	var ok bool
 	var resp *api.KVTxnResponse
