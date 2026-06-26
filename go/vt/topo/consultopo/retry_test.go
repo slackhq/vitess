@@ -246,6 +246,28 @@ func TestRetryKV_Backoff(t *testing.T) {
 	assert.LessOrEqual(t, d10, r.maxDelay+r.maxDelay/4)
 }
 
+func TestRetryKV_Get_ContextCanceledDuringBackoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &mockKV{
+		getFunc: func(call int) (*api.KVPair, *api.QueryMeta, error) {
+			if call == 1 {
+				cancel()
+			}
+			return nil, nil, errors.New("Unexpected response code: 500")
+		},
+	}
+	r := newRetryKV(mock, 3, 500*time.Millisecond, 5*time.Second, true)
+
+	opts := (&api.QueryOptions{}).WithContext(ctx)
+	start := time.Now()
+	_, _, err := r.Get("test", opts)
+	elapsed := time.Since(start)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, mock.getCalls)
+	assert.Less(t, elapsed, 200*time.Millisecond)
+}
+
 func TestRetryKV_Backoff_ZeroBaseDelay(t *testing.T) {
 	r := &retryKV{
 		baseDelay: 0,

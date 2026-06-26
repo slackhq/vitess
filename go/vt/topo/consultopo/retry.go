@@ -68,7 +68,8 @@ func newRetryKV(inner kvClient, count int, baseDelay, maxDelay time.Duration, en
 func (r *retryKV) Get(key string, q *api.QueryOptions) (*api.KVPair, *api.QueryMeta, error) {
 	var pair *api.KVPair
 	var meta *api.QueryMeta
-	err := r.retry(func() error {
+	ctx := contextFromQueryOptions(q)
+	err := r.retry(ctx, func() error {
 		var ierr error
 		pair, meta, ierr = r.inner.Get(key, q)
 		return ierr
@@ -79,7 +80,8 @@ func (r *retryKV) Get(key string, q *api.QueryOptions) (*api.KVPair, *api.QueryM
 func (r *retryKV) List(prefix string, q *api.QueryOptions) (api.KVPairs, *api.QueryMeta, error) {
 	var pairs api.KVPairs
 	var meta *api.QueryMeta
-	err := r.retry(func() error {
+	ctx := contextFromQueryOptions(q)
+	err := r.retry(ctx, func() error {
 		var ierr error
 		pairs, meta, ierr = r.inner.List(prefix, q)
 		return ierr
@@ -90,7 +92,8 @@ func (r *retryKV) List(prefix string, q *api.QueryOptions) (api.KVPairs, *api.Qu
 func (r *retryKV) Keys(prefix string, separator string, q *api.QueryOptions) ([]string, *api.QueryMeta, error) {
 	var keys []string
 	var meta *api.QueryMeta
-	err := r.retry(func() error {
+	ctx := contextFromQueryOptions(q)
+	err := r.retry(ctx, func() error {
 		var ierr error
 		keys, meta, ierr = r.inner.Keys(prefix, separator, q)
 		return ierr
@@ -102,7 +105,8 @@ func (r *retryKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnRe
 	var ok bool
 	var resp *api.KVTxnResponse
 	var meta *api.QueryMeta
-	err := r.retry(func() error {
+	ctx := contextFromQueryOptions(q)
+	err := r.retry(ctx, func() error {
 		var ierr error
 		ok, resp, meta, ierr = r.inner.Txn(txn, q)
 		return ierr
@@ -110,7 +114,14 @@ func (r *retryKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnRe
 	return ok, resp, meta, err
 }
 
-func (r *retryKV) retry(action func() error) error {
+func contextFromQueryOptions(q *api.QueryOptions) context.Context {
+	if q != nil && q.Context() != nil {
+		return q.Context()
+	}
+	return context.Background()
+}
+
+func (r *retryKV) retry(ctx context.Context, action func() error) error {
 	if !r.enabled {
 		return action()
 	}
@@ -119,7 +130,11 @@ func (r *retryKV) retry(action func() error) error {
 	for attempt := 0; attempt < r.count; attempt++ {
 		if attempt > 0 {
 			delay := r.backoff(attempt)
-			time.Sleep(delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
 		}
 
 		err = action()
