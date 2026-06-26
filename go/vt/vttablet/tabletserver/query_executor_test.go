@@ -1716,9 +1716,9 @@ func TestGetConnWithSnake(t *testing.T) {
 
 	input := "select * from test_table limit 1"
 
-	// With UniqueId set, Snake gate admits the request
+	// With a valve ID set, Snake gate admits the request
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
-	qre.options = &querypb.ExecuteOptions{UniqueId: "test-request-123"}
+	qre.options = &querypb.ExecuteOptions{LoadshedValveId: "test-request-123"}
 	conn, release, err := qre.getConn()
 	require.NoError(t, err)
 	require.NotNil(t, conn)
