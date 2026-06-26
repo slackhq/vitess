@@ -254,7 +254,14 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 				Exponent:       func() float64 { return config.LoadshedExponent },
 				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
 			},
-			Capacity:            func() int { return config.OltpReadPool.Size },
+			// Track live pool capacity so runtime resizes keep the gate in sync.
+			// Capacity() is 0 until the pool opens; fall back to config until then.
+			Capacity: func() int {
+				if c := int(qe.conns.Capacity()); c > 0 {
+					return c
+				}
+				return config.OltpReadPool.Size
+			},
 			LoadsheddingAllowed: func() bool { return true },
 		})
 		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
