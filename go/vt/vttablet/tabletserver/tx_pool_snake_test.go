@@ -76,7 +76,7 @@ func TestTxPoolSnake_BeginAcquiresSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{UniqueId: "req-1"}
+	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestTxPoolSnake_CommitReleasesSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{UniqueId: "req-1"}
+	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	// Fill the single slot.
 	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
@@ -112,7 +112,7 @@ func TestTxPoolSnake_CommitReleasesSlot(t *testing.T) {
 	conn2.Release(tx.TxCommit)
 
 	// Now a new begin should succeed.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{UniqueId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
 	require.NoError(t, err)
 	conn3.Unlock()
 	conn4, err := txPool.GetAndLock(conn3.ReservedID(), "")
@@ -126,7 +126,7 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{UniqueId: "req-1"}
+	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	txPool.RollbackAndRelease(ctx, conn2)
 
 	// Slot is free — new begin should succeed.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{UniqueId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
 	require.NoError(t, err)
 	conn3.Unlock()
 	conn4, err := txPool.GetAndLock(conn3.ReservedID(), "")
@@ -147,13 +147,13 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	conn4.Release(tx.TxCommit)
 }
 
-func TestTxPoolSnake_EmptyUniqueIdAcquiresSlot(t *testing.T) {
+func TestTxPoolSnake_EmptyValveIDAcquiresSlot(t *testing.T) {
 	_, txPool, closer := setupWithSnake(t, 2)
 	defer closer()
 
 	ctx := context.Background()
 
-	// A request with no UniqueId still acquires a Snake slot — it enters the
+	// A request with no valve ID still acquires a Snake slot — it enters the
 	// CoDel queue directly, bypassing only the per-valve fairness layer.
 	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestTxPoolSnake_ReservedConnSkipsSnake(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{UniqueId: "req-1"}
+	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	// Fill the single slot.
 	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
@@ -187,7 +187,7 @@ func TestTxPoolSnake_ReservedConnSkipsSnake(t *testing.T) {
 
 	// Begin with reservedID on the same conn: since the first tx committed and released,
 	// we need a new conn to test reservedID path. Create one via Begin first.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{UniqueId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
 	require.NoError(t, err)
 	rid := conn3.ReservedID()
 	conn3.Unlock()
@@ -210,7 +210,7 @@ func TestTxPoolSnake_CapacityExhaustedShedsLoad(t *testing.T) {
 	ctx := context.Background()
 
 	// Fill the single slot.
-	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{UniqueId: "req-1"}, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-1"}, false, 0, nil)
 	require.NoError(t, err)
 	conn.Unlock()
 
@@ -219,7 +219,7 @@ func TestTxPoolSnake_CapacityExhaustedShedsLoad(t *testing.T) {
 	shortCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 
-	_, _, _, err = txPool.Begin(shortCtx, &querypb.ExecuteOptions{UniqueId: "req-2"}, false, 0, nil)
+	_, _, _, err = txPool.Begin(shortCtx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dml load shed")
 
@@ -235,7 +235,7 @@ func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{UniqueId: "req-1"}
+	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
 	require.NoError(t, err)
