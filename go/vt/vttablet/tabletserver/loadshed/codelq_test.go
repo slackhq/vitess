@@ -586,6 +586,58 @@ func TestCoDelQueue_Complete_TransitionsToEasing(t *testing.T) {
 	assert.Equal(t, 4, q.count, "count preserved for easing — timer will halve it when it fires")
 }
 
+// --- Sojourn measurement tests ---
+//
+// Sojourn is always measured at grant (dispatch): pure queue-wait time, not
+// including resource hold time. Completion (Release) never records sojourn.
+
+func TestCoDelQueue_Sojourn_FastGrantClearsDropping(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
+
+	clock.now = 0
+	r := testEnqueue(q, 0)
+	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after the grant
+	q.dropping = true
+
+	// Grant after a short queue-wait (< target) clears dropping at grant.
+	// droppableLen stays > 0, so the clear must come from the sojourn check.
+	clock.now = 10 * 1_000_000 // 10ms < 50ms target
+	q.lockedOnGrant(r)
+	assert.False(t, q.dropping, "fast queue-wait clears dropping at grant")
+}
+
+func TestCoDelQueue_Sojourn_SlowGrantKeepsDropping(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
+
+	clock.now = 0
+	r := testEnqueue(q, 0)
+	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after the grant
+	q.dropping = true
+
+	// Grant after a long queue-wait (> target) must NOT clear dropping.
+	clock.now = 100 * 1_000_000 // 100ms > 50ms target
+	q.lockedOnGrant(r)
+	assert.True(t, q.dropping, "slow queue-wait keeps dropping")
+}
+
+func TestCoDelQueue_Sojourn_CompletionDoesNotRecord(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
+
+	clock.now = 0
+	r := testEnqueue(q, 0)
+	testEnqueue(q, 0) // second droppable keeps droppableLen > 0
+	q.dropping = true
+
+	// Completion never records sojourn, even a fast one that would otherwise
+	// clear the dropping state.
+	r.codelqEnqueuedAtNs = q.nowNs() - 10*1_000_000 // 10ms < 50ms target
+	q.lockedComplete(r)
+	assert.True(t, q.dropping, "completion does not record sojourn")
+}
+
 // --- Easing tests ---
 
 func TestCoDelQueue_Easing_TimerDecaysCount(t *testing.T) {
