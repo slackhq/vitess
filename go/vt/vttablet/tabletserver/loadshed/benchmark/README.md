@@ -51,7 +51,8 @@ go run bench_suite.go -profile linear_ramp -peak 80 -duration-ms 20000 \
 | `-capacity` | 10 | Slot capacity |
 | `-peak` | 80 | Peak arrival rate as multiple of system throughput |
 | `-duration-ms` | 20000 | Total duration |
-| `-work-ms` | 2 | Per-request work duration |
+| `-work-ms` | 2 | Per-request work duration (mean) |
+| `-work-stddev-ms` | 0 | Work-duration stddev; >0 draws each request's work from a Gaussian `N(work-ms, stddev)` clamped `>=0` |
 | `-target-ms` | 5 | CoDel target |
 | `-interval-ms` | 100 | CoDel interval |
 | `-period-ms` | 1000 | Sine period (sine profile only) |
