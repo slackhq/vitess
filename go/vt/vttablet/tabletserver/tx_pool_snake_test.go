@@ -147,30 +147,23 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	conn4.Release(tx.TxCommit)
 }
 
-func TestTxPoolSnake_EmptyUniqueIdBypassesSnake(t *testing.T) {
-	_, txPool, closer := setupWithSnake(t, 1)
+func TestTxPoolSnake_EmptyUniqueIdAcquiresSlot(t *testing.T) {
+	_, txPool, closer := setupWithSnake(t, 2)
 	defer closer()
 
 	ctx := context.Background()
 
-	// Fill the single slot with a tagged request.
-	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{UniqueId: "req-1"}, false, 0, nil)
+	// A request with no UniqueId still acquires a Snake slot — it enters the
+	// CoDel queue directly, bypassing only the per-valve fairness layer.
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
+	assert.NotNil(t, conn.TxProperties().SnakeRelease, "empty valve ID should still acquire a Snake slot")
 	conn.Unlock()
-
-	// A request with no UniqueId should bypass the snake entirely.
-	conn2, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
-	require.NoError(t, err)
-	assert.Nil(t, conn2.TxProperties().SnakeRelease)
-	conn2.Unlock()
 
 	// Cleanup.
 	c, _ := txPool.GetAndLock(conn.ReservedID(), "")
 	_, _ = txPool.Commit(ctx, c)
 	c.Release(tx.TxCommit)
-	c2, _ := txPool.GetAndLock(conn2.ReservedID(), "")
-	_, _ = txPool.Commit(ctx, c2)
-	c2.Release(tx.TxCommit)
 }
 
 func TestTxPoolSnake_ReservedConnSkipsSnake(t *testing.T) {

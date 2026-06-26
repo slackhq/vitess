@@ -818,22 +818,24 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 
 	snake := qre.tsv.qe.snake
 	if snake != nil {
-		contentionID := qre.options.GetUniqueId()
-		if contentionID != "" {
-			// Translate the Vitess proto priority (0 = most important) into
-			// Snake's convention (higher priority shed last).
-			snakePriority := float64(sqlparser.MaxPriorityValue - qre.tsv.getPriorityFromOptions(qre.options))
-			unlock, err := snake.Acquire(ctx, contentionID, snakePriority)
-			if err != nil {
-				return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
-			}
-			conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
-			if err != nil {
-				unlock.Release()
-				return nil, nil, err
-			}
-			return conn, func() { unlock.Release() }, nil
+		// An empty valve ID is valid: such requests bypass the per-valve
+		// fairness layer but still pass through the CoDel gate. Gating the
+		// acquire on a non-empty ID would silently exclude all unkeyed traffic
+		// from load shedding.
+		valveID := qre.options.GetUniqueId()
+		// Translate the Vitess proto priority (0 = most important) into
+		// Snake's convention (higher priority shed last).
+		snakePriority := float64(sqlparser.MaxPriorityValue - qre.tsv.getPriorityFromOptions(qre.options))
+		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
+		if err != nil {
+			return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
 		}
+		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+		if err != nil {
+			unlock.Release()
+			return nil, nil, err
+		}
+		return conn, func() { unlock.Release() }, nil
 	}
 
 	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
