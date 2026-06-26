@@ -1650,7 +1650,7 @@ func TestGetConnectionLogStats(t *testing.T) {
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 }
 
-func TestGetConnSnakeBypassed(t *testing.T) {
+func TestGetConnSnakeEmptyValveID(t *testing.T) {
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()
 
@@ -1674,13 +1674,22 @@ func TestGetConnSnakeBypassed(t *testing.T) {
 
 	input := "select * from test_table limit 1"
 
-	// Without UniqueId set, Snake gate is bypassed entirely
+	// Without a valve ID the request still passes through the Snake gate
+	// (entering the CoDel queue directly, bypassing only the per-valve layer)
+	// and is admitted when capacity is available.
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
 	conn, release, err := qre.getConn()
 	require.NoError(t, err)
 	require.NotNil(t, conn)
+
+	// While the slot is held, the gate reports one holder — proof that Acquire
+	// ran on the empty valve ID rather than being skipped.
+	assert.Equal(t, 1, tsv.qe.snake.Stats().HolderCount, "empty valve ID should still acquire a Snake slot")
+
 	conn.Recycle()
 	release()
+
+	assert.Equal(t, 0, tsv.qe.snake.Stats().HolderCount, "slot should be released after getConn cleanup")
 }
 
 func TestGetConnWithSnake(t *testing.T) {
