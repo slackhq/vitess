@@ -202,19 +202,11 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 }
 
 // lockedComplete removes a granted (undroppable) request from the queue on
-// Release. Checks sojourn time for CoDel state transition — if the completed
-// request spent less than TargetNs in the queue, the system is healthy.
-// Rather than hard-stopping the timer, we enter an easing phase
-// (!dropping, count > 1) where the timer continues to fire, decaying count
-// each time until fully relaxed.
+// Release. The CoDel health check happens at grant (see lockedOnGrant), so
+// this only unlinks the request.
 func (q *CoDelQueue) lockedComplete(r *Request) {
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
-
-	sojournTime := q.nowNs() - r.codelqEnqueuedAtNs
-	if sojournTime < q.cfg.TargetNs() {
-		q.dropping = false
-	}
 }
 
 // lockedFirstWaiting returns the first not-yet-granted request in the queue.
@@ -292,6 +284,12 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 }
 
 func (q *CoDelQueue) lockedOnGrant(r *Request) {
+	// CoDel health check, measured at grant: if this request's queue-wait
+	// (now - enqueue) was under target, the system is healthy — leave the
+	// dropping state. Separate from the droppableLen==0 clear below.
+	if q.nowNs()-r.codelqEnqueuedAtNs < q.cfg.TargetNs() {
+		q.dropping = false
+	}
 	if r.isDroppable() {
 		r.priority = priorityUndroppable
 		q.droppableLen--
