@@ -130,7 +130,7 @@ func buildProfile(name string, o profileOpts) loadProfile {
 	}
 }
 
-func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workMs, targetMs, intervalMs int, profile loadProfile) ([]event, []statsSnapshot) {
+func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workMs, workStddevMs, targetMs, intervalMs int, profile loadProfile) ([]event, []statsSnapshot) {
 	snake := loadshed.NewSnake(loadshed.SnakeConfig{
 		Name:     "bench",
 		Capacity: func() int { return capacity },
@@ -197,7 +197,24 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
-	workDur := time.Duration(workMs) * time.Millisecond
+	// Work duration: fixed at workMs, or (when workStddevMs > 0) drawn per
+	// request from a Gaussian N(workMs, workStddevMs) clamped to >= 0. The RNG
+	// is seeded and mutex-guarded so a run is repeatable and goroutine-safe.
+	workRng := rand.New(rand.NewSource(1))
+	var workMu sync.Mutex
+	sampleWork := func() time.Duration {
+		ms := float64(workMs)
+		if workStddevMs > 0 {
+			workMu.Lock()
+			ms = workRng.NormFloat64()*float64(workStddevMs) + float64(workMs)
+			workMu.Unlock()
+			if ms < 0 {
+				ms = 0
+			}
+		}
+		return time.Duration(ms * float64(time.Millisecond))
+	}
+
 	var accumulator float64
 
 	deadline := time.After(totalDuration)
@@ -231,7 +248,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 						record("shed", 0)
 						return
 					}
-					time.Sleep(workDur)
+					time.Sleep(sampleWork())
 					unlock.Release()
 					latency := float64(time.Since(reqStart).Microseconds()) / 1000.0
 					record("granted", latency)
@@ -252,6 +269,7 @@ type testConfig struct {
 	peakArrivalRateMultiplier float64
 	durationMs                int
 	workMs                    int
+	workStddevMs              int
 	targetMs                  int
 	intervalMs                int
 	profile                   loadProfile
@@ -278,7 +296,8 @@ func main() {
 	wCapacity := flag.Int("capacity", 10, "Custom workload: slot capacity")
 	wPeak := flag.Float64("peak", 80, "Custom workload: peak arrival rate as multiple of system throughput")
 	wDurationMs := flag.Int("duration-ms", 20000, "Custom workload: total duration in ms")
-	wWorkMs := flag.Int("work-ms", 2, "Custom workload: per-request work duration in ms")
+	wWorkMs := flag.Int("work-ms", 2, "Custom workload: per-request work duration in ms (mean)")
+	wWorkStddevMs := flag.Int("work-stddev-ms", 0, "Custom workload: work duration stddev in ms; >0 draws each request's work from a Gaussian N(work-ms, stddev) clamped >=0")
 	wTargetMs := flag.Int("target-ms", 5, "Custom workload: CoDel target in ms")
 	wIntervalMs := flag.Int("interval-ms", 100, "Custom workload: CoDel interval in ms")
 	wPeriodMs := flag.Int("period-ms", 1000, "Custom workload: sine period in ms (sine profile only)")
@@ -320,6 +339,7 @@ func main() {
 			peakArrivalRateMultiplier: *wPeak,
 			durationMs:                *wDurationMs,
 			workMs:                    *wWorkMs,
+			workStddevMs:              *wWorkStddevMs,
 			targetMs:                  *wTargetMs,
 			intervalMs:                *wIntervalMs,
 			profile: buildProfile(*wProfile, profileOpts{
@@ -432,7 +452,7 @@ func runConfigs(configs []testConfig, outDir string, parallel int) {
 			defer func() { <-sem }()
 
 			fmt.Printf("  START [%d/%d] %s\n", idx+1, len(configs), c.label)
-			events, stats := runBench(c.capacity, c.peakArrivalRateMultiplier, c.durationMs, c.workMs, c.targetMs, c.intervalMs, c.profile)
+			events, stats := runBench(c.capacity, c.peakArrivalRateMultiplier, c.durationMs, c.workMs, c.workStddevMs, c.targetMs, c.intervalMs, c.profile)
 
 			var issued, granted, shed int
 			for _, ev := range events {
