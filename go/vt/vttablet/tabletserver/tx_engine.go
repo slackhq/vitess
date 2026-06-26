@@ -124,10 +124,8 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 				Exponent:       func() float64 { return config.LoadshedExponent },
 				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
 			},
-			// Track the pool's live capacity so runtime resizes (e.g. via
-			// /debug/env SetTxPoolSize) keep the gate in lockstep with the pool.
-			// Capacity() reports 0 until the pool is opened, so fall back to the
-			// configured size during that startup window to avoid throttling to 1.
+			// Track live pool capacity so runtime resizes keep the gate in sync.
+			// Capacity() is 0 until the pool opens; fall back to config until then.
 			Capacity: func() int {
 				if c := te.txPool.scp.Capacity(); c > 0 {
 					return c
