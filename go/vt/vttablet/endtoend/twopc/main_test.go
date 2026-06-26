@@ -85,6 +85,7 @@ func TestMain(m *testing.M) {
 
 		config := tabletenv.NewDefaultConfig()
 		config.TwoPCAbandonAge = 1 * time.Second
+		config.LoadshedEnabled = false
 		err := framework.StartCustomServer(ctx, connParams, connAppDebugParams, cluster.DbName(), config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v", err)
