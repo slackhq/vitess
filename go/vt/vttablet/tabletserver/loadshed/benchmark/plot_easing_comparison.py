@@ -68,6 +68,7 @@ WORKLOAD_DEFAULTS = {
     "peak": 80,
     "duration_ms": 20000,
     "work_ms": 2,
+    "work_stddev_ms": 0,
     "target_ms": 5,
     "interval_ms": 100,
     "period_ms": 1000,
@@ -145,6 +146,7 @@ def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
                 "-peak", str(w["peak"]),
                 "-duration-ms", str(w["duration_ms"]),
                 "-work-ms", str(w["work_ms"]),
+                "-work-stddev-ms", str(w["work_stddev_ms"]),
                 "-target-ms", str(w["target_ms"]),
                 "-interval-ms", str(w["interval_ms"]),
                 "-period-ms", str(w["period_ms"]),
@@ -346,12 +348,12 @@ def plot_comparison(columns, suptitle, dur_ms, capacity, out_suffix):
             ax.plot(t_lat, p95, color="orange", linewidth=1, label="p95")
             ax.plot(t_lat, p99, color="red", linewidth=1, label="p99")
         ax.set_xlim(0, xlim)
-        ax.set_yscale("log")
-        ax.grid(True, which="both", alpha=0.3)
+        ax.set_ylim(0, 500)  # linear, capped at 500ms (higher values clip)
+        ax.grid(True, alpha=0.3)
         if col_idx == 0:
-            ax.set_ylabel("ms (log)")
+            ax.set_ylabel("ms (cap 500)")
             ax.legend(fontsize=7, loc="upper left")
-            ax.set_title("Request Latency (granted only, log)", fontsize=9)
+            ax.set_title("Request Latency (granted only, ≤500ms)", fontsize=9)
 
     # X labels on bottom row
     for col_idx in range(num_cols):
