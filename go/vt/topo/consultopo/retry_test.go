@@ -245,3 +245,15 @@ func TestRetryKV_Backoff(t *testing.T) {
 	d10 := r.backoff(10)
 	assert.LessOrEqual(t, d10, r.maxDelay+r.maxDelay/4)
 }
+
+func TestRetryKV_Backoff_ZeroBaseDelay(t *testing.T) {
+	r := &retryKV{
+		baseDelay: 0,
+		maxDelay:  1 * time.Second,
+	}
+
+	assert.NotPanics(t, func() {
+		d := r.backoff(1)
+		assert.Equal(t, time.Duration(0), d)
+	})
+}

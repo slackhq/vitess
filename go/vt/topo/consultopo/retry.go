@@ -136,6 +136,9 @@ func (r *retryKV) retry(action func() error) error {
 
 func (r *retryKV) backoff(attempt int) time.Duration {
 	delay := min(r.baseDelay*time.Duration(1<<uint(attempt-1)), r.maxDelay)
+	if delay <= 0 {
+		return 0
+	}
 	jitter := time.Duration(rand.Int64N(int64(delay)/2)) - delay/4
 	return delay + jitter
 }
