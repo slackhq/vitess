@@ -255,11 +255,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 		}
 
 		if tp.snake != nil {
-			// An empty valve ID is valid: such requests bypass the per-valve
-			// fairness layer but still pass through the CoDel gate. Gating the
-			// acquire on a non-empty ID would silently exclude all unkeyed
-			// traffic from load shedding.
-			valveID := options.GetUniqueId()
+			valveID := options.GetLoadshedValveId()
 			// Translate the Vitess proto priority (0 = most important) into
 			// Snake's convention (higher priority shed last).
 			protoPriority := priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)

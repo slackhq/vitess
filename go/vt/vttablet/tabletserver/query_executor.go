@@ -854,11 +854,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 
 	snake := qre.tsv.qe.snake
 	if snake != nil {
-		// An empty valve ID is valid: such requests bypass the per-valve
-		// fairness layer but still pass through the CoDel gate. Gating the
-		// acquire on a non-empty ID would silently exclude all unkeyed traffic
-		// from load shedding.
-		valveID := qre.options.GetUniqueId()
+		valveID := qre.options.GetLoadshedValveId()
 		// Translate the Vitess proto priority (0 = most important) into
 		// Snake's convention (higher priority shed last).
 		snakePriority := float64(sqlparser.MaxPriorityValue - qre.tsv.getPriorityFromOptions(qre.options))

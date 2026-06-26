@@ -103,6 +103,11 @@ func (s *Snake) hasCapacity() bool {
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
 // must be released via defer unlock.Release().
 //
+// An empty valveID is valid: such requests bypass the per-valve fairness
+// layer but still pass through the CoDel gate. Callers should pass the valve
+// ID through unconditionally rather than gating Acquire on a non-empty ID,
+// which would silently exclude all unkeyed traffic from load shedding.
+//
 // The priority ordering convention is that lower-valued priorities indicate
 // less important requests. Lower values are shed first.
 func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
