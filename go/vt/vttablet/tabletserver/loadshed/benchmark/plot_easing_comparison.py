@@ -78,6 +78,7 @@ WORKLOAD_DEFAULTS = {
     "brown_sample_ms": 100,
     "drop_mode": "slow",
     "trigger_ms": 0,
+    "grace_count": 1,
 }
 
 
@@ -157,7 +158,8 @@ def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
                 "-brown-step", str(w["brown_step"]),
                 "-brown-sample-ms", str(w["brown_sample_ms"]),
             ] + easing_flags(spec)
-            cmd += ["-drop-mode", str(w["drop_mode"]), "-trigger-ms", str(w["trigger_ms"])]
+            cmd += ["-drop-mode", str(w["drop_mode"]), "-trigger-ms", str(w["trigger_ms"]),
+                    "-grace-count", str(w["grace_count"])]
             cmds.append((spec, w["label"], cmd))
 
     limit = jobs if jobs and jobs > 0 else len(cmds)
@@ -373,8 +375,10 @@ def plot_comparison(columns, suptitle, dur_ms, capacity, out_suffix):
 args = parse_args()
 
 def workload_subtitle_suffix(w):
-    return (f"capacity={w['capacity']}, peak={w['peak']}x, work={w['work_ms']}ms, "
-            f"target={w['target_ms']}ms, interval={w['interval_ms']}ms")
+    return (f"capacity={w['capacity']}, peak={w['peak']}x, work={w['work_ms']}ms"
+            f"{'±'+str(w['work_stddev_ms']) if w['work_stddev_ms'] else ''}, "
+            f"target={w['target_ms']}ms, interval={w['interval_ms']}ms, "
+            f"drop_mode={w['drop_mode']}, trigger={w['trigger_ms']}ms, grace={w['grace_count']}")
 
 
 args = parse_args()
@@ -398,10 +402,14 @@ if args.config:
             by_profile.setdefault(w["profile"], []).append(w)
         for profile, group in by_profile.items():
             columns = [(w["label"], run_dir, w["label"]) for w in group]
+            g0 = group[0]
             suptitle = (
-                f"CoDel interval:target Comparison — {profile}, easing={easing_label(spec)}\n"
-                f"columns vary by workload; capacity={group[0]['capacity']}, "
-                f"peak={group[0]['peak']}x, work={group[0]['work_ms']}ms"
+                f"CoDel Comparison — {profile}, easing={easing_label(spec)} "
+                f"(columns vary by workload)\n"
+                f"capacity={g0['capacity']}, work={g0['work_ms']}ms"
+                f"{'±'+str(g0['work_stddev_ms']) if g0['work_stddev_ms'] else ''}, "
+                f"target={g0['target_ms']}ms, interval={g0['interval_ms']}ms, "
+                f"drop_mode={g0['drop_mode']}, trigger={g0['trigger_ms']}ms, grace={g0['grace_count']}"
             )
             plot_comparison(
                 columns=columns,

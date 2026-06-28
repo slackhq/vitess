@@ -21,6 +21,7 @@ var (
 	easingLogBase *float64
 	dropMode      *string
 	triggerMs     *int
+	graceCount    *int
 )
 
 // parseDropMode maps the -drop-mode flag string to a CoDelDropMode.
@@ -163,6 +164,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			EasingLogBase:  func() float64 { return *easingLogBase },
 			DropMode:       func() loadshed.CoDelDropMode { return parseDropMode(*dropMode) },
 			TriggerNs:      func() int64 { return int64(*triggerMs) * 1_000_000 },
+			GraceCount:     func() int { return *graceCount },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -311,6 +313,7 @@ func main() {
 	easingLogBase = flag.Float64("easing-log-base", 3.0, "Log base for CoDel easing count decay")
 	dropMode = flag.String("drop-mode", "slow", "Drop mode: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses trigger), or both")
 	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
+	graceCount = flag.Int("grace-count", 1, "Grace count: suppress the head drop while count < this (1 = disabled)")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
