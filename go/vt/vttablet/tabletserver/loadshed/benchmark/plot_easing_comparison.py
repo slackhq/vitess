@@ -76,6 +76,8 @@ WORKLOAD_DEFAULTS = {
     "brown_seed": 1,
     "brown_step": 0.05,
     "brown_sample_ms": 100,
+    "drop_mode": "slow",
+    "trigger_ms": 0,
 }
 
 
@@ -155,6 +157,7 @@ def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
                 "-brown-step", str(w["brown_step"]),
                 "-brown-sample-ms", str(w["brown_sample_ms"]),
             ] + easing_flags(spec)
+            cmd += ["-drop-mode", str(w["drop_mode"]), "-trigger-ms", str(w["trigger_ms"])]
             cmds.append((spec, w["label"], cmd))
 
     limit = jobs if jobs and jobs > 0 else len(cmds)

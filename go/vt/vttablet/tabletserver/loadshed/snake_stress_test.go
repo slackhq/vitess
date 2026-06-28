@@ -58,7 +58,39 @@ func TestSnake_Stress_HighContention(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.Equal(t, int64(200), completed.Load())
+	assert.Equal(t, int64(200), completed.Load(), "ungated: healthy contention sheds nothing")
+	assert.True(t, s.isIdle())
+}
+
+func TestSnake_Stress_HighContention_TriggerGated(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.DropMode = func() CoDelDropMode { return DropJumpStart }
+	s := NewSnake(cfg)
+
+	var completed, dropped atomic.Int64
+	var held atomic.Int32
+	var wg sync.WaitGroup
+	for range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u, err := s.Acquire(t.Context(), "")
+			if err != nil {
+				dropped.Add(1)
+				return
+			}
+			val := held.Add(1)
+			assert.LessOrEqual(t, val, int32(1), "mutual exclusion violated")
+			time.Sleep(time.Duration(1+rand.IntN(10)) * time.Millisecond)
+			held.Add(-1)
+			u.Release()
+			completed.Add(1)
+		}()
+	}
+	wg.Wait()
+	// ~1.1s of serialized work spans the 1s trigger; the monitor arms a brief
+	// episode near the boundary that may shed a small number before draining.
+	assert.Equal(t, int64(200), completed.Load()+dropped.Load(), "every request accounted for")
 	assert.True(t, s.isIdle())
 }
 
