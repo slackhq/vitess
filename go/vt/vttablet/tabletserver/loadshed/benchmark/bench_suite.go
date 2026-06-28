@@ -17,7 +17,27 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-var easingLogBase *float64
+var (
+	easingLogBase *float64
+	dropMode      *string
+	triggerMs     *int
+)
+
+// parseDropMode maps the -drop-mode flag string to a CoDelDropMode.
+func parseDropMode(s string) loadshed.CoDelDropMode {
+	switch s {
+	case "slow", "slow-start":
+		return loadshed.DropSlowStart
+	case "jump", "jump-start":
+		return loadshed.DropJumpStart
+	case "both":
+		return loadshed.DropBoth
+	default:
+		fmt.Printf("unknown drop-mode %q (expected slow|jump|both)\n", s)
+		os.Exit(1)
+		return loadshed.DropSlowStart
+	}
+}
 
 type event struct {
 	tsMs      int64
@@ -141,6 +161,8 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			MinDropDelayNs: func() int64 { return 1_000_000 },
 			Exponent:       func() float64 { return 1 },
 			EasingLogBase:  func() float64 { return *easingLogBase },
+			DropMode:       func() loadshed.CoDelDropMode { return parseDropMode(*dropMode) },
+			TriggerNs:      func() int64 { return int64(*triggerMs) * 1_000_000 },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -287,6 +309,8 @@ func main() {
 	parallel := flag.Int("j", 8, "Max parallel benchmarks")
 	filter := flag.String("filter", "", "Only run tests whose label contains this substring")
 	easingLogBase = flag.Float64("easing-log-base", 3.0, "Log base for CoDel easing count decay")
+	dropMode = flag.String("drop-mode", "slow", "Drop mode: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses trigger), or both")
+	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
