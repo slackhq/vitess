@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument("--jobs", "-j", type=int, default=0,
                         help="Max concurrent benchmark processes (0 = unlimited). "
                              "Use 1 for serial runs to minimize contention noise.")
+    parser.add_argument("--no-run", action="store_true",
+                        help="Skip running benchmarks; plot from existing cached TSVs.")
     return parser.parse_args()
 
 
@@ -119,13 +121,19 @@ def load_config(path):
     #   "easing"   (default): one figure per workload, columns = easings.
     #   "workload": one figure per profile, columns = that profile's workloads
     #               (e.g. an interval:target sweep), with a single fixed easing.
+    #   "summary":  one figure of seed-averaged summary metrics vs a swept
+    #               field (cfg["summary_x"], e.g. "target_ms"); workloads are
+    #               grouped by that field's value and averaged across seeds.
     compare = cfg.get("compare", "easing")
-    if compare not in ("easing", "workload"):
-        raise SystemExit(f"config {path}: 'compare' must be 'easing' or 'workload'")
-    if compare == "workload" and len(easings) != 1:
-        raise SystemExit(f"config {path}: compare=workload needs exactly one easing, got {len(easings)}")
+    if compare not in ("easing", "workload", "summary"):
+        raise SystemExit(f"config {path}: 'compare' must be 'easing', 'workload', or 'summary'")
+    if compare in ("workload", "summary") and len(easings) != 1:
+        raise SystemExit(f"config {path}: compare={compare} needs exactly one easing, got {len(easings)}")
 
-    return easings, workloads, compare
+    if compare == "summary" and "summary_x" not in cfg:
+        raise SystemExit(f"config {path}: compare=summary needs a 'summary_x' field (e.g. \"target_ms\")")
+
+    return easings, workloads, compare, cfg.get("summary_x")
 
 
 def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
@@ -219,6 +227,57 @@ def compute_latency_percentiles(df, bin_ms, max_ts):
                 p99[idx] = grp.quantile(0.99)
 
     return centers, p50, p95, p99
+
+
+def compute_run_summary(events_file):
+    """Whole-run summary metrics for one TSV: grant rate (granted/sec), shed %,
+    and granted-latency p50/p90/p99. Returns None if the file is missing."""
+    if not Path(events_file).exists():
+        return None
+    df = pd.read_csv(events_file, sep="\t")
+    issued = int((df["event"] == "issued").sum())
+    granted = df[df["event"] == "granted"]
+    shed = int((df["event"] == "shed").sum())
+    dur_s = df["ts_ms"].max() / 1000.0 if len(df) else 0
+    lat = pd.to_numeric(granted["latency_ms"], errors="coerce").dropna().values
+    return {
+        "gr_s": (len(granted) / dur_s) if dur_s else 0,
+        "shed_pct": (shed / issued * 100) if issued else 0,
+        "p50": np.percentile(lat, 50) if len(lat) else np.nan,
+        "p90": np.percentile(lat, 90) if len(lat) else np.nan,
+        "p99": np.percentile(lat, 99) if len(lat) else np.nan,
+    }
+
+
+def plot_summary(x_label, x_values, series, suptitle, out_suffix):
+    """Plot seed-averaged summary metrics against a swept parameter.
+
+    x_values: sorted list of x-axis values (e.g. target_ms values).
+    series: dict metric -> list of mean values aligned with x_values.
+    """
+    metrics = [("gr_s", "grant rate (req/s)"), ("shed_pct", "shed %"),
+               ("p50", "p50 latency (ms)"), ("p90", "p90 latency (ms)"),
+               ("p99", "p99 latency (ms)")]
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 4.5), squeeze=False)
+    fig.suptitle(suptitle, fontsize=12, y=1.02)
+    for i, (key, ylabel) in enumerate(metrics):
+        ax = axes[0][i]
+        ax.plot(x_values, series[key], marker="o", color="darkblue", linewidth=1.5)
+        for xv, yv in zip(x_values, series[key]):
+            ax.annotate(f"{yv:.0f}" if key in ("gr_s",) else f"{yv:.1f}",
+                        (xv, yv), textcoords="offset points", xytext=(0, 6),
+                        ha="center", fontsize=8)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(ylabel)
+        ax.set_title(ylabel, fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.set_xticks(x_values)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_path = str(BASE / f"{timestamp}_{out_suffix}.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved: {out_path}")
 
 
 def plot_comparison(columns, suptitle, dur_ms, capacity, out_suffix):
@@ -386,13 +445,44 @@ args = parse_args()
 if args.config:
     # Config-driven: run benchmarks for every (easing x workload) in parallel,
     # then plot per the chosen comparison axis.
-    easings, workloads, compare = load_config(args.config)
-    jobdesc = "serially" if args.jobs == 1 else (f"{args.jobs} at a time" if args.jobs > 0 else "in parallel")
-    print(f"Running {len(easings)} easings x {len(workloads)} workloads {jobdesc}...")
-    run_config_benchmarks(args.bench_go, easings, workloads, jobs=args.jobs)
+    easings, workloads, compare, summary_x = load_config(args.config)
+    if args.no_run:
+        print(f"--no-run: plotting {len(workloads)} workloads from cached TSVs")
+    else:
+        jobdesc = "serially" if args.jobs == 1 else (f"{args.jobs} at a time" if args.jobs > 0 else "in parallel")
+        print(f"Running {len(easings)} easings x {len(workloads)} workloads {jobdesc}...")
+        run_config_benchmarks(args.bench_go, easings, workloads, jobs=args.jobs)
     print()
 
-    if compare == "workload":
+    if compare == "summary":
+        # Seed-averaged summary metrics vs the swept field summary_x. Group
+        # workloads by their summary_x value, average each metric across the
+        # group (the seeds), and plot metric-vs-x.
+        spec = easings[0]
+        run_dir = str(EASING_BASE / easing_dirname(spec))
+        tsv_dir = Path(run_dir) / "tsv"
+        by_x = {}
+        for w in workloads:
+            by_x.setdefault(w[summary_x], []).append(w)
+        x_values = sorted(by_x.keys())
+        series = {k: [] for k in ("gr_s", "shed_pct", "p50", "p90", "p99")}
+        for xv in x_values:
+            runs = [compute_run_summary(tsv_dir / f"{w['label']}.tsv") for w in by_x[xv]]
+            runs = [r for r in runs if r is not None]
+            for k in series:
+                series[k].append(np.mean([r[k] for r in runs]) if runs else np.nan)
+        g0 = workloads[0]
+        suptitle = (
+            f"CoDel Summary — {g0['profile']}, seed-averaged metrics vs {summary_x}\n"
+            f"capacity={g0['capacity']}, work={g0['work_ms']}ms"
+            f"{'±'+str(g0['work_stddev_ms']) if g0['work_stddev_ms'] else ''}, "
+            f"interval={g0['interval_ms']}ms, drop_mode={g0['drop_mode']}, "
+            f"trigger={g0['trigger_ms']}ms, grace={g0['grace_count']} "
+            f"({len(by_x[x_values[0]])} seeds/point)"
+        )
+        plot_summary(summary_x, x_values, series, suptitle,
+                     out_suffix=f"summary_{g0['profile']}_{summary_x}")
+    elif compare == "workload":
         # Columns = workloads (e.g. interval:target sweep); easing fixed. One
         # figure per profile, columns ordered as listed in the config.
         spec = easings[0]
