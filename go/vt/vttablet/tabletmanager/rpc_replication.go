@@ -39,7 +39,7 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
-func (tm *TabletManager) getMySQLVersion(ctx context.Context) string {
+func (tm *TabletManager) getMySQLVersionString(ctx context.Context) string {
 	version, err := tm.MysqlDaemon.GetVersionString(ctx)
 	if err != nil {
 		log.Warningf("failed to get MySQL version string: %v", err)
@@ -60,7 +60,7 @@ func (tm *TabletManager) ReplicationStatus(ctx context.Context) (*replicationdat
 
 	protoStatus := replication.ReplicationStatusToProto(status)
 	protoStatus.BackupRunning = tm.IsBackupRunning()
-	protoStatus.ServerVersion = tm.getMySQLVersion(ctx)
+	protoStatus.ServerVersion = tm.getMySQLVersionString(ctx)
 
 	return protoStatus, nil
 }
@@ -214,7 +214,7 @@ func (tm *TabletManager) PrimaryStatus(ctx context.Context) (*replicationdatapb.
 		return nil, err
 	}
 	protoStatus := replication.PrimaryStatusToProto(status)
-	protoStatus.ServerVersion = tm.getMySQLVersion(ctx)
+	protoStatus.ServerVersion = tm.getMySQLVersionString(ctx)
 
 	return protoStatus, nil
 }
@@ -711,7 +711,7 @@ func (tm *TabletManager) demotePrimary(ctx context.Context, revertPartialFailure
 	}
 
 	protoStatus := replication.PrimaryStatusToProto(status)
-	protoStatus.ServerVersion = tm.getMySQLVersion(ctx)
+	protoStatus.ServerVersion = tm.getMySQLVersionString(ctx)
 
 	log.Infof("demoted primary, position: %s", protoStatus.Position)
 
@@ -1030,7 +1030,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 
 	if stopReplicationMode == replicationdatapb.StopReplicationMode_IOTHREADONLY {
 		if !rs.IOHealthy() {
-			before.ServerVersion = tm.getMySQLVersion(ctx)
+			before.ServerVersion = tm.getMySQLVersionString(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1039,7 +1039,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 			}, nil
 		}
 		if err := tm.stopIOThreadLocked(ctx); err != nil {
-			before.ServerVersion = tm.getMySQLVersion(ctx)
+			before.ServerVersion = tm.getMySQLVersionString(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1049,7 +1049,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	} else {
 		if !rs.Healthy() {
 			// no replication is running, just return what we got
-			before.ServerVersion = tm.getMySQLVersion(ctx)
+			before.ServerVersion = tm.getMySQLVersionString(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1058,7 +1058,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 			}, nil
 		}
 		if err := tm.stopReplicationLocked(ctx); err != nil {
-			before.ServerVersion = tm.getMySQLVersion(ctx)
+			before.ServerVersion = tm.getMySQLVersionString(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1070,7 +1070,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	// Get the status after we stop replication so we have up to date position and relay log positions.
 	rsAfter, err := tm.MysqlDaemon.ReplicationStatus(ctx)
 	if err != nil {
-		before.ServerVersion = tm.getMySQLVersion(ctx)
+		before.ServerVersion = tm.getMySQLVersionString(ctx)
 		return StopReplicationAndGetStatusResponse{
 			Status: &replicationdatapb.StopReplicationStatus{
 				Before: before,
@@ -1085,7 +1085,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	rs.FilePosition = rsAfter.FilePosition
 	rs.RelayLogSourceBinlogEquivalentPosition = rsAfter.RelayLogSourceBinlogEquivalentPosition
 
-	before.ServerVersion = tm.getMySQLVersion(ctx)
+	before.ServerVersion = tm.getMySQLVersionString(ctx)
 	after.ServerVersion = before.ServerVersion
 
 	return StopReplicationAndGetStatusResponse{
