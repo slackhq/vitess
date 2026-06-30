@@ -2092,6 +2092,26 @@ func (tsv *TabletServer) SetThrottleMetricThreshold(val float64) {
 	tsv.lagThrottler.StoreMetricsThreshold(val)
 }
 
+// SetSchedIdleDispatchEnabled toggles the SCHED_IDLE dispatch gate at runtime.
+func (tsv *TabletServer) SetSchedIdleDispatchEnabled(val bool) {
+	tsv.qe.schedIdleEnabled.Store(val)
+}
+
+// SchedIdleDispatchEnabled reports whether the SCHED_IDLE dispatch gate is on.
+func (tsv *TabletServer) SchedIdleDispatchEnabled() bool {
+	return tsv.qe.schedIdleEnabled.Load()
+}
+
+// SetSchedIdleDispatchMin changes the SCHED_IDLE dispatch minimum concurrency.
+func (tsv *TabletServer) SetSchedIdleDispatchMin(val int) {
+	tsv.qe.schedIdleMin.Store(int64(val))
+}
+
+// SchedIdleDispatchMin returns the SCHED_IDLE dispatch minimum concurrency.
+func (tsv *TabletServer) SchedIdleDispatchMin() int {
+	return int(tsv.qe.schedIdleMin.Load())
+}
+
 // ThrottleMetricThreshold returns the throttler metric threshold
 func (tsv *TabletServer) ThrottleMetricThreshold() float64 {
 	return math.Float64frombits(tsv.lagThrottler.MetricsThreshold.Load())

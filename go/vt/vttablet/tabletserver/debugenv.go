@@ -153,6 +153,16 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setBoolVal := func(f func(bool)) error {
+		bval, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid bool value for %v: %v", varname, err)
+		}
+		f(bval)
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	var err error
 	switch varname {
 	case "ReadPoolSize":
@@ -203,6 +213,10 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+	case "SchedIdleDispatchEnabled":
+		err = setBoolVal(tsv.SetSchedIdleDispatchEnabled)
+	case "SchedIdleDispatchMinConcurrency":
+		err = setIntVal(tsv.SetSchedIdleDispatchMin)
 	}
 
 	if err != nil {
@@ -252,6 +266,8 @@ func getVars(tsv *TabletServer) []envValue {
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),
 	})
+	vars = addVar(vars, "SchedIdleDispatchEnabled", tsv.SchedIdleDispatchEnabled)
+	vars = addVar(vars, "SchedIdleDispatchMinConcurrency", tsv.SchedIdleDispatchMin)
 
 	return vars
 }

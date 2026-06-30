@@ -201,6 +201,14 @@ type QueryEngine struct {
 
 	// snake is the CoDel-based load-shedding gate for the OLTP read pool.
 	snake *loadshed.Snake
+
+	// idleGranter gates OLTP read dispatch on CPU idle via SCHED_IDLE threads.
+	// Non-nil only when loadshedding is enabled. The schedIdle* atomics back the
+	// live-tunable enabled/min knobs consulted by Snake's idle gate.
+	idleGranter      *idleGranter
+	schedIdleEnabled atomic.Bool
+	schedIdleMin     atomic.Int64
+	schedIdleGrants  *stats.Counter
 }
 
 // NewQueryEngine creates a new QueryEngine.
@@ -246,6 +254,14 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	qe.txSerializer = txserializer.New(env)
 
 	if config.LoadshedEnabled {
+		// Idle-dispatch knobs are live-tunable; seed them from config.
+		qe.schedIdleEnabled.Store(config.SchedIdleDispatchEnabled)
+		qe.schedIdleMin.Store(int64(config.SchedIdleDispatchMinConcurrency))
+		qe.schedIdleGrants = env.Exporter().NewCounter("SchedIdleDispatchGrants", "Number of OLTP read queries granted by the SCHED_IDLE dispatch gate.")
+		// Build the granter first so its kick can serve as Snake's gated-waiter
+		// notification; wire it to the Snake after construction.
+		qe.idleGranter = newIdleGranter()
+
 		qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: "oltp-read",
 			CoDel: loadshed.CoDelConfig{
@@ -268,7 +284,11 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 				return config.OltpReadPool.Size
 			},
 			LoadsheddingAllowed: func() bool { return true },
+			IdleGatingEnabled:   qe.schedIdleEnabled.Load,
+			MinConcurrency:      func() int { return int(qe.schedIdleMin.Load()) },
+			OnGatedWaiter:       qe.idleGranter.kick,
 		})
+		qe.idleGranter.setSnake(idleGrantCounter{snake: qe.snake, grants: qe.schedIdleGrants})
 		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 	}
 
@@ -381,6 +401,11 @@ func (qe *QueryEngine) Open() error {
 	qe.se.RegisterNotifier("qe", qe.schemaChanged, true)
 	qe.plans.EnsureOpen()
 	qe.settings.EnsureOpen()
+	// Start the idle granter regardless of the enabled flag: enabling/disabling
+	// idle gating is a runtime bypass in Snake, not a thread-lifecycle switch.
+	if qe.idleGranter != nil {
+		qe.idleGranter.start()
+	}
 	qe.isOpen.Store(true)
 	return nil
 }
@@ -393,6 +418,9 @@ func (qe *QueryEngine) Close() {
 		return
 	}
 	// Close in reverse order of Open.
+	if qe.idleGranter != nil {
+		qe.idleGranter.stop()
+	}
 	qe.se.UnregisterNotifier("qe")
 
 	qe.plans.Close()

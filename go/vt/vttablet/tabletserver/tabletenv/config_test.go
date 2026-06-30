@@ -504,3 +504,30 @@ func TestVerifyUnmanagedTabletConfig(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "testPassword", config.DB.App.Password)
 }
+
+func TestVerifySchedIdleDispatchConfig(t *testing.T) {
+	t.Run("defaults are valid", func(t *testing.T) {
+		config := defaultConfig
+		assert.NoError(t, config.verifySchedIdleDispatchConfig())
+	})
+
+	t.Run("negative min rejected", func(t *testing.T) {
+		config := defaultConfig
+		config.SchedIdleDispatchMinConcurrency = -1
+		assert.ErrorContains(t, config.verifySchedIdleDispatchConfig(), "must be >= 0")
+	})
+
+	t.Run("enabled requires loadshed", func(t *testing.T) {
+		config := defaultConfig
+		config.SchedIdleDispatchEnabled = true
+		config.LoadshedEnabled = false
+		assert.ErrorContains(t, config.verifySchedIdleDispatchConfig(), "requires --loadshed-enabled")
+	})
+
+	t.Run("enabled with loadshed is valid", func(t *testing.T) {
+		config := defaultConfig
+		config.SchedIdleDispatchEnabled = true
+		config.LoadshedEnabled = true
+		assert.NoError(t, config.verifySchedIdleDispatchConfig())
+	})
+}

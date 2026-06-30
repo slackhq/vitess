@@ -37,6 +37,23 @@ type (
 		LoadsheddingAllowed func() bool
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
+
+		// IdleGatingEnabled, when non-nil and returning true, withholds grants
+		// from requests at or above the MinConcurrency floor until an idle
+		// signal arrives via TryGrantIdle. When nil or false, grants happen on
+		// capacity exactly as if these hooks were absent.
+		IdleGatingEnabled func() bool
+
+		// MinConcurrency is the floor below which requests are granted
+		// immediately regardless of the idle gate, keeping a minimum number of
+		// requests in flight. Nil means the floor is unbounded (every request
+		// is below the floor), which disables idle gating.
+		MinConcurrency func() int
+
+		// OnGatedWaiter is invoked (outside the mutex) when a request becomes
+		// grantable but is held back solely by the idle gate. It signals an
+		// external idle granter to attempt TryGrantIdle.
+		OnGatedWaiter func()
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -140,6 +157,23 @@ func (s *Snake) hasCapacity() bool {
 	return len(s.holders) < s.capacity()
 }
 
+// belowFloor reports whether the current holder count is below the configured
+// minimum concurrency floor. A nil MinConcurrency means there is no floor, so
+// every request counts as below it (idle gating disabled).
+func (s *Snake) belowFloor() bool {
+	if s.cfg.MinConcurrency == nil {
+		return true
+	}
+	return len(s.holders) < s.cfg.MinConcurrency()
+}
+
+// idleGated reports whether a request that has capacity must nonetheless wait
+// for an idle grant. This is true only when idle gating is enabled and the
+// holder count is at or above the floor.
+func (s *Snake) idleGated() bool {
+	return s.cfg.IdleGatingEnabled != nil && s.cfg.IdleGatingEnabled() && !s.belowFloor()
+}
+
 // Acquire acquires a slot. It blocks until a slot is granted, the request
 // is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
 // must be released via defer unlock.Release().
@@ -164,7 +198,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 		s.lockedObserveValveDepth(valveID)
 	}
 
-	if s.hasCapacity() && req.codelqElem != nil {
+	if s.hasCapacity() && req.codelqElem != nil && !s.idleGated() {
 		s.lockedGrant(req)
 		s.lockedObserveLengths()
 		s.mu.Unlock()
@@ -178,9 +212,18 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 	pending := s.lockedEnqueueAdvance()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+
+	// The request has capacity but is held back solely by the idle gate. Notify
+	// the idle granter (outside the mutex) so it can grant on the next idle.
+	notifyGated := s.hasCapacity() && req.codelqElem != nil && s.idleGated()
+
 	s.mu.Unlock()
 	for _, p := range pending {
 		p.sendSignal()
+	}
+
+	if notifyGated {
+		s.notifyGatedWaiter()
 	}
 
 	select {
@@ -276,7 +319,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedTryGrantOne()
+	notifyGated := s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()
@@ -287,6 +330,9 @@ func (s *Snake) release(req *Request, excValue error) error {
 	for _, r := range pending {
 		r.sendSignal()
 	}
+	if notifyGated {
+		s.notifyGatedWaiter()
+	}
 	s.runReleaseCBs(excValue)
 	return nil
 }
@@ -296,13 +342,16 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedTryGrantOne()
+	notifyGated := s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
 	for _, r := range pending {
 		r.sendSignal()
+	}
+	if notifyGated {
+		s.notifyGatedWaiter()
 	}
 }
 
@@ -365,13 +414,49 @@ func (s *Snake) lockedAccrueDropping(now int64) {
 	}
 }
 
-func (s *Snake) lockedTryGrantOne() {
+// lockedTryGrantOne grants the next waiter when capacity is available and the
+// idle gate does not apply (gating disabled or below the floor). When a waiter
+// exists but is held back solely by the idle gate, it grants nothing and
+// returns true so the caller can notify the idle granter after releasing the
+// mutex.
+func (s *Snake) lockedTryGrantOne() (notifyGated bool) {
 	if !s.hasCapacity() {
-		return
+		return false
 	}
 	next := s.q.lockedFirstWaiting()
-	if next != nil {
-		s.lockedGrant(next)
+	if next == nil {
+		return false
+	}
+	if s.idleGated() {
+		return true
+	}
+	s.lockedGrant(next)
+	return false
+}
+
+// TryGrantIdle grants a single waiting request if capacity is available. It is
+// called by the idle granter when its SCHED_IDLE thread is scheduled, which is
+// itself the proof that the CPU is idle. It reports whether a grant was made,
+// so the granter can attempt to drain further waiters one reschedule at a time.
+func (s *Snake) TryGrantIdle() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasCapacity() {
+		return false
+	}
+	next := s.q.lockedFirstWaiting()
+	if next == nil {
+		return false
+	}
+	s.lockedGrant(next)
+	return true
+}
+
+// notifyGatedWaiter signals the idle granter, if configured, that a request is
+// waiting solely on the idle gate. The callback must not block.
+func (s *Snake) notifyGatedWaiter() {
+	if s.cfg.OnGatedWaiter != nil {
+		s.cfg.OnGatedWaiter()
 	}
 }
 

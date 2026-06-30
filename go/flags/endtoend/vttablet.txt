@@ -338,6 +338,8 @@ Flags:
       --s3_backup_storage_root string                                    root prefix for all backup-related object names.
       --s3_backup_tls_skip_verify_cert                                   skip the 'certificate is valid' check for SSL connections.
       --sanitize_log_messages                                            Remove potentially sensitive information in tablet INFO, WARNING, and ERROR log messages such as query parameters.
+      --sched-idle-dispatch-enabled                                      If true, gates OLTP read query dispatch on CPU idle using SCHED_IDLE granter threads. Requires --loadshed-enabled. Linux only.
+      --sched-idle-dispatch-min-concurrency int                          Minimum number of in-flight OLTP read queries granted immediately regardless of CPU idle. Should be less than the read pool size to have any gating effect.
       --schema-change-reload-timeout duration                            query server schema change reload timeout, this is how long to wait for the signaled schema reload operation to complete before giving up (default 30s)
       --schema-version-max-age-seconds int                               max age of schema version records to kept in memory by the vreplication historian
       --security_policy string                                           the name of a registered security policy to use for controlling access to URLs - empty means allow all for anyone (built-in policies: deny-all, read-only)

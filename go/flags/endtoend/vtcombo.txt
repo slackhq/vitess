@@ -336,6 +336,8 @@ Flags:
       --restore_from_backup_ts string                                    (init restore parameter) if set, restore the latest backup taken at or before this timestamp. Example: '2021-04-29.133050'
       --retain_online_ddl_tables duration                                How long should vttablet keep an old migrated table before purging it (default 24h0m0s)
       --sanitize_log_messages                                            Remove potentially sensitive information in tablet INFO, WARNING, and ERROR log messages such as query parameters.
+      --sched-idle-dispatch-enabled                                      If true, gates OLTP read query dispatch on CPU idle using SCHED_IDLE granter threads. Requires --loadshed-enabled. Linux only.
+      --sched-idle-dispatch-min-concurrency int                          Minimum number of in-flight OLTP read queries granted immediately regardless of CPU idle. Should be less than the read pool size to have any gating effect.
       --schema-change-reload-timeout duration                            query server schema change reload timeout, this is how long to wait for the signaled schema reload operation to complete before giving up (default 30s)
       --schema-version-max-age-seconds int                               max age of schema version records to kept in memory by the vreplication historian
       --schema_change_signal                                             Enable the schema tracker; requires queryserver-config-schema-change-signal to be enabled on the underlying vttablets for this to work (default true)

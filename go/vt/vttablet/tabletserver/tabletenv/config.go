@@ -232,6 +232,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).")
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
+	fs.BoolVar(&currentConfig.SchedIdleDispatchEnabled, "sched-idle-dispatch-enabled", defaultConfig.SchedIdleDispatchEnabled, "If true, gates OLTP read query dispatch on CPU idle using SCHED_IDLE granter threads. Requires --loadshed-enabled. Linux only.")
+	fs.IntVar(&currentConfig.SchedIdleDispatchMinConcurrency, "sched-idle-dispatch-min-concurrency", defaultConfig.SchedIdleDispatchMinConcurrency, "Minimum number of in-flight OLTP read queries granted immediately regardless of CPU idle. Should be less than the read pool size to have any gating effect.")
 }
 
 var (
@@ -409,6 +411,9 @@ type TabletConfig struct {
 	// health-check/monitoring traffic against them is never shed. Matched
 	// case-insensitively against the query's table qualifiers.
 	LoadshedUndroppableSchemas []string `json:"-"`
+
+	SchedIdleDispatchEnabled        bool `json:"-"`
+	SchedIdleDispatchMinConcurrency int  `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -953,6 +958,20 @@ func (c *TabletConfig) Verify() error {
 	if v := c.HotRowProtection.MaxConcurrency; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_concurrent_transactions must be > 0 (specified value: %v)", v)
 	}
+	if err := c.verifySchedIdleDispatchConfig(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// verifySchedIdleDispatchConfig checks the SCHED_IDLE dispatch config for sanity.
+func (c *TabletConfig) verifySchedIdleDispatchConfig() error {
+	if c.SchedIdleDispatchMinConcurrency < 0 {
+		return fmt.Errorf("--sched-idle-dispatch-min-concurrency must be >= 0 (specified value: %v)", c.SchedIdleDispatchMinConcurrency)
+	}
+	if c.SchedIdleDispatchEnabled && !c.LoadshedEnabled {
+		return fmt.Errorf("--sched-idle-dispatch-enabled requires --loadshed-enabled")
+	}
 	return nil
 }
 
@@ -1170,6 +1189,9 @@ var defaultConfig = TabletConfig{
 	// System schemas are queried by health checks/monitoring, which are
 	// low-volume and must succeed; default to marking them undroppable.
 	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
+
+	SchedIdleDispatchEnabled:        false,
+	SchedIdleDispatchMinConcurrency: 0,
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on

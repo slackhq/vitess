@@ -22,6 +22,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1743,6 +1745,68 @@ func TestGetConnSnakeDisabled(t *testing.T) {
 	require.NotNil(t, conn)
 	conn.Recycle()
 	release()
+}
+
+func TestGetConnWithSchedIdleDispatch(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	cfg := tabletenv.NewDefaultConfig()
+	cfg.OltpReadPool.Size = 4
+	cfg.TxPool.Size = 100
+	cfg.LoadshedEnabled = true
+	cfg.LoadshedTarget = 5 * time.Millisecond
+	cfg.LoadshedIntervalRatio = 20
+	// Enable idle gating with a floor of 1: requests past the first must be
+	// granted by the idle granter rather than immediately on capacity.
+	cfg.SchedIdleDispatchEnabled = true
+	cfg.SchedIdleDispatchMinConcurrency = 1
+	cfg.DB = newDBConfigs(db)
+
+	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	target := &querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}
+	err := tsv.StartService(target, cfg.DB, nil)
+	require.NoError(t, err)
+	defer tsv.StopService()
+
+	require.NotNil(t, tsv.qe.snake, "snake should be initialized when LoadshedEnabled=true")
+	require.NotNil(t, tsv.qe.idleGranter, "idle granter should be initialized when LoadshedEnabled=true")
+	require.True(t, tsv.SchedIdleDispatchEnabled())
+
+	input := "select * from test_table limit 1"
+
+	// Run several concurrent acquisitions. The first holds the floor slot
+	// (granted immediately); the rest are gated and must be granted by the idle
+	// granter. Each holds briefly so they overlap past the floor.
+	const n = 8
+	var wg sync.WaitGroup
+	var acquired atomic.Int64
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			qre := newTestQueryExecutor(ctx, tsv, input, 0)
+			qre.options = &querypb.ExecuteOptions{LoadshedValveId: ""}
+			conn, release, err := qre.getConn()
+			if err != nil {
+				return
+			}
+			acquired.Add(1)
+			time.Sleep(2 * time.Millisecond)
+			conn.Recycle()
+			release()
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int64(n), acquired.Load(), "all requests should eventually acquire")
+	// At least one request was granted through the idle path (i.e. it was gated
+	// past the floor and released by the granter), proving the wiring is live.
+	assert.Eventually(t, func() bool {
+		return tsv.qe.schedIdleGrants.Get() > 0
+	}, 30*time.Second, time.Millisecond, "idle granter should have granted at least one gated request")
 }
 
 type executorFlags int64
