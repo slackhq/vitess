@@ -41,11 +41,6 @@ func getThreadSchedPolicy() (int, error) {
 	return schedPolicyIdle, nil
 }
 
-// pinToCore is a no-op on non-Linux platforms.
-func pinToCore(cpu int) error {
-	return nil
-}
-
 // schedYield yields the goroutine on non-Linux platforms.
 func schedYield() {
 	runtime.Gosched()

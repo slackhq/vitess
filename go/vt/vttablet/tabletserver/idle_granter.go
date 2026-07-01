@@ -41,10 +41,19 @@ type (
 		grants *stats.Counter
 	}
 
-	// idleGranter runs one goroutine per CPU core, each locked to a core and
-	// set to the SCHED_IDLE scheduling policy. Because the kernel only runs a
-	// SCHED_IDLE thread when its core has no other work, a granter waking to
-	// grant a request is itself proof that the core is idle.
+	// idleGranter runs one goroutine per CPU, each locked to an OS thread set to
+	// the SCHED_IDLE scheduling policy. Because the kernel only runs a SCHED_IDLE
+	// thread when a core has no other work, a granter being scheduled to grant a
+	// request is itself proof that at least one core is idle.
+	//
+	// The threads are deliberately NOT pinned to cores. A kick wakes a single
+	// granter (the shared cap-1 wake channel has wake-one semantics); waking that
+	// granter schedules work on whatever core it lands on, so a subsequent kick
+	// must be served by another granter that the scheduler places on a different
+	// idle core. Pinning would defeat this: a granter pinned to a now-busy core
+	// could not run even while another core sits idle. Unpinned, N granters give
+	// real cross-core parallelism, and each one that runs proves a distinct core
+	// was idle.
 	//
 	// A granter never executes queries; it only calls TryGrantIdle. The granted
 	// query runs on the caller's own (normal-priority) goroutine.
@@ -98,12 +107,12 @@ func (g *idleGranter) kick() {
 	}
 }
 
-// start launches the granter goroutines. Each pins to a core and drops to
-// SCHED_IDLE for its lifetime.
+// start launches the granter goroutines. Each drops to SCHED_IDLE for its
+// lifetime.
 func (g *idleGranter) start() {
-	for i := range g.workers {
+	for range g.workers {
 		g.wg.Add(1)
-		go g.run(i)
+		go g.run()
 	}
 }
 
@@ -113,25 +122,27 @@ func (g *idleGranter) stop() {
 	g.wg.Wait()
 }
 
-func (g *idleGranter) run(core int) {
+func (g *idleGranter) run() {
 	defer g.wg.Done()
 
 	// Lock to the OS thread for life and never unlock. We modify this thread's
-	// scheduling policy (SCHED_IDLE) and affinity; returning it to the Go
-	// runtime's thread pool would let arbitrary goroutines (and GC work) run at
-	// idle priority on a pinned core. By staying locked, when this goroutine
-	// returns on stop the runtime terminates the thread, discarding the tainted
-	// scheduling state instead of recycling it.
+	// scheduling policy (SCHED_IDLE); returning it to the Go runtime's thread
+	// pool would let arbitrary goroutines (and GC work) run at idle priority. By
+	// staying locked, when this goroutine returns on stop the runtime terminates
+	// the thread, discarding the tainted scheduling state instead of recycling
+	// it.
+	//
+	// The thread is deliberately NOT pinned to a core. A kick wakes a single
+	// granter (the shared cap-1 wake channel has wake-one semantics), so pinning
+	// would let a busy pinned core hide the fact that some other core is idle.
+	// Unpinned, the woken granter can run on whichever core is free, so its
+	// SCHED_IDLE thread being scheduled proves at least one core is idle.
 	runtime.LockOSThread()
-	// Best effort: pinning and policy failures leave the granter functional as
-	// a plain worker (gating simply won't be CPU-accurate), so we don't abort.
-	// Log the failure once per granter so operators can tell idle gating is not
-	// actually in effect rather than silently degrading.
-	if err := pinToCore(core); err != nil {
-		log.Warningf("idle granter: failed to pin to core %d, idle gating will not be CPU-accurate: %v", core, err)
-	}
+	// Best effort: a policy failure leaves the granter functional as a plain
+	// worker (gating simply won't be CPU-accurate), so we don't abort. Log it so
+	// operators can tell idle gating is not actually in effect.
 	if err := setThreadSchedIdle(); err != nil {
-		log.Warningf("idle granter on core %d: failed to set SCHED_IDLE, idle gating is not in effect: %v", core, err)
+		log.Warningf("idle granter: failed to set SCHED_IDLE, idle gating is not in effect: %v", err)
 	}
 
 	for {

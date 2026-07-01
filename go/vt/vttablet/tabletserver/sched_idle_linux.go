@@ -53,15 +53,6 @@ func getThreadSchedPolicy() (int, error) {
 	return int(attr.Policy), nil
 }
 
-// pinToCore binds the calling OS thread to a single CPU core, giving per-core
-// idle sampling.
-func pinToCore(cpu int) error {
-	var set unix.CPUSet
-	set.Zero()
-	set.Set(cpu)
-	return unix.SchedSetaffinity(0, &set)
-}
-
 // schedYield moves the calling thread to the back of its run queue. It is used
 // only to pace successive grants while a backlog exists; it does not sleep, so
 // it must never be the mechanism that parks an otherwise-idle granter.
