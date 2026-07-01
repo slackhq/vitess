@@ -22,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"vitess.io/vitess/go/stats"
 )
 
 type (
@@ -58,6 +60,12 @@ type (
 		// gate). It excludes context cancellations, which are the caller giving
 		// up rather than the gate shedding. Read lock-free via ShedCount.
 		shedCount atomic.Int64
+
+		// sojourn records the time-to-grant distribution (queue wait before a
+		// slot is granted). Nil until PublishStats wires it, so NewSnake — used
+		// by tests and the benchmark harness — registers nothing globally.
+		// Written under s.mu in lockedGrant; Histogram.Add is itself atomic.
+		sojourn *stats.Histogram
 	}
 
 	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
@@ -235,6 +243,9 @@ func (s *Snake) releaseOnCancel(req *Request) {
 func (s *Snake) lockedGrant(req *Request) {
 	s.holders[req] = struct{}{}
 	s.q.lockedOnGrant(req)
+	if s.sojourn != nil {
+		s.sojourn.Add(s.clockFunc() - req.codelqEnqueuedAtNs)
+	}
 	s.lockedStartMaxAgeTimer(req)
 	req.signal(grantSentinel)
 }
