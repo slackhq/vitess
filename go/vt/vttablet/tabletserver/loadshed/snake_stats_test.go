@@ -54,9 +54,6 @@ func (e *fakeExporter) NewCounterFunc(name, _ string, f func() int64) *stats.Cou
 	return nil
 }
 
-// NewHistogram builds the histogram with an empty name so it is never published
-// to the global stats registry — the map keyed on the requested name is enough
-// for tests to look it up, and empty-named histograms skip publish().
 func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.Histogram {
 	h := stats.NewHistogram("", help, cutoffs)
 	e.histograms[name] = h

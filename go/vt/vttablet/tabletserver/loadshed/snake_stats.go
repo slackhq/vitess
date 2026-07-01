@@ -17,6 +17,8 @@ limitations under the License.
 package loadshed
 
 import (
+	"time"
+
 	"vitess.io/vitess/go/stats"
 )
 
@@ -30,12 +32,26 @@ type statsExporter interface {
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
 }
 
-// loadshedBucketCutoffs are the sojourn (time-to-grant) histogram bucket
-// boundaries, in nanoseconds. Unlike the shared query-latency cutoffs in
-// go/stats (which start at 500µs), sojourn is sub-millisecond when healthy, so
-// these resolve the 500ns–200µs region where grants cluster while still landing
-// exactly on the target (5ms) and default trigger (100ms) thresholds.
-var loadshedBucketCutoffs = []int64{5e2, 1e3, 1e4, 5e4, 2e5, 1e6, 5e6, 2e7, 1e8, 5e8}
+var loadshedBucketCutoffs = durationNanos(
+	500*time.Nanosecond,
+	time.Microsecond,
+	10*time.Microsecond,
+	50*time.Microsecond,
+	200*time.Microsecond,
+	time.Millisecond,
+	5*time.Millisecond,
+	20*time.Millisecond,
+	100*time.Millisecond,
+	500*time.Millisecond,
+)
+
+func durationNanos(ds ...time.Duration) []int64 {
+	out := make([]int64, len(ds))
+	for i, d := range ds {
+		out[i] = d.Nanoseconds()
+	}
+	return out
+}
 
 // PublishStats registers one GaugeFunc per SnakeStats field, each name prefixed
 // with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once per Snake
@@ -71,8 +87,5 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
-	// Attach here rather than in NewSnake so nothing is registered globally
-	// until an engine explicitly publishes: NewSnake is also exercised by tests
-	// and the benchmark harness, where duplicate registration would panic.
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake sojourn (time-to-grant: queue wait before slot grant), in nanoseconds", loadshedBucketCutoffs)
 }
