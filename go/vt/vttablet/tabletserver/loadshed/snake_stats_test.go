@@ -27,18 +27,20 @@ import (
 	"vitess.io/vitess/go/stats"
 )
 
-// fakeExporter captures the GaugeFuncs and CounterFuncs registered by
-// PublishStats so the test can invoke them directly, without touching global
+// fakeExporter captures the GaugeFuncs, CounterFuncs, and Histograms registered
+// by PublishStats so the test can invoke them directly, without touching global
 // stats registration.
 type fakeExporter struct {
-	gauges   map[string]func() int64
-	counters map[string]func() int64
+	gauges     map[string]func() int64
+	counters   map[string]func() int64
+	histograms map[string]*stats.Histogram
 }
 
 func newFakeExporter() *fakeExporter {
 	return &fakeExporter{
-		gauges:   make(map[string]func() int64),
-		counters: make(map[string]func() int64),
+		gauges:     make(map[string]func() int64),
+		counters:   make(map[string]func() int64),
+		histograms: make(map[string]*stats.Histogram),
 	}
 }
 
@@ -50,6 +52,12 @@ func (e *fakeExporter) NewGaugeFunc(name, _ string, f func() int64) *stats.Gauge
 func (e *fakeExporter) NewCounterFunc(name, _ string, f func() int64) *stats.CounterFunc {
 	e.counters[name] = f
 	return nil
+}
+
+func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.Histogram {
+	h := stats.NewHistogram("", help, cutoffs)
+	e.histograms[name] = h
+	return h
 }
 
 func TestPublishStats_ReflectsSnakeState(t *testing.T) {
@@ -159,4 +167,53 @@ func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {
 	require.Error(t, err)
 
 	assert.Equal(t, int64(0), shedGauge(), "context cancellation must not count as a shed")
+}
+
+func TestPublishStats_SojournRecordsGrant(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
+	exp := newFakeExporter()
+
+	PublishStats(exp, "SnakeOltpRead", s)
+
+	hist := exp.histograms["SnakeOltpReadSojournNs"]
+	require.NotNil(t, hist, "expected histogram SnakeOltpReadSojournNs to be registered")
+	assert.Equal(t, int64(0), hist.Count(), "no grants before any acquire")
+
+	// A granted request records exactly one sojourn observation.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), hist.Count(), "one grant should record one sojourn observation")
+	assert.GreaterOrEqual(t, hist.Total(), int64(0), "sojourn total should be a non-negative duration")
+
+	require.NoError(t, unlock.Release())
+}
+
+func TestPublishStats_SojournBucketing(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	hist := exp.histograms["SnakeOltpReadSojournNs"]
+	require.NotNil(t, hist)
+
+	// A fast, uncontended grant lands in one of the low buckets: well under the
+	// 1ms cutoff. Assert nothing landed at or above the 5ms (5e6) cutoff.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	require.NoError(t, unlock.Release())
+
+	counts := hist.Counts()
+	slow := counts["5000000"] + counts["20000000"] + counts["100000000"] + counts["500000000"] + counts["inf"]
+	assert.Equal(t, int64(0), slow, "an uncontended grant must not land in the >=5ms buckets")
+	assert.Equal(t, int64(1), hist.Count(), "exactly one observation recorded")
+}
+
+func TestNewSnake_SojournNilUntilPublished(t *testing.T) {
+	// A Snake built without PublishStats (the benchmark/test path) must grant
+	// without panicking; the sojourn histogram stays nil.
+	s := newTestSnake(defaultSnakeConfig())
+	assert.Nil(t, s.sojourn, "sojourn must be nil until PublishStats wires it")
+
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	require.NoError(t, unlock.Release())
 }

@@ -22,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"vitess.io/vitess/go/stats"
 )
 
 type (
@@ -54,10 +56,8 @@ type (
 		cfg            SnakeConfig
 		clockFunc      func() int64
 
-		// shedCount counts requests this Snake has shed (rejected by the CoDel
-		// gate). It excludes context cancellations, which are the caller giving
-		// up rather than the gate shedding. Read lock-free via ShedCount.
 		shedCount atomic.Int64
+		sojourn *stats.Histogram
 	}
 
 	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
@@ -235,6 +235,9 @@ func (s *Snake) releaseOnCancel(req *Request) {
 func (s *Snake) lockedGrant(req *Request) {
 	s.holders[req] = struct{}{}
 	s.q.lockedOnGrant(req)
+	if s.sojourn != nil {
+		s.sojourn.Add(s.clockFunc() - req.codelqEnqueuedAtNs)
+	}
 	s.lockedStartMaxAgeTimer(req)
 	req.signal(grantSentinel)
 }

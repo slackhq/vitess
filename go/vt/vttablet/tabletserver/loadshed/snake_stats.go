@@ -17,6 +17,8 @@ limitations under the License.
 package loadshed
 
 import (
+	"time"
+
 	"vitess.io/vitess/go/stats"
 )
 
@@ -27,6 +29,28 @@ import (
 type statsExporter interface {
 	NewGaugeFunc(name, help string, f func() int64) *stats.GaugeFunc
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
+	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
+}
+
+var loadshedBucketCutoffs = durationNanos(
+	500*time.Nanosecond,
+	time.Microsecond,
+	10*time.Microsecond,
+	50*time.Microsecond,
+	200*time.Microsecond,
+	time.Millisecond,
+	5*time.Millisecond,
+	20*time.Millisecond,
+	100*time.Millisecond,
+	500*time.Millisecond,
+)
+
+func durationNanos(ds ...time.Duration) []int64 {
+	out := make([]int64, len(ds))
+	for i, d := range ds {
+		out[i] = d.Nanoseconds()
+	}
+	return out
 }
 
 // PublishStats registers one GaugeFunc per SnakeStats field, each name prefixed
@@ -63,4 +87,5 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
+	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake sojourn (time-to-grant: queue wait before slot grant), in nanoseconds", loadshedBucketCutoffs)
 }
