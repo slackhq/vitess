@@ -29,6 +29,7 @@ import (
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -143,6 +144,14 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setStringVal := func(f func(string) error) error {
+		if err := f(value); err != nil {
+			return fmt.Errorf("invalid value for %v: %v", varname, err)
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	var err error
 	switch varname {
 	case "ReadPoolSize":
@@ -163,6 +172,24 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
+	case "LoadshedTarget":
+		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTarget = d })
+	case "LoadshedInterval":
+		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedInterval = d })
+	case "LoadshedExponent":
+		err = setFloat64Val(func(v float64) { tsv.Config().LoadshedExponent = v })
+	case "LoadshedTrigger":
+		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTrigger = d })
+	case "LoadshedGraceCount":
+		err = setIntVal(func(v int) { tsv.Config().LoadshedGraceCount = v })
+	case "LoadshedDropMode":
+		err = setStringVal(func(v string) error {
+			if _, perr := loadshed.ParseDropMode(v); perr != nil {
+				return perr
+			}
+			tsv.Config().LoadshedDropMode = v
+			return nil
+		})
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -202,6 +229,12 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "RowStreamerMaxMySQLReplLagSecs", func() int64 { return tsv.Config().RowStreamer.MaxMySQLReplLagSecs })
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
+	vars = addVar(vars, "LoadshedTarget", func() time.Duration { return tsv.Config().LoadshedTarget })
+	vars = addVar(vars, "LoadshedInterval", func() time.Duration { return tsv.Config().LoadshedInterval })
+	vars = addVar(vars, "LoadshedExponent", func() float64 { return tsv.Config().LoadshedExponent })
+	vars = addVar(vars, "LoadshedDropMode", func() string { return tsv.Config().LoadshedDropMode })
+	vars = addVar(vars, "LoadshedTrigger", func() time.Duration { return tsv.Config().LoadshedTrigger })
+	vars = addVar(vars, "LoadshedGraceCount", func() int { return tsv.Config().LoadshedGraceCount })
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),

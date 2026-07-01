@@ -18,6 +18,7 @@ package loadshed
 
 import (
 	"container/list"
+	"fmt"
 	"math"
 )
 
@@ -226,6 +227,33 @@ const (
 	// and the ordinary ramp/ease machine takes over.
 	DropBoth
 )
+
+// String returns the canonical flag/config name for the drop mode.
+func (m CoDelDropMode) String() string {
+	switch m {
+	case DropJumpStart:
+		return "jump"
+	case DropBoth:
+		return "both"
+	default:
+		return "slow"
+	}
+}
+
+// ParseDropMode maps a drop-mode string (as accepted by the loadshed-drop-mode
+// flag and /debug/env) to a CoDelDropMode.
+func ParseDropMode(s string) (CoDelDropMode, error) {
+	switch s {
+	case "slow", "slow-start":
+		return DropSlowStart, nil
+	case "jump", "jump-start":
+		return DropJumpStart, nil
+	case "both":
+		return DropBoth, nil
+	default:
+		return DropSlowStart, fmt.Errorf("unknown drop mode %q (expected slow|jump|both)", s)
+	}
+}
 
 func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
