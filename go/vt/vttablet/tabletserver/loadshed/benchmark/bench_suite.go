@@ -24,20 +24,15 @@ var (
 	graceCount    *int
 )
 
-// parseDropMode maps the -drop-mode flag string to a CoDelDropMode.
+// parseDropMode maps the -drop-mode flag string to a CoDelDropMode, exiting on
+// an unrecognized value.
 func parseDropMode(s string) loadshed.CoDelDropMode {
-	switch s {
-	case "slow", "slow-start":
-		return loadshed.DropSlowStart
-	case "jump", "jump-start":
-		return loadshed.DropJumpStart
-	case "both":
-		return loadshed.DropBoth
-	default:
-		fmt.Printf("unknown drop-mode %q (expected slow|jump|both)\n", s)
+	mode, err := loadshed.ParseDropMode(s)
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
-		return loadshed.DropSlowStart
 	}
+	return mode
 }
 
 type event struct {

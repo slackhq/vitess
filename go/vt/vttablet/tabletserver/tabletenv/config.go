@@ -234,6 +234,9 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
 	fs.DurationVar(&currentConfig.LoadshedInterval, "loadshed-interval", defaultConfig.LoadshedInterval, "CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target.")
 	fs.Float64Var(&currentConfig.LoadshedExponent, "loadshed-exponent", defaultConfig.LoadshedExponent, "CoDel control law exponent for the load shedder.")
+	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
+	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to loadshed-interval.")
+	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
 }
 
 var (
@@ -394,10 +397,13 @@ type TabletConfig struct {
 	SkipUserMetrics                     bool          `json:"-"`
 	QueryThrottlerConfigRefreshInterval time.Duration `json:"-"`
 
-	LoadshedEnabled  bool          `json:"-"`
-	LoadshedTarget   time.Duration `json:"-"`
-	LoadshedInterval time.Duration `json:"-"`
-	LoadshedExponent float64       `json:"-"`
+	LoadshedEnabled    bool          `json:"-"`
+	LoadshedTarget     time.Duration `json:"-"`
+	LoadshedInterval   time.Duration `json:"-"`
+	LoadshedExponent   float64       `json:"-"`
+	LoadshedDropMode   string        `json:"-"`
+	LoadshedTrigger    time.Duration `json:"-"`
+	LoadshedGraceCount int           `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1156,10 +1162,13 @@ var defaultConfig = TabletConfig{
 
 	QueryThrottlerConfigRefreshInterval: time.Minute,
 
-	LoadshedEnabled:  true,
-	LoadshedTarget:   5 * time.Millisecond,
-	LoadshedInterval: 100 * time.Millisecond,
-	LoadshedExponent: 1.0,
+	LoadshedEnabled:    true,
+	LoadshedTarget:     5 * time.Millisecond,
+	LoadshedInterval:   100 * time.Millisecond,
+	LoadshedExponent:   1.0,
+	LoadshedDropMode:   "slow",
+	LoadshedTrigger:    0,
+	LoadshedGraceCount: 1,
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on
