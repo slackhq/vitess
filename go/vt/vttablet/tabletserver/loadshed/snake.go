@@ -120,6 +120,12 @@ func defaultClock() int64 {
 
 // NewSnake creates a new CoDel-based load-shedding gate.
 func NewSnake(cfg SnakeConfig) *Snake {
+	if cfg.IdleGatingEnabled != nil && cfg.OnGatedWaiter == nil {
+		// Idle gating cannot be honored without a notifier to wake an idle
+		// granter, so it will be ignored (grant-on-capacity). Warn rather than
+		// silently strand gated waiters.
+		log.Printf("loadshed: snake %s has IdleGatingEnabled but no OnGatedWaiter; idle gating disabled", cfg.Name)
+	}
 	s := &Snake{
 		cfg:          cfg,
 		clockFunc:    defaultClock,
@@ -170,8 +176,13 @@ func (s *Snake) belowFloor() bool {
 // idleGated reports whether a request that has capacity must nonetheless wait
 // for an idle grant. This is true only when idle gating is enabled and the
 // holder count is at or above the floor.
+//
+// OnGatedWaiter is required: without a notifier there is no idle granter to
+// eventually grant a gated waiter, so honoring the gate would strand it (never
+// granted, never notified). In that case the gate does not engage and requests
+// are granted on capacity as usual.
 func (s *Snake) idleGated() bool {
-	return s.cfg.IdleGatingEnabled != nil && s.cfg.IdleGatingEnabled() && !s.belowFloor()
+	return s.cfg.OnGatedWaiter != nil && s.cfg.IdleGatingEnabled != nil && s.cfg.IdleGatingEnabled() && !s.belowFloor()
 }
 
 // Acquire acquires a slot. It blocks until a slot is granted, the request

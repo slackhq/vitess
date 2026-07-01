@@ -63,6 +63,35 @@ func TestSnakeIdle_BypassWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestSnakeIdle_NoNotifierDoesNotGate verifies the fail-safe: if idle gating is
+// enabled but OnGatedWaiter is nil, there is no granter to wake a gated waiter,
+// so the gate must not engage. Requests are granted on capacity instead of
+// being stranded (never granted, never notified).
+func TestSnakeIdle_NoNotifierDoesNotGate(t *testing.T) {
+	var enabled atomic.Bool
+	enabled.Store(true)
+	cfg := defaultSnakeConfig()
+	cfg.Capacity = func() int { return 4 }
+	cfg.MinConcurrency = func() int { return 1 }
+	cfg.IdleGatingEnabled = enabled.Load
+	// Deliberately no OnGatedWaiter.
+	s := newTestSnake(cfg)
+
+	// Acquire past the floor. Without a notifier the gate is inert, so these
+	// must be granted immediately rather than blocking forever.
+	var unlocks []*SafeUnlock
+	for range 3 {
+		unlock, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, unlock)
+	}
+	assert.Equal(t, 3, s.nGranted())
+
+	for _, u := range unlocks {
+		require.NoError(t, u.Release())
+	}
+}
+
 // TestSnakeIdle_BelowFloorGrantsImmediately verifies that requests below the
 // floor are granted immediately even with gating enabled.
 func TestSnakeIdle_BelowFloorGrantsImmediately(t *testing.T) {
