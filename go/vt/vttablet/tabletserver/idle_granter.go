@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/vt/log"
 )
 
 type (
@@ -124,8 +125,14 @@ func (g *idleGranter) run(core int) {
 	runtime.LockOSThread()
 	// Best effort: pinning and policy failures leave the granter functional as
 	// a plain worker (gating simply won't be CPU-accurate), so we don't abort.
-	_ = pinToCore(core)
-	_ = setThreadSchedIdle()
+	// Log the failure once per granter so operators can tell idle gating is not
+	// actually in effect rather than silently degrading.
+	if err := pinToCore(core); err != nil {
+		log.Warningf("idle granter: failed to pin to core %d, idle gating will not be CPU-accurate: %v", core, err)
+	}
+	if err := setThreadSchedIdle(); err != nil {
+		log.Warningf("idle granter on core %d: failed to set SCHED_IDLE, idle gating is not in effect: %v", core, err)
+	}
 
 	for {
 		select {
