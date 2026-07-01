@@ -1157,8 +1157,8 @@ var defaultConfig = TabletConfig{
 	QueryThrottlerConfigRefreshInterval: time.Minute,
 
 	LoadshedEnabled:  true,
-	LoadshedTarget:   20 * time.Millisecond,
-	LoadshedInterval: 400 * time.Millisecond,
+	LoadshedTarget:   5 * time.Millisecond,
+	LoadshedInterval: 100 * time.Millisecond,
 	LoadshedExponent: 1.0,
 }
 
