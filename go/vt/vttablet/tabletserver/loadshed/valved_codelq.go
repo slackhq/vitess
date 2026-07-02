@@ -120,6 +120,18 @@ func (q *ValvedCoDelQueue) onPeekCleanup(req *Request) {
 	q.decrementOutstanding(req.valveID)
 }
 
+func (q *ValvedCoDelQueue) lockedCurrentInterval() int64 {
+	return q.codelq.lockedCurrentInterval()
+}
+
+func (q *ValvedCoDelQueue) lockedDroppableLen() int {
+	return q.codelq.droppableLen
+}
+
+func (q *ValvedCoDelQueue) lockedCount() int {
+	return q.codelq.count
+}
+
 // lockedLen returns the number of requests in the CoDel queue.
 func (q *ValvedCoDelQueue) lockedLen() int {
 	return q.codelq.lockedLen()

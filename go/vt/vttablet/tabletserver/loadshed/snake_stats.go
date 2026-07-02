@@ -27,7 +27,6 @@ import (
 // loadshed package free of a servenv dependency and lets tests pass a
 // throwaway exporter.
 type statsExporter interface {
-	NewGaugeFunc(name, help string, f func() int64) *stats.GaugeFunc
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
 }
@@ -45,6 +44,10 @@ var loadshedBucketCutoffs = durationNanos(
 	500*time.Millisecond,
 )
 
+var intervalBucketCutoffs = loadshedBucketCutoffs
+
+var lengthBucketCutoffs = []int64{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
+
 func durationNanos(ds ...time.Duration) []int64 {
 	out := make([]int64, len(ds))
 	for i, d := range ds {
@@ -53,39 +56,27 @@ func durationNanos(ds ...time.Duration) []int64 {
 	return out
 }
 
-// PublishStats registers one GaugeFunc per SnakeStats field, each name prefixed
-// with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once per Snake
-// instance from engine init — never from NewSnake, which is also exercised by
-// tests and the benchmark harness where duplicate registration would panic.
+// PublishStats registers Snake's counters and distribution histograms, each
+// name prefixed with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once
+// per Snake instance from engine init — never from NewSnake, which is also
+// exercised by tests and the benchmark harness where duplicate registration
+// would panic.
 //
 // Each Snake gets its own prefixed metric names rather than a shared "pool"
 // label: both the oltp-read and dml snakes register through the same tablet
 // Exporter, whose single label dimension is already the tablet name, so a
-// shared labeled gauge would collide on that one key.
+// shared labeled metric would collide on that one key.
 func PublishStats(exporter statsExporter, prefix string, s *Snake) {
-	exporter.NewGaugeFunc(prefix+"QueueLen", "Snake CoDel queue length (waiters)", func() int64 {
-		return int64(s.Stats().QueueLen)
-	})
-	exporter.NewGaugeFunc(prefix+"DroppableLen", "Snake CoDel droppable queue length", func() int64 {
-		return int64(s.Stats().DroppableLen)
-	})
-	exporter.NewGaugeFunc(prefix+"HolderCount", "Snake current slot holders", func() int64 {
-		return int64(s.Stats().HolderCount)
-	})
-	exporter.NewGaugeFunc(prefix+"Dropping", "Whether Snake CoDel is in the dropping state (1) or not (0)", func() int64 {
-		if s.Stats().Dropping {
-			return 1
-		}
-		return 0
-	})
-	exporter.NewGaugeFunc(prefix+"DropCount", "Snake CoDel drop count (control law state)", func() int64 {
-		return int64(s.Stats().DropCount)
-	})
-	exporter.NewGaugeFunc(prefix+"CurrentIntervalNs", "Snake CoDel current control interval in nanoseconds", func() int64 {
-		return s.Stats().CurrentInterval
-	})
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
+	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
+		return s.DroppingNanos()
+	})
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake sojourn (time-to-grant: queue wait before slot grant), in nanoseconds", loadshedBucketCutoffs)
+	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
+	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)
+	s.holderCount = exporter.NewHistogram(prefix+"HolderCountObserved", "Distribution of Snake slot holders, sampled at each change", lengthBucketCutoffs)
+	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control interval in nanoseconds, sampled at each timer fire", intervalBucketCutoffs)
+	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop count (control-law state), sampled at each timer fire", lengthBucketCutoffs)
 }

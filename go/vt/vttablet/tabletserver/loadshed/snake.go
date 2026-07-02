@@ -57,7 +57,16 @@ type (
 		clockFunc      func() int64
 
 		shedCount atomic.Int64
-		sojourn *stats.Histogram
+
+		sojourn      *stats.Histogram
+		queueLen     *stats.Histogram
+		droppableLen *stats.Histogram
+		holderCount  *stats.Histogram
+		interval     *stats.Histogram
+		dropCount    *stats.Histogram
+
+		droppingNanos   int64
+		droppingSinceNs int64
 	}
 
 	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
@@ -83,9 +92,20 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		clockFunc:    defaultClock,
 		holders:      make(map[*Request]struct{}),
 		maxAgeTimers: make(map[*Request]*time.Timer),
+		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
+		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
+		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
+		holderCount:  stats.NewHistogram("", "", lengthBucketCutoffs),
+		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
+		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
+}
+
+func (s *Snake) lockedObserveLengths() {
+	s.queueLen.Add(int64(s.q.lockedLen()))
+	s.droppableLen.Add(int64(s.q.lockedDroppableLen()))
 }
 
 func (s *Snake) capacity() int {
@@ -118,10 +138,13 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 
 	if s.hasCapacity() && req.codelqElem != nil {
 		s.lockedGrant(req)
+		s.lockedObserveLengths()
 		s.mu.Unlock()
 		return &SafeUnlock{s: s, req: req}, nil
 	}
 
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
 	s.mu.Unlock()
 
 	select {
@@ -153,6 +176,8 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 				s.releaseOnCancel(req)
 			} else {
 				s.q.lockedCancel(req)
+				s.lockedObserveLengths()
+				s.lockedObserveDropping()
 				s.mu.Unlock()
 			}
 		}
@@ -215,8 +240,11 @@ func (s *Snake) release(req *Request, excValue error) error {
 	}
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
+	s.lockedObserveHolderCount()
 	s.q.lockedComplete(req)
 	s.lockedTryGrantOne()
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
 	s.mu.Unlock()
 
 	s.runReleaseCBs(excValue)
@@ -227,19 +255,46 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
+	s.lockedObserveHolderCount()
 	s.q.lockedComplete(req)
 	s.lockedTryGrantOne()
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
 	s.mu.Unlock()
 }
 
 func (s *Snake) lockedGrant(req *Request) {
 	s.holders[req] = struct{}{}
+	s.lockedObserveHolderCount()
 	s.q.lockedOnGrant(req)
-	if s.sojourn != nil {
-		s.sojourn.Add(s.clockFunc() - req.codelqEnqueuedAtNs)
-	}
+	now := s.clockFunc()
+	s.lockedAccrueDropping(now)
+	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
 	s.lockedStartMaxAgeTimer(req)
 	req.signal(grantSentinel)
+}
+
+func (s *Snake) lockedObserveHolderCount() {
+	s.holderCount.Add(int64(len(s.holders)))
+}
+
+func (s *Snake) lockedObserveDropping() {
+	dropping := !s.q.lockedIsHealthy()
+	if dropping == (s.droppingSinceNs != 0) {
+		return
+	}
+	s.lockedAccrueDropping(s.clockFunc())
+}
+
+func (s *Snake) lockedAccrueDropping(now int64) {
+	dropping := !s.q.lockedIsHealthy()
+	switch {
+	case dropping && s.droppingSinceNs == 0:
+		s.droppingSinceNs = now
+	case !dropping && s.droppingSinceNs != 0:
+		s.droppingNanos += now - s.droppingSinceNs
+		s.droppingSinceNs = 0
+	}
 }
 
 func (s *Snake) lockedTryGrantOne() {
@@ -287,6 +342,16 @@ func (s *Snake) ShedCount() int64 {
 	return s.shedCount.Load()
 }
 
+func (s *Snake) DroppingNanos() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := s.droppingNanos
+	if s.droppingSinceNs != 0 {
+		total += s.clockFunc() - s.droppingSinceNs
+	}
+	return total
+}
+
 // --- timer management (must be called with s.mu held) ---
 
 func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
@@ -314,6 +379,10 @@ func (s *Snake) runDropTimer() {
 	}
 	s.dropTimerArmed = false
 	s.q.lockedRunTimer()
+	s.interval.Add(s.q.lockedCurrentInterval())
+	s.dropCount.Add(int64(s.q.lockedCount()))
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
 	s.mu.Unlock()
 }
 
