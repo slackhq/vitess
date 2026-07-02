@@ -27,26 +27,19 @@ import (
 	"vitess.io/vitess/go/stats"
 )
 
-// fakeExporter captures the GaugeFuncs, CounterFuncs, and Histograms registered
-// by PublishStats so the test can invoke them directly, without touching global
+// fakeExporter captures the CounterFuncs and Histograms registered by
+// PublishStats so the test can invoke them directly, without touching global
 // stats registration.
 type fakeExporter struct {
-	gauges     map[string]func() int64
 	counters   map[string]func() int64
 	histograms map[string]*stats.Histogram
 }
 
 func newFakeExporter() *fakeExporter {
 	return &fakeExporter{
-		gauges:     make(map[string]func() int64),
 		counters:   make(map[string]func() int64),
 		histograms: make(map[string]*stats.Histogram),
 	}
-}
-
-func (e *fakeExporter) NewGaugeFunc(name, _ string, f func() int64) *stats.GaugeFunc {
-	e.gauges[name] = f
-	return nil
 }
 
 func (e *fakeExporter) NewCounterFunc(name, _ string, f func() int64) *stats.CounterFunc {
@@ -60,32 +53,18 @@ func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.H
 	return h
 }
 
-func TestPublishStats_ReflectsSnakeState(t *testing.T) {
+func TestPublishStats_RegistersCountersAndHistograms(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 	exp := newFakeExporter()
 
 	PublishStats(exp, "SnakeOltpRead", s)
 
-	// All six fields are registered under the prefix.
-	for _, field := range []string{"QueueLen", "DroppableLen", "HolderCount", "Dropping", "DropCount", "CurrentIntervalNs"} {
-		_, ok := exp.gauges["SnakeOltpRead"+field]
-		assert.True(t, ok, "expected gauge SnakeOltpRead%s to be registered", field)
+	for _, name := range []string{"ShedCount", "DroppingNanosTotal"} {
+		assert.Contains(t, exp.counters, "SnakeOltpRead"+name)
 	}
-
-	// Idle: no holders.
-	assert.Equal(t, int64(0), exp.gauges["SnakeOltpReadHolderCount"]())
-
-	// Acquire a slot (capacity defaults to 1) and confirm the gauge tracks it.
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), exp.gauges["SnakeOltpReadHolderCount"]())
-
-	// The gauge closure reads live Stats(), so it matches after release too.
-	require.NoError(t, unlock.Release())
-	assert.Equal(t, int64(s.Stats().HolderCount), exp.gauges["SnakeOltpReadHolderCount"]())
-
-	// CurrentIntervalNs mirrors the raw ns value from Stats (not a unit-converted one).
-	assert.Equal(t, s.Stats().CurrentInterval, exp.gauges["SnakeOltpReadCurrentIntervalNs"]())
+	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved"} {
+		assert.Contains(t, exp.histograms, "SnakeOltpRead"+name)
+	}
 }
 
 func TestPublishStats_PrefixIsolation(t *testing.T) {
@@ -95,13 +74,16 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 	PublishStats(exp, "SnakeOltpRead", newTestSnake(defaultSnakeConfig()))
 	PublishStats(exp, "SnakeDml", newTestSnake(defaultSnakeConfig()))
 
-	assert.Contains(t, exp.gauges, "SnakeOltpReadQueueLen")
-	assert.Contains(t, exp.gauges, "SnakeDmlQueueLen")
-	assert.Len(t, exp.gauges, 12, "expected 6 gauges per snake, two snakes")
-
 	assert.Contains(t, exp.counters, "SnakeOltpReadShedCount")
 	assert.Contains(t, exp.counters, "SnakeDmlShedCount")
-	assert.Len(t, exp.counters, 2, "expected 1 shed counter per snake, two snakes")
+	assert.Contains(t, exp.counters, "SnakeOltpReadDroppingNanosTotal")
+	assert.Contains(t, exp.counters, "SnakeDmlDroppingNanosTotal")
+	assert.Len(t, exp.counters, 4, "expected shed + dropping counters per snake, two snakes")
+
+	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
+	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")
+	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount, per snake.
+	assert.Len(t, exp.histograms, 12, "expected 6 histograms per snake, two snakes")
 }
 
 func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
@@ -207,13 +189,180 @@ func TestPublishStats_SojournBucketing(t *testing.T) {
 	assert.Equal(t, int64(1), hist.Count(), "exactly one observation recorded")
 }
 
-func TestNewSnake_SojournNilUntilPublished(t *testing.T) {
-	// A Snake built without PublishStats (the benchmark/test path) must grant
-	// without panicking; the sojourn histogram stays nil.
+func TestNewSnake_DistributionMetricsInitializedBeforePublish(t *testing.T) {
+	// NewSnake initializes every distribution histogram to a detached (unnamed,
+	// unregistered) instance, so the observation paths never nil-check. A Snake
+	// built without PublishStats records into these throwaway histograms and
+	// registers nothing globally.
 	s := newTestSnake(defaultSnakeConfig())
-	assert.Nil(t, s.sojourn, "sojourn must be nil until PublishStats wires it")
+	require.NotNil(t, s.sojourn)
+	require.NotNil(t, s.queueLen)
+	require.NotNil(t, s.droppableLen)
+	require.NotNil(t, s.holderCount)
+	require.NotNil(t, s.interval)
+	require.NotNil(t, s.dropCount)
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
+	// The detached histograms accumulate even before PublishStats swaps in the
+	// exporter-registered instances.
+	assert.Positive(t, s.queueLen.Count())
+	assert.Positive(t, s.holderCount.Count())
+	assert.Positive(t, s.sojourn.Count())
 	require.NoError(t, unlock.Release())
+}
+
+func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig()) // capacity 1
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+
+	queueLen := exp.histograms["SnakeOltpReadQueueLenObserved"]
+	holderCount := exp.histograms["SnakeOltpReadHolderCountObserved"]
+	require.NotNil(t, queueLen)
+	require.NotNil(t, holderCount)
+	assert.Equal(t, int64(0), queueLen.Count(), "no observations before any acquire")
+	assert.Equal(t, int64(0), holderCount.Count())
+
+	// A grant observes both: the enqueue records queue length, the holder insert
+	// records holder count.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	assert.Positive(t, queueLen.Count(), "enqueue should record a queue-length observation")
+	assert.Positive(t, holderCount.Count(), "grant should record a holder-count observation")
+
+	// Release records again (queue length drops as the granted entry leaves; the
+	// holder delete is observed too).
+	beforeQueue := queueLen.Count()
+	beforeHolder := holderCount.Count()
+	require.NoError(t, unlock.Release())
+	assert.Greater(t, queueLen.Count(), beforeQueue, "release should record another queue-length observation")
+	assert.Greater(t, holderCount.Count(), beforeHolder, "release should record another holder-count observation")
+}
+
+func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	s := newTestSnake(cfg)
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	droppable := exp.histograms["SnakeOltpReadDroppableLenObserved"]
+	interval := exp.histograms["SnakeOltpReadIntervalObservedNs"]
+	dropCount := exp.histograms["SnakeOltpReadDropCountObserved"]
+	require.NotNil(t, droppable)
+	require.NotNil(t, interval)
+	require.NotNil(t, dropCount)
+
+	// Occupy the slot, then contend so droppable entries queue and the drop timer
+	// fires (recording interval and drop-count observations).
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+
+	errCh := make(chan error, 5)
+	for range 5 {
+		go func() {
+			_, err := s.Acquire(t.Context(), "", 0)
+			errCh <- err
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	unlock.Release()
+	for range 5 {
+		select {
+		case <-errCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("goroutine did not return")
+		}
+	}
+
+	assert.Positive(t, droppable.Count(), "contending droppable enqueues should record droppable-length observations")
+	assert.Positive(t, interval.Count(), "drop-timer fires should record interval observations")
+	assert.Positive(t, dropCount.Count(), "drop-timer fires should record drop-count observations")
+}
+
+func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	s := newTestSnake(cfg)
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	droppingNanos := exp.counters["SnakeOltpReadDroppingNanosTotal"]
+	require.NotNil(t, droppingNanos)
+	assert.Equal(t, int64(0), droppingNanos(), "no dropping time before contention")
+
+	// Drive a dropping episode: hold the slot and pile on contenders.
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+
+	errCh := make(chan error, 5)
+	for range 5 {
+		go func() {
+			_, err := s.Acquire(t.Context(), "", 0)
+			errCh <- err
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	unlock.Release()
+	for range 5 {
+		select {
+		case <-errCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("goroutine did not return")
+		}
+	}
+
+	assert.Positive(t, droppingNanos(), "an induced dropping episode should accumulate dropping nanoseconds")
+}
+
+func TestDroppingNanos_IntegratesExactlyOverEpisode(t *testing.T) {
+	// Hermetic test of the accumulator math with an injected clock: no timing
+	// dependence. Drive dropping true→false transitions directly through the
+	// observer and assert the accumulated nanoseconds match the clock deltas.
+	s := newTestSnake(defaultSnakeConfig())
+	var now int64
+	s.clockFunc = func() int64 { return now }
+
+	// Not dropping yet: nothing accrues, and the open-segment flush is a no-op.
+	assert.Equal(t, int64(0), s.DroppingNanos())
+
+	// Open an episode at t=100 by forcing the queue into the dropping state.
+	now = 100
+	s.mu.Lock()
+	s.q.codelq.dropping = true
+	s.lockedObserveDropping()
+	s.mu.Unlock()
+
+	// Mid-episode at t=250: the open segment (250-100) is visible before it ends.
+	now = 250
+	assert.Equal(t, int64(150), s.DroppingNanos(), "open segment must be included before the episode ends")
+
+	// Close the episode at t=400: 300ns total accrued (400-100).
+	now = 400
+	s.mu.Lock()
+	s.q.codelq.dropping = false
+	s.lockedObserveDropping()
+	s.mu.Unlock()
+	assert.Equal(t, int64(300), s.DroppingNanos())
+
+	// Idle stretch adds nothing.
+	now = 1000
+	assert.Equal(t, int64(300), s.DroppingNanos())
+
+	// A second episode from t=1000 to t=1100 adds 100ns for 400ns total.
+	s.mu.Lock()
+	s.q.codelq.dropping = true
+	s.lockedObserveDropping()
+	s.mu.Unlock()
+	now = 1100
+	s.mu.Lock()
+	s.q.codelq.dropping = false
+	s.lockedObserveDropping()
+	s.mu.Unlock()
+	assert.Equal(t, int64(400), s.DroppingNanos())
 }
