@@ -18,6 +18,7 @@ package loadshed
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,7 +63,7 @@ func TestPublishStats_RegistersCountersAndHistograms(t *testing.T) {
 	for _, name := range []string{"ShedCount", "DroppingNanosTotal"} {
 		assert.Contains(t, exp.counters, "SnakeOltpRead"+name)
 	}
-	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved"} {
+	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved", "DropTimerLagNs"} {
 		assert.Contains(t, exp.histograms, "SnakeOltpRead"+name)
 	}
 }
@@ -82,8 +83,9 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 
 	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
 	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")
-	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount, per snake.
-	assert.Len(t, exp.histograms, 12, "expected 6 histograms per snake, two snakes")
+	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount +
+	// timerLag, per snake.
+	assert.Len(t, exp.histograms, 14, "expected 7 histograms per snake, two snakes")
 }
 
 func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
@@ -281,6 +283,28 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 	assert.Positive(t, droppable.Count(), "contending droppable enqueues should record droppable-length observations")
 	assert.Positive(t, interval.Count(), "drop-timer fires should record interval observations")
 	assert.Positive(t, dropCount.Count(), "drop-timer fires should record drop-count observations")
+}
+
+func TestPublishStats_DropTimerLagRecordsLateness(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	lag := exp.histograms["SnakeOltpReadDropTimerLagNs"]
+	require.NotNil(t, lag)
+
+	// Drive the timer with a controllable clock so the recorded lag is exact.
+	var now atomic.Int64
+	s.clockFunc = now.Load
+
+	// Arm for a 1ms delay at t=0, then fire at t=5ms: 4ms late.
+	s.mu.Lock()
+	s.lockedScheduleDropTimer(int64(time.Millisecond))
+	s.mu.Unlock()
+	now.Store(int64(5 * time.Millisecond))
+	s.runDropTimer()
+
+	require.Equal(t, int64(1), lag.Count(), "one timer fire should record one lag sample")
+	assert.Equal(t, int64(4*time.Millisecond), lag.Total(), "recorded lag should be actual minus scheduled fire time")
 }
 
 func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
