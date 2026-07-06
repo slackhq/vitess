@@ -53,8 +53,11 @@ type (
 		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
 		dropTimerArmed bool
-		cfg            SnakeConfig
-		clockFunc      func() int64
+		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
+		// fire (arm time + delay), used to measure how late it actually fires.
+		dropTimerExpectedNs int64
+		cfg                 SnakeConfig
+		clockFunc           func() int64
 
 		shedCount atomic.Int64
 
@@ -64,6 +67,7 @@ type (
 		holderCount  *stats.Histogram
 		interval     *stats.Histogram
 		dropCount    *stats.Histogram
+		timerLag     *stats.Histogram
 
 		droppingNanos   int64
 		droppingSinceNs int64
@@ -98,6 +102,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		holderCount:  stats.NewHistogram("", "", lengthBucketCutoffs),
 		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
 		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
+		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
@@ -359,6 +364,10 @@ func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
 		return
 	}
 	s.dropTimerArmed = true
+	if delayNs < 0 {
+		delayNs = 0
+	}
+	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 	delay := time.Duration(delayNs) * time.Nanosecond
 	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)
 }
@@ -378,6 +387,14 @@ func (s *Snake) runDropTimer() {
 		return
 	}
 	s.dropTimerArmed = false
+	// Record how late this fire is versus when it was scheduled. Under CPU
+	// contention the normal-priority timer goroutine can fire well past its
+	// deadline, which delays shedding; this surfaces that lag.
+	if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
+		s.timerLag.Add(lag)
+	} else {
+		s.timerLag.Add(0)
+	}
 	s.q.lockedRunTimer()
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
