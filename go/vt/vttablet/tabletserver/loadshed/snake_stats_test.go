@@ -296,11 +296,12 @@ func TestPublishStats_DropTimerLagRecordsLateness(t *testing.T) {
 	var now atomic.Int64
 	s.clockFunc = now.Load
 
-	// Arm for a 1ms delay at t=0, then fire at t=5ms: 4ms late.
+	// Arm for a 10ms delay at t=0 (above the backstop floor so the requested
+	// delay is used verbatim), then fire at t=14ms: 4ms late.
 	s.mu.Lock()
-	s.lockedScheduleDropTimer(int64(time.Millisecond))
+	s.lockedScheduleDropTimer(int64(10 * time.Millisecond))
 	s.mu.Unlock()
-	now.Store(int64(5 * time.Millisecond))
+	now.Store(int64(14 * time.Millisecond))
 	s.runDropTimer()
 
 	require.Equal(t, int64(1), lag.Count(), "one timer fire should record one lag sample")

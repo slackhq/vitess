@@ -246,7 +246,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.q.lockedComplete(req)
+	s.lockedCompleteAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
@@ -261,11 +261,24 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.q.lockedComplete(req)
+	s.lockedCompleteAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	s.mu.Unlock()
+}
+
+// lockedCompleteAndShed unlinks the released request and, when an episode is
+// active, sheds stale requests synchronously at this dequeue point using a
+// fresh clock — so shedding tracks target continuously instead of waiting on
+// the (possibly late) backstop timer, and runs before granting the next waiter
+// so we promote the freshest survivor. The lockedNeedsAdvance guard keeps the
+// healthy path free of both the advance call and the clock read.
+func (s *Snake) lockedCompleteAndShed(req *Request) {
+	s.q.lockedComplete(req)
+	if s.q.lockedNeedsAdvance() {
+		s.q.lockedAdvance(s.clockFunc())
+	}
 }
 
 func (s *Snake) lockedGrant(req *Request) {
@@ -359,13 +372,22 @@ func (s *Snake) DroppingNanos() int64 {
 
 // --- timer management (must be called with s.mu held) ---
 
+// backstopFloorNs is the minimum delay for the drop timer. Shedding is now
+// driven synchronously from the release (dequeue) path, so the timer only needs
+// to backstop a stuck/quiet queue — one with a droppable backlog but no release
+// traffic to advance it. Flooring the arm delay well above the CoDel control
+// interval keeps the timer coarse (far fewer time.AfterFunc re-arms, so less
+// runtime-timer-lock churn) without affecting the real-time drop rate, which
+// releases now pace.
+const backstopFloorNs = int64(5 * time.Millisecond)
+
 func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
 		return
 	}
 	s.dropTimerArmed = true
-	if delayNs < 0 {
-		delayNs = 0
+	if delayNs < backstopFloorNs {
+		delayNs = backstopFloorNs
 	}
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 	delay := time.Duration(delayNs) * time.Nanosecond
