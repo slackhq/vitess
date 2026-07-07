@@ -18,6 +18,7 @@ package trace
 
 import (
 	"io"
+	"strings"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/spf13/pflag"
@@ -108,6 +109,16 @@ func newJagerTracerFromEnv(serviceName string) (tracingService, io.Closer, error
 	cfg.Sampler.Type = samplingType.Get()
 	log.Infof("Tracing sampler type %v (param: %v)", cfg.Sampler.Type, cfg.Sampler.Param)
 
+	// When the sampler is configured to never sample, installing the tracer is
+	// pure overhead: the gRPC interceptor still allocates and populates a span
+	// on every RPC before the sampler decides to discard it. Short-circuit to
+	// the noop tracer so the interceptor is never installed. This only applies
+	// to sampler types where a zero param unambiguously means "sample nothing".
+	if samplesNothing(cfg.Sampler.Type, cfg.Sampler.Param) {
+		log.Infof("Tracing sampler %q with param %v samples nothing; using noop tracer", cfg.Sampler.Type, cfg.Sampler.Param)
+		return noopTracingServer{}, &nilCloser{}, nil
+	}
+
 	var opts []config.Option
 	if enableLogging.Get() {
 		opts = append(opts, config.Logger(&traceLogger{}))
@@ -116,7 +127,6 @@ func newJagerTracerFromEnv(serviceName string) (tracingService, io.Closer, error
 	}
 
 	tracer, closer, err := cfg.NewTracer(opts...)
-
 	if err != nil {
 		return nil, &nilCloser{}, err
 	}
@@ -124,6 +134,21 @@ func newJagerTracerFromEnv(serviceName string) (tracingService, io.Closer, error
 	opentracing.SetGlobalTracer(tracer)
 
 	return openTracingService{Tracer: &jaegerTracer{actual: tracer}}, closer, nil
+}
+
+// samplesNothing reports whether the given jaeger sampler configuration will
+// never sample a trace, making tracer installation pure overhead. It is only
+// true for sampler types where a zero param unambiguously means "sample
+// nothing": const (0 = always off) and probabilistic (0.0 probability). The
+// rateLimiting and remote samplers are intentionally excluded — for them a zero
+// param does not mean permanently disabled.
+func samplesNothing(samplerType string, param float64) bool {
+	switch strings.ToLower(samplerType) {
+	case "const", "probabilistic":
+		return param == 0
+	default:
+		return false
+	}
 }
 
 func init() {
