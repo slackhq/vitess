@@ -142,6 +142,14 @@ func (q *ValvedCoDelQueue) lockedIsHealthy() bool {
 	return q.codelq.lockedIsHealthy()
 }
 
+// lockedNeedsAdvance reports whether an episode is active (dropping, or the
+// control law still needs to ease count back down). When false, lockedAdvance
+// is a guaranteed no-op, so the release path can skip the call — and its clock
+// read — entirely on the healthy fast path.
+func (q *ValvedCoDelQueue) lockedNeedsAdvance() bool {
+	return q.codelq.dropping || q.codelq.dropNextNs != 0
+}
+
 // lockedPeek returns the head of the CoDel queue without removing it.
 func (q *ValvedCoDelQueue) lockedPeek() *Request {
 	return q.codelq.lockedPeek()
@@ -208,10 +216,11 @@ func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
 	}
 }
 
-// lockedRunTimer runs the CoDel drop logic, finding and dropping the
-// lowest-priority request and triggering valve promotion.
-func (q *ValvedCoDelQueue) lockedRunTimer() {
-	dropFn := func() bool {
+// lockedDropFn builds the drop callback shared by the timer and the synchronous
+// advance path: drop the lowest-priority droppable request and promote its
+// valve successor.
+func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
+	return func() bool {
 		elem := q.codelq.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
@@ -220,7 +229,19 @@ func (q *ValvedCoDelQueue) lockedRunTimer() {
 		q.lockedDrop(req)
 		return true
 	}
-	q.codelq.lockedRunTimer(dropFn)
+}
+
+// lockedRunTimer runs the CoDel drop logic, finding and dropping the
+// lowest-priority request and triggering valve promotion.
+func (q *ValvedCoDelQueue) lockedRunTimer() {
+	q.codelq.lockedRunTimer(q.lockedDropFn())
+}
+
+// lockedAdvance runs the clock-driven drop/ease core synchronously (from the
+// release/dequeue path) so stale requests are shed in real time rather than
+// waiting on the backstop timer. It is a cheap no-op on a healthy, idle queue.
+func (q *ValvedCoDelQueue) lockedAdvance(now int64) {
+	q.codelq.lockedAdvance(now, q.lockedDropFn())
 }
 
 func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {

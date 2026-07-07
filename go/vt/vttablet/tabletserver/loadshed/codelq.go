@@ -472,6 +472,42 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 		return
 	}
 
+	q.lockedAdvance(now, dropFn)
+
+	// Jump-start: after easing back to 1, return to monitoring.
+	if q.dropMode() == DropJumpStart && q.count == 1 {
+		q.lockedRunMonitor()
+		return
+	}
+
+	// Re-arm/disarm. An episode keeps the timer armed while any droppable
+	// backlog remains or count is still elevated; otherwise it goes idle. In
+	// both mode at count==1, lockedArmDropTimer also folds the head-trigger
+	// deadline into the wakeup so a jump can fire before the next ramp drop.
+	if q.droppableLen > 0 || q.count > 1 {
+		q.lockedArmDropTimer()
+	} else {
+		q.dropNextNs = 0
+	}
+}
+
+// lockedAdvance runs the clock-driven core of the CoDel control law: it sheds
+// every request that is due (now >= dropNextNs) while dropping, ramping count,
+// then eases count back down while healthy. Every action is gated on the fresh
+// `now`, so calling it is idempotent and safe outside the timer — the release
+// (dequeue) path invokes it to shed stale requests in real time rather than
+// waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer
+// or run mode-specific jump/monitor logic; those remain the timer's job.
+func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
+	// Idle: no active episode (not dropping, count fully eased to 1) and the
+	// timer is disarmed. Nothing to advance, and running the ease loop with
+	// dropNextNs==0 would spin from the epoch. This is the common healthy-queue
+	// case, so keep it a cheap no-op. When count is still elevated (>1) we must
+	// fall through so the ease loop can decay it, matching the timer.
+	if !q.dropping && q.dropNextNs == 0 && q.count <= 1 {
+		return
+	}
+
 	// Dropping: actively shed load.
 	if q.dropping {
 		for q.droppableLen > 0 && now >= q.dropNextNs {
@@ -497,22 +533,6 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 			q.count = q.lockedEaseCount()
 			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
-	}
-
-	// Jump-start: after easing back to 1, return to monitoring.
-	if q.dropMode() == DropJumpStart && q.count == 1 {
-		q.lockedRunMonitor()
-		return
-	}
-
-	// Re-arm/disarm. An episode keeps the timer armed while any droppable
-	// backlog remains or count is still elevated; otherwise it goes idle. In
-	// both mode at count==1, lockedArmDropTimer also folds the head-trigger
-	// deadline into the wakeup so a jump can fire before the next ramp drop.
-	if q.droppableLen > 0 || q.count > 1 {
-		q.lockedArmDropTimer()
-	} else {
-		q.dropNextNs = 0
 	}
 }
 
