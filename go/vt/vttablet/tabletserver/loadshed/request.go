@@ -36,6 +36,14 @@ type (
 		signaledValue      error
 		codelqElem         *list.Element
 		valveID            string
+
+		// bucketElem locates this request in the droppableIndex while it is a
+		// droppable queue entry: it is the request's node in its priority
+		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
+		// node lives in (0..maxPriorityBucket, or overflowBucket). bucketElem is
+		// nil when the request is not indexed (undroppable, granted, or removed).
+		bucketElem *list.Element
+		bucketIdx  int
 	}
 )
 

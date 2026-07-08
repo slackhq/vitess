@@ -22,6 +22,7 @@ var (
 	dropMode      *string
 	triggerMs     *int
 	graceCount    *int
+	mixedPriority *bool
 )
 
 // parseDropMode maps the -drop-mode flag string to a CoDelDropMode, exiting on
@@ -234,6 +235,23 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 		return time.Duration(ms * float64(time.Millisecond))
 	}
 
+	// Per-request priority. Default: all 0 (matches the original single-priority
+	// workload). With -mixed-priority: uniform integer in [0,100], so the CoDel
+	// queue holds a spread of droppable priorities and the lowest is rarely at
+	// the front — exercising the full lowest-priority lookup rather than the
+	// priority-0 early exit. Seeded + guarded for repeatability.
+	prioRng := rand.New(rand.NewSource(2))
+	var prioMu sync.Mutex
+	samplePriority := func() float64 {
+		if mixedPriority == nil || !*mixedPriority {
+			return 0
+		}
+		prioMu.Lock()
+		p := prioRng.Intn(101)
+		prioMu.Unlock()
+		return float64(p)
+	}
+
 	var accumulator float64
 
 	deadline := time.After(totalDuration)
@@ -262,7 +280,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 					reqStart := time.Now()
 					record("issued", 0)
 
-					unlock, err := snake.Acquire(ctx, "", 0)
+					unlock, err := snake.Acquire(ctx, "", samplePriority())
 					if err != nil {
 						record("shed", 0)
 						return
@@ -309,6 +327,7 @@ func main() {
 	dropMode = flag.String("drop-mode", "slow", "Drop mode: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses trigger), or both")
 	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
 	graceCount = flag.Int("grace-count", 1, "Grace count: suppress the head drop while count < this (1 = disabled)")
+	mixedPriority = flag.Bool("mixed-priority", false, "Issue requests with uniform priorities in [0,100] instead of all 0, so the lowest-priority drop lookup does not hit the priority-0 early exit")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
