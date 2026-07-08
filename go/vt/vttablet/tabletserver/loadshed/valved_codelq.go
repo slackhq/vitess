@@ -291,6 +291,36 @@ func (q *ValvedCoDelQueue) lockedEnqueueToCoDel(req *Request, valveID string) {
 	q.codelq.lockedEnqueue(req)
 }
 
+// lockedAdmitToCoDel is lockedEnqueueToCoDel for the intake merge path: it
+// preserves req.codelqEnqueuedAtNs (its original arrival time) instead of
+// restamping now.
+func (q *ValvedCoDelQueue) lockedAdmitToCoDel(req *Request, valveID string) {
+	if valveID != "" {
+		q.droppablePerValve[valveID] = req
+	}
+	q.codelq.lockedAdmit(req)
+}
+
+// lockedMergeExisting admits an already-built request (valveID, priority, and
+// codelqEnqueuedAtNs already set — e.g. from the per-CPU intake) through the
+// valve fairness layer, preserving its arrival time. Mirrors lockedEnqueue but
+// takes the request as-is rather than creating one. Returns true if the request
+// entered the CoDel queue now, false if it was parked behind an existing
+// droppable entry for its valve (it will be promoted later, exactly as a
+// normal enqueue would be).
+func (q *ValvedCoDelQueue) lockedMergeExisting(req *Request) bool {
+	valveID := req.valveID
+	if valveID != "" {
+		q.outstandingCounts[valveID]++
+		if q.droppablePerValve[valveID] != nil {
+			q.valves[valveID] = append(q.valves[valveID], req)
+			return false
+		}
+	}
+	q.lockedAdmitToCoDel(req, valveID)
+	return true
+}
+
 // lockedPromoteOnEvict handles involuntary removal of the active request
 // (drop or cancel). Decrements outstanding, then promotes.
 func (q *ValvedCoDelQueue) lockedPromoteOnEvict(req *Request) {

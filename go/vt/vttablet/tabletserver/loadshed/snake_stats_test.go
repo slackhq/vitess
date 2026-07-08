@@ -243,15 +243,20 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 }
 
 func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
-	// Fast CoDel timing so that at teardown the queued valve entries are shed
-	// promptly (the drop fires on the control-law interval). The default 1s
-	// interval would not drain them within the teardown window — the depth
-	// observations under test are unaffected by the timing.
+	// Deterministic injected clock: frozen during the depth-observation phase so
+	// the representative "v" entry is not shed between the two acquires (the drop
+	// is sojourn-driven), then advanced at teardown so the synchronous
+	// release-path shed drains the queued entries. A large MinDropDelay keeps the
+	// wall-clock backstop timer from firing and shedding out from under the
+	// depth assertions.
 	cfg := defaultSnakeConfig() // capacity 1
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
-	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return int64(time.Hour) }
 	s := newTestSnake(cfg)
+	var now atomic.Int64
+	s.clockFunc = now.Load
+	s.q.codelq.nowNs = now.Load
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 
@@ -288,9 +293,14 @@ func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
 		"stacked valve entry should record a second depth observation")
 	assert.Equal(t, int64(1), valveDepth.Total(), "second same-valve entry stacks at depth 1")
 
-	// Release the holder so the queued "v" entries drain and the goroutines
-	// return. Whether each is granted or shed by CoDel is irrelevant here — this
-	// is teardown; the depth observations above are the assertions under test.
+	// Advance the clock just past the drop deadline so the release-path shed pass
+	// drains the queued "v" entries. Only a small step is needed (a few intervals
+	// past target); a large jump would make lockedAdvance's per-interval catch-up
+	// loop iterate enormously. Release the holder so the queued entries drain and
+	// the goroutines return. Whether each is granted or shed by CoDel is
+	// irrelevant here — this is teardown; the depth observations above are the
+	// assertions under test.
+	now.Store(int64(time.Millisecond))
 	require.NoError(t, holder.Release())
 	for range 2 {
 		select {

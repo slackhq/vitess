@@ -286,9 +286,17 @@ func (q *CoDelQueue) lockedIsHealthy() bool {
 }
 
 func (q *CoDelQueue) lockedEnqueue(req *Request) {
-	now := q.nowNs()
+	req.codelqEnqueuedAtNs = q.nowNs()
+	q.lockedAdmit(req)
+}
 
-	req.codelqEnqueuedAtNs = now
+// lockedAdmit inserts req into the CoDel queue using its EXISTING
+// codelqEnqueuedAtNs rather than stamping the current time. The intake merge
+// path uses this so a request's sojourn is measured from its original arrival,
+// not from merge time. lockedEnqueue is the normal path that stamps now first.
+func (q *CoDelQueue) lockedAdmit(req *Request) {
+	now := req.codelqEnqueuedAtNs
+
 	req.codelqElem = q.queue.PushBack(req)
 
 	if q.firstWaiting == nil {

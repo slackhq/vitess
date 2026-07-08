@@ -10,6 +10,8 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +25,35 @@ var (
 	triggerMs     *int
 	graceCount    *int
 	mixedPriority *bool
+	busyThreads   *int
+	perCPUIntake  *bool
+	mutexProfile  *string
 )
+
+// startBusyThreads pins n goroutines to OS threads and spins them at normal
+// priority for the benchmark duration, starving the scheduler so the CoDel
+// drop timer (also normal priority, via time.AfterFunc) fires late. This is the
+// condition synchronous shedding is meant to tolerate: on an idle machine the
+// timer is punctual and sync-shed shows no benefit, so reproducing timer
+// lateness is required to evaluate it. Stops when ctx is cancelled.
+func startBusyThreads(ctx context.Context, n int) {
+	for range n {
+		go func() {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			var acc uint64
+			for {
+				for i := 0; i < 8192; i++ {
+					acc = acc*1103515245 + 12345
+				}
+				_ = acc
+				if ctx.Err() != nil {
+					return
+				}
+			}
+		}()
+	}
+}
 
 // parseDropMode maps the -drop-mode flag string to a CoDelDropMode, exiting on
 // an unrecognized value.
@@ -162,11 +192,17 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			GraceCount:     func() int { return *graceCount },
 		},
 		LoadsheddingAllowed: func() bool { return true },
+		PerCPUIntake:        *perCPUIntake,
 	})
 
 	totalDuration := time.Duration(durationMs) * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), totalDuration+500*time.Millisecond)
 	defer cancel()
+
+	// Optionally starve the scheduler so the drop timer fires late.
+	if busyThreads != nil && *busyThreads > 0 {
+		startBusyThreads(ctx, *busyThreads)
+	}
 
 	start := time.Now()
 
@@ -327,6 +363,9 @@ func main() {
 	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
 	graceCount = flag.Int("grace-count", 1, "Grace count: suppress the head drop while count < this (1 = disabled)")
 	mixedPriority = flag.Bool("mixed-priority", false, "Issue requests with uniform priorities in [0,100] instead of all 0, so the lowest-priority drop lookup does not hit the priority-0 early exit")
+	busyThreads = flag.Int("busy-threads", 0, "Number of normal-priority CPU-spinning threads to run for the benchmark duration, to starve the scheduler and make the drop timer fire late")
+	perCPUIntake = flag.Bool("percpu-intake", false, "Enable the per-CPU intake staging path (reduces Snake mutex contention under load)")
+	mutexProfile = flag.String("mutexprofile", "", "Write a mutex contention profile to this path (enables runtime.SetMutexProfileFraction)")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
@@ -346,6 +385,10 @@ func main() {
 	wBrownStep := flag.Float64("brown-step", 0.05, "Custom workload: brown_noise per-sample volatility (random-walk increment magnitude)")
 	wBrownSampleMs := flag.Int("brown-sample-ms", 100, "Custom workload: brown_noise walk sample resolution in ms")
 	flag.Parse()
+
+	if *mutexProfile != "" {
+		runtime.SetMutexProfileFraction(1)
+	}
 
 	if *outDir == "" {
 		home, _ := os.UserHomeDir()
@@ -563,6 +606,20 @@ func runConfigs(configs []testConfig, outDir string, parallel int) {
 		}
 		csvS.Flush()
 		sf.Close()
+	}
+
+	if *mutexProfile != "" {
+		f, err := os.Create(*mutexProfile)
+		if err != nil {
+			fmt.Printf("  ERROR creating mutex profile %s: %v\n", *mutexProfile, err)
+		} else {
+			if err := pprof.Lookup("mutex").WriteTo(f, 0); err != nil {
+				fmt.Printf("  ERROR writing mutex profile: %v\n", err)
+			} else {
+				fmt.Printf("Mutex profile written to %s\n", *mutexProfile)
+			}
+			f.Close()
+		}
 	}
 
 	fmt.Printf("\nDone. TSV files in %s\n", outDir)

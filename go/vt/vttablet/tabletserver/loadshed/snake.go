@@ -36,6 +36,12 @@ type (
 		LoadsheddingAllowed func() bool
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
+
+		// PerCPUIntake, when true, routes contended arrivals through per-CPU
+		// staging shards (off s.mu) that are batch-merged into the CoDel queue,
+		// to reduce mutex contention. Off by default; the healthy fast path is
+		// unchanged either way.
+		PerCPUIntake bool
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -46,6 +52,11 @@ type (
 	// preserving the queue's system-pressure signal for accurate shedding.
 	Snake struct {
 		mu sync.Mutex
+
+		// intake stages arriving requests in per-CPU shards, off s.mu, when the
+		// gate is contended. A merge (under s.mu) admits them into q in arrival
+		// order. nil unless enabled via SnakeConfig.PerCPUIntake.
+		intake *intake
 
 		q              *ValvedCoDelQueue
 		holders        map[*Request]struct{}
@@ -104,6 +115,9 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
+	if cfg.PerCPUIntake {
+		s.intake = newIntake()
+	}
 	return s
 }
 
@@ -141,22 +155,10 @@ func (s *Snake) hasCapacity() bool {
 func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
 	priority = s.priority(priority)
 
-	s.mu.Lock()
-	req := s.q.lockedEnqueue(valveID, priority)
-	if valveID != "" {
-		s.lockedObserveValveDepth(valveID)
-	}
-
-	if s.hasCapacity() && req.codelqElem != nil {
-		s.lockedGrant(req)
-		s.lockedObserveLengths()
-		s.mu.Unlock()
+	req, granted := s.admit(valveID, priority)
+	if granted {
 		return &SafeUnlock{s: s, req: req}, nil
 	}
-
-	s.lockedObserveLengths()
-	s.lockedObserveDropping()
-	s.mu.Unlock()
 
 	select {
 	case val := <-req.signalChan:
@@ -174,7 +176,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 		//   - If signalChan is empty: the grant might still be in-flight
 		//     (releaser unlocked the mutex but hasn't sent the signal yet).
 		//     We re-acquire the mutex and check holders — if we're already
-		//     granted, release; otherwise cancel from the queue.
+		//     granted, release; otherwise cancel it.
 		select {
 		case val := <-req.signalChan:
 			if val == grantSentinel {
@@ -186,13 +188,122 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 				s.mu.Unlock()
 				s.releaseOnCancel(req)
 			} else {
-				s.q.lockedCancel(req)
+				// Signal the request cancelled. If it is still staged in the
+				// intake (codelqElem == nil and not yet merged), marking it
+				// signaled makes the merge skip it — no shard scan needed. If it
+				// is already in the CoDel queue, remove it there.
+				if req.codelqElem != nil {
+					s.q.lockedCancel(req)
+				} else if req.signaledValue == nil {
+					req.signal(&DroppedRequestError{})
+				}
 				s.lockedObserveLengths()
 				s.lockedObserveDropping()
 				s.mu.Unlock()
 			}
 		}
 		return nil, ctx.Err()
+	}
+}
+
+// admit places an arriving request into the gate and reports whether it was
+// granted inline (fast path). When not granted, the returned request is either
+// enqueued in the CoDel queue or staged in the per-CPU intake, and the caller
+// waits on req.signalChan.
+//
+// Fast path (intake disabled, or intake empty and capacity available): take
+// s.mu, enqueue, and grant inline — unchanged ~180ns behavior. Slow path
+// (intake enabled and contended): stamp the arrival time and stage into the
+// per-CPU intake off s.mu, triggering a merge if the CoDel queue currently has
+// no waiter (so an idle→first-arrival still advances).
+func (s *Snake) admit(valveID string, priority float64) (req *Request, granted bool) {
+	if s.intake == nil {
+		return s.admitLocked(valveID, priority)
+	}
+
+	// Intake enabled. Try the inline fast path only when there is no staged
+	// backlog — otherwise staging keeps global arrival order intact.
+	if s.intake.pendingLen() == 0 {
+		s.mu.Lock()
+		if s.intake.pendingLen() == 0 && s.hasCapacity() {
+			r := s.q.lockedEnqueue(valveID, priority)
+			if valveID != "" {
+				s.lockedObserveValveDepth(valveID)
+			}
+			if r.codelqElem != nil {
+				s.lockedGrant(r)
+				s.lockedObserveLengths()
+				s.mu.Unlock()
+				return r, true
+			}
+			// Parked behind a same-valve droppable entry: leave it enqueued and
+			// wait, same as the non-intake slow path.
+			s.lockedObserveLengths()
+			s.lockedObserveDropping()
+			s.mu.Unlock()
+			return r, false
+		}
+		s.mu.Unlock()
+	}
+
+	// Contended: stage into the per-CPU intake, off s.mu.
+	r := newRequest(priority)
+	r.valveID = valveID
+	r.codelqEnqueuedAtNs = s.clockFunc()
+	s.intake.push(r)
+
+	// If the CoDel queue has no waiter to serve, nothing will trigger a merge
+	// via release — merge now so this arrival becomes eligible.
+	s.mu.Lock()
+	if s.q.lockedFirstWaiting() == nil {
+		s.lockedMerge()
+	}
+	s.mu.Unlock()
+	return r, false
+}
+
+// admitLocked is the original enqueue+maybe-grant path, used when intake is
+// disabled.
+func (s *Snake) admitLocked(valveID string, priority float64) (req *Request, granted bool) {
+	s.mu.Lock()
+	r := s.q.lockedEnqueue(valveID, priority)
+	if valveID != "" {
+		s.lockedObserveValveDepth(valveID)
+	}
+	if s.hasCapacity() && r.codelqElem != nil {
+		s.lockedGrant(r)
+		s.lockedObserveLengths()
+		s.mu.Unlock()
+		return r, true
+	}
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	s.mu.Unlock()
+	return r, false
+}
+
+// lockedMerge drains the per-CPU intake and admits the staged requests into the
+// CoDel queue in arrival-time order. Used by the (cold) stage-into-empty path in
+// admit, where the drain runs under s.mu. The hot release path instead drains
+// off s.mu and calls lockedAdmitStaged directly. Must hold s.mu.
+func (s *Snake) lockedMerge() {
+	if s.intake == nil {
+		return
+	}
+	s.lockedAdmitStaged(s.intake.drain())
+}
+
+// lockedAdmitStaged admits already-drained staged requests into the CoDel queue
+// in arrival order, preserving each request's original sojourn. Already-signaled
+// (cancelled) staged requests are skipped — their valve accounting was never
+// applied. Must hold s.mu. The drain (shard sweep + sort) is the caller's job,
+// so it can run off s.mu; only this cheap admit loop needs the lock.
+func (s *Snake) lockedAdmitStaged(staged []*Request) {
+	for _, r := range staged {
+		if r.signaledValue != nil {
+			continue
+		}
+		s.q.lockedMergeExisting(r)
 	}
 }
 
@@ -251,17 +362,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedTryGrantOne()
-	s.lockedObserveLengths()
-	s.lockedObserveDropping()
-	pending := s.q.lockedTakePendingSignals()
-	s.mu.Unlock()
-
-	// Deliver drop rejections after releasing s.mu so the goready storm does not
-	// serialize grants/arrivals behind the batch.
-	for _, r := range pending {
-		r.sendSignal()
-	}
+	s.lockedFinishRelease()
 	s.runReleaseCBs(excValue)
 	return nil
 }
@@ -271,14 +372,7 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedTryGrantOne()
-	s.lockedObserveLengths()
-	s.lockedObserveDropping()
-	pending := s.q.lockedTakePendingSignals()
-	s.mu.Unlock()
-	for _, r := range pending {
-		r.sendSignal()
-	}
+	s.lockedFinishRelease()
 }
 
 // lockedCompleteAndShed unlinks the released request and, when an episode is
@@ -292,6 +386,32 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 	if s.q.lockedNeedsAdvance() {
 		s.q.lockedRunTimer()
 	}
+}
+
+// lockedFinishRelease completes the release tail while holding s.mu: it folds
+// any staged intake arrivals into the CoDel queue when no waiter remains, grants
+// the next waiter, records observations, and unlocks. Must hold s.mu on entry;
+// s.mu is released on return.
+//
+// The merge is gated on there being no CoDel waiter to grant — otherwise we
+// serve the existing FIFO head and defer the (batchable) merge until the queue
+// actually drains, keeping merges rare instead of running on every release. When
+// a merge is due, the drain (shard sweep + O(n log n) sort) runs OFF s.mu: we
+// drop the lock, drain, then re-take it only for the cheap admit loop. The
+// drained requests are ours exclusively (drain removed them from the shards), so
+// admitting them after re-locking cannot strand or double-process them even if
+// another releaser interleaves.
+func (s *Snake) lockedFinishRelease() {
+	if s.intake != nil && s.intake.pendingLen() > 0 && s.q.lockedFirstWaiting() == nil {
+		s.mu.Unlock()
+		staged := s.intake.drain()
+		s.mu.Lock()
+		s.lockedAdmitStaged(staged)
+	}
+	s.lockedTryGrantOne()
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	s.mu.Unlock()
 }
 
 func (s *Snake) lockedGrant(req *Request) {
