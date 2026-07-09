@@ -33,7 +33,6 @@ type (
 		Name                string
 		CoDel               CoDelConfig
 		Capacity            func() int
-		MaxAge              func() time.Duration
 		LoadsheddingAllowed func() bool
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
@@ -50,7 +49,6 @@ type (
 
 		q              *ValvedCoDelQueue
 		holders        map[*Request]struct{}
-		maxAgeTimers   map[*Request]*time.Timer
 		dropTimer      *time.Timer
 		dropTimerArmed bool
 		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
@@ -95,7 +93,6 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		cfg:          cfg,
 		clockFunc:    defaultClock,
 		holders:      make(map[*Request]struct{}),
-		maxAgeTimers: make(map[*Request]*time.Timer),
 		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
 		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
 		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
@@ -236,14 +233,12 @@ func (u *SafeUnlock) Release(exc ...error) error {
 
 func (s *Snake) release(req *Request, excValue error) error {
 	s.mu.Lock()
-	// The max-age timer can race with a user release (both call release
-	// concurrently for the same req). The loser sees the req already gone
-	// from holders and no-ops.
+	// Release is idempotent and can race a context-cancel release for the same
+	// req. The loser sees the req already gone from holders and no-ops.
 	if _, ok := s.holders[req]; !ok {
 		s.mu.Unlock()
 		return nil
 	}
-	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
@@ -258,7 +253,6 @@ func (s *Snake) release(req *Request, excValue error) error {
 
 func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
-	s.lockedStopMaxAgeTimer(req)
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
@@ -288,7 +282,6 @@ func (s *Snake) lockedGrant(req *Request) {
 	now := s.clockFunc()
 	s.lockedAccrueDropping(now)
 	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
-	s.lockedStartMaxAgeTimer(req)
 	req.signal(grantSentinel)
 }
 
@@ -423,32 +416,4 @@ func (s *Snake) runDropTimer() {
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	s.mu.Unlock()
-}
-
-func (s *Snake) lockedStartMaxAgeTimer(req *Request) {
-	if s.cfg.MaxAge == nil {
-		return
-	}
-	maxAge := s.cfg.MaxAge()
-	if maxAge <= 0 {
-		return
-	}
-	s.maxAgeTimers[req] = time.AfterFunc(maxAge, func() {
-		s.mu.Lock()
-		if _, ok := s.holders[req]; !ok {
-			s.mu.Unlock()
-			return
-		}
-		s.mu.Unlock()
-
-		log.Printf("loadshed: snake %s slot reached max age %v, force-releasing", s.cfg.Name, maxAge)
-		s.release(req, nil)
-	})
-}
-
-func (s *Snake) lockedStopMaxAgeTimer(req *Request) {
-	if timer, ok := s.maxAgeTimers[req]; ok {
-		timer.Stop()
-		delete(s.maxAgeTimers, req)
-	}
 }

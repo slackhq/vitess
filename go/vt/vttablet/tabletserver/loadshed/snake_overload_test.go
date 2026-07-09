@@ -386,7 +386,6 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 	assert.Empty(t, s.q.valves, "valves map should be empty")
 	assert.Empty(t, s.q.outstandingCounts, "outstandingCounts map should be empty")
 	assert.Empty(t, s.q.droppablePerValve, "droppablePerValve map should be empty")
-	assert.Empty(t, s.maxAgeTimers, "max age timers should be empty")
 	assert.False(t, s.q.codelq.dropping, "CoDel should not be in dropping state")
 }
 
@@ -456,32 +455,6 @@ func TestSnake_Memory_CoDelStateTransition(t *testing.T) {
 	u.Release()
 }
 
-// --- Max-age vs context cancel race ---
-
-func TestSnake_MaxAge_VsContextCancel_Race(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.MaxAge = func() time.Duration { return 5 * time.Millisecond }
-	s := NewSnake(cfg)
-
-	const iterations = 1000
-	for range iterations {
-		ctx, cancel := context.WithTimeout(t.Context(), 4*time.Millisecond)
-
-		u, err := s.Acquire(ctx, "", 0)
-		if err != nil {
-			cancel()
-			continue
-		}
-
-		// Either max-age fires or context expires — either way, lock must not leak
-		time.Sleep(6 * time.Millisecond)
-		u.Release() // may return error if max-age already released
-		cancel()
-	}
-
-	assert.True(t, s.isIdle(), "lock must not be stuck after max-age/cancel races")
-}
-
 // --- Grant stall: shedding continues with zero grants and zero releases ---
 
 func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
@@ -489,7 +462,6 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
-	// MaxAge left unset so the holder is never force-released.
 	s := NewSnake(cfg)
 
 	// Acquire the only slot (capacity defaults to 1). Once granted, this

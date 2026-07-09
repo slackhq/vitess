@@ -337,42 +337,6 @@ func TestSnake_NHolder_ContextCancelFreesSlot(t *testing.T) {
 	u2.Release()
 }
 
-// --- N-holder: max-age with multiple holders ---
-
-func TestSnake_NHolder_MaxAge_MultipleHolders(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.Capacity = func() int { return 2 }
-	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
-	s := NewSnake(cfg)
-
-	u1, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-	u2, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-
-	waiterDone := make(chan struct{})
-	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
-		if err == nil {
-			close(waiterDone)
-			u.Release()
-		}
-	}()
-
-	select {
-	case <-waiterDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("max-age should free a slot")
-	}
-
-	u1.Release()
-	u2.Release()
-
-	assert.Eventually(t, func() bool {
-		return s.nGranted() == 0
-	}, 1*time.Second, 5*time.Millisecond)
-}
-
 // --- N-holder: release callbacks fire for each release ---
 
 func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {

@@ -420,7 +420,6 @@ func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	cfg.MaxAge = func() time.Duration { return 50 * time.Millisecond }
 	s := NewSnake(cfg)
 
 	const numIDs = 5
@@ -593,35 +592,6 @@ func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	unlock.Release()
 	wg.Wait()
 
-	assert.True(t, s.isIdle())
-}
-
-// --- Max age under load ---
-
-func TestSnake_Stress_MaxAge_UnderLoad(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.MaxAge = func() time.Duration { return 5 * time.Millisecond }
-	s := NewSnake(cfg)
-
-	var wg sync.WaitGroup
-	var completed atomic.Int64
-
-	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "", 0)
-			if err != nil {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
-			u.Release()
-			completed.Add(1)
-		}()
-	}
-
-	wg.Wait()
-	assert.Equal(t, int64(50), completed.Load())
 	assert.True(t, s.isIdle())
 }
 

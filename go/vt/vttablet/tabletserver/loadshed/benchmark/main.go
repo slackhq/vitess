@@ -65,7 +65,6 @@ func main() {
 	snake := loadshed.NewSnake(loadshed.SnakeConfig{
 		Name:     "bench",
 		Capacity: func() int { return *capacity },
-		MaxAge:   func() time.Duration { return 30 * time.Second },
 		CoDel: loadshed.CoDelConfig{
 			TargetNs:       func() int64 { return int64(*targetMs) * 1_000_000 },
 			IntervalNs:     func() int64 { return int64(*intervalMs) * 1_000_000 },
