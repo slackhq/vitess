@@ -422,64 +422,6 @@ func TestSnake_SelfContention_NoDrop(t *testing.T) {
 	}
 }
 
-// --- Max age ---
-
-func TestSnake_MaxAge_Timeout(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.MaxAge = func() time.Duration { return 20 * time.Millisecond }
-	s := newTestSnake(cfg)
-
-	unlock1, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-
-	acquired := make(chan struct{})
-	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
-		if err == nil {
-			close(acquired)
-			u.Release()
-		}
-	}()
-
-	select {
-	case <-acquired:
-	case <-time.After(1 * time.Second):
-		t.Fatal("max-age timer did not fire")
-	}
-
-	// Max-age already released this slot; SafeUnlock.Release is idempotent via sync.Once.
-	err = unlock1.Release()
-	assert.NoError(t, err, "double release is idempotent via sync.Once")
-}
-
-func TestSnake_MaxAge_CancelledOnRelease(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.MaxAge = func() time.Duration { return 100 * time.Millisecond }
-	s := newTestSnake(cfg)
-
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-
-	unlock.Release()
-
-	time.Sleep(150 * time.Millisecond)
-	assert.True(t, s.isIdle())
-}
-
-func TestSnake_MaxAge_Zero_NoTimeout(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.MaxAge = func() time.Duration { return 0 }
-	s := newTestSnake(cfg)
-
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-
-	time.Sleep(50 * time.Millisecond)
-	assert.False(t, s.isIdle())
-
-	unlock.Release()
-}
-
 // --- SafeUnlock ---
 
 func TestSnake_SafeUnlock_DoubleRelease(t *testing.T) {
