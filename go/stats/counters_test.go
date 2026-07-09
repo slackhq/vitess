@@ -18,10 +18,12 @@ package stats
 
 import (
 	"expvar"
+	"fmt"
 	"math/rand/v2"
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -239,6 +241,87 @@ func TestCountersFuncWithMultiLabels_Hook(t *testing.T) {
 	if gotv != v {
 		t.Errorf("want %#v, got %#v", v, gotv)
 	}
+}
+
+// TestCountersConcurrentAdd guards the counters hot path: many goroutines
+// adding to a small set of shared keys must sum exactly, with no lost updates
+// and no data race (run with -race). This is the refactor oracle for the
+// mutex->atomic change.
+func TestCountersConcurrentAdd(t *testing.T) {
+	clearStats()
+	c := NewCountersWithSingleLabel("counter_concurrent", "help", "label")
+
+	const (
+		workers        = 64
+		addsPerWorker  = 10000
+		keys           = 4
+	)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < addsPerWorker; i++ {
+				c.Add(fmt.Sprintf("k%d", i%keys), 1)
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	counts := c.Counts()
+	// Each of the `keys` keys is hit an equal share of the total adds.
+	wantPerKey := int64(workers * addsPerWorker / keys)
+	for k := 0; k < keys; k++ {
+		key := fmt.Sprintf("k%d", k)
+		assert.Equal(t, wantPerKey, counts[key], "key %s", key)
+	}
+}
+
+// TestCountersConcurrentAddAndRead exercises adds racing against Counts()
+// reads (the prometheus-scrape path), catching torn reads or map races.
+func TestCountersConcurrentAddAndRead(t *testing.T) {
+	clearStats()
+	c := NewCountersWithMultiLabels("counter_concurrent_rw", "help", []string{"a", "b"})
+
+	stop := make(chan struct{})
+	var readerWg sync.WaitGroup
+
+	// Reader: continuously snapshot while writers run.
+	readerWg.Add(1)
+	go func() {
+		defer readerWg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = c.Counts()
+			}
+		}
+	}()
+
+	const workers = 32
+	const addsPerWorker = 5000
+	var writerWg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		writerWg.Add(1)
+		go func() {
+			defer writerWg.Done()
+			for i := 0; i < addsPerWorker; i++ {
+				c.Add([]string{"x", fmt.Sprintf("y%d", i%3)}, 1)
+			}
+		}()
+	}
+
+	writerWg.Wait()
+	close(stop)
+	readerWg.Wait()
+
+	total := int64(0)
+	for _, v := range c.Counts() {
+		total += v
+	}
+	assert.Equal(t, int64(workers*addsPerWorker), total)
 }
 
 func TestCountersCombineDimension(t *testing.T) {

@@ -21,42 +21,68 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // counters is similar to expvar.Map, except that it doesn't allow floats.
 // It is used to build CountersWithSingleLabel and GaugesWithSingleLabel.
+//
+// Each key maps to an *atomic.Int64, so the hot add/set paths only take a read
+// lock (to look the entry up) and mutate it atomically — writers to the same or
+// different keys never serialize on a write lock. The write lock is taken only
+// to create a new key or to clear the whole map, both rare. This keeps the
+// per-query stat updates off a single contended mutex.
 type counters struct {
-	mu     sync.Mutex
-	counts map[string]int64
+	mu     sync.RWMutex
+	counts map[string]*atomic.Int64
 
 	help string
 }
 
 func (c *counters) String() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "{")
 	prefix := ""
 	for k, v := range c.counts {
-		fmt.Fprintf(b, "%s%q: %v", prefix, k, v)
+		fmt.Fprintf(b, "%s%q: %v", prefix, k, v.Load())
 		prefix = ", "
 	}
 	fmt.Fprintf(b, "}")
 	return b.String()
 }
 
-func (c *counters) add(name string, value int64) {
+// entry returns the atomic cell for name, creating it if absent. The common
+// case (key already present) is served under a read lock; only first-time
+// creation of a key upgrades to the write lock.
+func (c *counters) entry(name string) *atomic.Int64 {
+	c.mu.RLock()
+	e := c.counts[name]
+	c.mu.RUnlock()
+	if e != nil {
+		return e
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.counts[name] = c.counts[name] + value
+	// Re-check: another goroutine may have created it between the RUnlock and
+	// the Lock.
+	if e = c.counts[name]; e != nil {
+		return e
+	}
+	e = &atomic.Int64{}
+	c.counts[name] = e
+	return e
+}
+
+func (c *counters) add(name string, value int64) {
+	c.entry(name).Add(value)
 }
 
 func (c *counters) set(name string, value int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.counts[name] = value
+	c.entry(name).Store(value)
 }
 
 func (c *counters) reset() {
@@ -67,22 +93,22 @@ func (c *counters) reset() {
 
 // ZeroAll zeroes out all values
 func (c *counters) ZeroAll() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	for k := range c.counts {
-		c.counts[k] = 0
+	for _, v := range c.counts {
+		v.Store(0)
 	}
 }
 
 // Counts returns a copy of the Counters' map.
 func (c *counters) Counts() map[string]int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	counts := make(map[string]int64, len(c.counts))
 	for k, v := range c.counts {
-		counts[k] = v
+		counts[k] = v.Load()
 	}
 	return counts
 }
@@ -110,7 +136,7 @@ type CountersWithSingleLabel struct {
 func NewCountersWithSingleLabel(name, help, label string, tags ...string) *CountersWithSingleLabel {
 	c := &CountersWithSingleLabel{
 		counters: counters{
-			counts: make(map[string]int64),
+			counts: make(map[string]*atomic.Int64),
 			help:   help,
 		},
 		label:         label,
@@ -118,10 +144,10 @@ func NewCountersWithSingleLabel(name, help, label string, tags ...string) *Count
 	}
 
 	if c.labelCombined {
-		c.counts[StatsAllStr] = 0
+		c.counts[StatsAllStr] = &atomic.Int64{}
 	} else {
 		for _, tag := range tags {
-			c.counts[tag] = 0
+			c.counts[tag] = &atomic.Int64{}
 		}
 	}
 	if name != "" {
@@ -170,7 +196,7 @@ type CountersWithMultiLabels struct {
 func NewCountersWithMultiLabels(name, help string, labels []string) *CountersWithMultiLabels {
 	t := &CountersWithMultiLabels{
 		counters: counters{
-			counts: make(map[string]int64),
+			counts: make(map[string]*atomic.Int64),
 			help:   help},
 		labels:         labels,
 		combinedLabels: make([]bool, len(labels)),
@@ -302,7 +328,7 @@ func NewGaugesWithSingleLabel(name, help, label string, tags ...string) *GaugesW
 	g := &GaugesWithSingleLabel{
 		CountersWithSingleLabel: CountersWithSingleLabel{
 			counters: counters{
-				counts: make(map[string]int64),
+				counts: make(map[string]*atomic.Int64),
 				help:   help,
 			},
 			label: label,
@@ -310,7 +336,7 @@ func NewGaugesWithSingleLabel(name, help, label string, tags ...string) *GaugesW
 	}
 
 	for _, tag := range tags {
-		g.counts[tag] = 0
+		g.counts[tag] = &atomic.Int64{}
 	}
 	if name != "" {
 		publish(name, g)
@@ -358,7 +384,7 @@ func NewGaugesWithMultiLabels(name, help string, labels []string) *GaugesWithMul
 	t := &GaugesWithMultiLabels{
 		CountersWithMultiLabels: CountersWithMultiLabels{
 			counters: counters{
-				counts: make(map[string]int64),
+				counts: make(map[string]*atomic.Int64),
 				help:   help,
 			},
 			labels: labels,
