@@ -444,6 +444,50 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 	return req.codelqElem
 }
 
+// lockedDequeue runs the CoDel drop logic from the release/dequeue path so
+// shedding is driven synchronously as slots free, rather than waiting for the
+// backstop timer to fire. It runs the SAME logic as lockedRunTimer with one
+// difference: the paced drop/ease/re-arm work only runs when a drop is actually
+// due (now >= dropNextNs), so a release that arrives before the next scheduled
+// drop time is a cheap no-op instead of dropping early. The jump/monitor trigger
+// logic (a head-sojourn crossing) is time-based and independent of drop pacing,
+// so it runs on every call — matching lockedRunTimer.
+func (q *CoDelQueue) lockedDequeue(dropFn func() bool) {
+	now := q.nowNs()
+
+	// Jump-start: monitor the head's sojourn. A trigger crossing can arm an
+	// episode at any time, so this runs every call.
+	if q.dropMode() == DropJumpStart && q.count == 1 {
+		q.lockedRunMonitor()
+		return
+	}
+
+	// Both: a trigger crossing can jump at any time while the jump window is
+	// open, independent of the ramp's pacing — so check it every call.
+	if q.dropMode() == DropBoth && (q.count == 1 || q.count < q.graceCount()) && q.lockedTryJump(now) {
+		return
+	}
+
+	// Paced work: only advance the drop/ease control law and re-arm when a drop
+	// is actually due. dropNextNs==0 means no episode is armed and none is due.
+	if q.dropNextNs == 0 || now < q.dropNextNs {
+		return
+	}
+
+	q.lockedAdvance(now, dropFn)
+
+	if q.dropMode() == DropJumpStart && q.count == 1 {
+		q.lockedRunMonitor()
+		return
+	}
+
+	if q.droppableLen > 0 || q.count > 1 {
+		q.lockedArmDropTimer()
+	} else {
+		q.dropNextNs = 0
+	}
+}
+
 // lockedRunTimer executes the CoDel drop logic. The dropFn is called
 // for each drop; it should remove the request from the queue and handle any
 // promotion.

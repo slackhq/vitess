@@ -142,12 +142,14 @@ func (q *ValvedCoDelQueue) lockedIsHealthy() bool {
 	return q.codelq.lockedIsHealthy()
 }
 
-// lockedNeedsAdvance reports whether an episode is active (dropping, or the
-// control law still needs to ease count back down). When false, lockedAdvance
-// is a guaranteed no-op, so the release path can skip the call — and its clock
-// read — entirely on the healthy fast path.
+// lockedNeedsAdvance reports whether the dequeue path has any CoDel work to do:
+// an episode is active or armed (dropping, or dropNextNs seeded), the count is
+// still easing down, or a droppable backlog exists that a head-sojourn trigger
+// could arm on. When false, lockedDequeue is a guaranteed no-op, so the release
+// path can skip the call — and its clock read — entirely on the healthy fast
+// path.
 func (q *ValvedCoDelQueue) lockedNeedsAdvance() bool {
-	return q.codelq.dropping || q.codelq.dropNextNs != 0
+	return q.codelq.dropping || q.codelq.dropNextNs != 0 || q.codelq.droppableLen > 0
 }
 
 // lockedPeek returns the head of the CoDel queue without removing it.
@@ -237,11 +239,13 @@ func (q *ValvedCoDelQueue) lockedRunTimer() {
 	q.codelq.lockedRunTimer(q.lockedDropFn())
 }
 
-// lockedAdvance runs the clock-driven drop/ease core synchronously (from the
-// release/dequeue path) so stale requests are shed in real time rather than
-// waiting on the backstop timer. It is a cheap no-op on a healthy, idle queue.
-func (q *ValvedCoDelQueue) lockedAdvance(now int64) {
-	q.codelq.lockedAdvance(now, q.lockedDropFn())
+// lockedDequeue runs the full CoDel drop logic synchronously from the
+// release/dequeue path so shedding (including starting/re-establishing an
+// episode) is driven as slots free, rather than waiting on the backstop timer.
+// Paced work only runs when a drop is due; it is a cheap no-op on a healthy,
+// idle queue.
+func (q *ValvedCoDelQueue) lockedDequeue() {
+	q.codelq.lockedDequeue(q.lockedDropFn())
 }
 
 func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {
