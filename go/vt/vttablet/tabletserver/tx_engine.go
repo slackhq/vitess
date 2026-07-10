@@ -119,13 +119,14 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 		te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: "dml",
 			CoDel: loadshed.CoDelConfig{
-				TargetNs:       func() int64 { return config.LoadshedTarget.Nanoseconds() },
-				IntervalNs:     func() int64 { return config.LoadshedInterval.Nanoseconds() },
-				Exponent:       func() float64 { return config.LoadshedExponent },
-				MinDropDelayNs: func() int64 { return config.LoadshedMinDropDelay.Nanoseconds() },
-				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
-				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
-				GraceCount:     func() int { return config.LoadshedGraceCount },
+				TargetNs:          func() int64 { return config.LoadshedTarget.Nanoseconds() },
+				IntervalNs:        func() int64 { return config.LoadshedInterval.Nanoseconds() },
+				Exponent:          func() float64 { return config.LoadshedExponent },
+				MinDropDelayNs:    func() int64 { return config.LoadshedMinDropDelay.Nanoseconds() },
+				TriggerNs:         func() int64 { return config.LoadshedTrigger.Nanoseconds() },
+				DropMode:          func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
+				GraceCount:        func() int { return config.LoadshedGraceCount },
+				KeepLastDroppable: func() bool { return config.LoadshedKeepLast },
 			},
 			// Track live pool capacity so runtime resizes keep the gate in sync.
 			// Capacity() is 0 until the pool opens; fall back to config until then.

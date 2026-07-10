@@ -70,6 +70,9 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
+	exporter.NewCounterFunc(prefix+"UnderfillCount", "Cumulative times a released Snake slot found no waiter and went idle (semaphore underfill)", func() int64 {
+		return s.UnderfillCount()
+	})
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
 		return s.DroppingNanos()
 	})

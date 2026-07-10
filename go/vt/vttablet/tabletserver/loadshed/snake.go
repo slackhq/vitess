@@ -72,6 +72,11 @@ type (
 		clockFunc           func() int64
 
 		shedCount atomic.Int64
+		// underfillCount increments each time a release frees a slot but there is
+		// no waiter to grant it to, so the slot goes idle (the queue underfilled
+		// the semaphore). A high rate suggests the gate is shedding/draining too
+		// aggressively and starving the downstream pool of work.
+		underfillCount atomic.Int64
 
 		sojourn      *stats.Histogram
 		queueLen     *stats.Histogram
@@ -334,6 +339,7 @@ type SnakeStats struct {
 	Dropping        bool
 	DropCount       int
 	CurrentInterval int64 // ns
+	UnderfillCount  int64
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -347,6 +353,7 @@ func (s *Snake) Stats() SnakeStats {
 		Dropping:        s.q.codelq.dropping,
 		DropCount:       s.q.codelq.count,
 		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
+		UnderfillCount:  s.underfillCount.Load(),
 	}
 }
 
@@ -466,7 +473,12 @@ func (s *Snake) lockedTryGrantOne() {
 	next := s.q.lockedFirstWaiting()
 	if next != nil {
 		s.lockedGrant(next)
+		return
 	}
+	// A slot is free but no request is waiting to take it: the slot goes idle.
+	// Count this underfill so the load test can correlate idle downstream
+	// capacity with the gate draining faster than arrivals refill it.
+	s.underfillCount.Add(1)
 }
 
 // runReleaseCBs executes release callbacks outside the mutex.
@@ -502,6 +514,12 @@ func (s *Snake) acquireError() error {
 // Context cancellations are not counted — only gate-driven drops.
 func (s *Snake) ShedCount() int64 {
 	return s.shedCount.Load()
+}
+
+// UnderfillCount returns the cumulative number of times a released slot found
+// no waiter to grant and went idle.
+func (s *Snake) UnderfillCount() int64 {
+	return s.underfillCount.Load()
 }
 
 func (s *Snake) DroppingNanos() int64 {

@@ -187,6 +187,13 @@ type (
 		// max(count, log2(droppableLen)). Nil or <= 1 disables the grace period
 		// (count >= 1 always, so the head is always eligible to drop).
 		GraceCount func() int
+
+		// KeepLastDroppable, when it returns true, forbids dropping the last
+		// remaining droppable request (droppableLen <= 1): a warm request is kept
+		// queued so a freeing slot has something to grant instead of going idle.
+		// Nil or false: drop as usual. Experimental knob for the semaphore-
+		// underfill hypothesis.
+		KeepLastDroppable func() bool
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
@@ -658,6 +665,10 @@ func (q *CoDelQueue) graceCount() int {
 		return 1
 	}
 	return q.cfg.GraceCount()
+}
+
+func (q *CoDelQueue) keepLastDroppable() bool {
+	return q.cfg.KeepLastDroppable != nil && q.cfg.KeepLastDroppable()
 }
 
 // armsOnEnqueue reports whether a droppable enqueue arms the timer immediately

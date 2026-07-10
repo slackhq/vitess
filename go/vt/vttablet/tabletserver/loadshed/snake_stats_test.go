@@ -77,9 +77,11 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 
 	assert.Contains(t, exp.counters, "SnakeOltpReadShedCount")
 	assert.Contains(t, exp.counters, "SnakeDmlShedCount")
+	assert.Contains(t, exp.counters, "SnakeOltpReadUnderfillCount")
+	assert.Contains(t, exp.counters, "SnakeDmlUnderfillCount")
 	assert.Contains(t, exp.counters, "SnakeOltpReadDroppingNanosTotal")
 	assert.Contains(t, exp.counters, "SnakeDmlDroppingNanosTotal")
-	assert.Len(t, exp.counters, 4, "expected shed + dropping counters per snake, two snakes")
+	assert.Len(t, exp.counters, 6, "expected shed + underfill + dropping counters per snake, two snakes")
 
 	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
 	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")

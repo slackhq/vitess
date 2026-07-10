@@ -252,6 +252,11 @@ func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
 // valve successor.
 func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 	return func() bool {
+		// Keep-last: refuse to drop the final droppable request so a freeing slot
+		// has a warm request to grant instead of underfilling the semaphore.
+		if q.codelq.keepLastDroppable() && q.codelq.droppableLen <= 1 {
+			return false
+		}
 		elem := q.codelq.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false

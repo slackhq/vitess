@@ -234,6 +234,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
 	fs.DurationVar(&currentConfig.LoadshedMinDropDelay, "loadshed-min-drop-delay", defaultConfig.LoadshedMinDropDelay, "CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm.")
 	fs.BoolVar(&currentConfig.LoadshedPerCPUIntake, "loadshed-percpu-intake", defaultConfig.LoadshedPerCPUIntake, "If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.")
+	fs.BoolVar(&currentConfig.LoadshedKeepLast, "loadshed-keep-last", defaultConfig.LoadshedKeepLast, "If true, the load shedder never drops the last remaining droppable request, keeping a warm request queued so a freeing slot has something to grant instead of going idle.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
 
@@ -410,6 +411,7 @@ type TabletConfig struct {
 	LoadshedGraceCount   int           `json:"-"`
 	LoadshedMinDropDelay time.Duration `json:"-"`
 	LoadshedPerCPUIntake bool          `json:"-"`
+	LoadshedKeepLast     bool          `json:"-"`
 	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
 	// whose queries are marked undroppable by the load shedder, so low-volume
 	// health-check/monitoring traffic against them is never shed. Matched
@@ -1176,6 +1178,7 @@ var defaultConfig = TabletConfig{
 	LoadshedGraceCount:   1,
 	LoadshedMinDropDelay: time.Millisecond,
 	LoadshedPerCPUIntake: false,
+	LoadshedKeepLast:     false,
 	// System schemas are queried by health checks/monitoring, which are
 	// low-volume and must succeed; default to marking them undroppable.
 	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
