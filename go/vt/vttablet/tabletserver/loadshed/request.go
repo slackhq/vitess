@@ -47,10 +47,11 @@ type (
 	}
 )
 
-// priorityUndroppable is a sentinel value indicating a request that must never
-// be dropped by CoDel. We use negative infinity so it's distinguishable from
-// any real priority value.
-var priorityUndroppable = math.Inf(-1)
+// PriorityUndroppable is a sentinel priority indicating a request that must
+// never be dropped by CoDel. We use negative infinity so it's distinguishable
+// from any real priority value. Callers may pass it to Acquire to force a
+// request undroppable (e.g. health-check queries against system schemas).
+var PriorityUndroppable = math.Inf(-1)
 
 var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
 
@@ -62,7 +63,7 @@ func newRequest(priority float64) *Request {
 }
 
 func (r *Request) isDroppable() bool {
-	return r.priority != priorityUndroppable
+	return r.priority != PriorityUndroppable
 }
 
 // Pass grantSentinel on grant and *DroppedRequestError on drop. Must be called

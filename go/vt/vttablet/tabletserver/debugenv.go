@@ -23,6 +23,7 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/safehtml/template"
@@ -182,6 +183,17 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTrigger = d })
 	case "LoadshedGraceCount":
 		err = setIntVal(func(v int) { tsv.Config().LoadshedGraceCount = v })
+	case "LoadshedUndroppableSchemas":
+		err = setStringVal(func(v string) error {
+			var schemas []string
+			for _, s := range strings.Split(v, ",") {
+				if s = strings.TrimSpace(s); s != "" {
+					schemas = append(schemas, s)
+				}
+			}
+			tsv.Config().LoadshedUndroppableSchemas = schemas
+			return nil
+		})
 	case "LoadshedDropMode":
 		err = setStringVal(func(v string) error {
 			if _, perr := loadshed.ParseDropMode(v); perr != nil {
@@ -235,6 +247,10 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "LoadshedDropMode", func() string { return tsv.Config().LoadshedDropMode })
 	vars = addVar(vars, "LoadshedTrigger", func() time.Duration { return tsv.Config().LoadshedTrigger })
 	vars = addVar(vars, "LoadshedGraceCount", func() int { return tsv.Config().LoadshedGraceCount })
+	vars = append(vars, envValue{
+		Name:  "LoadshedUndroppableSchemas",
+		Value: strings.Join(tsv.Config().LoadshedUndroppableSchemas, ","),
+	})
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),

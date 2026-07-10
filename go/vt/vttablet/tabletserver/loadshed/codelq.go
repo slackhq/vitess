@@ -408,7 +408,7 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	}
 	if r.isDroppable() {
 		q.droppable.remove(r)
-		r.priority = priorityUndroppable
+		r.priority = PriorityUndroppable
 		q.droppableLen--
 		if q.droppableLen == 0 {
 			q.dropping = false

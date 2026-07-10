@@ -843,7 +843,7 @@ func TestSnake_Priority_GateOverridesToUndroppable(t *testing.T) {
 	s := newTestSnake(cfg)
 
 	for _, priority := range []float64{0, 50, 100} {
-		assert.Equal(t, priorityUndroppable, s.priority(priority),
+		assert.Equal(t, PriorityUndroppable, s.priority(priority),
 			"a closed shedding gate must override any caller priority to undroppable")
 	}
 }

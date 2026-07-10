@@ -232,6 +232,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
 	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to loadshed-interval.")
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
+	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
 
 var (
@@ -405,6 +406,11 @@ type TabletConfig struct {
 	LoadshedDropMode   string        `json:"-"`
 	LoadshedTrigger    time.Duration `json:"-"`
 	LoadshedGraceCount int           `json:"-"`
+	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
+	// whose queries are marked undroppable by the load shedder, so low-volume
+	// health-check/monitoring traffic against them is never shed. Matched
+	// case-insensitively against the query's table qualifiers.
+	LoadshedUndroppableSchemas []string `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1164,6 +1170,9 @@ var defaultConfig = TabletConfig{
 	LoadshedDropMode:   "slow",
 	LoadshedTrigger:    0,
 	LoadshedGraceCount: 1,
+	// System schemas are queried by health checks/monitoring, which are
+	// low-volume and must succeed; default to marking them undroppable.
+	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on
