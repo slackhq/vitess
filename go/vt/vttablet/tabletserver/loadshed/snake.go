@@ -343,7 +343,7 @@ func (s *Snake) runReleaseCBs(excValue error) {
 
 func (s *Snake) priority(priority float64) float64 {
 	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
-		return priorityUndroppable
+		return PriorityUndroppable
 	}
 	return priority
 }

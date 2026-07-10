@@ -125,7 +125,7 @@ func TestCoDelQueue_Enqueue_DroppableLen(t *testing.T) {
 	testEnqueue(q, 0)
 	assert.Equal(t, 1, q.droppableLen)
 
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 	assert.Equal(t, 1, q.droppableLen)
 	assert.Equal(t, 2, q.lockedLen())
 }
@@ -134,7 +134,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 	assert.False(t, rec.scheduled)
 	assert.Equal(t, 0, q.droppableLen)
 }
@@ -300,7 +300,7 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 	droppable := testEnqueue(q, 5)
 
 	elem := q.lockedFindLowestPriorityDroppable()
@@ -329,8 +329,8 @@ func TestCoDelQueue_DropAllUndroppable_ReturnsNil(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, priorityUndroppable)
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	assert.Nil(t, elem)
@@ -340,7 +340,7 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 	inf := testEnqueue(q, math.Inf(1)) //nolint:modernize
 
 	elem := q.lockedFindLowestPriorityDroppable()
@@ -428,7 +428,7 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, priorityUndroppable)
+	testEnqueue(q, PriorityUndroppable)
 	clock.advance(2_000_000_000)
 
 	rec.reset()
@@ -491,7 +491,7 @@ func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, priorityUndroppable)
+	r1 := testEnqueue(q, PriorityUndroppable)
 	assert.Equal(t, 0, q.droppableLen)
 
 	q.lockedOnGrant(r1)
