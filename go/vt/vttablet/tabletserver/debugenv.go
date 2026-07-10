@@ -153,6 +153,16 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setBoolVal := func(f func(bool)) error {
+		bval, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid bool value for %v: %v", varname, err)
+		}
+		f(bval)
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	var err error
 	switch varname {
 	case "ReadPoolSize":
@@ -183,6 +193,10 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTrigger = d })
 	case "LoadshedGraceCount":
 		err = setIntVal(func(v int) { tsv.Config().LoadshedGraceCount = v })
+	case "LoadshedMinDropDelay":
+		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedMinDropDelay = d })
+	case "LoadshedPerCPUIntake":
+		err = setBoolVal(func(b bool) { tsv.Config().LoadshedPerCPUIntake = b })
 	case "LoadshedUndroppableSchemas":
 		err = setStringVal(func(v string) error {
 			var schemas []string
@@ -247,6 +261,8 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "LoadshedDropMode", func() string { return tsv.Config().LoadshedDropMode })
 	vars = addVar(vars, "LoadshedTrigger", func() time.Duration { return tsv.Config().LoadshedTrigger })
 	vars = addVar(vars, "LoadshedGraceCount", func() int { return tsv.Config().LoadshedGraceCount })
+	vars = addVar(vars, "LoadshedMinDropDelay", func() time.Duration { return tsv.Config().LoadshedMinDropDelay })
+	vars = addVar(vars, "LoadshedPerCPUIntake", func() bool { return tsv.Config().LoadshedPerCPUIntake })
 	vars = append(vars, envValue{
 		Name:  "LoadshedUndroppableSchemas",
 		Value: strings.Join(tsv.Config().LoadshedUndroppableSchemas, ","),

@@ -29,7 +29,7 @@ import (
 
 func intakeConfig() SnakeConfig {
 	cfg := defaultSnakeConfig()
-	cfg.PerCPUIntake = true
+	cfg.PerCPUIntake = func() bool { return true }
 	return cfg
 }
 

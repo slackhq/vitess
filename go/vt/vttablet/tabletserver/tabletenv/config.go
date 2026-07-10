@@ -232,6 +232,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
 	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to loadshed-interval.")
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
+	fs.DurationVar(&currentConfig.LoadshedMinDropDelay, "loadshed-min-drop-delay", defaultConfig.LoadshedMinDropDelay, "CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm.")
+	fs.BoolVar(&currentConfig.LoadshedPerCPUIntake, "loadshed-percpu-intake", defaultConfig.LoadshedPerCPUIntake, "If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
 
@@ -399,13 +401,15 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedEnabled    bool          `json:"-"`
-	LoadshedTarget     time.Duration `json:"-"`
-	LoadshedInterval   time.Duration `json:"-"`
-	LoadshedExponent   float64       `json:"-"`
-	LoadshedDropMode   string        `json:"-"`
-	LoadshedTrigger    time.Duration `json:"-"`
-	LoadshedGraceCount int           `json:"-"`
+	LoadshedEnabled      bool          `json:"-"`
+	LoadshedTarget       time.Duration `json:"-"`
+	LoadshedInterval     time.Duration `json:"-"`
+	LoadshedExponent     float64       `json:"-"`
+	LoadshedDropMode     string        `json:"-"`
+	LoadshedTrigger      time.Duration `json:"-"`
+	LoadshedGraceCount   int           `json:"-"`
+	LoadshedMinDropDelay time.Duration `json:"-"`
+	LoadshedPerCPUIntake bool          `json:"-"`
 	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
 	// whose queries are marked undroppable by the load shedder, so low-volume
 	// health-check/monitoring traffic against them is never shed. Matched
@@ -1163,13 +1167,15 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedEnabled:    true,
-	LoadshedTarget:     5 * time.Millisecond,
-	LoadshedInterval:   100 * time.Millisecond,
-	LoadshedExponent:   1.0,
-	LoadshedDropMode:   "slow",
-	LoadshedTrigger:    0,
-	LoadshedGraceCount: 1,
+	LoadshedEnabled:      true,
+	LoadshedTarget:       5 * time.Millisecond,
+	LoadshedInterval:     100 * time.Millisecond,
+	LoadshedExponent:     1.0,
+	LoadshedDropMode:     "slow",
+	LoadshedTrigger:      0,
+	LoadshedGraceCount:   1,
+	LoadshedMinDropDelay: time.Millisecond,
+	LoadshedPerCPUIntake: false,
 	// System schemas are queried by health checks/monitoring, which are
 	// low-volume and must succeed; default to marking them undroppable.
 	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},

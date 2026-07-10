@@ -252,7 +252,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 				TargetNs:       func() int64 { return config.LoadshedTarget.Nanoseconds() },
 				IntervalNs:     func() int64 { return config.LoadshedInterval.Nanoseconds() },
 				Exponent:       func() float64 { return config.LoadshedExponent },
-				MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
+				MinDropDelayNs: func() int64 { return config.LoadshedMinDropDelay.Nanoseconds() },
 				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
 				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
 				GraceCount:     func() int { return config.LoadshedGraceCount },
@@ -266,6 +266,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 				return config.OltpReadPool.Size
 			},
 			LoadsheddingAllowed: func() bool { return true },
+			PerCPUIntake:        func() bool { return config.LoadshedPerCPUIntake },
 		})
 		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 	}

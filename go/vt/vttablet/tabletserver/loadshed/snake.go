@@ -37,11 +37,13 @@ type (
 		AcquireError        func() error
 		ReleaseCBs          []func(error)
 
-		// PerCPUIntake, when true, routes contended arrivals through per-CPU
-		// staging shards (off s.mu) that are batch-merged into the CoDel queue,
-		// to reduce mutex contention. Off by default; the healthy fast path is
-		// unchanged either way.
-		PerCPUIntake bool
+		// PerCPUIntake gates routing contended arrivals through per-CPU staging
+		// shards (off s.mu) that are batch-merged into the CoDel queue, to reduce
+		// mutex contention. When non-nil the shards are always allocated, but they
+		// are only used while the func returns true — so the path is live-toggleable
+		// (e.g. via /debug/env) with no thread/alloc churn. Nil or returning false ⇒
+		// the healthy fast path is unchanged.
+		PerCPUIntake func() bool
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -55,7 +57,8 @@ type (
 
 		// intake stages arriving requests in per-CPU shards, off s.mu, when the
 		// gate is contended. A merge (under s.mu) admits them into q in arrival
-		// order. nil unless enabled via SnakeConfig.PerCPUIntake.
+		// order. Allocated when SnakeConfig.PerCPUIntake is non-nil; whether it is
+		// actually used is gated per-request on intakeEnabled().
 		intake *intake
 
 		q              *ValvedCoDelQueue
@@ -115,7 +118,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
-	if cfg.PerCPUIntake {
+	if cfg.PerCPUIntake != nil {
 		s.intake = newIntake()
 	}
 	return s
@@ -217,7 +220,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 // per-CPU intake off s.mu, triggering a merge if the CoDel queue currently has
 // no waiter (so an idle→first-arrival still advances).
 func (s *Snake) admit(valveID string, priority float64) (req *Request, granted bool) {
-	if s.intake == nil {
+	if !s.intakeEnabled() {
 		return s.admitLocked(valveID, priority)
 	}
 
@@ -280,6 +283,15 @@ func (s *Snake) admitLocked(valveID string, priority float64) (req *Request, gra
 	s.lockedObserveDropping()
 	s.mu.Unlock()
 	return r, false
+}
+
+// intakeEnabled reports whether new arrivals should be routed through the
+// per-CPU intake. The shards must be allocated (PerCPUIntake non-nil at
+// construction) and the runtime toggle must currently return true. Draining
+// already-staged requests on release is NOT gated on this — see
+// lockedFinishRelease — so toggling off never strands staged arrivals.
+func (s *Snake) intakeEnabled() bool {
+	return s.intake != nil && s.cfg.PerCPUIntake()
 }
 
 // lockedMerge drains the per-CPU intake and admits the staged requests into the
@@ -504,23 +516,11 @@ func (s *Snake) DroppingNanos() int64 {
 
 // --- timer management (must be called with s.mu held) ---
 
-// backstopFloorNs is the minimum delay for the drop timer. Shedding is now
-// driven synchronously from the release (dequeue) path, so the timer only needs
-// to backstop a stuck/quiet queue — one with a droppable backlog but no release
-// traffic to advance it. Flooring the arm delay well above the CoDel control
-// interval keeps the timer coarse (far fewer time.AfterFunc re-arms, so less
-// runtime-timer-lock churn) without affecting the real-time drop rate, which
-// releases now pace.
-const backstopFloorNs = int64(5 * time.Millisecond)
-
 func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
 		return
 	}
 	s.dropTimerArmed = true
-	if delayNs < backstopFloorNs {
-		delayNs = backstopFloorNs
-	}
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 	delay := time.Duration(delayNs) * time.Nanosecond
 	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)

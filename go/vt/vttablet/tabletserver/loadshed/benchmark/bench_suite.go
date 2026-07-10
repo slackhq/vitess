@@ -192,7 +192,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			GraceCount:     func() int { return *graceCount },
 		},
 		LoadsheddingAllowed: func() bool { return true },
-		PerCPUIntake:        *perCPUIntake,
+		PerCPUIntake:        func() bool { return *perCPUIntake },
 	})
 
 	totalDuration := time.Duration(durationMs) * time.Millisecond
