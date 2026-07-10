@@ -41,6 +41,7 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 
 	s := NewSnake(cfg)
 	s.clockFunc = now.Load
+	s.q.codelq.nowNs = now.Load // queue uses defaultClock otherwise — keep clocks consistent
 
 	// Grant the single slot to a holder we control.
 	holder, err := s.Acquire(t.Context(), "", 0)
@@ -55,9 +56,11 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	for i := range backlog {
 		waiters[i] = s.q.lockedEnqueue("", 1)
 	}
-	// Drive the queue into an armed dropping episode with drops already due.
+	// Drive the queue into an armed dropping episode with drops already due. A
+	// real armed episode always has dropNextNs > 0; seed it in the past so drops
+	// are immediately due once the clock advances.
 	s.q.codelq.dropping = true
-	s.q.codelq.dropNextNs = 0
+	s.q.codelq.dropNextNs = 1
 	s.q.codelq.count = s.q.codelq.graceCount() // past grace so drops actually fire
 	s.mu.Unlock()
 
