@@ -201,6 +201,7 @@ Flags:
       --loadshed-target duration                                         CoDel target delay for the load shedder. (default 5ms)
       --loadshed-trigger duration                                        CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to loadshed-interval.
       --loadshed-undroppable-schemas strings                             Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed. (default [performance_schema,information_schema,sys,mysql])
+      --loadshed-yield-on-grant                                          If true, a releasing goroutine yields (runtime.Gosched) right after granting the next waiter, handing the CPU to the just-woken request before writing its own response. Favors starting the next request over finishing the released one; only helps under contention.
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_heartbeat_time duration                                     If there is lock function used. This will keep the lock connection active by using this heartbeat (default 5s)
       --lock_tables_timeout duration                                     How long to keep the table locked before timing out (default 1m0s)

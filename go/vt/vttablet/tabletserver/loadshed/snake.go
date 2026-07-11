@@ -19,6 +19,7 @@ package loadshed
 import (
 	"context"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,15 @@ type (
 		// (e.g. via /debug/env) with no thread/alloc churn. Nil or returning false ⇒
 		// the healthy fast path is unchanged.
 		PerCPUIntake func() bool
+
+		// YieldOnGrant, when it returns true, makes a releasing goroutine call
+		// runtime.Gosched() right after it grants the next waiter (and drops
+		// s.mu), handing the P to the just-woken grantee — which is already in the
+		// scheduler's runnext slot from the grant signal — before the releaser
+		// returns up the stack to write its gRPC response. This favors starting
+		// the next request over finishing the response write of the one that just
+		// released. Only helps under contention; nil/false ⇒ no yield.
+		YieldOnGrant func() bool
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -94,8 +104,8 @@ type (
 		// of (capacity - holders) * elapsed. It measures backend concurrency left
 		// idle by the gate — zero when saturated, growing whenever a slot sits
 		// free. It is the signal for "is the gate keeping the backend busy": a
-		// grant→run optimization that fills freed slots sooner should reduce it.
-		// slotAccrualNs is the clock of the last accrual.
+		// grant→run optimization (e.g. YieldOnGrant) that fills freed slots sooner
+		// should reduce it. slotAccrualNs is the clock of the last accrual.
 		slotIdleNanos int64
 		slotAccrualNs int64
 	}
@@ -405,7 +415,9 @@ func (s *Snake) release(req *Request, excValue error) error {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedFinishRelease()
+	granted := s.lockedFinishRelease()
+
+	s.maybeYieldOnGrant(granted)
 	s.runReleaseCBs(excValue)
 	return nil
 }
@@ -418,7 +430,8 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	s.lockedFinishRelease()
+	granted := s.lockedFinishRelease()
+	s.maybeYieldOnGrant(granted)
 }
 
 // lockedCompleteAndShed unlinks the released request and, when an episode is
@@ -447,17 +460,31 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 // drained requests are ours exclusively (drain removed them from the shards), so
 // admitting them after re-locking cannot strand or double-process them even if
 // another releaser interleaves.
-func (s *Snake) lockedFinishRelease() {
+// lockedFinishRelease returns whether it granted the next waiter, so the caller
+// can optionally yield the P to the just-woken grantee (see YieldOnGrant).
+func (s *Snake) lockedFinishRelease() (granted bool) {
 	if s.intake != nil && s.intake.pendingLen() > 0 && s.q.lockedFirstWaiting() == nil {
 		s.mu.Unlock()
 		staged := s.intake.drain()
 		s.mu.Lock()
 		s.lockedAdmitStaged(staged)
 	}
-	s.lockedTryGrantOne()
+	granted = s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	s.mu.Unlock()
+	return granted
+}
+
+// maybeYieldOnGrant hands this P to the just-granted waiter (already in the
+// scheduler's runnext slot from the grant signal) when the release granted a
+// waiter and YieldOnGrant is enabled, so the next request starts running before
+// this goroutine returns up the stack to write its response. Must be called
+// after s.mu is released.
+func (s *Snake) maybeYieldOnGrant(granted bool) {
+	if granted && s.cfg.YieldOnGrant != nil && s.cfg.YieldOnGrant() {
+		runtime.Gosched()
+	}
 }
 
 func (s *Snake) lockedGrant(req *Request) {
@@ -509,19 +536,22 @@ func (s *Snake) lockedAccrueDropping(now int64) {
 	}
 }
 
-func (s *Snake) lockedTryGrantOne() {
+// lockedTryGrantOne grants the next waiter if there is capacity and one is
+// waiting; it reports whether a grant was issued.
+func (s *Snake) lockedTryGrantOne() (granted bool) {
 	if !s.hasCapacity() {
-		return
+		return false
 	}
 	next := s.q.lockedFirstWaiting()
 	if next != nil {
 		s.lockedGrant(next)
-		return
+		return true
 	}
 	// A slot is free but no request is waiting to take it: the slot goes idle.
 	// Count this underfill so the load test can correlate idle downstream
 	// capacity with the gate draining faster than arrivals refill it.
 	s.underfillCount.Add(1)
+	return false
 }
 
 // runReleaseCBs executes release callbacks outside the mutex.

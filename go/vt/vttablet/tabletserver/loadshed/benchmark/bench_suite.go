@@ -27,6 +27,7 @@ var (
 	mixedPriority *bool
 	busyThreads   *int
 	perCPUIntake  *bool
+	yieldOnGrant  *bool
 	mutexProfile  *string
 )
 
@@ -193,6 +194,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 		},
 		LoadsheddingAllowed: func() bool { return true },
 		PerCPUIntake:        func() bool { return *perCPUIntake },
+		YieldOnGrant:        func() bool { return *yieldOnGrant },
 	})
 
 	totalDuration := time.Duration(durationMs) * time.Millisecond
@@ -339,8 +341,8 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	final := snake.Stats()
 	idleMs := float64(final.SlotIdleNanos) / 1e6
 	slotMs := float64(capacity) * float64(durationMs)
-	fmt.Printf("  BACKEND: slotIdle=%.0fms (%.1f%% of %d slot-seconds) underfill=%d\n",
-		idleMs, 100*idleMs/slotMs, capacity, final.UnderfillCount)
+	fmt.Printf("  BACKEND yield=%v: slotIdle=%.0fms (%.1f%% of %d slot-seconds) underfill=%d\n",
+		*yieldOnGrant, idleMs, 100*idleMs/slotMs, capacity, final.UnderfillCount)
 
 	return events, stats
 }
@@ -375,6 +377,7 @@ func main() {
 	mixedPriority = flag.Bool("mixed-priority", false, "Issue requests with uniform priorities in [0,100] instead of all 0, so the lowest-priority drop lookup does not hit the priority-0 early exit")
 	busyThreads = flag.Int("busy-threads", 0, "Number of normal-priority CPU-spinning threads to run for the benchmark duration, to starve the scheduler and make the drop timer fire late")
 	perCPUIntake = flag.Bool("percpu-intake", false, "Enable the per-CPU intake staging path (reduces Snake mutex contention under load)")
+	yieldOnGrant = flag.Bool("yield-on-grant", false, "Yield (runtime.Gosched) after granting on release, handing the CPU to the just-woken request before writing the response")
 	mutexProfile = flag.String("mutexprofile", "", "Write a mutex contention profile to this path (enables runtime.SetMutexProfileFraction)")
 
 	// Custom single-workload flags. When -profile is set, the workload described

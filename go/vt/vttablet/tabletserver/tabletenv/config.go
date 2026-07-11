@@ -235,6 +235,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.LoadshedMinDropDelay, "loadshed-min-drop-delay", defaultConfig.LoadshedMinDropDelay, "CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm.")
 	fs.BoolVar(&currentConfig.LoadshedPerCPUIntake, "loadshed-percpu-intake", defaultConfig.LoadshedPerCPUIntake, "If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.")
 	fs.BoolVar(&currentConfig.LoadshedKeepLast, "loadshed-keep-last", defaultConfig.LoadshedKeepLast, "If true, the load shedder never drops the last remaining droppable request, keeping a warm request queued so a freeing slot has something to grant instead of going idle.")
+	fs.BoolVar(&currentConfig.LoadshedYieldOnGrant, "loadshed-yield-on-grant", defaultConfig.LoadshedYieldOnGrant, "If true, a releasing goroutine yields (runtime.Gosched) right after granting the next waiter, handing the CPU to the just-woken request before writing its own response. Favors starting the next request over finishing the released one; only helps under contention.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
 
@@ -412,6 +413,7 @@ type TabletConfig struct {
 	LoadshedMinDropDelay time.Duration `json:"-"`
 	LoadshedPerCPUIntake bool          `json:"-"`
 	LoadshedKeepLast     bool          `json:"-"`
+	LoadshedYieldOnGrant bool          `json:"-"`
 	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
 	// whose queries are marked undroppable by the load shedder, so low-volume
 	// health-check/monitoring traffic against them is never shed. Matched
@@ -1179,6 +1181,7 @@ var defaultConfig = TabletConfig{
 	LoadshedMinDropDelay: time.Millisecond,
 	LoadshedPerCPUIntake: false,
 	LoadshedKeepLast:     false,
+	LoadshedYieldOnGrant: false,
 	// System schemas are queried by health checks/monitoring, which are
 	// low-volume and must succeed; default to marking them undroppable.
 	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},

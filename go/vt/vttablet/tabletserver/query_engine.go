@@ -268,6 +268,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 			},
 			LoadsheddingAllowed: func() bool { return true },
 			PerCPUIntake:        func() bool { return config.LoadshedPerCPUIntake },
+			YieldOnGrant:        func() bool { return config.LoadshedYieldOnGrant },
 		})
 		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 	}
