@@ -1937,12 +1937,21 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Error
+	// skipQueryString suppresses building the (expensive) query+bindvars string
+	// for the log message. RESOURCE_EXHAUSTED is a high-volume, expected outcome
+	// under load shedding / pool exhaustion, and its log is rate-limited
+	// (logPoolFull) anyway — so formatting the SQL and prototext-marshalling every
+	// bind variable per rejection is wasted work that dominates CPU exactly when
+	// the tablet is already overloaded. The returned client error is unaffected;
+	// only the throttled log line omits the query detail.
+	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
 		logMethod = nil
 	case vtrpcpb.Code_RESOURCE_EXHAUSTED:
 		logMethod = func(msg string, _ ...slog.Attr) { logPoolFull.Errorf("%s", msg) }
+		skipQueryString = true
 	case vtrpcpb.Code_ABORTED:
 		logMethod = log.Warn
 	case vtrpcpb.Code_INVALID_ARGUMENT, vtrpcpb.Code_DEADLINE_EXCEEDED:
@@ -1977,7 +1986,13 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
 		if logMethod != nil {
-			message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			// For high-volume, rate-limited errors (RESOURCE_EXHAUSTED) skip the
+			// expensive query+bindvars stringification; log just the error.
+			if skipQueryString {
+				message = fmt.Sprintf("%v", err)
+			} else {
+				message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			}
 		}
 	}
 
