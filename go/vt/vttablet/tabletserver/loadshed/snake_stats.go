@@ -73,6 +73,9 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"UnderfillCount", "Cumulative times a released Snake slot found no waiter and went idle (semaphore underfill)", func() int64 {
 		return s.UnderfillCount()
 	})
+	exporter.NewCounterFunc(prefix+"SlotIdleNanosTotal", "Cumulative time-integral of unfilled Snake capacity ((capacity-holders)*elapsed) in nanoseconds; backend concurrency left idle by the gate", func() int64 {
+		return s.SlotIdleNanos()
+	})
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
 		return s.DroppingNanos()
 	})

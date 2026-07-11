@@ -89,6 +89,15 @@ type (
 
 		droppingNanos   int64
 		droppingSinceNs int64
+
+		// slotIdleNanos is the time-integral of unfilled capacity: sum over time
+		// of (capacity - holders) * elapsed. It measures backend concurrency left
+		// idle by the gate — zero when saturated, growing whenever a slot sits
+		// free. It is the signal for "is the gate keeping the backend busy": a
+		// grant→run optimization that fills freed slots sooner should reduce it.
+		// slotAccrualNs is the clock of the last accrual.
+		slotIdleNanos int64
+		slotAccrualNs int64
 	}
 
 	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
@@ -340,6 +349,7 @@ type SnakeStats struct {
 	DropCount       int
 	CurrentInterval int64 // ns
 	UnderfillCount  int64
+	SlotIdleNanos   int64
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -354,7 +364,20 @@ func (s *Snake) Stats() SnakeStats {
 		DropCount:       s.q.codelq.count,
 		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
 		UnderfillCount:  s.underfillCount.Load(),
+		SlotIdleNanos:   s.lockedSlotIdleNanos(),
 	}
+}
+
+// lockedSlotIdleNanos returns slotIdleNanos including the currently-open
+// interval. Must hold s.mu.
+func (s *Snake) lockedSlotIdleNanos() int64 {
+	total := s.slotIdleNanos
+	if s.slotAccrualNs != 0 {
+		if idle := s.capacity() - len(s.holders); idle > 0 {
+			total += int64(idle) * (s.clockFunc() - s.slotAccrualNs)
+		}
+	}
+	return total
 }
 
 // Release releases the slot. exc is an optional error that caused the release
@@ -378,6 +401,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 		s.mu.Unlock()
 		return nil
 	}
+	s.lockedAccrueSlotIdle(s.clockFunc())
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
@@ -388,6 +412,9 @@ func (s *Snake) release(req *Request, excValue error) error {
 
 func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
+	if _, ok := s.holders[req]; ok {
+		s.lockedAccrueSlotIdle(s.clockFunc())
+	}
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
@@ -434,10 +461,13 @@ func (s *Snake) lockedFinishRelease() {
 }
 
 func (s *Snake) lockedGrant(req *Request) {
+	now := s.clockFunc()
+	// Accrue idle-slot time for the interval that just ended before this grant
+	// fills a slot (uses the pre-grant holder count).
+	s.lockedAccrueSlotIdle(now)
 	s.holders[req] = struct{}{}
 	s.lockedObserveHolderCount()
 	s.q.lockedOnGrant(req)
-	now := s.clockFunc()
 	s.lockedAccrueDropping(now)
 	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
 	req.signal(grantSentinel)
@@ -445,6 +475,19 @@ func (s *Snake) lockedGrant(req *Request) {
 
 func (s *Snake) lockedObserveHolderCount() {
 	s.holderCount.Add(int64(len(s.holders)))
+}
+
+// lockedAccrueSlotIdle folds the elapsed time since the last accrual into
+// slotIdleNanos, weighted by the capacity that was unfilled over that span
+// (capacity - current holders). Call it with the holder set as it was for the
+// elapsed interval, i.e. BEFORE adding/removing a holder. Must hold s.mu.
+func (s *Snake) lockedAccrueSlotIdle(now int64) {
+	if s.slotAccrualNs != 0 {
+		if idle := s.capacity() - len(s.holders); idle > 0 {
+			s.slotIdleNanos += int64(idle) * (now - s.slotAccrualNs)
+		}
+	}
+	s.slotAccrualNs = now
 }
 
 func (s *Snake) lockedObserveDropping() {
@@ -520,6 +563,15 @@ func (s *Snake) ShedCount() int64 {
 // no waiter to grant and went idle.
 func (s *Snake) UnderfillCount() int64 {
 	return s.underfillCount.Load()
+}
+
+// SlotIdleNanos returns the cumulative time-integral of unfilled capacity
+// (sum of (capacity-holders)*elapsed) — backend concurrency the gate left idle.
+// Includes the currently-open interval up to now.
+func (s *Snake) SlotIdleNanos() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lockedSlotIdleNanos()
 }
 
 func (s *Snake) DroppingNanos() int64 {

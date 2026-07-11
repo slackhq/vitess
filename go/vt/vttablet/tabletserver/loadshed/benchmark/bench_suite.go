@@ -332,6 +332,16 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	cancel()
 	wg.Wait()
 	<-statsDone
+
+	// Backend-utilization summary: SlotIdleNanos is the time-integral of
+	// unfilled capacity (backend concurrency the gate left idle). Lower is
+	// better — it's the signal for whether the gate keeps the backend busy.
+	final := snake.Stats()
+	idleMs := float64(final.SlotIdleNanos) / 1e6
+	slotMs := float64(capacity) * float64(durationMs)
+	fmt.Printf("  BACKEND: slotIdle=%.0fms (%.1f%% of %d slot-seconds) underfill=%d\n",
+		idleMs, 100*idleMs/slotMs, capacity, final.UnderfillCount)
+
 	return events, stats
 }
 
