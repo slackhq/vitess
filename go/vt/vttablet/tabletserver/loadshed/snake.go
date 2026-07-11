@@ -280,7 +280,7 @@ func (s *Snake) releaseOnCancel(req *Request) {
 func (s *Snake) lockedCompleteAndShed(req *Request) {
 	s.q.lockedComplete(req)
 	if s.q.lockedNeedsAdvance() {
-		s.q.lockedDequeue()
+		s.q.lockedRunTimer()
 	}
 }
 

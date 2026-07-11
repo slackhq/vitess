@@ -405,6 +405,7 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	// Manually arm an episode (enqueue no longer arms): dropping with count>1
 	// and a seeded dropNextNs. Advance just past dropNextNs so exactly one drop
 	// fires before the next scheduled drop time (interval/count=500µs).
+	clock.now = 1_000_000_000
 	q.dropping = true
 	q.count = 2
 	q.dropNextNs = clock.now
@@ -626,18 +627,19 @@ func TestCoDelQueue_Easing_TimerDecaysCount(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock) // default base 2
 
-	// Put queue into an easing state: !dropping with count > 1.
+	// Put queue into an easing state: !dropping with count > 1, armed and due.
 	// step = floor(log2(100)/2) = floor(3.32) = 3 → 100 - 3 = 97.
+	clock.now = 1_000_000_000
 	q.dropping = false
 	q.count = 100
-	q.dropNextNs = 0 // past due
+	q.dropNextNs = clock.now // armed, due now
 
 	dropFn := func() bool { return false }
 
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
 
-	assert.True(t, q.dropping, "re-arm re-marks dropping (guilty until proven innocent)")
+	assert.False(t, q.dropping, "empty droppable queue: nothing to drop, stays healthy while easing")
 	assert.Equal(t, 97, q.count, "count should decay by floor(log2(100)/2) = 3")
 	assert.True(t, rec.scheduled, "timer should re-arm to continue easing")
 }
@@ -650,9 +652,10 @@ func TestCoDelQueue_Easing_LogBase(t *testing.T) {
 		cfg := defaultTestConfig()
 		cfg.EasingLogBase = func() float64 { return base }
 		q, _ := newTestQueue(cfg, clock)
+		clock.now = 1_000_000_000
 		q.dropping = false
 		q.count = count
-		q.dropNextNs = 0
+		q.dropNextNs = clock.now // armed, due now
 		q.lockedRunTimer(func() bool { return false })
 		return q.count
 	}
@@ -671,9 +674,10 @@ func TestCoDelQueue_Easing_DefaultBase(t *testing.T) {
 	cfg.EasingLogBase = nil // unset → defaults to 3
 	q, _ := newTestQueue(cfg, clock)
 
+	clock.now = 1_000_000_000
 	q.dropping = false
 	q.count = 100
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now // armed, due now
 
 	q.lockedRunTimer(func() bool { return false })
 
@@ -687,9 +691,10 @@ func TestCoDelQueue_Easing_FloorsAtOne(t *testing.T) {
 	q, rec := newTestQueue(cfg, clock)
 
 	// log2(2)=1 / 2 = 0.5 → floor 0 → step floored to 1 → 2 - 1 = 1.
+	clock.now = 1_000_000_000
 	q.dropping = false
 	q.count = 2
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now // armed, due now
 
 	rec.scheduled = false
 	q.lockedRunTimer(func() bool { return false })
@@ -702,9 +707,10 @@ func TestCoDelQueue_Easing_TimerStopsAtCountOne(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 
+	clock.now = 1_000_000_000
 	q.dropping = false
 	q.count = 2
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now // armed, due now
 
 	dropFn := func() bool { return false }
 
@@ -801,17 +807,20 @@ func TestCoDelQueue_Easing_DroppingToHealthy_TimerStillFires(t *testing.T) {
 	cfg.TargetNs = func() int64 { return 500_000 }
 	q, rec := newTestQueue(cfg, clock)
 
-	// Start in dropping with high count, no droppable entries
-	q.dropping = true
+	// Easing with a high count and no droppable entries, armed and due. dropping
+	// is false: a prior grant met target (or the queue drained), so this interval
+	// is presumed healthy and only decays count.
+	clock.now = 1_000_000_000
+	q.dropping = false
 	q.count = 16
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now // armed, due now
 
-	// Timer fires with droppableLen==0 → should start easing
+	// Timer fires with droppableLen==0 → nothing to drop, so it eases.
 	dropFn := func() bool { return false }
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
 
-	assert.True(t, q.dropping, "re-arm re-marks dropping; next fire re-evaluates health")
+	assert.False(t, q.dropping, "empty droppable queue: nothing to drop, eases toward healthy")
 	assert.Equal(t, 14, q.count, "should decay count by floor(log2(16)/2) = 2")
 	assert.True(t, rec.scheduled, "timer should re-arm for easing continuation")
 }
@@ -822,10 +831,11 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 	cfg.IntervalNs = func() int64 { return 1_000_000_000 }
 	q, rec := newTestQueue(cfg, clock)
 
-	// Start dropping with count=16, no droppable entries. dropNextNs is seeded
-	// to now so the first fire is on time; each iteration then advances by
-	// exactly the scheduled delay so the timer fires on schedule.
-	q.dropping = true
+	// Easing from count=16, no droppable entries. dropping is false (presumed
+	// healthy: a grant met target or the queue drained), so each fire only
+	// decays count. dropNextNs is seeded to now so the first fire is on time;
+	// each iteration then advances by exactly the scheduled delay.
+	q.dropping = false
 	q.count = 16
 	clock.now = 1_000_000_000
 	q.dropNextNs = clock.now
@@ -846,7 +856,7 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 		prev = q.count
 
 		if q.count > 1 {
-			assert.True(t, q.dropping, "iteration %d: re-arm re-marks dropping", i)
+			assert.False(t, q.dropping, "iteration %d: empty queue eases, stays healthy", i)
 			assert.True(t, rec.scheduled, "iteration %d: timer should re-arm", i)
 		} else {
 			assert.False(t, q.dropping, "final: count==1, not re-armed, stays healthy")
@@ -942,22 +952,26 @@ func TestCoDelQueue_Easing_DisarmsAtCountOneWithBacklog(t *testing.T) {
 	clock := newTestClock()
 	q, rec := newTestQueue(defaultTriggerGatedConfig(), clock)
 
-	// Easing state at count 2 with droppable backlog present.
+	// Easing state at count 2 with a droppable backlog whose head has NOT yet
+	// crossed the trigger (enqueued at the current time), so the monitor will
+	// watch rather than immediately re-arm when count reaches 1.
+	clock.now = 1_000_000_000
 	testEnqueue(q, 0)
 	testEnqueue(q, 0)
 	assert.Equal(t, 2, q.droppableLen)
 
-	// Transition to easing: set dropping=false, count=2, and prepare for next decay
+	// Transition to easing: set dropping=false, count=2, armed and due.
 	q.dropping = false
 	q.count = 2
-	q.dropNextNs = 0
+	q.dropNextNs = clock.now // armed, due now
 
 	rec.reset()
 	q.lockedRunTimer(func() bool { return false })
 
 	// count eases to 1; drop episode ends despite the backlog.
 	// In gated mode the monitor re-arms to watch the head, but the drop
-	// episode itself is over (dropping=false, count=1).
+	// episode itself is over (dropping=false, count=1) — the head has not
+	// crossed the trigger yet.
 	assert.Equal(t, 1, q.count)
 	assert.False(t, q.dropping, "drop episode must end at count==1 even with a backlog")
 }
@@ -1155,10 +1169,12 @@ func TestCoDelQueue_DropMode_FlipToSlowStartMidEpisode(t *testing.T) {
 	require.True(t, q.dropping)
 	require.Greater(t, q.count, 1)
 
-	// Flip the mode to slow-start mid-episode. The next fire must not get stuck:
-	// the re-arm tail (droppableLen>0 || count>1) keeps the timer armed while a
-	// backlog remains, so dropping continues coherently.
+	// Flip the mode to slow-start mid-episode and advance to the next due drop.
+	// The fire must not get stuck: the re-arm tail (droppableLen>0 || count>1)
+	// keeps the timer armed while a backlog remains, so dropping continues
+	// coherently.
 	mode = DropSlowStart
+	clock.now = q.dropNextNs // advance to when the next drop is due
 	rec.reset()
 	q.lockedRunTimer(func() bool { return false })
 	assert.True(t, rec.scheduled, "re-arm tail keeps the timer armed with a backlog")
@@ -1261,6 +1277,7 @@ func TestCoDelQueue_Grace_SuppressesDropWhileBelowThreshold(t *testing.T) {
 	cfg.GraceCount = func() int { return 3 }
 	q, _ := newTestQueue(cfg, clock)
 
+	clock.now = 1_000_000_000
 	for range 8 {
 		testEnqueue(q, 0)
 	}
@@ -1286,6 +1303,7 @@ func TestCoDelQueue_Grace_DropsOnceCountReachesThreshold(t *testing.T) {
 	cfg.GraceCount = func() int { return 3 }
 	q, _ := newTestQueue(cfg, clock)
 
+	clock.now = 1_000_000_000
 	for range 8 {
 		testEnqueue(q, 0)
 	}

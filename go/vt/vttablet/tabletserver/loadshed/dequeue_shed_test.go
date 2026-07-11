@@ -69,7 +69,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	before := q.droppableLen
 	for i := 0; i < backlog+2; i++ {
 		rec.reset()
-		q.lockedDequeue(dropAllFn(q))
+		q.lockedRunTimer(dropAllFn(q))
 		clock.advance(1_000_000_000) // keep drops due each cycle
 	}
 
