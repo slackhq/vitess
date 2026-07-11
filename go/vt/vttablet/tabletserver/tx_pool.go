@@ -259,7 +259,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 			unlock, snakeErr := tp.snake.Acquire(ctx, valveID, snakePriority)
 			if snakeErr != nil {
 				tp.limiter.Release(immediateCaller, effectiveCaller)
-				return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed: %v", snakeErr)
+				return nil, "", "", errDMLLoadShed
 			}
 			snakeRelease = func() { unlock.Release() }
 		}
