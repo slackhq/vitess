@@ -511,15 +511,19 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 	// count and end the episode, otherwise the queue never returns to healthy.
 	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) {
 		// Dropping: actively shed load.
+		dropped := q.dropping
 		if q.dropping {
 			// Grace period: while count < GraceCount the head is not actually
 			// dropped, but the count ramp and timer pacing proceed as usual.
 			if q.count >= q.graceCount() {
-				dropFn()
+				dropped = dropFn()
 			}
-			q.count++
-			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
-		} else {
+			if dropped {
+				q.count++
+				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
+			}
+		}
+		if !dropped {
 			// System is healthy this interval — continue easing down.
 			q.count = q.lockedEaseCount()
 			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
