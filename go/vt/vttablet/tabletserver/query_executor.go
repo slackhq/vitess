@@ -90,6 +90,14 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+
+	// errLoadShed and errDMLLoadShed are pre-built so that a load-shed rejection
+	// — an expected, high-volume outcome under overload — does not call
+	// vterrors.Errorf per shed, which captures a stack trace (runtime.Callers)
+	// and allocates. The underlying snake error is a constant
+	// (*loadshed.DroppedRequestError), so no per-request detail is lost.
+	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
+	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -866,7 +874,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		}
 		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
 		if err != nil {
-			return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)
+			return nil, nil, errLoadShed
 		}
 		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
 		if err != nil {
