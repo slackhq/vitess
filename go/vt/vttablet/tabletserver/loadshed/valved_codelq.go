@@ -238,18 +238,11 @@ func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 }
 
 // lockedRunTimer runs the CoDel drop logic, finding and dropping the
-// lowest-priority request and triggering valve promotion.
+// lowest-priority request and triggering valve promotion. It is driven both by
+// the backstop timer and synchronously from the release/dequeue path, so
+// shedding tracks target as slots free rather than waiting for the timer.
 func (q *ValvedCoDelQueue) lockedRunTimer() {
 	q.codelq.lockedRunTimer(q.lockedDropFn())
-}
-
-// lockedDequeue runs the full CoDel drop logic synchronously from the
-// release/dequeue path so shedding (including starting/re-establishing an
-// episode) is driven as slots free, rather than waiting on the backstop timer.
-// Paced work only runs when a drop is due; it is a cheap no-op on a healthy,
-// idle queue.
-func (q *ValvedCoDelQueue) lockedDequeue() {
-	q.codelq.lockedDequeue(q.lockedDropFn())
 }
 
 func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {
