@@ -39,8 +39,7 @@ func TestCoDelQueue_Advance_NoSpinWhenDropFails(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.IntervalNs = func() int64 { return 100_000_000 } // 100ms, prod default
 	cfg.Exponent = func() float64 { return 1 }
-	keep := true
-	cfg.KeepLastDroppable = func() bool { return keep }
+	cfg.KeepDroppableFloor = func() int { return 1 }
 	q := newValvedCoDelQueue(cfg, clockFn, func(int64) {}, func() {})
 
 	// A single droppable request keep-last will refuse to drop, with an OLD

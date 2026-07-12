@@ -76,6 +76,9 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"SlotIdleNanosTotal", "Cumulative time-integral of unfilled Snake capacity ((capacity-holders)*elapsed) in nanoseconds; backend concurrency left idle by the gate", func() int64 {
 		return s.SlotIdleNanos()
 	})
+	exporter.NewCounterFunc(prefix+"ShedBelowCapacityCount", "Cumulative requests shed by Snake CoDel while the semaphore had a free slot (holders < capacity); counterproductive drops the keep-droppable floor is meant to prevent", func() int64 {
+		return s.ShedBelowCapacityCount()
+	})
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
 		return s.DroppingNanos()
 	})

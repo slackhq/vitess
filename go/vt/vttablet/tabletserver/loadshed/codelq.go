@@ -188,12 +188,15 @@ type (
 		// (count >= 1 always, so the head is always eligible to drop).
 		GraceCount func() int
 
-		// KeepLastDroppable, when it returns true, forbids dropping the last
-		// remaining droppable request (droppableLen <= 1): a warm request is kept
-		// queued so a freeing slot has something to grant instead of going idle.
-		// Nil or false: drop as usual. Experimental knob for the semaphore-
-		// underfill hypothesis.
-		KeepLastDroppable func() bool
+		// KeepDroppableFloor returns a floor N below which droppable requests are
+		// not shed: while droppableLen <= N the drop is refused, keeping a reserve
+		// of warm requests queued so freeing slots have something to grant instead
+		// of underfilling the semaphore. The guard only engages in the queue's
+		// near-empty troughs — under a real backlog (droppableLen > N) shedding is
+		// unchanged. N=1 is the original keep-last behavior; larger N sizes the
+		// reserve to cover the grants consumable during a scheduling gap. Nil or
+		// <= 0: drop as usual. Knob for the semaphore-underfill hypothesis.
+		KeepDroppableFloor func() int
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
@@ -667,8 +670,14 @@ func (q *CoDelQueue) graceCount() int {
 	return q.cfg.GraceCount()
 }
 
-func (q *CoDelQueue) keepLastDroppable() bool {
-	return q.cfg.KeepLastDroppable != nil && q.cfg.KeepLastDroppable()
+// keepDroppableFloor returns the configured droppable floor: while droppableLen
+// is at or below it, the shed is refused. Nil-safe; 0 (or negative) disables the
+// floor.
+func (q *CoDelQueue) keepDroppableFloor() int {
+	if q.cfg.KeepDroppableFloor == nil {
+		return 0
+	}
+	return q.cfg.KeepDroppableFloor()
 }
 
 // armsOnEnqueue reports whether a droppable enqueue arms the timer immediately

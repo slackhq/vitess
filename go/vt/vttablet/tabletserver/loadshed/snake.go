@@ -87,6 +87,12 @@ type (
 		// the semaphore). A high rate suggests the gate is shedding/draining too
 		// aggressively and starving the downstream pool of work.
 		underfillCount atomic.Int64
+		// shedBelowCapacityCount counts requests shed while the semaphore had a
+		// free slot (holders < capacity). Shedding then is counterproductive: the
+		// backend is not the bottleneck, and the dropped request was one that could
+		// have filled the idle slot. It is the direct evidence for sizing the
+		// keep-droppable floor — the drops it would have prevented.
+		shedBelowCapacityCount atomic.Int64
 
 		sojourn      *stats.Histogram
 		queueLen     *stats.Histogram
@@ -352,14 +358,15 @@ func (s *Snake) IsHealthy() bool {
 
 // SnakeStats is a point-in-time snapshot of Snake's internal state.
 type SnakeStats struct {
-	QueueLen        int
-	DroppableLen    int
-	HolderCount     int
-	Dropping        bool
-	DropCount       int
-	CurrentInterval int64 // ns
-	UnderfillCount  int64
-	SlotIdleNanos   int64
+	QueueLen               int
+	DroppableLen           int
+	HolderCount            int
+	Dropping               bool
+	DropCount              int
+	CurrentInterval        int64 // ns
+	UnderfillCount         int64
+	SlotIdleNanos          int64
+	ShedBelowCapacityCount int64
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -367,14 +374,15 @@ func (s *Snake) Stats() SnakeStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return SnakeStats{
-		QueueLen:        s.q.codelq.lockedLen(),
-		DroppableLen:    s.q.codelq.droppableLen,
-		HolderCount:     len(s.holders),
-		Dropping:        s.q.codelq.dropping,
-		DropCount:       s.q.codelq.count,
-		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
-		UnderfillCount:  s.underfillCount.Load(),
-		SlotIdleNanos:   s.lockedSlotIdleNanos(),
+		QueueLen:               s.q.codelq.lockedLen(),
+		DroppableLen:           s.q.codelq.droppableLen,
+		HolderCount:            len(s.holders),
+		Dropping:               s.q.codelq.dropping,
+		DropCount:              s.q.codelq.count,
+		CurrentInterval:        s.q.codelq.lockedCurrentInterval(),
+		UnderfillCount:         s.underfillCount.Load(),
+		SlotIdleNanos:          s.lockedSlotIdleNanos(),
+		ShedBelowCapacityCount: s.shedBelowCapacityCount.Load(),
 	}
 }
 
@@ -443,7 +451,17 @@ func (s *Snake) releaseOnCancel(req *Request) {
 func (s *Snake) lockedCompleteAndShed(req *Request) {
 	s.q.lockedComplete(req)
 	if s.q.lockedNeedsAdvance() {
+		// This runs on the release path, after the freed slot has been removed
+		// from holders, so hasCapacity() is true here: any drop this pass sheds a
+		// request while a slot sits open to grant it. Attribute those drops to
+		// shed-below-capacity — the counterproductive shedding the keep-droppable
+		// floor is meant to prevent. droppedTotal counts real drops only, so valve
+		// promotion during the pass cannot mask the delta.
+		before := s.q.lockedDroppedTotal()
 		s.q.lockedRunTimer()
+		if dropped := s.q.lockedDroppedTotal() - before; dropped > 0 && s.hasCapacity() {
+			s.shedBelowCapacityCount.Add(dropped)
+		}
 	}
 }
 
@@ -593,6 +611,13 @@ func (s *Snake) ShedCount() int64 {
 // no waiter to grant and went idle.
 func (s *Snake) UnderfillCount() int64 {
 	return s.underfillCount.Load()
+}
+
+// ShedBelowCapacityCount returns the cumulative number of requests shed while
+// the semaphore had a free slot (holders < capacity) — counterproductive drops
+// the keep-droppable floor is meant to prevent.
+func (s *Snake) ShedBelowCapacityCount() int64 {
+	return s.shedBelowCapacityCount.Load()
 }
 
 // SlotIdleNanos returns the cumulative time-integral of unfilled capacity

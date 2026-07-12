@@ -234,7 +234,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
 	fs.DurationVar(&currentConfig.LoadshedMinDropDelay, "loadshed-min-drop-delay", defaultConfig.LoadshedMinDropDelay, "CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm.")
 	fs.BoolVar(&currentConfig.LoadshedPerCPUIntake, "loadshed-percpu-intake", defaultConfig.LoadshedPerCPUIntake, "If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.")
-	fs.BoolVar(&currentConfig.LoadshedKeepLast, "loadshed-keep-last", defaultConfig.LoadshedKeepLast, "If true, the load shedder never drops the last remaining droppable request, keeping a warm request queued so a freeing slot has something to grant instead of going idle.")
+	fs.IntVar(&currentConfig.LoadshedKeepDroppableFloor, "loadshed-keep-droppable-floor", defaultConfig.LoadshedKeepDroppableFloor, "Number of droppable requests the load shedder keeps as a warm reserve: while the droppable backlog is at or below this floor, drops are refused so a freeing slot has something to grant instead of going idle. 0 disables (drop as usual); 1 is keep-last; larger values size the reserve to cover grants consumable during a scheduling gap.")
 	fs.BoolVar(&currentConfig.LoadshedYieldOnGrant, "loadshed-yield-on-grant", defaultConfig.LoadshedYieldOnGrant, "If true, a releasing goroutine yields (runtime.Gosched) right after granting the next waiter, handing the CPU to the just-woken request before writing its own response. Favors starting the next request over finishing the released one; only helps under contention.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
@@ -403,17 +403,17 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedEnabled      bool          `json:"-"`
-	LoadshedTarget       time.Duration `json:"-"`
-	LoadshedInterval     time.Duration `json:"-"`
-	LoadshedExponent     float64       `json:"-"`
-	LoadshedDropMode     string        `json:"-"`
-	LoadshedTrigger      time.Duration `json:"-"`
-	LoadshedGraceCount   int           `json:"-"`
-	LoadshedMinDropDelay time.Duration `json:"-"`
-	LoadshedPerCPUIntake bool          `json:"-"`
-	LoadshedKeepLast     bool          `json:"-"`
-	LoadshedYieldOnGrant bool          `json:"-"`
+	LoadshedEnabled            bool          `json:"-"`
+	LoadshedTarget             time.Duration `json:"-"`
+	LoadshedInterval           time.Duration `json:"-"`
+	LoadshedExponent           float64       `json:"-"`
+	LoadshedDropMode           string        `json:"-"`
+	LoadshedTrigger            time.Duration `json:"-"`
+	LoadshedGraceCount         int           `json:"-"`
+	LoadshedMinDropDelay       time.Duration `json:"-"`
+	LoadshedPerCPUIntake       bool          `json:"-"`
+	LoadshedKeepDroppableFloor int           `json:"-"`
+	LoadshedYieldOnGrant       bool          `json:"-"`
 	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
 	// whose queries are marked undroppable by the load shedder, so low-volume
 	// health-check/monitoring traffic against them is never shed. Matched
@@ -1171,17 +1171,17 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedEnabled:      true,
-	LoadshedTarget:       5 * time.Millisecond,
-	LoadshedInterval:     100 * time.Millisecond,
-	LoadshedExponent:     1.0,
-	LoadshedDropMode:     "slow",
-	LoadshedTrigger:      0,
-	LoadshedGraceCount:   1,
-	LoadshedMinDropDelay: time.Millisecond,
-	LoadshedPerCPUIntake: false,
-	LoadshedKeepLast:     false,
-	LoadshedYieldOnGrant: false,
+	LoadshedEnabled:            true,
+	LoadshedTarget:             5 * time.Millisecond,
+	LoadshedInterval:           100 * time.Millisecond,
+	LoadshedExponent:           1.0,
+	LoadshedDropMode:           "slow",
+	LoadshedTrigger:            0,
+	LoadshedGraceCount:         1,
+	LoadshedMinDropDelay:       time.Millisecond,
+	LoadshedPerCPUIntake:       false,
+	LoadshedKeepDroppableFloor: 0,
+	LoadshedYieldOnGrant:       false,
 	// System schemas are queried by health checks/monitoring, which are
 	// low-volume and must succeed; default to marking them undroppable.
 	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},

@@ -221,7 +221,7 @@ Flags:
       --loadshed-exponent float                                          CoDel control law exponent for the load shedder. (default 1)
       --loadshed-grace-count int                                         CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period. (default 1)
       --loadshed-interval duration                                       CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target. (default 100ms)
-      --loadshed-keep-last                                               If true, the load shedder never drops the last remaining droppable request, keeping a warm request queued so a freeing slot has something to grant instead of going idle.
+      --loadshed-keep-droppable-floor int                                Number of droppable requests the load shedder keeps as a warm reserve: while the droppable backlog is at or below this floor, drops are refused so a freeing slot has something to grant instead of going idle. 0 disables (drop as usual); 1 is keep-last; larger values size the reserve to cover grants consumable during a scheduling gap.
       --loadshed-min-drop-delay duration                                 CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm. (default 1ms)
       --loadshed-percpu-intake                                           If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.
       --loadshed-target duration                                         CoDel target delay for the load shedder. (default 5ms)

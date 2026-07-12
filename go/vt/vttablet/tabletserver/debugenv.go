@@ -197,8 +197,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedMinDropDelay = d })
 	case "LoadshedPerCPUIntake":
 		err = setBoolVal(func(b bool) { tsv.Config().LoadshedPerCPUIntake = b })
-	case "LoadshedKeepLast":
-		err = setBoolVal(func(b bool) { tsv.Config().LoadshedKeepLast = b })
+	case "LoadshedKeepDroppableFloor":
+		err = setIntVal(func(v int) { tsv.Config().LoadshedKeepDroppableFloor = v })
 	case "LoadshedYieldOnGrant":
 		err = setBoolVal(func(b bool) { tsv.Config().LoadshedYieldOnGrant = b })
 	case "LoadshedUndroppableSchemas":
@@ -267,7 +267,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "LoadshedGraceCount", func() int { return tsv.Config().LoadshedGraceCount })
 	vars = addVar(vars, "LoadshedMinDropDelay", func() time.Duration { return tsv.Config().LoadshedMinDropDelay })
 	vars = addVar(vars, "LoadshedPerCPUIntake", func() bool { return tsv.Config().LoadshedPerCPUIntake })
-	vars = addVar(vars, "LoadshedKeepLast", func() bool { return tsv.Config().LoadshedKeepLast })
+	vars = addVar(vars, "LoadshedKeepDroppableFloor", func() int { return tsv.Config().LoadshedKeepDroppableFloor })
 	vars = addVar(vars, "LoadshedYieldOnGrant", func() bool { return tsv.Config().LoadshedYieldOnGrant })
 	vars = append(vars, envValue{
 		Name:  "LoadshedUndroppableSchemas",

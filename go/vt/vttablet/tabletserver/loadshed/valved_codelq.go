@@ -101,6 +101,13 @@ type (
 		// entry in the CoDel queue.
 		droppablePerValve map[string]*Request
 
+		// droppedTotal is a monotonic count of requests actually shed (via
+		// lockedDrop). Snake reads it as a delta around a drop pass to attribute
+		// drops to system state (e.g. whether a slot was free). It counts real
+		// drops only, so valve promotion re-enqueuing a droppable successor during
+		// the same pass does not mask it — a droppableLen delta would.
+		droppedTotal int64
+
 		// pendingSignals collects requests that lockedDrop marked (signaledValue
 		// set) but whose channel send is deferred until the queue mutex is
 		// released. Draining the goready storm outside the lock keeps grants and
@@ -205,6 +212,7 @@ func (q *ValvedCoDelQueue) lockedComplete(req *Request) {
 }
 
 func (q *ValvedCoDelQueue) lockedDrop(req *Request) {
+	q.droppedTotal++
 	q.codelq.lockedRemove(req)
 	// Mark the rejection under the lock (so under-lock readers see signaledValue
 	// immediately) but defer the channel send: it goreadys the parked Acquire
@@ -227,6 +235,11 @@ func (q *ValvedCoDelQueue) lockedTakePendingSignals() []*Request {
 	pending := q.pendingSignals
 	q.pendingSignals = nil
 	return pending
+}
+
+// lockedDroppedTotal returns the monotonic count of requests actually shed.
+func (q *ValvedCoDelQueue) lockedDroppedTotal() int64 {
+	return q.droppedTotal
 }
 
 // lockedCancel cancels a request. If it's in the CoDel queue, it removes it
@@ -252,9 +265,10 @@ func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
 // valve successor.
 func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 	return func() bool {
-		// Keep-last: refuse to drop the final droppable request so a freeing slot
-		// has a warm request to grant instead of underfilling the semaphore.
-		if q.codelq.keepLastDroppable() && q.codelq.droppableLen <= 1 {
+		// Keep-droppable floor: refuse to drop while the droppable backlog is at or
+		// below the floor, keeping a reserve of warm requests so freeing slots have
+		// something to grant instead of underfilling the semaphore.
+		if floor := q.codelq.keepDroppableFloor(); floor > 0 && q.codelq.droppableLen <= floor {
 			return false
 		}
 		elem := q.codelq.lockedFindLowestPriorityDroppable()

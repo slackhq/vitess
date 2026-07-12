@@ -20,15 +20,16 @@ import (
 )
 
 var (
-	easingLogBase *float64
-	dropMode      *string
-	triggerMs     *int
-	graceCount    *int
-	mixedPriority *bool
-	busyThreads   *int
-	perCPUIntake  *bool
-	yieldOnGrant  *bool
-	mutexProfile  *string
+	easingLogBase      *float64
+	dropMode           *string
+	triggerMs          *int
+	graceCount         *int
+	keepDroppableFloor *int
+	mixedPriority      *bool
+	busyThreads        *int
+	perCPUIntake       *bool
+	yieldOnGrant       *bool
+	mutexProfile       *string
 )
 
 // startBusyThreads pins n goroutines to OS threads and spins them at normal
@@ -183,14 +184,15 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 		Name:     "bench",
 		Capacity: func() int { return capacity },
 		CoDel: loadshed.CoDelConfig{
-			TargetNs:       func() int64 { return int64(targetMs) * 1_000_000 },
-			IntervalNs:     func() int64 { return int64(intervalMs) * 1_000_000 },
-			MinDropDelayNs: func() int64 { return 1_000_000 },
-			Exponent:       func() float64 { return 1 },
-			EasingLogBase:  func() float64 { return *easingLogBase },
-			DropMode:       func() loadshed.CoDelDropMode { return parseDropMode(*dropMode) },
-			TriggerNs:      func() int64 { return int64(*triggerMs) * 1_000_000 },
-			GraceCount:     func() int { return *graceCount },
+			TargetNs:           func() int64 { return int64(targetMs) * 1_000_000 },
+			IntervalNs:         func() int64 { return int64(intervalMs) * 1_000_000 },
+			MinDropDelayNs:     func() int64 { return 1_000_000 },
+			Exponent:           func() float64 { return 1 },
+			EasingLogBase:      func() float64 { return *easingLogBase },
+			DropMode:           func() loadshed.CoDelDropMode { return parseDropMode(*dropMode) },
+			TriggerNs:          func() int64 { return int64(*triggerMs) * 1_000_000 },
+			GraceCount:         func() int { return *graceCount },
+			KeepDroppableFloor: func() int { return *keepDroppableFloor },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 		PerCPUIntake:        func() bool { return *perCPUIntake },
@@ -341,8 +343,8 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	final := snake.Stats()
 	idleMs := float64(final.SlotIdleNanos) / 1e6
 	slotMs := float64(capacity) * float64(durationMs)
-	fmt.Printf("  BACKEND yield=%v: slotIdle=%.0fms (%.1f%% of %d slot-seconds) underfill=%d\n",
-		*yieldOnGrant, idleMs, 100*idleMs/slotMs, capacity, final.UnderfillCount)
+	fmt.Printf("  BACKEND yield=%v floor=%d: slotIdle=%.0fms (%.1f%% of %d slot-seconds) underfill=%d shedBelowCap=%d\n",
+		*yieldOnGrant, *keepDroppableFloor, idleMs, 100*idleMs/slotMs, capacity, final.UnderfillCount, final.ShedBelowCapacityCount)
 
 	return events, stats
 }
@@ -374,6 +376,7 @@ func main() {
 	dropMode = flag.String("drop-mode", "slow", "Drop mode: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses trigger), or both")
 	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
 	graceCount = flag.Int("grace-count", 1, "Grace count: suppress the head drop while count < this (1 = disabled)")
+	keepDroppableFloor = flag.Int("keep-droppable-floor", 0, "Keep-droppable floor: refuse drops while droppableLen <= this, keeping a warm reserve so freeing slots have something to grant (0 = disabled, 1 = keep-last)")
 	mixedPriority = flag.Bool("mixed-priority", false, "Issue requests with uniform priorities in [0,100] instead of all 0, so the lowest-priority drop lookup does not hit the priority-0 early exit")
 	busyThreads = flag.Int("busy-threads", 0, "Number of normal-priority CPU-spinning threads to run for the benchmark duration, to starve the scheduler and make the drop timer fire late")
 	perCPUIntake = flag.Bool("percpu-intake", false, "Enable the per-CPU intake staging path (reduces Snake mutex contention under load)")
