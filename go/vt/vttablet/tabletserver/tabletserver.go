@@ -624,6 +624,14 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	return optionsPriority
 }
 
+// snakePriorityFromOptions reads the proto priority and inverts it into Snake's
+// convention. Vitess proto priority runs 0 (most important) to MaxPriorityValue
+// (least important); Snake sheds the lowest value first, so we flip it: the most
+// important query gets the highest Snake priority and is shed last.
+func snakePriorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) float64 {
+	return float64(sqlparser.MaxPriorityValue - priorityFromOptions(options, defaultPriority))
+}
+
 // resolveTargetType returns the appropriate target tablet type for a
 // TabletServer request. If the caller has a local context then it's
 // an internal request and the target is the local tablet's current
