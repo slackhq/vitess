@@ -66,6 +66,7 @@ type (
 		interval     *stats.Histogram
 		dropCount    *stats.Histogram
 		timerLag     *stats.Histogram
+		valveDepth   *stats.Histogram
 
 		droppingNanos   int64
 		droppingSinceNs int64
@@ -100,6 +101,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
 		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
+		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
@@ -108,6 +110,10 @@ func NewSnake(cfg SnakeConfig) *Snake {
 func (s *Snake) lockedObserveLengths() {
 	s.queueLen.Add(int64(s.q.lockedLen()))
 	s.droppableLen.Add(int64(s.q.lockedDroppableLen()))
+}
+
+func (s *Snake) lockedObserveValveDepth(valveID string) {
+	s.valveDepth.Add(int64(s.q.lockedValveDepth(valveID)))
 }
 
 func (s *Snake) capacity() int {
@@ -137,6 +143,9 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
+	if valveID != "" {
+		s.lockedObserveValveDepth(valveID)
+	}
 
 	if s.hasCapacity() && req.codelqElem != nil {
 		s.lockedGrant(req)
