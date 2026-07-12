@@ -63,7 +63,7 @@ func TestPublishStats_RegistersCountersAndHistograms(t *testing.T) {
 	for _, name := range []string{"ShedCount", "DroppingNanosTotal"} {
 		assert.Contains(t, exp.counters, "SnakeOltpRead"+name)
 	}
-	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved", "DropTimerLagNs"} {
+	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved", "DropTimerLagNs", "ValveDepthObserved"} {
 		assert.Contains(t, exp.histograms, "SnakeOltpRead"+name)
 	}
 }
@@ -84,8 +84,8 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
 	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")
 	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount +
-	// timerLag, per snake.
-	assert.Len(t, exp.histograms, 14, "expected 7 histograms per snake, two snakes")
+	// timerLag + valveDepth, per snake.
+	assert.Len(t, exp.histograms, 16, "expected 8 histograms per snake, two snakes")
 }
 
 func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
@@ -240,6 +240,57 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 	require.NoError(t, unlock.Release())
 	assert.Greater(t, queueLen.Count(), beforeQueue, "release should record another queue-length observation")
 	assert.Greater(t, holderCount.Count(), beforeHolder, "release should record another holder-count observation")
+}
+
+func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig()) // capacity 1
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+
+	valveDepth := exp.histograms["SnakeOltpReadValveDepthObserved"]
+	require.NotNil(t, valveDepth)
+	assert.Equal(t, int64(0), valveDepth.Count(), "no observations before any acquire")
+
+	// Occupy the single slot with an empty-valve acquire. This also covers the
+	// exclusion rule: an empty valve ID bypasses the valve and is not observed.
+	holder, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), valveDepth.Count(), "empty valve ID should not record a valve-depth observation")
+
+	// With the slot occupied, a valve-keyed acquire cannot be granted, so it
+	// waits in the CoDel queue as valve "v"'s droppable representative. Its
+	// enqueue records depth 0 (nothing stacked behind it yet). The observation
+	// is synchronous inside Acquire before it blocks, so wait for the count.
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := s.Acquire(t.Context(), "v", 0)
+		errCh <- err
+	}()
+	assert.Eventually(t, func() bool { return valveDepth.Count() == 1 }, 2*time.Second, time.Millisecond,
+		"valve-keyed representative enqueue should record a depth observation")
+	assert.Equal(t, int64(0), valveDepth.Total(), "first valve entry becomes the representative, depth 0")
+
+	// A second acquire on the same valve ID stacks behind the representative
+	// and records depth 1.
+	go func() {
+		_, err := s.Acquire(t.Context(), "v", 0)
+		errCh <- err
+	}()
+	assert.Eventually(t, func() bool { return valveDepth.Count() == 2 }, 2*time.Second, time.Millisecond,
+		"stacked valve entry should record a second depth observation")
+	assert.Equal(t, int64(1), valveDepth.Total(), "second same-valve entry stacks at depth 1")
+
+	// Release the holder so the queued "v" entries drain and the goroutines
+	// return. Whether each is granted or shed by CoDel is irrelevant here — this
+	// is teardown; the depth observations above are the assertions under test.
+	require.NoError(t, holder.Release())
+	for range 2 {
+		select {
+		case <-errCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("queued goroutine did not return")
+		}
+	}
 }
 
 func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T) {
