@@ -621,7 +621,6 @@ func getWorkload(directives *CommentDirectives) string {
 	return workloadName
 }
 
-// getLoadshedValveId gets the load shedder valve ID from the provided directives, using DirectiveLoadshedValveId.
 func getLoadshedValveId(directives *CommentDirectives) string {
 	valveID, _ := directives.GetString(DirectiveLoadshedValveId, "")
 	return valveID
