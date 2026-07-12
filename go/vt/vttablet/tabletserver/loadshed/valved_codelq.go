@@ -137,6 +137,10 @@ func (q *ValvedCoDelQueue) lockedLen() int {
 	return q.codelq.lockedLen()
 }
 
+func (q *ValvedCoDelQueue) lockedValveDepth(valveID string) int {
+	return len(q.valves[valveID])
+}
+
 // lockedIsHealthy reports whether the CoDel queue is healthy.
 func (q *ValvedCoDelQueue) lockedIsHealthy() bool {
 	return q.codelq.lockedIsHealthy()
