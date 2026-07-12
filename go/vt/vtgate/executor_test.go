@@ -1852,8 +1852,8 @@ func TestGetPlanLoadshedValveId(t *testing.T) {
 		{name: "no valve ID", sql: "select * from music_user_map", expectedValveID: ""},
 	}
 
-	// A single session is reused across cases so a query without the directive
-	// must not inherit the prior query's valve ID.
+	// A single session is reused across cases so we also cover the clear-on-empty
+	// path: a query without the directive must not inherit the prior query's valve ID.
 	session := econtext.NewSafeSession(&vtgatepb.Session{TargetString: "@unknown", Options: &querypb.ExecuteOptions{}})
 
 	for _, aTestCase := range testCases {

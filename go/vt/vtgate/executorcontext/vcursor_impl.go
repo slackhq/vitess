@@ -1176,7 +1176,11 @@ func (vc *VCursorImpl) SetPriority(priority string) {
 }
 
 func (vc *VCursorImpl) SetLoadshedValveId(valveID string) {
-	vc.SafeSession.GetOrCreateOptions().LoadshedValveId = valveID
+	if valveID != "" {
+		vc.SafeSession.GetOrCreateOptions().LoadshedValveId = valveID
+	} else if vc.SafeSession.Options != nil && vc.SafeSession.Options.LoadshedValveId != "" {
+		vc.SafeSession.Options.LoadshedValveId = ""
+	}
 }
 
 func (vc *VCursorImpl) SetExecQueryTimeout(timeout *int) {
