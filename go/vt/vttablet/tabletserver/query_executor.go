@@ -855,9 +855,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	snake := qre.tsv.qe.snake
 	if snake != nil {
 		valveID := qre.options.GetLoadshedValveId()
-		// Translate the Vitess proto priority (0 = most important) into
-		// Snake's convention (higher priority shed last).
-		snakePriority := float64(sqlparser.MaxPriorityValue - qre.tsv.getPriorityFromOptions(qre.options))
+		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
 		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
 		if err != nil {
 			return nil, nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed: %v", err)

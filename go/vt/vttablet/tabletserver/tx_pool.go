@@ -256,10 +256,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 
 		if tp.snake != nil {
 			valveID := options.GetLoadshedValveId()
-			// Translate the Vitess proto priority (0 = most important) into
-			// Snake's convention (higher priority shed last).
-			protoPriority := priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)
-			snakePriority := float64(sqlparser.MaxPriorityValue - protoPriority)
+			snakePriority := snakePriorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)
 			unlock, snakeErr := tp.snake.Acquire(ctx, valveID, snakePriority)
 			if snakeErr != nil {
 				tp.limiter.Release(immediateCaller, effectiveCaller)
