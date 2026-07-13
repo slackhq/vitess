@@ -18,9 +18,11 @@ package tabletserver
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -126,4 +128,67 @@ func TestDebugEnvDropModeWiredToGate(t *testing.T) {
 	mode, err := loadshed.ParseDropMode(tsv.Config().LoadshedDropMode)
 	require.NoError(t, err)
 	assert.Equal(t, loadshed.DropJumpStart, mode)
+}
+
+// TestDebugEnvGCSettings verifies the GOGC / GOMEMLIMIT knobs apply to the Go
+// runtime and read back through the GET listing. GC settings are process-global,
+// so the original values are restored on cleanup.
+func TestDebugEnvGCSettings(t *testing.T) {
+	origGOGC := debug.SetGCPercent(-1)    // read + disable
+	debug.SetGCPercent(origGOGC)          // restore immediately
+	origLimit := debug.SetMemoryLimit(-1) // read current
+	t.Cleanup(func() {
+		debug.SetGCPercent(origGOGC)
+		debug.SetMemoryLimit(origLimit)
+	})
+
+	tsv := newDebugEnvTabletServer(t)
+
+	getVar := func(name string) string {
+		for _, v := range getVars(tsv) {
+			if v.Name == name {
+				return v.Value
+			}
+		}
+		return ""
+	}
+
+	// GOGC: set and confirm both the runtime and the GET listing reflect it.
+	postVar(t, tsv, "GOGC", "250")
+	assert.Equal(t, 250, debug.SetGCPercent(250), "SetGCPercent should report 250 as the previous value")
+	assert.Equal(t, "250", getVar("GOGC"), "GET listing should show the new GOGC")
+
+	// GOMEMLIMIT: a human size parses to bytes and reads back as a human size.
+	postVar(t, tsv, "GOMEMLIMIT", "512MiB")
+	assert.Equal(t, int64(512*1024*1024), debug.SetMemoryLimit(-1), "soft memory limit should be 512MiB in bytes")
+	assert.Equal(t, "512 MiB", getVar("GOMEMLIMIT"), "GET listing should render GOMEMLIMIT as a human size")
+
+	// "off" restores the default (no soft limit).
+	postVar(t, tsv, "GOMEMLIMIT", "off")
+	assert.Equal(t, int64(math.MaxInt64), debug.SetMemoryLimit(-1), "off restores the default (no soft limit)")
+	assert.Equal(t, "off", getVar("GOMEMLIMIT"))
+}
+
+// TestDebugEnvGCSettingsInvalid rejects bad GC input without mutating the runtime.
+func TestDebugEnvGCSettingsInvalid(t *testing.T) {
+	origGOGC := debug.SetGCPercent(-1)
+	debug.SetGCPercent(origGOGC)
+	t.Cleanup(func() { debug.SetGCPercent(origGOGC) })
+
+	tsv := newDebugEnvTabletServer(t)
+
+	for _, tc := range []struct{ name, value string }{
+		{"GOGC", "0"},
+		{"GOGC", "-5"},
+		{"GOGC", "notanint"},
+		{"GOMEMLIMIT", "notasize"},
+	} {
+		form := url.Values{"varname": {tc.name}, "value": {tc.value}}
+		r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		handlePost(tsv, w, r)
+		assert.Equalf(t, http.StatusBadRequest, w.Code, "%s=%s should be rejected", tc.name, tc.value)
+	}
+	assert.Equal(t, origGOGC, debug.SetGCPercent(origGOGC), "invalid input must not mutate GOGC")
 }

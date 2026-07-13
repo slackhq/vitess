@@ -21,11 +21,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"math"
 	"net/http"
+	"runtime/debug"
+	"runtime/metrics"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/google/safehtml/template"
 
 	"vitess.io/vitess/go/acl"
@@ -222,6 +226,39 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 			tsv.Config().LoadshedDropMode = v
 			return nil
 		})
+	case "GOGC":
+		// Process-global Go GC target percent. >0 sets the heap-growth target;
+		// values <= 0 are rejected here to avoid accidentally disabling GC via the
+		// UI (use GOMEMLIMIT for a soft cap instead).
+		err = setStringVal(func(v string) error {
+			pct, perr := strconv.Atoi(v)
+			if perr != nil {
+				return fmt.Errorf("invalid GOGC %q: %v", v, perr)
+			}
+			if pct <= 0 {
+				return fmt.Errorf("GOGC must be > 0, got %d", pct)
+			}
+			debug.SetGCPercent(pct)
+			return nil
+		})
+	case "GOMEMLIMIT":
+		// Process-global Go soft memory limit. Accepts a human size (e.g. 13GiB,
+		// 500MiB) or a raw byte count; "off" (or 0) restores the default (no soft
+		// limit, math.MaxInt64).
+		err = setStringVal(func(v string) error {
+			var limit int64
+			if v == "off" || v == "0" {
+				limit = math.MaxInt64
+			} else {
+				n, perr := humanize.ParseBytes(v)
+				if perr != nil {
+					return fmt.Errorf("invalid GOMEMLIMIT %q: %v", v, perr)
+				}
+				limit = int64(n)
+			}
+			debug.SetMemoryLimit(limit)
+			return nil
+		})
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -281,7 +318,36 @@ func getVars(tsv *TabletServer) []envValue {
 		Value: tsv.ConsolidatorMode(),
 	})
 
+	// Go runtime GC knobs, read live from runtime/metrics so the values reflect
+	// whatever the environment (GOGC/GOMEMLIMIT) set at startup plus any /debug/env
+	// override. GOMEMLIMIT is rendered as a human size; math.MaxInt64 means "no
+	// soft limit" (the default).
+	gogc, gomemlimit := readGCSettings()
+	vars = addVar(vars, "GOGC", func() int { return gogc })
+	memLimitStr := "off"
+	if gomemlimit != math.MaxInt64 {
+		memLimitStr = humanize.IBytes(uint64(gomemlimit))
+	}
+	vars = append(vars, envValue{Name: "GOMEMLIMIT", Value: memLimitStr})
+
 	return vars
+}
+
+// readGCSettings reads the current Go GC target percent and soft memory limit
+// from runtime/metrics. gomemlimit is math.MaxInt64 when no soft limit is set.
+func readGCSettings() (gogc int, gomemlimit int64) {
+	samples := []metrics.Sample{
+		{Name: "/gc/gogc:percent"},
+		{Name: "/gc/gomemlimit:bytes"},
+	}
+	metrics.Read(samples)
+	if samples[0].Value.Kind() == metrics.KindUint64 {
+		gogc = int(samples[0].Value.Uint64())
+	}
+	if samples[1].Value.Kind() == metrics.KindUint64 {
+		gomemlimit = int64(samples[1].Value.Uint64())
+	}
+	return gogc, gomemlimit
 }
 
 func respondWithJSON(w http.ResponseWriter, vars []envValue, msg string) {
