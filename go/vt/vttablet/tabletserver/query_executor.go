@@ -148,6 +148,10 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
 
+		// Split timings by result code so successful-request latency (errCode "OK")
+		// can be measured apart from fast-failing shed rejections (RESOURCE_EXHAUSTED).
+		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
+
 		if reply == nil {
 			qre.tsv.qe.AddStats(qre.plan, tableName, qre.options.GetWorkloadName(), qre.targetTabletType, 1, duration, mysqlTime, 0, 0, 1, errCode)
 			qre.plan.AddStats(1, duration, mysqlTime, 0, 0, 1)
