@@ -201,6 +201,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setIntVal(func(v int) { tsv.Config().LoadshedKeepDroppableFloor = v })
 	case "LoadshedYieldOnGrant":
 		err = setBoolVal(func(b bool) { tsv.Config().LoadshedYieldOnGrant = b })
+	case "LoadshedYieldOnDrop":
+		err = setBoolVal(func(b bool) { tsv.Config().LoadshedYieldOnDrop = b })
 	case "LoadshedUndroppableSchemas":
 		err = setStringVal(func(v string) error {
 			var schemas []string
@@ -269,6 +271,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "LoadshedPerCPUIntake", func() bool { return tsv.Config().LoadshedPerCPUIntake })
 	vars = addVar(vars, "LoadshedKeepDroppableFloor", func() int { return tsv.Config().LoadshedKeepDroppableFloor })
 	vars = addVar(vars, "LoadshedYieldOnGrant", func() bool { return tsv.Config().LoadshedYieldOnGrant })
+	vars = addVar(vars, "LoadshedYieldOnDrop", func() bool { return tsv.Config().LoadshedYieldOnDrop })
 	vars = append(vars, envValue{
 		Name:  "LoadshedUndroppableSchemas",
 		Value: strings.Join(tsv.Config().LoadshedUndroppableSchemas, ","),

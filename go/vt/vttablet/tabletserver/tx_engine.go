@@ -139,6 +139,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 			LoadsheddingAllowed: func() bool { return true },
 			PerCPUIntake:        func() bool { return config.LoadshedPerCPUIntake },
 			YieldOnGrant:        func() bool { return config.LoadshedYieldOnGrant },
+			YieldOnDrop:         func() bool { return config.LoadshedYieldOnDrop },
 		})
 		loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
 	}

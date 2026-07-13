@@ -54,6 +54,17 @@ type (
 		// the next request over finishing the response write of the one that just
 		// released. Only helps under contention; nil/false ⇒ no yield.
 		YieldOnGrant func() bool
+
+		// YieldOnDrop, when it returns true, makes a dropped (shed) request call
+		// runtime.Gosched() right after it wakes and reads its DroppedRequestError,
+		// before returning the rejection up through gRPC. A shed request is already
+		// rejected, so delaying its error delivery costs nothing we care about;
+		// yielding donates its scheduling turn to critical-path goroutines (query
+		// execution, response writers, the next grantee). Under CPU saturation the
+		// wakeups of batch-dropped requests are the single largest consumer of
+		// scheduler run-queue time; this deprioritizes that throwaway work. Only
+		// helps under contention; nil/false ⇒ no yield.
+		YieldOnDrop func() bool
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -196,6 +207,11 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 	select {
 	case val := <-req.signalChan:
 		if val != grantSentinel {
+			// Shed: this goroutine was woken only to deliver a rejection. Optionally
+			// yield first so its scheduling turn goes to critical-path work instead
+			// (query execution, response writers, the next grantee) — the batch-drop
+			// wakeups are the dominant scheduler-delay source under saturation.
+			s.maybeYieldOnDrop()
 			return nil, s.acquireError()
 		}
 		return &SafeUnlock{s: s, req: req}, nil
@@ -501,6 +517,15 @@ func (s *Snake) lockedFinishRelease() (granted bool) {
 // after s.mu is released.
 func (s *Snake) maybeYieldOnGrant(granted bool) {
 	if granted && s.cfg.YieldOnGrant != nil && s.cfg.YieldOnGrant() {
+		runtime.Gosched()
+	}
+}
+
+// maybeYieldOnDrop yields this (shed) goroutine's scheduling turn when YieldOnDrop
+// is enabled, so throwaway rejection delivery is deprioritized under contention.
+// Called from Acquire after the drop signal is read and s.mu is not held.
+func (s *Snake) maybeYieldOnDrop() {
+	if s.cfg.YieldOnDrop != nil && s.cfg.YieldOnDrop() {
 		runtime.Gosched()
 	}
 }

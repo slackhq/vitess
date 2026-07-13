@@ -29,6 +29,7 @@ var (
 	busyThreads        *int
 	perCPUIntake       *bool
 	yieldOnGrant       *bool
+	yieldOnDrop        *bool
 	mutexProfile       *string
 )
 
@@ -197,6 +198,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 		LoadsheddingAllowed: func() bool { return true },
 		PerCPUIntake:        func() bool { return *perCPUIntake },
 		YieldOnGrant:        func() bool { return *yieldOnGrant },
+		YieldOnDrop:         func() bool { return *yieldOnDrop },
 	})
 
 	totalDuration := time.Duration(durationMs) * time.Millisecond
@@ -381,6 +383,7 @@ func main() {
 	busyThreads = flag.Int("busy-threads", 0, "Number of normal-priority CPU-spinning threads to run for the benchmark duration, to starve the scheduler and make the drop timer fire late")
 	perCPUIntake = flag.Bool("percpu-intake", false, "Enable the per-CPU intake staging path (reduces Snake mutex contention under load)")
 	yieldOnGrant = flag.Bool("yield-on-grant", false, "Yield (runtime.Gosched) after granting on release, handing the CPU to the just-woken request before writing the response")
+	yieldOnDrop = flag.Bool("yield-on-drop", false, "Yield (runtime.Gosched) when a shed request wakes to deliver its rejection, donating its scheduling turn to critical-path work")
 	mutexProfile = flag.String("mutexprofile", "", "Write a mutex contention profile to this path (enables runtime.SetMutexProfileFraction)")
 
 	// Custom single-workload flags. When -profile is set, the workload described
