@@ -243,7 +243,15 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 }
 
 func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
-	s := newTestSnake(defaultSnakeConfig()) // capacity 1
+	// Fast CoDel timing so that at teardown the queued valve entries are shed
+	// promptly (the drop fires on the control-law interval). The default 1s
+	// interval would not drain them within the teardown window — the depth
+	// observations under test are unaffected by the timing.
+	cfg := defaultSnakeConfig() // capacity 1
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	s := newTestSnake(cfg)
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 
