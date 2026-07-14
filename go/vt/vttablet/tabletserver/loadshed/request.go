@@ -67,11 +67,32 @@ func (r *Request) isDroppable() bool {
 }
 
 // Pass grantSentinel on grant and *DroppedRequestError on drop. Must be called
-// exactly once per request.
+// exactly once per request. signal marks and sends in one step; use it only
+// where the caller holds no lock across the send, or the send is single-shot
+// (grant, cancel). Batch paths mark under the lock and send after (see
+// markSignaled / sendSignal).
 func (r *Request) signal(val error) {
+	r.markSignaled(val)
+	r.sendSignal()
+}
+
+// markSignaled records the request's terminal outcome without touching the
+// channel. It is safe (and intended) to call under the queue mutex: all
+// under-lock readers key off signaledValue, so it must be set synchronously.
+// Returns true if this call performed the nil->set transition, so the caller can
+// enqueue the deferred send exactly once. Panics on a second distinct signal.
+func (r *Request) markSignaled(val error) bool {
 	if r.signaledValue != nil {
 		panic("loadshed: signal called more than once")
 	}
 	r.signaledValue = val
-	r.signalChan <- val
+	return true
+}
+
+// sendSignal delivers the previously-marked value on the request's channel. It
+// performs the goready of the parked Acquire goroutine, so batch drop paths call
+// it AFTER releasing the queue mutex to keep the wakeup storm out of the critical
+// section. Must be called exactly once, after markSignaled.
+func (r *Request) sendSignal() {
+	r.signalChan <- r.signaledValue
 }
