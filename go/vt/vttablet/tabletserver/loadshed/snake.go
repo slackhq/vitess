@@ -101,6 +101,11 @@ type (
 		// the benchmark build a Snake without it); the shed path nil-checks. Its
 		// sum equals shedCount.
 		shedByPriority *stats.CountersWithMultiLabels
+		// acquireByPriority counts every Acquire, labeled by the same caller
+		// priority as shedByPriority, so shed rate per priority class can be
+		// computed exactly (shedByPriority / acquireByPriority) rather than from
+		// assumed offered-load weights. Nil until PublishStats registers it.
+		acquireByPriority *stats.CountersWithMultiLabels
 		// underfillCount increments each time a release frees a slot but there is
 		// no waiter to grant it to, so the slot goes idle (the queue underfilled
 		// the semaphore). A high rate suggests the gate is shedding/draining too
@@ -206,6 +211,10 @@ func (s *Snake) hasCapacity() bool {
 // less important requests. Lower values are shed first.
 func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
 	priority = s.priority(priority)
+
+	if s.acquireByPriority != nil {
+		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+	}
 
 	req, granted := s.admit(valveID, priority)
 	if granted {
@@ -672,12 +681,15 @@ func (s *Snake) acquireError(priority float64) error {
 	return &DroppedRequestError{}
 }
 
-// shedPriorityLabel maps a request priority to its shed-metric label: the
-// integer priority in [0, maxPriorityBucket], else "overflow" (non-integer,
-// out-of-range, or the PriorityUndroppable sentinel).
+// shedPriorityLabel maps a request's internal Snake priority to its shed-metric
+// label, reported as the ORIGINAL caller priority (the value passed to the query,
+// where 0 is most important) rather than the internal Snake value. The caller
+// inverts on the way in (snake = maxPriorityBucket - caller, so lower Snake value
+// sheds first); we invert back here so the label matches what was passed in.
+// Out-of-range/non-integer/PriorityUndroppable values fall in "overflow".
 func shedPriorityLabel(priority float64) string {
 	if b := bucketFor(priority); b >= 0 {
-		return strconv.Itoa(b)
+		return strconv.Itoa(maxPriorityBucket - b)
 	}
 	return "overflow"
 }

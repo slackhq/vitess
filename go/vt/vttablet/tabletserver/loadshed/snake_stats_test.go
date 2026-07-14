@@ -18,6 +18,7 @@ package loadshed
 
 import (
 	"context"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -157,15 +158,21 @@ func TestPublishStats_ShedByPriorityLabelsDrops(t *testing.T) {
 	PublishStats(exp, "SnakeOltpRead", s)
 	shedByPriority := exp.multiCounters["SnakeOltpReadShedByPriority"]
 	require.NotNil(t, shedByPriority)
+	acquireByPriority := exp.multiCounters["SnakeOltpReadAcquireByPriority"]
+	require.NotNil(t, acquireByPriority)
 
-	// Hold the slot, then pile on contenders at priority 7 so CoDel sheds some.
-	unlock, err := s.Acquire(t.Context(), "", 7)
+	// Hold the slot, then pile on contenders at Snake priority 7 so CoDel sheds
+	// some. Acquire takes the internal Snake priority; the metric reports the
+	// caller priority, so Snake 7 is labeled maxPriorityBucket-7 = "93".
+	const snakePri = 7
+	wantLabel := strconv.Itoa(maxPriorityBucket - snakePri) // "93"
+	unlock, err := s.Acquire(t.Context(), "", snakePri)
 	require.NoError(t, err)
 
 	errCh := make(chan error, 5)
 	for range 5 {
 		go func() {
-			_, aerr := s.Acquire(t.Context(), "", 7)
+			_, aerr := s.Acquire(t.Context(), "", snakePri)
 			errCh <- aerr
 		}()
 	}
@@ -186,8 +193,14 @@ func TestPublishStats_ShedByPriorityLabelsDrops(t *testing.T) {
 	require.Greater(t, dropped, 0, "CoDel should have dropped some requests")
 
 	counts := shedByPriority.Counts()
-	assert.Equal(t, int64(dropped), counts["7"], "all sheds were priority 7, so the \"7\" label holds them all")
-	assert.Equal(t, s.ShedCount(), counts["7"], "per-priority breakdown sums to the scalar ShedCount")
+	assert.Equal(t, int64(dropped), counts[wantLabel], "all sheds were one priority, labeled by the caller value")
+	assert.Equal(t, s.ShedCount(), counts[wantLabel], "per-priority breakdown sums to the scalar ShedCount")
+
+	// Every Acquire (the initial holder + the 5 contenders) is counted under the
+	// same priority label, including the ones that were granted, not just shed.
+	acquires := acquireByPriority.Counts()
+	assert.Equal(t, int64(6), acquires[wantLabel], "all 6 acquires counted at the caller priority label")
+	assert.GreaterOrEqual(t, acquires[wantLabel], counts[wantLabel], "acquires per priority is the denominator; sheds are a subset")
 }
 
 func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {

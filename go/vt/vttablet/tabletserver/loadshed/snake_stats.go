@@ -71,7 +71,8 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
-	s.shedByPriority = exporter.NewCountersWithMultiLabels(prefix+"ShedByPriority", "Cumulative requests shed by the Snake load shedder, labeled by request priority (\"0\"..\"100\", \"overflow\"); sum equals ShedCount", []string{"Priority"})
+	s.shedByPriority = exporter.NewCountersWithMultiLabels(prefix+"ShedByPriority", "Cumulative requests shed by the Snake load shedder, labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); sum equals ShedCount", []string{"priority"})
+	s.acquireByPriority = exporter.NewCountersWithMultiLabels(prefix+"AcquireByPriority", "Cumulative Acquire attempts (offered load) labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); ShedByPriority/AcquireByPriority is the per-priority shed rate", []string{"priority"})
 	exporter.NewCounterFunc(prefix+"UnderfillCount", "Cumulative times a released Snake slot found no waiter and went idle (semaphore underfill)", func() int64 {
 		return s.UnderfillCount()
 	})
