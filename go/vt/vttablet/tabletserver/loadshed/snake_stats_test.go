@@ -32,14 +32,16 @@ import (
 // PublishStats so the test can invoke them directly, without touching global
 // stats registration.
 type fakeExporter struct {
-	counters   map[string]func() int64
-	histograms map[string]*stats.Histogram
+	counters      map[string]func() int64
+	histograms    map[string]*stats.Histogram
+	multiCounters map[string]*stats.CountersWithMultiLabels
 }
 
 func newFakeExporter() *fakeExporter {
 	return &fakeExporter{
-		counters:   make(map[string]func() int64),
-		histograms: make(map[string]*stats.Histogram),
+		counters:      make(map[string]func() int64),
+		histograms:    make(map[string]*stats.Histogram),
+		multiCounters: make(map[string]*stats.CountersWithMultiLabels),
 	}
 }
 
@@ -52,6 +54,12 @@ func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.H
 	h := stats.NewHistogram("", help, cutoffs)
 	e.histograms[name] = h
 	return h
+}
+
+func (e *fakeExporter) NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels {
+	c := stats.NewCountersWithMultiLabels("", help, labels)
+	e.multiCounters[name] = c
+	return c
 }
 
 func TestPublishStats_RegistersCountersAndHistograms(t *testing.T) {
@@ -133,6 +141,53 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 	}
 	require.Greater(t, dropped, 0, "CoDel should have dropped some requests")
 	assert.Equal(t, int64(dropped), shedGauge(), "shed counter should equal the number of dropped requests")
+}
+
+// TestPublishStats_ShedByPriorityLabelsDrops verifies sheds are attributed to
+// the shed request's priority label, and that the per-priority counts sum to the
+// scalar ShedCount.
+func TestPublishStats_ShedByPriorityLabelsDrops(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
+	cfg.CoDel.TargetNs = func() int64 { return 1 }
+	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	s := newTestSnake(cfg)
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	shedByPriority := exp.multiCounters["SnakeOltpReadShedByPriority"]
+	require.NotNil(t, shedByPriority)
+
+	// Hold the slot, then pile on contenders at priority 7 so CoDel sheds some.
+	unlock, err := s.Acquire(t.Context(), "", 7)
+	require.NoError(t, err)
+
+	errCh := make(chan error, 5)
+	for range 5 {
+		go func() {
+			_, aerr := s.Acquire(t.Context(), "", 7)
+			errCh <- aerr
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	unlock.Release()
+
+	dropped := 0
+	for range 5 {
+		select {
+		case aerr := <-errCh:
+			if aerr != nil {
+				dropped++
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("goroutine did not return")
+		}
+	}
+	require.Greater(t, dropped, 0, "CoDel should have dropped some requests")
+
+	counts := shedByPriority.Counts()
+	assert.Equal(t, int64(dropped), counts["7"], "all sheds were priority 7, so the \"7\" label holds them all")
+	assert.Equal(t, s.ShedCount(), counts["7"], "per-priority breakdown sums to the scalar ShedCount")
 }
 
 func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {

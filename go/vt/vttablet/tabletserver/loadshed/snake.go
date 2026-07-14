@@ -20,6 +20,7 @@ import (
 	"context"
 	"log"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,6 +94,13 @@ type (
 		clockFunc           func() int64
 
 		shedCount atomic.Int64
+		// shedByPriority breaks shedCount down by the shed request's priority label
+		// ("0".."100", "overflow"), so operators can see whether the gate is
+		// correctly shedding low-priority traffic first rather than eating
+		// high-priority requests. Nil until PublishStats registers it (tests and
+		// the benchmark build a Snake without it); the shed path nil-checks. Its
+		// sum equals shedCount.
+		shedByPriority *stats.CountersWithMultiLabels
 		// underfillCount increments each time a release frees a slot but there is
 		// no waiter to grant it to, so the slot goes idle (the queue underfilled
 		// the semaphore). A high rate suggests the gate is shedding/draining too
@@ -212,7 +220,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 			// (query execution, response writers, the next grantee) — the batch-drop
 			// wakeups are the dominant scheduler-delay source under saturation.
 			s.maybeYieldOnDrop()
-			return nil, s.acquireError()
+			return nil, s.acquireError(req.priority)
 		}
 		return &SafeUnlock{s: s, req: req}, nil
 
@@ -653,12 +661,25 @@ func (s *Snake) priority(priority float64) float64 {
 	return priority
 }
 
-func (s *Snake) acquireError() error {
+func (s *Snake) acquireError(priority float64) error {
 	s.shedCount.Add(1)
+	if s.shedByPriority != nil {
+		s.shedByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+	}
 	if s.cfg.AcquireError != nil {
 		return s.cfg.AcquireError()
 	}
 	return &DroppedRequestError{}
+}
+
+// shedPriorityLabel maps a request priority to its shed-metric label: the
+// integer priority in [0, maxPriorityBucket], else "overflow" (non-integer,
+// out-of-range, or the PriorityUndroppable sentinel).
+func shedPriorityLabel(priority float64) string {
+	if b := bucketFor(priority); b >= 0 {
+		return strconv.Itoa(b)
+	}
+	return "overflow"
 }
 
 // ShedCount returns the cumulative number of requests this Snake has shed.
