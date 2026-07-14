@@ -100,6 +100,14 @@ type (
 		// invariant that each nonempty valve always has exactly one droppable
 		// entry in the CoDel queue.
 		droppablePerValve map[string]*Request
+
+		// pendingSignals collects requests that lockedDrop marked (signaledValue
+		// set) but whose channel send is deferred until the queue mutex is
+		// released. Draining the goready storm outside the lock keeps grants and
+		// arrivals from serializing behind a large batch drop. The caller takes
+		// this slice before unlocking and sends each afterward (see
+		// lockedTakePendingSignals).
+		pendingSignals []*Request
 	}
 )
 
@@ -198,10 +206,27 @@ func (q *ValvedCoDelQueue) lockedComplete(req *Request) {
 
 func (q *ValvedCoDelQueue) lockedDrop(req *Request) {
 	q.codelq.lockedRemove(req)
+	// Mark the rejection under the lock (so under-lock readers see signaledValue
+	// immediately) but defer the channel send: it goreadys the parked Acquire
+	// goroutine, and doing that in a batch under s.mu is what serializes grants
+	// behind the drop storm. The caller drains pendingSignals after unlocking.
 	if req.signaledValue == nil {
-		req.signal(&DroppedRequestError{})
+		req.markSignaled(&DroppedRequestError{})
+		q.pendingSignals = append(q.pendingSignals, req)
 	}
 	q.lockedPromoteOnEvict(req)
+}
+
+// lockedTakePendingSignals hands off the requests marked-but-not-yet-sent by the
+// drop path, clearing the queue's reference. The caller must send each
+// (req.sendSignal()) AFTER releasing the queue mutex. Ownership transfers fully:
+// the buffer is set to nil (not truncated in place) so a concurrent drop pass
+// that re-appends under the lock cannot corrupt the slice the caller is draining
+// after unlocking.
+func (q *ValvedCoDelQueue) lockedTakePendingSignals() []*Request {
+	pending := q.pendingSignals
+	q.pendingSignals = nil
+	return pending
 }
 
 // lockedCancel cancels a request. If it's in the CoDel queue, it removes it

@@ -254,8 +254,14 @@ func (s *Snake) release(req *Request, excValue error) error {
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+	pending := s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
 
+	// Deliver drop rejections after releasing s.mu so the goready storm does not
+	// serialize grants/arrivals behind the batch.
+	for _, r := range pending {
+		r.sendSignal()
+	}
 	s.runReleaseCBs(excValue)
 	return nil
 }
@@ -268,7 +274,11 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+	pending := s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
+	for _, r := range pending {
+		r.sendSignal()
+	}
 }
 
 // lockedCompleteAndShed unlinks the released request and, when an episode is
@@ -424,5 +434,11 @@ func (s *Snake) runDropTimer() {
 	s.dropCount.Add(int64(s.q.lockedCount()))
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+	pending := s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
+	// Deliver drop rejections after releasing s.mu so the goready storm does not
+	// serialize grants/arrivals behind the batch.
+	for _, r := range pending {
+		r.sendSignal()
+	}
 }

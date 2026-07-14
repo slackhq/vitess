@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // dropAll is the standard test dropFn: sheds the lowest-priority droppable head.
@@ -75,4 +76,63 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 
 	assert.Less(t, q.droppableLen, before, "dequeue path must shed stale waiters without a timer fire")
 	assert.Zero(t, q.droppableLen, "sustained dequeue under overload should drain the stale backlog")
+}
+
+// TestValved_Drop_DefersSignalOutsideLock asserts the deferral contract: a batch
+// drop pass MARKS each dropped request (signaledValue set, so under-lock readers
+// see it) but does NOT send on its channel — the sends are collected in
+// pendingSignals and delivered only when the caller drains them (mirroring the
+// send-after-unlock in Snake). This keeps the goready storm out of the critical
+// section.
+func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+	// Fast target/interval so drops are due immediately once armed.
+	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
+	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
+
+	// A backlog of distinct-valve droppable requests (distinct valves so each is
+	// its own droppable representative and all are eligible to shed).
+	const backlog = 5
+	reqs := make([]*Request, backlog)
+	for i := range reqs {
+		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
+	}
+	require.True(t, sq.codelq.dropping, "first droppable enqueue arms an episode")
+
+	// Seed a due, ramped episode and advance well past the deadline so the pass
+	// sheds the whole backlog in one lockedRunTimer call.
+	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.dropNextNs = 1
+	clock.advance(1_000_000_000)
+
+	sq.lockedRunTimer()
+
+	// Every shed request is MARKED under the lock...
+	dropped := 0
+	for _, r := range reqs {
+		if r.signaledValue != nil {
+			dropped++
+			// ...but NOT yet sent: its buffered channel is still empty.
+			assert.Empty(t, r.signalChan, "drop must not send on the channel under the lock")
+		}
+	}
+	require.Positive(t, dropped, "the pass should have shed some requests")
+
+	// The marked requests are queued for deferred delivery.
+	pending := sq.lockedTakePendingSignals()
+	assert.Len(t, pending, dropped, "every marked drop is queued for deferred send")
+	assert.Nil(t, sq.lockedTakePendingSignals(), "taking again yields nothing (ownership transferred)")
+
+	// Delivering the deferred signals sends exactly the drop error to each waiter.
+	for _, r := range pending {
+		r.sendSignal()
+		select {
+		case v := <-r.signalChan:
+			_, isDrop := v.(*DroppedRequestError)
+			assert.True(t, isDrop, "deferred send delivers the drop rejection")
+		default:
+			t.Fatal("sendSignal did not deliver on the channel")
+		}
+	}
 }
