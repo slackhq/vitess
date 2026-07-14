@@ -439,8 +439,11 @@ func (s *Snake) release(req *Request, excValue error) error {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	granted := s.lockedFinishRelease()
+	granted, pending := s.lockedFinishRelease()
 
+	for _, r := range pending {
+		r.sendSignal()
+	}
 	s.maybeYieldOnGrant(granted)
 	s.runReleaseCBs(excValue)
 	return nil
@@ -454,7 +457,10 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	granted := s.lockedFinishRelease()
+	granted, pending := s.lockedFinishRelease()
+	for _, r := range pending {
+		r.sendSignal()
+	}
 	s.maybeYieldOnGrant(granted)
 }
 
@@ -494,9 +500,12 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 // drained requests are ours exclusively (drain removed them from the shards), so
 // admitting them after re-locking cannot strand or double-process them even if
 // another releaser interleaves.
-// lockedFinishRelease returns whether it granted the next waiter, so the caller
-// can optionally yield the P to the just-woken grantee (see YieldOnGrant).
-func (s *Snake) lockedFinishRelease() (granted bool) {
+// lockedFinishRelease returns whether it granted the next waiter (so the caller
+// can optionally yield the P to the just-woken grantee, see YieldOnGrant) and the
+// drop rejections marked during the shed pass whose channel send was deferred.
+// The caller must send each (r.sendSignal()) after this returns — s.mu is already
+// released — so the goready storm stays out of the critical section.
+func (s *Snake) lockedFinishRelease() (granted bool, pending []*Request) {
 	if s.intake != nil && s.intake.pendingLen() > 0 && s.q.lockedFirstWaiting() == nil {
 		s.mu.Unlock()
 		staged := s.intake.drain()
@@ -506,8 +515,9 @@ func (s *Snake) lockedFinishRelease() (granted bool) {
 	granted = s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+	pending = s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
-	return granted
+	return granted, pending
 }
 
 // maybeYieldOnGrant hands this P to the just-granted waiter (already in the
