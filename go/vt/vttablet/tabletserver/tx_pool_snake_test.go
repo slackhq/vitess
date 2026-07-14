@@ -229,6 +229,38 @@ func TestTxPoolSnake_CapacityExhaustedShedsLoad(t *testing.T) {
 	c.Release(tx.TxCommit)
 }
 
+// TestTxPoolSnake_DirectReleaseFreesSlot covers the leak path: a connection that
+// acquired a Snake slot in Begin but is torn down via conn.Release() directly —
+// as the kill/shutdown/taint/renew-fail paths do — instead of through
+// Commit/Rollback (txComplete). The Snake slot must still be freed, or the gate
+// leaks holders until capacity is exhausted and all writes stall.
+func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
+	_, txPool, closer := setupWithSnake(t, 1)
+	defer closer()
+
+	ctx := context.Background()
+
+	// Fill the single slot.
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-1"}, false, 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn.TxProperties().SnakeRelease)
+
+	// Tear the connection down the "bypass" way: a direct Release, NOT via
+	// Commit/Rollback. This is what transactionKiller, Shutdown, and tainted-conn
+	// cleanup do. It must still free the Snake slot.
+	conn.Release(tx.ConnRelease)
+
+	// If the slot leaked, this Begin never gets granted and times out (shed).
+	shortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	conn2, _, _, err := txPool.Begin(shortCtx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	require.NoError(t, err, "slot must be freed by a direct Release; a leak would starve this Begin")
+	conn2.Unlock()
+	c, _ := txPool.GetAndLock(conn2.ReservedID(), "")
+	_, _ = txPool.Commit(ctx, c)
+	c.Release(tx.TxCommit)
+}
+
 func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
 	// Standard setup without snake — verify no panic.
 	_, txPool, _, closer := setup(t)
