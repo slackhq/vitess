@@ -439,12 +439,17 @@ func (s *Snake) release(req *Request, excValue error) error {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	granted, pending := s.lockedFinishRelease()
+	grantedReq, pending := s.lockedFinishRelease()
 
+	// Send drop rejections first, then the grant LAST so the grantee keeps the
+	// runnext slot (a trailing drop goready would evict it).
 	for _, r := range pending {
 		r.sendSignal()
 	}
-	s.maybeYieldOnGrant(granted)
+	if grantedReq != nil {
+		grantedReq.sendSignal()
+	}
+	s.maybeYieldOnGrant(grantedReq != nil)
 	s.runReleaseCBs(excValue)
 	return nil
 }
@@ -457,11 +462,15 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
 	s.lockedCompleteAndShed(req)
-	granted, pending := s.lockedFinishRelease()
+	grantedReq, pending := s.lockedFinishRelease()
+	// Drops first, grant last — keep the grantee in the runnext slot.
 	for _, r := range pending {
 		r.sendSignal()
 	}
-	s.maybeYieldOnGrant(granted)
+	if grantedReq != nil {
+		grantedReq.sendSignal()
+	}
+	s.maybeYieldOnGrant(grantedReq != nil)
 }
 
 // lockedCompleteAndShed unlinks the released request and, when an episode is
@@ -500,24 +509,26 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 // drained requests are ours exclusively (drain removed them from the shards), so
 // admitting them after re-locking cannot strand or double-process them even if
 // another releaser interleaves.
-// lockedFinishRelease returns whether it granted the next waiter (so the caller
-// can optionally yield the P to the just-woken grantee, see YieldOnGrant) and the
-// drop rejections marked during the shed pass whose channel send was deferred.
-// The caller must send each (r.sendSignal()) after this returns — s.mu is already
-// released — so the goready storm stays out of the critical section.
-func (s *Snake) lockedFinishRelease() (granted bool, pending []*Request) {
+// lockedFinishRelease completes the release tail and releases s.mu. It returns
+// the drop rejections marked during the shed pass (pending) and the request
+// granted to the next waiter (grantedReq, nil if none). Both sends are deferred
+// out of the critical section; the caller MUST send the drops first and the
+// grant LAST, so the grantee lands in — and keeps — the scheduler runnext slot
+// (a following drop goready would otherwise evict it, losing the dequeue→grant
+// dispatch benefit).
+func (s *Snake) lockedFinishRelease() (grantedReq *Request, pending []*Request) {
 	if s.intake != nil && s.intake.pendingLen() > 0 && s.q.lockedFirstWaiting() == nil {
 		s.mu.Unlock()
 		staged := s.intake.drain()
 		s.mu.Lock()
 		s.lockedAdmitStaged(staged)
 	}
-	granted = s.lockedTryGrantOne()
+	grantedReq = s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending = s.q.lockedTakePendingSignals()
 	s.mu.Unlock()
-	return granted, pending
+	return grantedReq, pending
 }
 
 // maybeYieldOnGrant hands this P to the just-granted waiter (already in the
@@ -541,6 +552,16 @@ func (s *Snake) maybeYieldOnDrop() {
 }
 
 func (s *Snake) lockedGrant(req *Request) {
+	s.lockedMarkGranted(req) // marks signaledValue = grantSentinel
+	req.sendSignal()         // send the already-marked value (do not re-mark)
+}
+
+// lockedMarkGranted performs the grant bookkeeping (holder set, health check,
+// stats) and marks the request granted WITHOUT sending on its channel. Callers
+// that want the goready deferred (release path — so the grantee's runnext slot
+// is not clobbered by the drop wakeups that follow) call this and then
+// req.sendSignal() at the very end, after the drop sends. Must hold s.mu.
+func (s *Snake) lockedMarkGranted(req *Request) {
 	now := s.clockFunc()
 	// Accrue idle-slot time for the interval that just ended before this grant
 	// fills a slot (uses the pre-grant holder count).
@@ -550,7 +571,7 @@ func (s *Snake) lockedGrant(req *Request) {
 	s.q.lockedOnGrant(req)
 	s.lockedAccrueDropping(now)
 	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
-	req.signal(grantSentinel)
+	req.markSignaled(grantSentinel)
 }
 
 func (s *Snake) lockedObserveHolderCount() {
@@ -590,21 +611,25 @@ func (s *Snake) lockedAccrueDropping(now int64) {
 }
 
 // lockedTryGrantOne grants the next waiter if there is capacity and one is
-// waiting; it reports whether a grant was issued.
-func (s *Snake) lockedTryGrantOne() (granted bool) {
+// waiting. It marks the grant but does NOT send the signal: it returns the
+// granted request so the release path can send it LAST (after the drop
+// wakeups), so the grantee keeps the scheduler runnext slot instead of being
+// evicted from it by a following drop goready. Returns nil if nothing was
+// granted.
+func (s *Snake) lockedTryGrantOne() (grantedReq *Request) {
 	if !s.hasCapacity() {
-		return false
+		return nil
 	}
 	next := s.q.lockedFirstWaiting()
 	if next != nil {
-		s.lockedGrant(next)
-		return true
+		s.lockedMarkGranted(next)
+		return next
 	}
 	// A slot is free but no request is waiting to take it: the slot goes idle.
 	// Count this underfill so the load test can correlate idle downstream
 	// capacity with the gate draining faster than arrivals refill it.
 	s.underfillCount.Add(1)
-	return false
+	return nil
 }
 
 // runReleaseCBs executes release callbacks outside the mutex.
