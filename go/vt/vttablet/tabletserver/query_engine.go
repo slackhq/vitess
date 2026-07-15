@@ -257,6 +257,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 				DropMode:           func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
 				GraceCount:         func() int { return config.LoadshedGraceCount },
 				KeepDroppableFloor: func() int { return config.LoadshedKeepDroppableFloor },
+				MaxDropsPerFire:    func() int { return config.LoadshedMaxDropsPerFire },
 			},
 			// Track live pool capacity so runtime resizes keep the gate in sync.
 			// Capacity() is 0 until the pool opens; fall back to config until then.

@@ -235,6 +235,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.LoadshedMinDropDelay, "loadshed-min-drop-delay", defaultConfig.LoadshedMinDropDelay, "CoDel minimum delay between drop-timer fires for the load shedder. Floors how often the drop timer can re-arm.")
 	fs.BoolVar(&currentConfig.LoadshedPerCPUIntake, "loadshed-percpu-intake", defaultConfig.LoadshedPerCPUIntake, "If true, routes contended arrivals through per-CPU staging shards (off s.mu) to reduce mutex contention.")
 	fs.IntVar(&currentConfig.LoadshedKeepDroppableFloor, "loadshed-keep-droppable-floor", defaultConfig.LoadshedKeepDroppableFloor, "Number of droppable requests the load shedder keeps as a warm reserve: while the droppable backlog is at or below this floor, drops are refused so a freeing slot has something to grant instead of going idle. 0 disables (drop as usual); 1 is keep-last; larger values size the reserve to cover grants consumable during a scheduling gap.")
+	fs.IntVar(&currentConfig.LoadshedMaxDropsPerFire, "loadshed-max-drops-per-fire", defaultConfig.LoadshedMaxDropsPerFire, "Cap on how many requests the load shedder's CoDel control law may shed in a single advance. A late fire (deciding goroutine descheduled under CPU saturation) otherwise catches up through all missed intervals, shedding a large burst under one lock acquisition and inflating tail latency; this bounds that burst, deferring the remainder to later advances. 0 disables the cap (full catch-up).")
 	fs.BoolVar(&currentConfig.LoadshedYieldOnGrant, "loadshed-yield-on-grant", defaultConfig.LoadshedYieldOnGrant, "If true, a releasing goroutine yields (runtime.Gosched) right after granting the next waiter, handing the CPU to the just-woken request before writing its own response. Favors starting the next request over finishing the released one; only helps under contention.")
 	fs.BoolVar(&currentConfig.LoadshedYieldOnDrop, "loadshed-yield-on-drop", defaultConfig.LoadshedYieldOnDrop, "If true, a shed request yields (runtime.Gosched) right after waking to deliver its rejection, donating its scheduling turn to critical-path work (query execution, response writers, the next grantee). Deprioritizes throwaway drop-error delivery, which dominates scheduler run-queue time under saturation; only helps under contention.")
 	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
@@ -414,6 +415,7 @@ type TabletConfig struct {
 	LoadshedMinDropDelay       time.Duration `json:"-"`
 	LoadshedPerCPUIntake       bool          `json:"-"`
 	LoadshedKeepDroppableFloor int           `json:"-"`
+	LoadshedMaxDropsPerFire    int           `json:"-"`
 	LoadshedYieldOnGrant       bool          `json:"-"`
 	LoadshedYieldOnDrop        bool          `json:"-"`
 	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
@@ -1183,6 +1185,7 @@ var defaultConfig = TabletConfig{
 	LoadshedMinDropDelay:       time.Millisecond,
 	LoadshedPerCPUIntake:       false,
 	LoadshedKeepDroppableFloor: 0,
+	LoadshedMaxDropsPerFire:    0,
 	LoadshedYieldOnGrant:       false,
 	LoadshedYieldOnDrop:        false,
 	// System schemas are queried by health checks/monitoring, which are
