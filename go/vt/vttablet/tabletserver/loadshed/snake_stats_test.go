@@ -97,8 +97,8 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
 	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")
 	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount +
-	// timerLag + dropOvershoot + valveDepth, per snake.
-	assert.Len(t, exp.histograms, 18, "expected 9 histograms per snake, two snakes")
+	// timerLag + dropOvershoot + dropsPerFire + valveDepth, per snake.
+	assert.Len(t, exp.histograms, 20, "expected 10 histograms per snake, two snakes")
 }
 
 func TestPublishStats_ShedCountTracksDrops(t *testing.T) {

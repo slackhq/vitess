@@ -154,6 +154,13 @@ func (q *ValvedCoDelQueue) lockedLastDropOvershootNs() int64 {
 	return q.codelq.lastDropOvershootNs
 }
 
+// lockedLastDropsPerFire returns how many requests the most recent control-law
+// advance shed — the size of the shed burst under one lock acquisition. Zero if
+// it dropped nothing.
+func (q *ValvedCoDelQueue) lockedLastDropsPerFire() int {
+	return q.codelq.lastDropsPerFire
+}
+
 // lockedLen returns the number of requests in the CoDel queue.
 func (q *ValvedCoDelQueue) lockedLen() int {
 	return q.codelq.lockedLen()

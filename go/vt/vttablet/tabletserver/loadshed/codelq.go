@@ -197,6 +197,19 @@ type (
 		// reserve to cover the grants consumable during a scheduling gap. Nil or
 		// <= 0: drop as usual. Knob for the semaphore-underfill hypothesis.
 		KeepDroppableFloor func() int
+
+		// MaxDropsPerFire caps how many requests a single control-law advance may
+		// shed. The advance loop steps once per interval while a drop is due
+		// (now >= dropNextNs); on an on-time fire that is ~one step, but on a LATE
+		// fire — the deciding goroutine descheduled under CPU saturation — it
+		// catch-up-loops (now - dropNextNs)/interval times, draining the droppable
+		// queue in one burst (which underfills freeing slots and, once the
+		// low-priority supply is exhausted, sheds high-priority requests). This caps
+		// that burst: after N actual drops the advance returns, leaving dropNextNs
+		// where the control law put it so a later advance resumes the catch-up from
+		// there. Only real drops count against the cap; ease-out iterations (no
+		// backlog) are uncapped. Nil or <= 0: unlimited (prior catch-up behavior).
+		MaxDropsPerFire func() int
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
@@ -228,6 +241,14 @@ type (
 		// under CPU saturation delays shedding decisions. Zero when the pass was on
 		// time or no drop was due. Reset each lockedRunTimer call.
 		lastDropOvershootNs int64
+
+		// lastDropsPerFire is the number of requests shed by the most recent
+		// control-law advance (lockedRunTimer): ~1 on an on-time fire, but many when
+		// a late fire catch-up-loops through missed intervals. It is the size of the
+		// shed burst done under one lock acquisition — the tail-latency signal that
+		// MaxDropsPerFire bounds. Zero when the pass dropped nothing. Reset each
+		// lockedRunTimer call.
+		lastDropsPerFire int
 	}
 )
 
@@ -486,6 +507,7 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	now := q.nowNs()
 	q.lastDropOvershootNs = 0
+	q.lastDropsPerFire = 0
 
 	// Jump-start: while count==1 the timer is disarmed and only monitors the
 	// head's sojourn. (DropBoth is armed at count==1 and handled inline below.)
@@ -538,6 +560,12 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 // waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer
 // or run mode-specific jump/monitor logic; those remain the timer's job.
 func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
+	// Cap on actual drops per advance: on a late fire the loop would otherwise
+	// catch up (now-dropNextNs)/interval times, draining the queue in one burst.
+	// 0 = unlimited. Only real drops count against it; ease-out iterations do not.
+	maxDrops := q.maxDropsPerFire()
+	drops := 0
+
 	// Step the control law per interval while a drop is due AND there is still
 	// work to do: either a droppable backlog to shed, or an elevated count that
 	// must ease back to 1. The count>1 term is essential for recovery — once the
@@ -555,6 +583,14 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 			if dropped {
 				q.count++
 				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
+				drops++
+				// Burst cap reached: stop shedding for this advance. dropNextNs is
+				// left where the control law put it, so a subsequent advance resumes
+				// the catch-up from there. Only real drops count against the cap.
+				if maxDrops > 0 && drops >= maxDrops {
+					q.lastDropsPerFire = drops
+					return
+				}
 			}
 		}
 		if !dropped {
@@ -578,6 +614,7 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 			}
 		}
 	}
+	q.lastDropsPerFire = drops
 }
 
 // lockedTryJump escalates count when the head's sojourn has crossed the
@@ -694,6 +731,15 @@ func (q *CoDelQueue) keepDroppableFloor() int {
 		return 0
 	}
 	return q.cfg.KeepDroppableFloor()
+}
+
+// maxDropsPerFire returns the per-advance drop cap. Nil-safe; <= 0 means
+// unlimited (the control law catches up fully on a late fire).
+func (q *CoDelQueue) maxDropsPerFire() int {
+	if q.cfg.MaxDropsPerFire == nil {
+		return 0
+	}
+	return q.cfg.MaxDropsPerFire()
 }
 
 // armsOnEnqueue reports whether a droppable enqueue arms the timer immediately

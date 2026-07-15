@@ -126,6 +126,7 @@ type (
 		dropCount     *stats.Histogram
 		timerLag      *stats.Histogram
 		dropOvershoot *stats.Histogram
+		dropsPerFire  *stats.Histogram
 		valveDepth    *stats.Histogram
 
 		droppingNanos   int64
@@ -171,6 +172,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		dropCount:     stats.NewHistogram("", "", lengthBucketCutoffs),
 		timerLag:      stats.NewHistogram("", "", loadshedBucketCutoffs),
 		dropOvershoot: stats.NewHistogram("", "", loadshedBucketCutoffs),
+		dropsPerFire:  stats.NewHistogram("", "", lengthBucketCutoffs),
 		valveDepth:    stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
@@ -406,6 +408,9 @@ type SnakeStats struct {
 	// pass was serviced, on the timer or dequeue path. A sampled proxy for
 	// shedding-decision lateness under scheduling pressure.
 	LastDropOvershootNs int64
+	// LastDropsPerFire is how many requests the most recent control-law advance
+	// shed — the size of the shed burst under one lock acquisition.
+	LastDropsPerFire int
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -423,6 +428,7 @@ func (s *Snake) Stats() SnakeStats {
 		SlotIdleNanos:          s.lockedSlotIdleNanos(),
 		ShedBelowCapacityCount: s.shedBelowCapacityCount.Load(),
 		LastDropOvershootNs:    s.q.lockedLastDropOvershootNs(),
+		LastDropsPerFire:       s.q.lockedLastDropsPerFire(),
 	}
 }
 
@@ -515,6 +521,7 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 		before := s.q.lockedDroppedTotal()
 		s.q.lockedRunTimer()
 		s.dropOvershoot.Add(s.q.lockedLastDropOvershootNs())
+		s.dropsPerFire.Add(int64(s.q.lockedLastDropsPerFire()))
 		if dropped := s.q.lockedDroppedTotal() - before; dropped > 0 && s.hasCapacity() {
 			s.shedBelowCapacityCount.Add(dropped)
 		}
@@ -779,6 +786,7 @@ func (s *Snake) runDropTimer() {
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
 	s.dropOvershoot.Add(s.q.lockedLastDropOvershootNs())
+	s.dropsPerFire.Add(int64(s.q.lockedLastDropsPerFire()))
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()
