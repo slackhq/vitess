@@ -92,5 +92,6 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control interval in nanoseconds, sampled at each timer fire", intervalBucketCutoffs)
 	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop count (control-law state), sampled at each timer fire", lengthBucketCutoffs)
 	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of how late the Snake CoDel drop timer fired versus its scheduled time, in nanoseconds; high values mean shedding decisions are delayed under CPU contention", loadshedBucketCutoffs)
+	s.dropOvershoot = exporter.NewHistogram(prefix+"DropOvershootNs", "Distribution of how late (now - dropNextNs) a due-drop pass was serviced, in nanoseconds, on either the backstop timer or the synchronous dequeue/release path; unlike DropTimerLagNs this covers the dequeue path, where a descheduled goroutine under CPU saturation delays shedding", loadshedBucketCutoffs)
 	s.valveDepth = exporter.NewHistogram(prefix+"ValveDepthObserved", "Distribution of Snake self-contention valve depth (requests stacked behind one valve's droppable representative), sampled at each valve-keyed enqueue", lengthBucketCutoffs)
 }

@@ -118,14 +118,15 @@ type (
 		// keep-droppable floor — the drops it would have prevented.
 		shedBelowCapacityCount atomic.Int64
 
-		sojourn      *stats.Histogram
-		queueLen     *stats.Histogram
-		droppableLen *stats.Histogram
-		holderCount  *stats.Histogram
-		interval     *stats.Histogram
-		dropCount    *stats.Histogram
-		timerLag     *stats.Histogram
-		valveDepth   *stats.Histogram
+		sojourn       *stats.Histogram
+		queueLen      *stats.Histogram
+		droppableLen  *stats.Histogram
+		holderCount   *stats.Histogram
+		interval      *stats.Histogram
+		dropCount     *stats.Histogram
+		timerLag      *stats.Histogram
+		dropOvershoot *stats.Histogram
+		valveDepth    *stats.Histogram
 
 		droppingNanos   int64
 		droppingSinceNs int64
@@ -159,17 +160,18 @@ func defaultClock() int64 {
 // NewSnake creates a new CoDel-based load-shedding gate.
 func NewSnake(cfg SnakeConfig) *Snake {
 	s := &Snake{
-		cfg:          cfg,
-		clockFunc:    defaultClock,
-		holders:      make(map[*Request]struct{}),
-		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
-		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
-		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
-		holderCount:  stats.NewHistogram("", "", lengthBucketCutoffs),
-		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
-		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
-		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
-		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
+		cfg:           cfg,
+		clockFunc:     defaultClock,
+		holders:       make(map[*Request]struct{}),
+		sojourn:       stats.NewHistogram("", "", loadshedBucketCutoffs),
+		queueLen:      stats.NewHistogram("", "", lengthBucketCutoffs),
+		droppableLen:  stats.NewHistogram("", "", lengthBucketCutoffs),
+		holderCount:   stats.NewHistogram("", "", lengthBucketCutoffs),
+		interval:      stats.NewHistogram("", "", intervalBucketCutoffs),
+		dropCount:     stats.NewHistogram("", "", lengthBucketCutoffs),
+		timerLag:      stats.NewHistogram("", "", loadshedBucketCutoffs),
+		dropOvershoot: stats.NewHistogram("", "", loadshedBucketCutoffs),
+		valveDepth:    stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
 	s.q = newValvedCoDelQueue(cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	if cfg.PerCPUIntake != nil {
@@ -400,6 +402,10 @@ type SnakeStats struct {
 	UnderfillCount         int64
 	SlotIdleNanos          int64
 	ShedBelowCapacityCount int64
+	// LastDropOvershootNs is how late (now - dropNextNs) the most recent due-drop
+	// pass was serviced, on the timer or dequeue path. A sampled proxy for
+	// shedding-decision lateness under scheduling pressure.
+	LastDropOvershootNs int64
 }
 
 // Stats returns a point-in-time snapshot of Snake's internal state.
@@ -416,6 +422,7 @@ func (s *Snake) Stats() SnakeStats {
 		UnderfillCount:         s.underfillCount.Load(),
 		SlotIdleNanos:          s.lockedSlotIdleNanos(),
 		ShedBelowCapacityCount: s.shedBelowCapacityCount.Load(),
+		LastDropOvershootNs:    s.q.lockedLastDropOvershootNs(),
 	}
 }
 
@@ -507,6 +514,7 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 		// promotion during the pass cannot mask the delta.
 		before := s.q.lockedDroppedTotal()
 		s.q.lockedRunTimer()
+		s.dropOvershoot.Add(s.q.lockedLastDropOvershootNs())
 		if dropped := s.q.lockedDroppedTotal() - before; dropped > 0 && s.hasCapacity() {
 			s.shedBelowCapacityCount.Add(dropped)
 		}
@@ -770,6 +778,7 @@ func (s *Snake) runDropTimer() {
 	s.q.lockedRunTimer()
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
+	s.dropOvershoot.Add(s.q.lockedLastDropOvershootNs())
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()

@@ -147,6 +147,13 @@ func (q *ValvedCoDelQueue) lockedCount() int {
 	return q.codelq.count
 }
 
+// lockedLastDropOvershootNs returns how late (now - dropNextNs) the most recent
+// due-drop pass was serviced, on either the timer or the synchronous dequeue
+// path. Zero if the last pass had no drop due.
+func (q *ValvedCoDelQueue) lockedLastDropOvershootNs() int64 {
+	return q.codelq.lastDropOvershootNs
+}
+
 // lockedLen returns the number of requests in the CoDel queue.
 func (q *ValvedCoDelQueue) lockedLen() int {
 	return q.codelq.lockedLen()

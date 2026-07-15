@@ -219,6 +219,15 @@ type (
 		scheduleDropTimer func(delayNs int64)
 		stopDropTimer     func()
 		onPeekCleanup     func(*Request)
+
+		// lastDropOvershootNs records how late the most recent due-drop pass was
+		// serviced: now - dropNextNs at the moment lockedRunTimer found a drop due
+		// (now >= dropNextNs). Unlike timerLag (which measures only the backstop
+		// timer's fire lateness), this captures lateness on BOTH the timer and the
+		// synchronous dequeue/release path — the path where a descheduled goroutine
+		// under CPU saturation delays shedding decisions. Zero when the pass was on
+		// time or no drop was due. Reset each lockedRunTimer call.
+		lastDropOvershootNs int64
 	}
 )
 
@@ -476,6 +485,7 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 // re-arm work runs only when a drop is actually due (now >= dropNextNs).
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	now := q.nowNs()
+	q.lastDropOvershootNs = 0
 
 	// Jump-start: while count==1 the timer is disarmed and only monitors the
 	// head's sojourn. (DropBoth is armed at count==1 and handled inline below.)
@@ -495,6 +505,12 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	if q.dropNextNs == 0 || now < q.dropNextNs {
 		return
 	}
+
+	// A drop is due (now >= dropNextNs). Record how far past the scheduled drop
+	// time this pass is being serviced — the dequeue/timer-path analog of
+	// timerLag. Large values mean shedding decisions are arriving late (e.g. the
+	// deciding goroutine was descheduled under CPU saturation).
+	q.lastDropOvershootNs = now - q.dropNextNs
 
 	q.lockedAdvance(now, dropFn)
 
