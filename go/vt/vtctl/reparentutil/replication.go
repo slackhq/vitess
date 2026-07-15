@@ -234,6 +234,7 @@ type replicationSnapshot struct {
 	reachableTablets   []*topodatapb.Tablet
 	tabletsBackupState map[string]bool
 	mysqlVersions      map[string]mysqlctl.ServerVersion
+	mysqlFlavors       map[string]mysqlctl.MySQLFlavor
 }
 
 // stopReplicationAndBuildStatusMaps stops replication on all replicas, then
@@ -264,6 +265,7 @@ func stopReplicationAndBuildStatusMaps(
 			reachableTablets:   []*topodatapb.Tablet{},
 			tabletsBackupState: map[string]bool{},
 			mysqlVersions:      map[string]mysqlctl.ServerVersion{},
+			mysqlFlavors:       map[string]mysqlctl.MySQLFlavor{},
 		}
 	)
 
@@ -300,11 +302,14 @@ func stopReplicationAndBuildStatusMaps(
 				res.primaryStatusMap[alias] = primaryStatus
 				res.reachableTablets = append(res.reachableTablets, tabletInfo.Tablet)
 				if primaryStatus.ServerVersion != "" {
-					if _, v, parseErr := mysqlctl.ParseVersionString(primaryStatus.ServerVersion); parseErr == nil {
+					if flavor, v, parseErr := mysqlctl.ParseVersionString(primaryStatus.ServerVersion); parseErr == nil {
 						res.mysqlVersions[alias] = v
+						res.mysqlFlavors[alias] = flavor
 					} else {
 						logger.Warningf("failed to parse MySQL version %q for tablet %v: %v", primaryStatus.ServerVersion, alias, parseErr)
 					}
+				} else {
+					logger.Warningf("could not determine MySQL version for tablet %v; it will not be preferred by version-aware election", alias)
 				}
 				m.Unlock()
 			} else {
@@ -327,11 +332,14 @@ func stopReplicationAndBuildStatusMaps(
 			res.statusMap[alias] = stopReplicationStatus
 			res.reachableTablets = append(res.reachableTablets, tabletInfo.Tablet)
 			if stopReplicationStatus.Before != nil && stopReplicationStatus.Before.ServerVersion != "" {
-				if _, v, parseErr := mysqlctl.ParseVersionString(stopReplicationStatus.Before.ServerVersion); parseErr == nil {
+				if flavor, v, parseErr := mysqlctl.ParseVersionString(stopReplicationStatus.Before.ServerVersion); parseErr == nil {
 					res.mysqlVersions[alias] = v
+					res.mysqlFlavors[alias] = flavor
 				} else {
 					logger.Warningf("failed to parse MySQL version %q for tablet %v: %v", stopReplicationStatus.Before.ServerVersion, alias, parseErr)
 				}
+			} else {
+				logger.Warningf("could not determine MySQL version for tablet %v; it will not be preferred by version-aware election", alias)
 			}
 			m.Unlock()
 		}
