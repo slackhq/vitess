@@ -31,7 +31,79 @@ var (
 	yieldOnGrant       *bool
 	yieldOnDrop        *bool
 	mutexProfile       *string
+	workMode           *string
+	maxProcs           *int
 )
+
+// spinItersPerMs is the number of arithmetic iterations that consume ~1ms of
+// on-core CPU, calibrated once at startup when -work-mode=cpu. Each request then
+// burns a FIXED amount of CPU work rather than sleeping, so a holder actually
+// occupies a core for the duration of its "work". Under core contention the
+// wall-clock to finish that fixed work stretches (the goroutine is preempted),
+// which is the latency inflation and slot-refill delay the sleep model cannot
+// produce — and the only regime where the keep-droppable floor has anything to do.
+var spinItersPerMs uint64
+
+// calibrateSpin measures how many iterations fit in a short on-core probe and
+// records the per-ms rate. Run once, before load starts, on a locked thread so
+// the probe is not descheduled mid-measurement.
+func calibrateSpin() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	const probe = 50 * time.Millisecond
+	var acc uint64
+	var iters uint64
+	start := time.Now()
+	for time.Since(start) < probe {
+		for i := 0; i < 1024; i++ {
+			acc = acc*1103515245 + 12345
+		}
+		iters += 1024
+	}
+	_ = acc
+	elapsedMs := float64(time.Since(start).Nanoseconds()) / 1e6
+	spinItersPerMs = uint64(float64(iters) / elapsedMs)
+	if spinItersPerMs == 0 {
+		spinItersPerMs = 1
+	}
+	// Yield roughly every spinYieldUs of on-core work.
+	spinYieldIters = spinItersPerMs * spinYieldUs / 1000
+	if spinYieldIters == 0 {
+		spinYieldIters = 1
+	}
+}
+
+// busySpinCPU burns approximately d of CPU work using the calibrated iteration
+// rate. Unlike time.Sleep, this keeps the goroutine on a core (contending for
+// P), so holders genuinely occupy backend concurrency for their work duration.
+//
+// It yields (runtime.Gosched) every spinYieldIters iterations so the workload
+// does not monopolize its P for the whole quantum. Go's async preemption only
+// fires at ~10ms, so a tight <10ms spin would otherwise run uninterrupted,
+// starving the load generator and the CoDel drop timer of a core (they never
+// get scheduled, offered load collapses to the service rate, and the timer
+// fires late). Yielding creates scheduling points WITHOUT reducing CPU demand —
+// the goroutine comes right back and still wants a full core — so structural
+// saturation is preserved while intake and the control path still make progress.
+func busySpinCPU(d time.Duration) {
+	ms := float64(d.Nanoseconds()) / 1e6
+	total := uint64(ms * float64(spinItersPerMs))
+	var acc uint64
+	for i := uint64(0); i < total; i++ {
+		acc = acc*1103515245 + 12345
+		if i%spinYieldIters == spinYieldIters-1 {
+			runtime.Gosched()
+		}
+	}
+	_ = acc
+}
+
+// spinYieldIters is the busySpinCPU iteration count between yields, set at
+// calibration to roughly spinYieldUs microseconds of on-core work.
+var spinYieldIters uint64 = 1 << 20
+
+// spinYieldUs is the target on-core interval between yields in busySpinCPU.
+const spinYieldUs = 250
 
 // startBusyThreads pins n goroutines to OS threads and spins them at normal
 // priority for the benchmark duration, starving the scheduler so the CoDel
@@ -73,6 +145,7 @@ type event struct {
 	tsMs      int64
 	kind      string // "issued", "granted", "shed"
 	latencyMs float64
+	priority  float64
 }
 
 type statsSnapshot struct {
@@ -83,6 +156,7 @@ type statsSnapshot struct {
 	dropping        bool
 	dropCount       int
 	currentInterval int64 // ns
+	dropOvershoot   int64 // ns: now-dropNextNs of the last due-drop pass
 }
 
 // loadProfile returns the load fraction [0,1] at a given elapsed time.
@@ -215,10 +289,10 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 	var mu sync.Mutex
 	var events []event
 
-	record := func(kind string, latencyMs float64) {
+	record := func(kind string, latencyMs float64, priority float64) {
 		ts := time.Since(start).Milliseconds()
 		mu.Lock()
-		events = append(events, event{tsMs: ts, kind: kind, latencyMs: latencyMs})
+		events = append(events, event{tsMs: ts, kind: kind, latencyMs: latencyMs, priority: priority})
 		mu.Unlock()
 	}
 
@@ -243,6 +317,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 					dropping:        s.Dropping,
 					dropCount:       s.DropCount,
 					currentInterval: s.CurrentInterval,
+					dropOvershoot:   s.LastDropOvershootNs,
 				})
 			}
 		}
@@ -319,17 +394,22 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 					defer wg.Done()
 
 					reqStart := time.Now()
-					record("issued", 0)
+					prio := samplePriority()
+					record("issued", 0, prio)
 
-					unlock, err := snake.Acquire(ctx, "", samplePriority())
+					unlock, err := snake.Acquire(ctx, "", prio)
 					if err != nil {
-						record("shed", 0)
+						record("shed", 0, prio)
 						return
 					}
-					time.Sleep(sampleWork())
+					if workMode != nil && *workMode == "cpu" {
+						busySpinCPU(sampleWork())
+					} else {
+						time.Sleep(sampleWork())
+					}
 					unlock.Release()
 					latency := float64(time.Since(reqStart).Microseconds()) / 1000.0
-					record("granted", latency)
+					record("granted", latency, prio)
 				}()
 			}
 		}
@@ -385,6 +465,8 @@ func main() {
 	yieldOnGrant = flag.Bool("yield-on-grant", false, "Yield (runtime.Gosched) after granting on release, handing the CPU to the just-woken request before writing the response")
 	yieldOnDrop = flag.Bool("yield-on-drop", false, "Yield (runtime.Gosched) when a shed request wakes to deliver its rejection, donating its scheduling turn to critical-path work")
 	mutexProfile = flag.String("mutexprofile", "", "Write a mutex contention profile to this path (enables runtime.SetMutexProfileFraction)")
+	workMode = flag.String("work-mode", "sleep", "How simulated work is spent: sleep (time.Sleep, holder parks its P — no CPU pressure) or cpu (busy-spin the work duration of CPU, so holders occupy cores and freed slots contend to refill — the regime where the keep-droppable floor matters)")
+	maxProcs = flag.Int("gomaxprocs", 0, "Override GOMAXPROCS for the run (0 = leave at runtime default). Set below capacity with -work-mode=cpu to saturate cores and produce scheduling-latency-driven underfill")
 
 	// Custom single-workload flags. When -profile is set, the workload described
 	// by these flags REPLACES the preset sine/constant/ramp matrix. Otherwise the
@@ -407,6 +489,15 @@ func main() {
 
 	if *mutexProfile != "" {
 		runtime.SetMutexProfileFraction(1)
+	}
+
+	if *maxProcs > 0 {
+		runtime.GOMAXPROCS(*maxProcs)
+	}
+
+	if *workMode == "cpu" {
+		calibrateSpin()
+		fmt.Printf("work-mode=cpu: calibrated %d spin-iters/ms, GOMAXPROCS=%d\n", spinItersPerMs, runtime.GOMAXPROCS(0))
 	}
 
 	if *outDir == "" {
@@ -591,9 +682,9 @@ func runConfigs(configs []testConfig, outDir string, parallel int) {
 		}
 		csvW := csv.NewWriter(f)
 		csvW.Comma = '\t'
-		csvW.Write([]string{"ts_ms", "event", "latency_ms"})
+		csvW.Write([]string{"ts_ms", "event", "latency_ms", "priority"})
 		for _, ev := range r.events {
-			csvW.Write([]string{fmt.Sprintf("%d", ev.tsMs), ev.kind, fmt.Sprintf("%.3f", ev.latencyMs)})
+			csvW.Write([]string{fmt.Sprintf("%d", ev.tsMs), ev.kind, fmt.Sprintf("%.3f", ev.latencyMs), fmt.Sprintf("%.0f", ev.priority)})
 		}
 		csvW.Flush()
 		f.Close()
@@ -607,7 +698,7 @@ func runConfigs(configs []testConfig, outDir string, parallel int) {
 		}
 		csvS := csv.NewWriter(sf)
 		csvS.Comma = '\t'
-		csvS.Write([]string{"ts_ms", "queue_len", "droppable_len", "holder_count", "dropping", "drop_count", "current_interval_ns"})
+		csvS.Write([]string{"ts_ms", "queue_len", "droppable_len", "holder_count", "dropping", "drop_count", "current_interval_ns", "drop_overshoot_ns"})
 		for _, s := range r.stats {
 			dropping := "0"
 			if s.dropping {
@@ -621,6 +712,7 @@ func runConfigs(configs []testConfig, outDir string, parallel int) {
 				dropping,
 				fmt.Sprintf("%d", s.dropCount),
 				fmt.Sprintf("%d", s.currentInterval),
+				fmt.Sprintf("%d", s.dropOvershoot),
 			})
 		}
 		csvS.Flush()
