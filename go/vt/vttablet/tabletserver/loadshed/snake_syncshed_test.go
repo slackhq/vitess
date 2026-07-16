@@ -50,7 +50,9 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	// Enqueue several droppable waiters directly into the queue and force the
 	// dropping episode, mimicking the state after sustained overload. They block
 	// on their signal channels; a shed signals them with a DroppedRequestError.
-	const backlog = 4
+	// The backlog must exceed keepDroppableFloor so the drop pass actually sheds
+	// (it refuses to shed at or below the floor).
+	const backlog = keepDroppableFloor + 4
 	waiters := make([]*Request, backlog)
 	s.mu.Lock()
 	for i := range backlog {

@@ -472,14 +472,17 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 
 	// Enqueue droppable waiters that can never be granted (capacity pinned)
 	// nor completed (nothing releases). Their only possible exit is a CoDel
-	// drop driven by the timer.
+	// drop driven by the timer. Use a cancelable context so the keepDroppableFloor
+	// survivors (which are never shed) can be released at the end of the test.
+	ctx, cancel := context.WithCancel(t.Context())
 	var wg sync.WaitGroup
 	var dropped atomic.Int64
-	for range 10 {
+	const waiters = 10
+	for range waiters {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "", 0)
+			u, err := s.Acquire(ctx, "", 0)
 			if err != nil {
 				dropped.Add(1)
 				return
@@ -488,18 +491,23 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 		}()
 	}
 
+	// CoDel sheds the droppable backlog down to keepDroppableFloor and no further:
+	// the floor keeps a reserve of warm requests queued rather than shedding the
+	// last few. So exactly waiters-keepDroppableFloor are shed; the rest stay
+	// parked behind the stuck holder.
+	wantDropped := int64(waiters - keepDroppableFloor)
 	assert.Eventually(t, func() bool {
-		return dropped.Load() > 0
-	}, 2*time.Second, 5*time.Millisecond, "droppable waiters should be shed during a grant stall")
+		return dropped.Load() == wantDropped
+	}, 2*time.Second, 5*time.Millisecond, "droppable waiters above the floor should be shed during a grant stall")
 
 	assert.Equal(t, 1, s.nGranted(), "stuck holder must still occupy the slot")
+	assert.Equal(t, wantDropped, dropped.Load(), "shedding stops at the keep-droppable floor")
 
-	wg.Wait()
-	assert.Equal(t, int64(10), dropped.Load(), "all droppable waiters should be shed")
-	assert.Equal(t, 1, s.nGranted(), "holder must remain after all waiters are shed")
-
+	// Release the stuck holder and cancel the floor survivors so their goroutines
+	// return.
 	require.NoError(t, holder.Release())
-	assert.True(t, s.isIdle())
+	cancel()
+	wg.Wait()
 }
 
 // --- Double-signal panic invariant ---

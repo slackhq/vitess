@@ -350,13 +350,22 @@ func TestSnake_DroppedRequest(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	// Enough contenders to push the droppable backlog past keepDroppableFloor so
+	// CoDel actually sheds, and capacity high enough that the below-floor
+	// survivors get granted as the holders release rather than stranding.
+	const contenders = 16
+	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
+	var unlocks []*SafeUnlock
+	for range 4 {
+		u, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, u)
+	}
 
-	errCh := make(chan error, 5)
-	for range 5 {
+	errCh := make(chan error, contenders)
+	for range contenders {
 		go func() {
 			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
@@ -365,11 +374,13 @@ func TestSnake_DroppedRequest(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	unlock.Release()
+	for _, u := range unlocks {
+		u.Release()
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	dropped := 0
-	for range 5 {
+	for range contenders {
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -738,13 +749,22 @@ func TestSnake_AcquireError_Custom(t *testing.T) {
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	cfg.AcquireError = func() error { return myErr }
+	// Enough contenders to push the droppable backlog past keepDroppableFloor so
+	// CoDel sheds (and returns the custom error), and capacity high enough that
+	// below-floor survivors get granted as holders release rather than stranding.
+	const contenders = 16
+	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
+	var unlocks []*SafeUnlock
+	for range 4 {
+		u, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, u)
+	}
 
-	errCh := make(chan error, 3)
-	for range 3 {
+	errCh := make(chan error, contenders)
+	for range contenders {
 		go func() {
 			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
@@ -752,11 +772,13 @@ func TestSnake_AcquireError_Custom(t *testing.T) {
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	unlock.Release()
+	for _, u := range unlocks {
+		u.Release()
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	dropped := 0
-	for range 3 {
+	for range contenders {
 		select {
 		case err := <-errCh:
 			if err != nil {

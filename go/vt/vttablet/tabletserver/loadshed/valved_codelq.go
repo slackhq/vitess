@@ -247,11 +247,24 @@ func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
 	}
 }
 
+// keepDroppableFloor is the number of droppable requests kept as a reserve
+// before shedding begins: while the droppable backlog is at or below this floor,
+// drops are refused. This improves prioritization — it keeps a pool of droppable
+// requests on hand so the lowest-priority ones are available to shed first,
+// rather than the queue draining to a shallow set that forces CoDel to drop
+// whatever is present (including higher-priority requests). The guard only
+// engages in the queue's near-empty troughs — under a real backlog
+// (droppableLen > floor) shedding is unchanged.
+const keepDroppableFloor = 4
+
 // lockedDropFn builds the drop callback shared by the timer and the synchronous
 // advance path: drop the lowest-priority droppable request and promote its
 // valve successor.
 func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 	return func() bool {
+		if q.codelq.droppableLen <= keepDroppableFloor {
+			return false
+		}
 		elem := q.codelq.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
