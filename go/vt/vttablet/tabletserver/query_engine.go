@@ -249,8 +249,10 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 		qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: "oltp-read",
 			CoDel: loadshed.CoDelConfig{
-				TargetNs:       func() int64 { return config.LoadshedTarget.Nanoseconds() },
-				IntervalNs:     func() int64 { return config.LoadshedInterval.Nanoseconds() },
+				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
+				IntervalNs: func() int64 {
+					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
+				},
 				Exponent:       func() float64 { return config.LoadshedExponent },
 				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
 				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },

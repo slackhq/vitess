@@ -1660,7 +1660,7 @@ func TestGetConnSnakeEmptyValveID(t *testing.T) {
 	cfg.TxPool.Size = 100
 	cfg.LoadshedEnabled = true
 	cfg.LoadshedTarget = 5 * time.Millisecond
-	cfg.LoadshedInterval = 100 * time.Millisecond
+	cfg.LoadshedIntervalRatio = 20
 	cfg.DB = newDBConfigs(db)
 
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
@@ -1702,7 +1702,7 @@ func TestGetConnWithSnake(t *testing.T) {
 	cfg.TxPool.Size = 100
 	cfg.LoadshedEnabled = true
 	cfg.LoadshedTarget = 5 * time.Millisecond
-	cfg.LoadshedInterval = 100 * time.Millisecond
+	cfg.LoadshedIntervalRatio = 20
 	cfg.DB = newDBConfigs(db)
 
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
