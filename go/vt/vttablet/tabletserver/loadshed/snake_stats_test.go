@@ -93,6 +93,11 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	// Enough contenders to push the droppable backlog past keepDroppableFloor so
+	// CoDel sheds, and capacity high enough that below-floor survivors get granted
+	// as holders release rather than stranding.
+	const contenders = 16
+	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
 	exp := newFakeExporter()
@@ -102,22 +107,28 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 
 	assert.Equal(t, int64(0), shedGauge(), "no sheds before any contention")
 
-	// Hold the single slot, then pile on contending acquires so CoDel drops some.
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
+	// Hold every slot, then pile on contending acquires so CoDel drops some.
+	var unlocks []*SafeUnlock
+	for range 4 {
+		u, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, u)
+	}
 
-	errCh := make(chan error, 5)
-	for range 5 {
+	errCh := make(chan error, contenders)
+	for range contenders {
 		go func() {
 			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
 		}()
 	}
 	time.Sleep(200 * time.Millisecond)
-	unlock.Release()
+	for _, u := range unlocks {
+		u.Release()
+	}
 
 	dropped := 0
-	for range 5 {
+	for range contenders {
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -269,9 +280,12 @@ func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
 	// waits in the CoDel queue as valve "v"'s droppable representative. Its
 	// enqueue records depth 0 (nothing stacked behind it yet). The observation
 	// is synchronous inside Acquire before it blocks, so wait for the count.
+	// Cancelable context so any queued entry left below keepDroppableFloor (never
+	// shed) can be released at teardown rather than hanging.
+	ctx, cancel := context.WithCancel(t.Context())
 	errCh := make(chan error, 2)
 	go func() {
-		_, err := s.Acquire(t.Context(), "v", 0)
+		_, err := s.Acquire(ctx, "v", 0)
 		errCh <- err
 	}()
 	assert.Eventually(t, func() bool { return valveDepth.Count() == 1 }, 2*time.Second, time.Millisecond,
@@ -281,17 +295,18 @@ func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
 	// A second acquire on the same valve ID stacks behind the representative
 	// and records depth 1.
 	go func() {
-		_, err := s.Acquire(t.Context(), "v", 0)
+		_, err := s.Acquire(ctx, "v", 0)
 		errCh <- err
 	}()
 	assert.Eventually(t, func() bool { return valveDepth.Count() == 2 }, 2*time.Second, time.Millisecond,
 		"stacked valve entry should record a second depth observation")
 	assert.Equal(t, int64(1), valveDepth.Total(), "second same-valve entry stacks at depth 1")
 
-	// Release the holder so the queued "v" entries drain and the goroutines
-	// return. Whether each is granted or shed by CoDel is irrelevant here — this
-	// is teardown; the depth observations above are the assertions under test.
+	// Release the holder and cancel the context so the queued "v" entries drain
+	// (granted, or shed, or cancelled if kept below the floor) and the goroutines
+	// return. This is teardown; the depth observations above are the assertions.
 	require.NoError(t, holder.Release())
+	cancel()
 	for range 2 {
 		select {
 		case <-errCh:
@@ -306,6 +321,11 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	// Enough contenders to push the droppable backlog past keepDroppableFloor so
+	// the drop timer fires, and capacity high enough that below-floor survivors
+	// get granted as holders release rather than stranding.
+	const contenders = 16
+	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
 	exp := newFakeExporter()
@@ -317,21 +337,27 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 	require.NotNil(t, interval)
 	require.NotNil(t, dropCount)
 
-	// Occupy the slot, then contend so droppable entries queue and the drop timer
-	// fires (recording interval and drop-count observations).
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
+	// Occupy every slot, then contend so droppable entries queue and the drop
+	// timer fires (recording interval and drop-count observations).
+	var unlocks []*SafeUnlock
+	for range 4 {
+		u, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, u)
+	}
 
-	errCh := make(chan error, 5)
-	for range 5 {
+	errCh := make(chan error, contenders)
+	for range contenders {
 		go func() {
 			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
 		}()
 	}
 	time.Sleep(200 * time.Millisecond)
-	unlock.Release()
-	for range 5 {
+	for _, u := range unlocks {
+		u.Release()
+	}
+	for range contenders {
 		select {
 		case <-errCh:
 		case <-time.After(2 * time.Second):
@@ -372,6 +398,11 @@ func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
+	// Enough contenders to push the droppable backlog past keepDroppableFloor so a
+	// dropping episode is induced, and capacity high enough that below-floor
+	// survivors get granted as holders release rather than stranding.
+	const contenders = 16
+	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
 	exp := newFakeExporter()
@@ -380,20 +411,26 @@ func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
 	require.NotNil(t, droppingNanos)
 	assert.Equal(t, int64(0), droppingNanos(), "no dropping time before contention")
 
-	// Drive a dropping episode: hold the slot and pile on contenders.
-	unlock, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
+	// Drive a dropping episode: hold every slot and pile on contenders.
+	var unlocks []*SafeUnlock
+	for range 4 {
+		u, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		unlocks = append(unlocks, u)
+	}
 
-	errCh := make(chan error, 5)
-	for range 5 {
+	errCh := make(chan error, contenders)
+	for range contenders {
 		go func() {
 			_, err := s.Acquire(t.Context(), "", 0)
 			errCh <- err
 		}()
 	}
 	time.Sleep(200 * time.Millisecond)
-	unlock.Release()
-	for range 5 {
+	for _, u := range unlocks {
+		u.Release()
+	}
+	for range contenders {
 		select {
 		case <-errCh:
 		case <-time.After(2 * time.Second):
