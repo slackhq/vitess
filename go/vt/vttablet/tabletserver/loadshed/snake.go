@@ -19,6 +19,7 @@ package loadshed
 import (
 	"context"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +59,18 @@ type (
 		clockFunc           func() int64
 
 		shedCount atomic.Int64
+		// shedByPriority breaks shedCount down by the shed request's priority label
+		// (the caller's original query priority: "0" most important .. "100" least,
+		// "overflow"), so operators can see whether the gate is correctly shedding
+		// low-priority traffic first rather than eating high-priority requests. Nil
+		// until PublishStats registers it (tests and the benchmark build a Snake
+		// without it); the shed path nil-checks. Its sum equals shedCount.
+		shedByPriority *stats.CountersWithMultiLabels
+		// acquireByPriority counts every Acquire, labeled by the same caller
+		// priority as shedByPriority, so shed rate per priority class can be
+		// computed exactly (shedByPriority / acquireByPriority) rather than from
+		// assumed offered-load weights. Nil until PublishStats registers it.
+		acquireByPriority *stats.CountersWithMultiLabels
 
 		sojourn      *stats.Histogram
 		queueLen     *stats.Histogram
@@ -141,6 +154,10 @@ func (s *Snake) hasCapacity() bool {
 func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock, error) {
 	priority = s.priority(priority)
 
+	if s.acquireByPriority != nil {
+		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+	}
+
 	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
 	if valveID != "" {
@@ -161,7 +178,7 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 	select {
 	case val := <-req.signalChan:
 		if val != grantSentinel {
-			return nil, s.acquireError()
+			return nil, s.acquireError(req.priority)
 		}
 		return &SafeUnlock{s: s, req: req}, nil
 
@@ -358,12 +375,28 @@ func (s *Snake) priority(priority float64) float64 {
 	return priority
 }
 
-func (s *Snake) acquireError() error {
+func (s *Snake) acquireError(priority float64) error {
 	s.shedCount.Add(1)
+	if s.shedByPriority != nil {
+		s.shedByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+	}
 	if s.cfg.AcquireError != nil {
 		return s.cfg.AcquireError()
 	}
 	return &DroppedRequestError{}
+}
+
+// shedPriorityLabel maps a request's internal Snake priority to its shed-metric
+// label, reported as the ORIGINAL caller priority (the value passed to the query,
+// where 0 is most important) rather than the internal Snake value. The caller
+// inverts on the way in (snake = maxPriorityBucket - caller, so lower Snake value
+// sheds first); we invert back here so the label matches what was passed in.
+// Out-of-range/non-integer/PriorityUndroppable values fall in "overflow".
+func shedPriorityLabel(priority float64) string {
+	if b := bucketFor(priority); b >= 0 {
+		return strconv.Itoa(maxPriorityBucket - b)
+	}
+	return "overflow"
 }
 
 // ShedCount returns the cumulative number of requests this Snake has shed.
