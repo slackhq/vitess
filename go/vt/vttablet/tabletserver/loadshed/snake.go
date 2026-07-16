@@ -171,9 +171,17 @@ func (s *Snake) Acquire(ctx context.Context, valveID string, priority float64) (
 		return &SafeUnlock{s: s, req: req}, nil
 	}
 
+	// Enqueue-advance: a non-granted arrival drives the CoDel control law itself,
+	// so shedding tracks load even when releases are sparse or the backstop timer
+	// fires late. lockedRunTimer only MARKS drops; take the pending rejections and
+	// send them after unlocking s.mu so the goready storm stays off the lock.
+	pending := s.lockedEnqueueAdvance()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	s.mu.Unlock()
+	for _, p := range pending {
+		p.sendSignal()
+	}
 
 	select {
 	case val := <-req.signalChan:
@@ -309,6 +317,19 @@ func (s *Snake) lockedCompleteAndShed(req *Request) {
 	if s.q.lockedNeedsAdvance() {
 		s.q.lockedRunTimer()
 	}
+}
+
+// lockedEnqueueAdvance runs the CoDel control-law advance on every non-granted
+// enqueue so an arrival can drive shedding, not just the release path and the
+// backstop timer — the drop cadence then tracks load even when releases are
+// sparse or the timer fires late. Must hold s.mu. lockedRunTimer only MARKS
+// drops; the pending rejections are returned so the caller sends them AFTER
+// releasing s.mu (draining the goready storm off the lock).
+func (s *Snake) lockedEnqueueAdvance() []*Request {
+	s.q.lockedRunTimer()
+	s.interval.Add(s.q.lockedCurrentInterval())
+	s.dropCount.Add(int64(s.q.lockedCount()))
+	return s.q.lockedTakePendingSignals()
 }
 
 func (s *Snake) lockedGrant(req *Request) {
