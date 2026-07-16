@@ -29,7 +29,7 @@ import (
 // highest priority (shed last among droppables). Overflow is empty in
 // production, so it is scanned only when non-empty.
 const (
-	maxPriorityBucket = 100 // inclusive; sqlparser.MaxPriorityValue
+	maxPriorityBucket  = 100 // inclusive; sqlparser.MaxPriorityValue
 	numPriorityBuckets = maxPriorityBucket + 1
 	overflowBucket     = -1
 )
