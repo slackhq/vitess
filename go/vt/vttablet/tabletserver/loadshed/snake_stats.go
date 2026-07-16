@@ -49,6 +49,14 @@ var intervalBucketCutoffs = loadshedBucketCutoffs
 
 var lengthBucketCutoffs = []int64{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
 
+// holderBucketCutoffs is a finer-grained set for slot-holder counts, which are
+// bounded by the pool size (typically <= 64) and where the useful resolution is
+// at the low end — the powers-of-two lengthBucketCutoffs collapse the entire
+// operating range into ~6 buckets. Unit steps through the single digits, then
+// tightening steps across the 32-64 range under test, with a little headroom
+// above 64 to catch misconfiguration.
+var holderBucketCutoffs = []int64{1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 56, 64, 96, 128}
+
 func durationNanos(ds ...time.Duration) []int64 {
 	out := make([]int64, len(ds))
 	for i, d := range ds {
@@ -79,7 +87,7 @@ func PublishStats(exporter statsExporter, prefix string, s *Snake) {
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake sojourn (time-to-grant: queue wait before slot grant), in nanoseconds", loadshedBucketCutoffs)
 	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
 	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)
-	s.holderCount = exporter.NewHistogram(prefix+"HolderCountObserved", "Distribution of Snake slot holders, sampled at each change", lengthBucketCutoffs)
+	s.holderCount = exporter.NewHistogram(prefix+"HolderCountObserved", "Distribution of Snake slot holders, sampled at each change", holderBucketCutoffs)
 	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control interval in nanoseconds, sampled at each timer fire", intervalBucketCutoffs)
 	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop count (control-law state), sampled at each timer fire", lengthBucketCutoffs)
 	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of how late the Snake CoDel drop timer fired versus its scheduled time, in nanoseconds; high values mean shedding decisions are delayed under CPU contention", loadshedBucketCutoffs)

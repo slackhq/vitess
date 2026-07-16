@@ -110,7 +110,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
 		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
 		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
-		holderCount:  stats.NewHistogram("", "", lengthBucketCutoffs),
+		holderCount:  stats.NewHistogram("", "", holderBucketCutoffs),
 		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
 		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
