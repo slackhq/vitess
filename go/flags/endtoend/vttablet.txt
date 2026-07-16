@@ -218,6 +218,7 @@ Flags:
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
       --loadshed-drop-mode string                                        CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both. (default "slow")
       --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools. (default true)
+      --loadshed-enqueue-advance-probability float                       Probability [0,1] that a non-granted enqueue runs the load shedder's CoDel control-law advance, letting arrivals drive shedding in addition to the release path and backstop timer. 0 disables (shedding is release/timer-driven, as before); 1 advances on every non-granted enqueue.
       --loadshed-exponent float                                          CoDel control law exponent for the load shedder. (default 1)
       --loadshed-grace-count int                                         CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period. (default 1)
       --loadshed-interval duration                                       CoDel observation interval for the load shedder. Recommended to be 10-20x loadshed-target. (default 100ms)

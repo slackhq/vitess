@@ -205,6 +205,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setIntVal(func(v int) { tsv.Config().LoadshedKeepDroppableFloor = v })
 	case "LoadshedMaxDropsPerFire":
 		err = setIntVal(func(v int) { tsv.Config().LoadshedMaxDropsPerFire = v })
+	case "LoadshedEnqueueAdvanceProbability":
+		err = setFloat64Val(func(v float64) { tsv.Config().LoadshedEnqueueAdvanceProbability = v })
 	case "LoadshedYieldOnGrant":
 		err = setBoolVal(func(b bool) { tsv.Config().LoadshedYieldOnGrant = b })
 	case "LoadshedYieldOnDrop":
@@ -310,6 +312,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "LoadshedPerCPUIntake", func() bool { return tsv.Config().LoadshedPerCPUIntake })
 	vars = addVar(vars, "LoadshedKeepDroppableFloor", func() int { return tsv.Config().LoadshedKeepDroppableFloor })
 	vars = addVar(vars, "LoadshedMaxDropsPerFire", func() int { return tsv.Config().LoadshedMaxDropsPerFire })
+	vars = addVar(vars, "LoadshedEnqueueAdvanceProbability", func() float64 { return tsv.Config().LoadshedEnqueueAdvanceProbability })
 	vars = addVar(vars, "LoadshedYieldOnGrant", func() bool { return tsv.Config().LoadshedYieldOnGrant })
 	vars = addVar(vars, "LoadshedYieldOnDrop", func() bool { return tsv.Config().LoadshedYieldOnDrop })
 	vars = append(vars, envValue{

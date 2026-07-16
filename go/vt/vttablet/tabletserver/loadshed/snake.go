@@ -19,6 +19,7 @@ package loadshed
 import (
 	"context"
 	"log"
+	"math/rand"
 	"runtime"
 	"strconv"
 	"sync"
@@ -66,6 +67,15 @@ type (
 		// scheduler run-queue time; this deprioritizes that throwaway work. Only
 		// helps under contention; nil/false ⇒ no yield.
 		YieldOnDrop func() bool
+
+		// EnqueueAdvanceProbability returns a probability p in [0,1] that a
+		// non-granted enqueue runs the CoDel control-law advance (lockedRunTimer)
+		// before parking. Normally shedding is driven only by the release path and
+		// the backstop timer; this lets arrivals also drive it, so the drop cadence
+		// tracks load even when releases are sparse or the timer fires late. p<=0
+		// (nil) is today's behavior (enqueue never advances); p>=1 advances on every
+		// non-granted enqueue. Rolled with a non-cryptographic PRNG under s.mu.
+		EnqueueAdvanceProbability func() float64
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -76,6 +86,11 @@ type (
 	// preserving the queue's system-pressure signal for accurate shedding.
 	Snake struct {
 		mu sync.Mutex
+
+		// rng backs the EnqueueAdvanceProbability roll. Accessed only under s.mu
+		// (the enqueue paths hold it), so it needs no separate lock. Non-crypto: a
+		// good distribution is all the probability gate requires.
+		rng *rand.Rand
 
 		// intake stages arriving requests in per-CPU shards, off s.mu, when the
 		// gate is contended. A merge (under s.mu) admits them into q in arrival
@@ -163,6 +178,7 @@ func NewSnake(cfg SnakeConfig) *Snake {
 	s := &Snake{
 		cfg:           cfg,
 		clockFunc:     defaultClock,
+		rng:           rand.New(rand.NewSource(epoch.UnixNano())),
 		holders:       make(map[*Request]struct{}),
 		sojourn:       stats.NewHistogram("", "", loadshedBucketCutoffs),
 		queueLen:      stats.NewHistogram("", "", lengthBucketCutoffs),
@@ -328,7 +344,11 @@ func (s *Snake) admit(valveID string, priority float64) (req *Request, granted b
 	if s.q.lockedFirstWaiting() == nil {
 		s.lockedMerge()
 	}
+	pending := s.lockedMaybeEnqueueAdvance()
 	s.mu.Unlock()
+	for _, p := range pending {
+		p.sendSignal()
+	}
 	return r, false
 }
 
@@ -346,10 +366,39 @@ func (s *Snake) admitLocked(valveID string, priority float64) (req *Request, gra
 		s.mu.Unlock()
 		return r, true
 	}
+	pending := s.lockedMaybeEnqueueAdvance()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	s.mu.Unlock()
+	for _, p := range pending {
+		p.sendSignal()
+	}
 	return r, false
+}
+
+// lockedMaybeEnqueueAdvance rolls EnqueueAdvanceProbability and, on a hit, runs
+// the CoDel control-law advance so an arrival can drive shedding (not just the
+// release path and backstop timer). Must hold s.mu. Like the timer path,
+// lockedRunTimer only MARKS drops; it returns the pending rejections so the
+// caller can send them AFTER unlocking s.mu (draining the goready storm off the
+// lock). Returns nil when the roll misses or the knob is unset/off.
+func (s *Snake) lockedMaybeEnqueueAdvance() []*Request {
+	if s.cfg.EnqueueAdvanceProbability == nil {
+		return nil
+	}
+	p := s.cfg.EnqueueAdvanceProbability()
+	if p <= 0 {
+		return nil
+	}
+	if p < 1 && s.rng.Float64() >= p {
+		return nil
+	}
+	s.q.lockedRunTimer()
+	s.interval.Add(s.q.lockedCurrentInterval())
+	s.dropCount.Add(int64(s.q.lockedCount()))
+	s.dropOvershoot.Add(s.q.lockedLastDropOvershootNs())
+	s.dropsPerFire.Add(int64(s.q.lockedLastDropsPerFire()))
+	return s.q.lockedTakePendingSignals()
 }
 
 // intakeEnabled reports whether new arrivals should be routed through the
