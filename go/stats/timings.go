@@ -180,7 +180,43 @@ func (t *Timings) Label() string {
 	return t.label
 }
 
-var bucketCutoffs = []int64{5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10}
+// bucketCutoffs are the shared timing-histogram boundaries, in nanoseconds,
+// used by every Timings/MultiTimings metric. histogram_quantile interpolates
+// linearly within a bucket, so a bucket [a,b] bounds the estimate's relative
+// error by the ratio b/a. The original set alternated x2 and x5 steps
+// (0.5,1,5,10,50,100,500,...), so the x5 buckets (e.g. 100ms->500ms) gave up to
+// 5x error exactly where tablet p99s sit — the estimate leapt as samples
+// crossed a boundary.
+//
+// These are GEOMETRIC with a constant multiplier of ~10^(1/5) ~= 1.58 (Renard
+// R5 preferred numbers: 1.0, 1.6, 2.5, 4.0, 6.3 per decade), giving uniform
+// relative resolution — every bucket bounds the quantile to ~1.6x (~±23%) —
+// across the whole 0.5ms..10s range rather than only at a hand-picked band.
+// 22 cutoffs; a modest cardinality increase over the shared timing metrics.
+var bucketCutoffs = []int64{
+	500_000,        // 0.5ms (original floor)
+	1_000_000,      // 1ms
+	1_600_000,      // 1.6ms
+	2_500_000,      // 2.5ms
+	4_000_000,      // 4ms
+	6_300_000,      // 6.3ms
+	10_000_000,     // 10ms
+	16_000_000,     // 16ms
+	25_000_000,     // 25ms
+	40_000_000,     // 40ms
+	63_000_000,     // 63ms
+	100_000_000,    // 100ms
+	160_000_000,    // 160ms
+	250_000_000,    // 250ms
+	400_000_000,    // 400ms
+	630_000_000,    // 630ms
+	1_000_000_000,  // 1s
+	1_600_000_000,  // 1.6s
+	2_500_000_000,  // 2.5s
+	4_000_000_000,  // 4s
+	6_300_000_000,  // 6.3s
+	10_000_000_000, // 10s
+}
 
 var bucketLabels []string
 
