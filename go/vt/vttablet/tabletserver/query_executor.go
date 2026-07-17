@@ -485,9 +485,6 @@ func (qre *QueryExecutor) checkPermissions() error {
 
 	action, ruleCancelCtx, timeout, desc := qre.plan.Rules.GetAction(remoteAddr, username, qre.bindVars, qre.marginComments)
 
-	bufferingTimeoutCtx, cancel := context.WithTimeout(qre.ctx, timeout) // aborts buffering at given timeout
-	defer cancel()
-
 	switch action {
 	case rules.QRFail:
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "disallowed due to rule: %s", desc)
@@ -496,7 +493,11 @@ func (qre *QueryExecutor) checkPermissions() error {
 	case rules.QRBuffer:
 		if ruleCancelCtx != nil {
 			// We buffer up to some timeout. The timeout is determined by ctx.Done().
-			// If we're not at timeout yet, we fail the query
+			// If we're not at timeout yet, we fail the query. The timeout context is
+			// created only here, in the rare buffering path — not on every query,
+			// where it would allocate a timerCtx and arm a runtime timer for nothing.
+			bufferingTimeoutCtx, cancel := context.WithTimeout(qre.ctx, timeout) // aborts buffering at given timeout
+			defer cancel()
 			select {
 			case <-ruleCancelCtx.Done():
 				// good! We have buffered the query, and buffering is completed
