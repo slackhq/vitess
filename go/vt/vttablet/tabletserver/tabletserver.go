@@ -1983,13 +1983,16 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 				message = fmt.Sprintf("%s (errno %d) (sqlstate %s)%s: %s", sqlErr.Message, errnum, sqlState, callerID, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
 			}
 		}
-	} else if skipQueryString && callerID == "" {
-		// High-volume, rate-limited error (RESOURCE_EXHAUSTED, e.g. load shed)
-		// with no callerID to append: return the (typically pre-built) error
-		// as-is. Avoids a per-error vterrors.Errorf, which captures a stack trace
-		// (runtime.Callers) and allocates — pure overhead on the shed path.
+	} else if skipQueryString {
+		// High-volume, rate-limited error (RESOURCE_EXHAUSTED, e.g. load shed):
+		// return the (typically pre-built) error as-is. Avoids a per-error
+		// vterrors.Errorf, which captures a stack trace (runtime.Callers) and
+		// allocates — pure overhead on the shed path, and at saturation the single
+		// largest stack-capture site since most requests are being rejected. Any
+		// callerID goes only into the (rate-limited) log line, not the returned
+		// error, so no stack-capturing re-wrap is needed even when a caller is set.
 		if logMethod != nil {
-			message = fmt.Sprintf("%v", err)
+			message = fmt.Sprintf("%v%s", err, callerID)
 		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
