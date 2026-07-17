@@ -199,6 +199,27 @@ func (mc *CountersWithMultiLabels) Add(names []string, value int64) {
 	mc.counters.add(safeJoinLabels(names, mc.combinedLabels), value)
 }
 
+// JoinLabels returns the internal single-string key for a label tuple (the same
+// key Add would compute). Callers that update several counters sharing the same
+// label set with the same values can join once and pass the result to AddJoined,
+// avoiding a redundant string build+allocation per counter.
+// len(names) must be equal to len(Labels).
+func (mc *CountersWithMultiLabels) JoinLabels(names []string) string {
+	if len(names) != len(mc.labels) {
+		panic("CountersWithMultiLabels: wrong number of values in JoinLabels")
+	}
+	return safeJoinLabels(names, mc.combinedLabels)
+}
+
+// AddJoined adds a value to the counter identified by a pre-joined key (as
+// returned by JoinLabels). It skips the per-call label join, so a caller
+// updating multiple same-labeled counters allocates the joined key once instead
+// of once per counter. The key MUST come from a counter with the same label set
+// (same combinedLabels), or the reported dimension will be wrong.
+func (mc *CountersWithMultiLabels) AddJoined(key string, value int64) {
+	mc.counters.add(key, value)
+}
+
 // Reset resets the value of a named counter back to 0.
 // len(names) must be equal to len(Labels).
 func (mc *CountersWithMultiLabels) Reset(names []string) {

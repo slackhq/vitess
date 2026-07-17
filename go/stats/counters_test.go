@@ -94,6 +94,33 @@ func TestMultiCounters(t *testing.T) {
 	}
 }
 
+func TestMultiCountersJoinedAddEquivalence(t *testing.T) {
+	clearStats()
+	// AddJoined(JoinLabels(names), v) must be exactly equivalent to Add(names, v):
+	// same internal key, same count. This is the contract callers rely on when
+	// joining a shared label tuple once and reusing it across several counters.
+	viaAdd := NewCountersWithMultiLabels("joinedViaAdd", "help", []string{"aaa", "bbb"})
+	viaJoined := NewCountersWithMultiLabels("joinedViaJoined", "help", []string{"aaa", "bbb"})
+
+	for _, names := range [][]string{
+		{"c1a", "c1b"},
+		{"c2a", "c2b"},
+		{"c2a", "c2b"},
+		{"has.dot", "plain"}, // dot in a label must be escaped identically on both paths
+	} {
+		viaAdd.Add(names, 1)
+		viaJoined.AddJoined(viaJoined.JoinLabels(names), 1)
+	}
+
+	if !reflect.DeepEqual(viaAdd.Counts(), viaJoined.Counts()) {
+		t.Errorf("AddJoined not equivalent to Add:\n  Add:    %v\n  Joined: %v", viaAdd.Counts(), viaJoined.Counts())
+	}
+	// Spot-check the escaped-dot key is present (dots become underscores).
+	if viaJoined.Counts()["has_dot.plain"] != 1 {
+		t.Errorf("expected escaped key has_dot.plain=1, got %v", viaJoined.Counts())
+	}
+}
+
 func TestMultiCountersDot(t *testing.T) {
 	clearStats()
 	c := NewCountersWithMultiLabels("mapCounter2", "help", []string{"aaa", "bbb"})

@@ -614,11 +614,17 @@ func (qe *QueryEngine) AddStats(plan *TabletPlan, tableName, workload string, ta
 	if qe.enablePerWorkloadTableMetrics {
 		keys = append(keys, workload)
 	}
-	qe.queryCounts.Add(keys, queryCount)
-	qe.queryTimes.Add(keys, int64(duration))
-	qe.queryErrorCounts.Add(keys, errorCount)
+	// queryCounts, queryTimes, queryErrorCounts, queryTextCharsProcessed,
+	// queryRowsReturned, and queryRowsAffected all share the same label set, so
+	// the joined key is identical across them. Join once and reuse via AddJoined
+	// rather than rebuilding (and allocating) the same string in each Add — this
+	// is 6 label-joins per query collapsed to 1 on the hot read/DML path.
+	joinedKey := qe.queryCounts.JoinLabels(keys)
+	qe.queryCounts.AddJoined(joinedKey, queryCount)
+	qe.queryTimes.AddJoined(joinedKey, int64(duration))
+	qe.queryErrorCounts.AddJoined(joinedKey, errorCount)
 	if plan.FullQuery != nil {
-		qe.queryTextCharsProcessed.Add(keys, int64(len(plan.FullQuery.Query)))
+		qe.queryTextCharsProcessed.AddJoined(joinedKey, int64(len(plan.FullQuery.Query)))
 	}
 
 	qe.queryCountsWithTabletType.Add([]string{tableName, plan.PlanID.String(), tabletType.String()}, queryCount)
@@ -635,14 +641,14 @@ func (qe *QueryEngine) AddStats(plan *TabletPlan, tableName, workload string, ta
 	// So we check if it is positive and add that too.
 	switch plan.PlanID {
 	case planbuilder.PlanSelect, planbuilder.PlanSelectStream, planbuilder.PlanSelectImpossible, planbuilder.PlanShow, planbuilder.PlanOtherRead:
-		qe.queryRowsReturned.Add(keys, rowsReturned)
+		qe.queryRowsReturned.AddJoined(joinedKey, rowsReturned)
 		if rowsAffected > 0 {
-			qe.queryRowsAffected.Add(keys, rowsAffected)
+			qe.queryRowsAffected.AddJoined(joinedKey, rowsAffected)
 		}
 	default:
-		qe.queryRowsAffected.Add(keys, rowsAffected)
+		qe.queryRowsAffected.AddJoined(joinedKey, rowsAffected)
 		if rowsReturned > 0 {
-			qe.queryRowsReturned.Add(keys, rowsReturned)
+			qe.queryRowsReturned.AddJoined(joinedKey, rowsReturned)
 		}
 	}
 }
