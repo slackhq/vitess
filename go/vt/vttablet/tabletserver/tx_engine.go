@@ -123,7 +123,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 				IntervalNs: func() int64 {
 					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
 				},
-				Exponent:       func() float64 { return config.LoadshedExponent },
+				Exponent:       func() float64 { return 1 },
 				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
 				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
 				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },

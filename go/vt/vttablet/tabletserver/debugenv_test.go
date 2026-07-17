@@ -66,8 +66,6 @@ func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	postVar(t, tsv, "LoadshedIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedIntervalRatio)
 
-	postVar(t, tsv, "LoadshedExponent", "2.5")
-	assert.Equal(t, 2.5, tsv.Config().LoadshedExponent)
 }
 
 func TestDebugEnvLoadshedJumpStartParams(t *testing.T) {
@@ -107,7 +105,7 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		names[v.Name] = struct{}{}
 	}
 	for _, want := range []string{
-		"LoadshedTarget", "LoadshedIntervalRatio", "LoadshedExponent",
+		"LoadshedTarget", "LoadshedIntervalRatio",
 		"LoadshedDropMode", "LoadshedTrigger", "LoadshedGraceCount",
 	} {
 		_, ok := names[want]

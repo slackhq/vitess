@@ -177,8 +177,6 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTarget = d })
 	case "LoadshedIntervalRatio":
 		err = setFloat64Val(func(v float64) { tsv.Config().LoadshedIntervalRatio = v })
-	case "LoadshedExponent":
-		err = setFloat64Val(func(v float64) { tsv.Config().LoadshedExponent = v })
 	case "LoadshedTrigger":
 		err = setDurationVal(func(d time.Duration) { tsv.Config().LoadshedTrigger = d })
 	case "LoadshedGraceCount":
@@ -243,7 +241,6 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
 	vars = addVar(vars, "LoadshedTarget", func() time.Duration { return tsv.Config().LoadshedTarget })
 	vars = addVar(vars, "LoadshedIntervalRatio", func() float64 { return tsv.Config().LoadshedIntervalRatio })
-	vars = addVar(vars, "LoadshedExponent", func() float64 { return tsv.Config().LoadshedExponent })
 	vars = addVar(vars, "LoadshedDropMode", func() string { return tsv.Config().LoadshedDropMode })
 	vars = addVar(vars, "LoadshedTrigger", func() time.Duration { return tsv.Config().LoadshedTrigger })
 	vars = addVar(vars, "LoadshedGraceCount", func() int { return tsv.Config().LoadshedGraceCount })

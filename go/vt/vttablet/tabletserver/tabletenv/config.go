@@ -228,7 +228,6 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&enableLoadshed, "loadshed-enabled", true, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
 	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
 	fs.Float64Var(&currentConfig.LoadshedIntervalRatio, "loadshed-interval-ratio", defaultConfig.LoadshedIntervalRatio, "CoDel observation interval for the load shedder, as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20.")
-	fs.Float64Var(&currentConfig.LoadshedExponent, "loadshed-exponent", defaultConfig.LoadshedExponent, "CoDel control law exponent for the load shedder.")
 	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
 	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).")
 	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
@@ -402,7 +401,6 @@ type TabletConfig struct {
 	LoadshedEnabled       bool          `json:"-"`
 	LoadshedTarget        time.Duration `json:"-"`
 	LoadshedIntervalRatio float64       `json:"-"`
-	LoadshedExponent      float64       `json:"-"`
 	LoadshedDropMode      string        `json:"-"`
 	LoadshedTrigger       time.Duration `json:"-"`
 	LoadshedGraceCount    int           `json:"-"`
@@ -1166,7 +1164,6 @@ var defaultConfig = TabletConfig{
 	LoadshedEnabled:       true,
 	LoadshedTarget:        5 * time.Millisecond,
 	LoadshedIntervalRatio: 20,
-	LoadshedExponent:      1.0,
 	LoadshedDropMode:      "slow",
 	LoadshedTrigger:       0,
 	LoadshedGraceCount:    1,
