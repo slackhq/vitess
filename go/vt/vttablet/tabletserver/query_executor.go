@@ -1361,8 +1361,12 @@ func (qre *QueryExecutor) recordUserQuery(queryType string, duration int64) {
 		username = callerid.GetUsername(callerid.ImmediateCallerIDFromContext(qre.ctx))
 	}
 	tableName := qre.plan.TableName().String()
-	qre.tsv.Stats().UserTableQueryCount.Add([]string{tableName, username, queryType}, 1)
-	qre.tsv.Stats().UserTableQueryTimesNs.Add([]string{tableName, username, queryType}, duration)
+	// UserTableQueryCount and UserTableQueryTimesNs share the same label set, so
+	// join the key once and reuse it rather than rebuilding (and allocating) the
+	// same string in each Add.
+	key := qre.tsv.Stats().UserTableQueryCount.JoinLabels([]string{tableName, username, queryType})
+	qre.tsv.Stats().UserTableQueryCount.AddJoined(key, 1)
+	qre.tsv.Stats().UserTableQueryTimesNs.AddJoined(key, duration)
 }
 
 func (qre *QueryExecutor) GetSchemaDefinitions(tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {

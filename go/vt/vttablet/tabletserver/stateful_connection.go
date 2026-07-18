@@ -292,8 +292,12 @@ func (sc *StatefulConnection) LogTransaction(reason tx.ReleaseReason) {
 		username = callerid.GetUsername(sc.txProps.ImmediateCaller)
 	}
 	duration := sc.txProps.EndTime.Sub(sc.txProps.StartTime)
-	sc.Stats().UserTransactionCount.Add([]string{username, reason.Name()}, 1)
-	sc.Stats().UserTransactionTimesNs.Add([]string{username, reason.Name()}, int64(duration))
+	// UserTransactionCount and UserTransactionTimesNs share the same label set, so
+	// join the key once and reuse it rather than rebuilding (and allocating) the
+	// same string in each Add.
+	key := sc.Stats().UserTransactionCount.JoinLabels([]string{username, reason.Name()})
+	sc.Stats().UserTransactionCount.AddJoined(key, 1)
+	sc.Stats().UserTransactionTimesNs.AddJoined(key, int64(duration))
 	sc.txProps.Stats.Add(reason.Name(), duration)
 	tabletenv.TxLogger.Send(sc)
 }
