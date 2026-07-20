@@ -438,23 +438,11 @@ func (s *Snake) DroppingNanos() int64 {
 
 // --- timer management (must be called with s.mu held) ---
 
-// backstopFloorNs is the minimum delay for the drop timer. Shedding is now
-// driven synchronously from the release (dequeue) path, so the timer only needs
-// to backstop a stuck/quiet queue — one with a droppable backlog but no release
-// traffic to advance it. Flooring the arm delay well above the CoDel control
-// interval keeps the timer coarse (far fewer time.AfterFunc re-arms, so less
-// runtime-timer-lock churn) without affecting the real-time drop rate, which
-// releases now pace.
-const backstopFloorNs = int64(5 * time.Millisecond)
-
 func (s *Snake) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
 		return
 	}
 	s.dropTimerArmed = true
-	if delayNs < backstopFloorNs {
-		delayNs = backstopFloorNs
-	}
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 	delay := time.Duration(delayNs) * time.Nanosecond
 	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)
