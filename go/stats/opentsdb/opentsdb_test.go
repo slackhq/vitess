@@ -321,137 +321,257 @@ func TestMultiTimings(t *testing.T) {
 
 	checkOutput(t, name, `
 	[
-		{
-		  "metric": "vtgate.multi_timings_name.1000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.10000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.100000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.1000000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.10000000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.500000",
-		  "timestamp": 1234,
-		  "value": 1,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.5000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.50000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.500000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.5000000000",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.count",
-		  "timestamp": 1234,
-		  "value": 1,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.inf",
-		  "timestamp": 1234,
-		  "value": 0,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		},
-		{
-		  "metric": "vtgate.multi_timings_name.time",
-		  "timestamp": 1234,
-		  "value": 1,
-		  "tags": {
-			"host": "localhost",
-			"label1": "foo",
-			"label2": "bar"
-		  }
-		}
-	  ]`)
+	  {
+	    "metric": "vtgate.multi_timings_name.1000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.10000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.100000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.1000000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.10000000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.1600000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.16000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.160000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.1600000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.2500000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.25000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.250000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.2500000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.4000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.40000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.400000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.4000000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.500000",
+	    "timestamp": 1234,
+	    "value": 1,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.6300000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.63000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.630000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.6300000000",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.count",
+	    "timestamp": 1234,
+	    "value": 1,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.inf",
+	    "timestamp": 1234,
+	    "value": 0,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  },
+	  {
+	    "metric": "vtgate.multi_timings_name.time",
+	    "timestamp": 1234,
+	    "value": 1,
+	    "tags": {
+	      "host": "localhost",
+	      "label1": "foo",
+	      "label2": "bar"
+	    }
+	  }
+	]`)
 }
 
 func TestHistogram(t *testing.T) {
@@ -626,6 +746,222 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
+		    "metric": "vtgate.blah_timings.1600000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.1600000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.16000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.16000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.160000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.160000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.1600000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.1600000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.2500000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.2500000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.25000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.25000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.250000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.250000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.2500000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.2500000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.4000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.4000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.40000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.40000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.400000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.400000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.4000000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat1",
+		      "host": "localhost"
+		    }
+		  },
+		  {
+		    "metric": "vtgate.blah_timings.4000000000",
+		    "timestamp": 1234,
+		    "value": 0,
+		    "tags": {
+		      "category": "cat2",
+		      "host": "localhost"
+		    }
+		  },
+		  {
 		    "metric": "vtgate.blah_timings.500000",
 		    "timestamp": 1234,
 		    "value": 1,
@@ -644,7 +980,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.5000000",
+		    "metric": "vtgate.blah_timings.6300000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -653,7 +989,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.5000000",
+		    "metric": "vtgate.blah_timings.6300000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -662,7 +998,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.50000000",
+		    "metric": "vtgate.blah_timings.63000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -671,7 +1007,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.50000000",
+		    "metric": "vtgate.blah_timings.63000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -680,7 +1016,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.500000000",
+		    "metric": "vtgate.blah_timings.630000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -689,7 +1025,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.500000000",
+		    "metric": "vtgate.blah_timings.630000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -698,7 +1034,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.5000000000",
+		    "metric": "vtgate.blah_timings.6300000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
@@ -707,7 +1043,7 @@ func TestOpenTsdbTimings(t *testing.T) {
 		    }
 		  },
 		  {
-		    "metric": "vtgate.blah_timings.5000000000",
+		    "metric": "vtgate.blah_timings.6300000000",
 		    "timestamp": 1234,
 		    "value": 0,
 		    "tags": {
