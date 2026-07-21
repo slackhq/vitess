@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,7 +69,6 @@ var (
 	newInitDBFile    string
 	currentSetupType int
 	cell             = cluster.DefaultCell
-
 	hostname         = "localhost"
 	keyspaceName     = "ks"
 	dbPassword       = "VtDbaPass"
@@ -191,8 +191,10 @@ func LaunchCluster(setupType int, streamMode string, stripes int, cDetails *Comp
 		// since we spin different mysqld processes, we need to pass exactly the socket of the this particular
 		// one when running mysql shell dump/loads
 		if setupType == MySQLShell {
-			commonTabletArg = append(commonTabletArg,
-				"--mysql-shell-flags", fmt.Sprintf("--js -u vt_dba -p%s -S %s", dbPassword,
+			commonTabletArg = append(
+				commonTabletArg,
+				"--mysql-shell-flags", fmt.Sprintf(
+					"--js -u vt_dba -p%s -S %s", dbPassword,
 					path.Join(os.Getenv("VTDATAROOT"), fmt.Sprintf("/vt_%010d", tablet.TabletUID), "mysql.sock"),
 				),
 			)
@@ -403,6 +405,10 @@ func TestBackup(t *testing.T, setupType int, streamMode string, stripes int, cDe
 		{
 			name:   "TestTerminatedRestore",
 			method: terminatedRestore,
+		}, //
+		{
+			name:   "TestRestoreDoneHookOnFailure",
+			method: testRestoreDoneHookOnFailure,
 		}, //
 		{
 			name:   "DoNotDemoteNewlyPromotedPrimaryIfReparentingDuringBackup",
@@ -958,6 +964,158 @@ func vtctlBackup(t *testing.T, tabletType string) {
 	err = replica2.VttabletProcess.TearDown()
 	require.NoError(t, err)
 
+	err = localCluster.VtctldClientProcess.ExecuteCommand("DeleteTablets", replica2.Alias)
+	require.NoError(t, err)
+	_, err = primary.VttabletProcess.QueryTablet("DROP TABLE vt_insert_test", keyspaceName, true)
+	require.NoError(t, err)
+}
+
+func chunkedBackup(t *testing.T) {
+	verifyBackupChunking(t, true, 4194304)
+}
+
+func nonChunkedBackup(t *testing.T) {
+	verifyBackupChunking(t, false, 0)
+}
+
+func chunkedRestoreNonChunkedBackup(t *testing.T) {
+	verifyInitialReplication(t)
+
+	// Launch replica2 with chunking flags enabled but waiting for a backup.
+	// The backup itself will be non-chunked (taken by replica1 without chunking).
+	replica2.Type = "replica"
+	replica2.ValidateTabletRestart(t)
+	replicaTabletArgs := append(
+		commonTabletArg,
+		"--wait_for_backup_interval", "1s",
+		"--init_tablet_type", "replica",
+		"--builtinbackup-file-chunk-threshold", "4194304",
+		"--builtinbackup-file-chunk-size", "4194304",
+	)
+	replica2.VttabletProcess.ExtraArgs = replicaTabletArgs
+	replica2.VttabletProcess.ServingStatus = ""
+	err := replica2.VttabletProcess.Setup()
+	require.NoError(t, err)
+
+	// Take a non-chunked backup on replica1.
+	err = localCluster.VtctldClientProcess.ExecuteCommand("Backup", replica1.Alias)
+	require.NoError(t, err)
+
+	backups := localCluster.VerifyBackupCount(t, shardKsName, 1)
+
+	// Verify the MANIFEST has no chunks (non-chunked backup).
+	backupLocation := path.Join(localCluster.CurrentVTDATAROOT, "backups", keyspaceName, shardName, backups[0])
+	manifestData, err := os.ReadFile(path.Join(backupLocation, "MANIFEST"))
+	require.NoError(t, err)
+	var manifest struct {
+		FileEntries []struct {
+			Chunks []struct{}
+		}
+	}
+	require.NoError(t, json.Unmarshal(manifestData, &manifest))
+	for _, fe := range manifest.FileEntries {
+		require.Empty(t, fe.Chunks, "expected non-chunked backup but found chunks in MANIFEST")
+	}
+
+	// Verify replica2 restores successfully from the non-chunked backup.
+	err = replica2.VttabletProcess.WaitForTabletStatusesForTimeout([]string{"SERVING"}, 25*time.Second)
+	require.NoError(t, err)
+	cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 1)
+
+	verifyAfterRemovingBackupNoBackupShouldBePresent(t, backups)
+	err = replica2.VttabletProcess.TearDown()
+	require.NoError(t, err)
+	err = localCluster.VtctldClientProcess.ExecuteCommand("DeleteTablets", replica2.Alias)
+	require.NoError(t, err)
+	_, err = primary.VttabletProcess.QueryTablet("DROP TABLE vt_insert_test", keyspaceName, true)
+	require.NoError(t, err)
+}
+
+func verifyBackupChunking(t *testing.T, expectChunked bool, chunkSizeBytes int64) {
+	verifyInitialReplication(t)
+
+	cluster.VerifyRowsInTablet(t, replica1, keyspaceName, 1)
+
+	restoreWaitForBackup(t, "replica", nil, true)
+
+	err := localCluster.VtctldClientProcess.ExecuteCommand("Backup", replica1.Alias)
+	require.NoError(t, err)
+
+	backups := localCluster.VerifyBackupCount(t, shardKsName, 1)
+	backupLocation := path.Join(localCluster.CurrentVTDATAROOT, "backups", keyspaceName, shardName, backups[0])
+
+	manifestData, err := os.ReadFile(path.Join(backupLocation, "MANIFEST"))
+	require.NoError(t, err)
+
+	var manifest struct {
+		FileEntries []struct {
+			Name   string
+			Chunks []struct {
+				StorageName string
+				Offset      int64
+				Size        int64
+				Hash        string
+			}
+		}
+	}
+	require.NoError(t, json.Unmarshal(manifestData, &manifest))
+
+	totalChunks := 0
+	chunkedFileCount := 0
+	nonChunkedFileCount := 0
+	for _, fe := range manifest.FileEntries {
+		if len(fe.Chunks) > 0 {
+			chunkedFileCount++
+			totalChunks += len(fe.Chunks)
+
+			// We want to make sure the chunk count matches what we are expecting in terms of the file size.
+			lastChunk := fe.Chunks[len(fe.Chunks)-1]
+			fileSize := lastChunk.Offset + lastChunk.Size
+			expectedChunks := int(fileSize / chunkSizeBytes)
+			if fileSize%chunkSizeBytes != 0 {
+				expectedChunks++
+			}
+			assert.Len(t, fe.Chunks, expectedChunks, "file %s: expected %d chunks for size %d with chunk size %d", fe.Name, expectedChunks, fileSize, chunkSizeBytes)
+			t.Logf("File %s: size=%d, chunks=%d (expected %d)", fe.Name, fileSize, len(fe.Chunks), expectedChunks)
+
+			for _, chunk := range fe.Chunks {
+				assert.NotEmpty(t, chunk.StorageName, "chunk StorageName must not be empty for file %s", fe.Name)
+				assert.NotEmpty(t, chunk.Hash, "chunk Hash must not be empty for file %s", fe.Name)
+				assert.Contains(t, chunk.StorageName, "-", "chunk StorageName must follow fileIndex-chunkIndex format, got %s", chunk.StorageName)
+				assert.Positive(t, chunk.Size, "chunk Size must be positive for file %s chunk %s", fe.Name, chunk.StorageName)
+			}
+		} else {
+			nonChunkedFileCount++
+		}
+	}
+	t.Logf("Total chunks: %d, chunked files: %d, non-chunked files: %d", totalChunks, chunkedFileCount, nonChunkedFileCount)
+
+	if expectChunked {
+		assert.Positive(t, chunkedFileCount, "expected at least one file to be chunked")
+		assert.Positive(t, nonChunkedFileCount, "expected at least one file to NOT be chunked (mixed scenario)")
+
+		// Verify that our small test table (well under chunk threshold) was NOT chunked.
+		foundSmallFile := false
+		for _, fe := range manifest.FileEntries {
+			if strings.Contains(fe.Name, "vt_insert_test") {
+				foundSmallFile = true
+				t.Logf("File %s: not chunked", fe.Name)
+				assert.Empty(t, fe.Chunks, "small file %s should not be chunked", fe.Name)
+			}
+		}
+		assert.True(t, foundSmallFile, "expected vt_insert_test table file in manifest")
+	} else {
+		assert.Equal(t, 0, chunkedFileCount, "expected no chunked files with threshold=0")
+		assert.Equal(t, 0, totalChunks, "expected no chunking with threshold=0")
+	}
+
+	err = replica2.VttabletProcess.WaitForTabletStatusesForTimeout([]string{"SERVING"}, 25*time.Second)
+	require.NoError(t, err)
+	cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 1)
+
+	verifyAfterRemovingBackupNoBackupShouldBePresent(t, backups)
+	err = replica2.VttabletProcess.TearDown()
+	require.NoError(t, err)
 	err = localCluster.VtctldClientProcess.ExecuteCommand("DeleteTablets", replica2.Alias)
 	require.NoError(t, err)
 	_, err = primary.VttabletProcess.QueryTablet("DROP TABLE vt_insert_test", keyspaceName, true)
@@ -1603,7 +1761,8 @@ func TestRestoreAllowedBackupEngines(t *testing.T) {
 		// check the new replica has the data
 		cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 2)
 		result, err := replica2.VttabletProcess.QueryTablet(
-			fmt.Sprintf("select msg from vt_insert_test where msg='%s'", backupMsg), replica2.VttabletProcess.Keyspace, true)
+			fmt.Sprintf("select msg from vt_insert_test where msg='%s'", backupMsg), replica2.VttabletProcess.Keyspace, true,
+		)
 		require.NoError(t, err)
 		require.Equal(t, backupMsg, result.Named().Row().AsString("msg", ""))
 	})
@@ -1631,8 +1790,100 @@ func TestRestoreAllowedBackupEngines(t *testing.T) {
 		cluster.VerifyRowsInTablet(t, replica2, keyspaceName, 2)
 
 		result, err := replica2.VttabletProcess.QueryTablet(
-			fmt.Sprintf("select msg from vt_insert_test where msg='%s'", backupMsg), replica2.VttabletProcess.Keyspace, true)
+			fmt.Sprintf("select msg from vt_insert_test where msg='%s'", backupMsg), replica2.VttabletProcess.Keyspace, true,
+		)
 		require.NoError(t, err)
 		require.Equal(t, backupMsg, result.Named().Row().AsString("msg", ""))
 	})
+}
+
+// testRestoreDoneHookOnFailure verifies that the vttablet_restore_done hook
+// fires synchronously even when the restore fails and the process exits.
+// This is a regression test for a bug where the hook was launched in a
+// goroutine that was killed by os.Exit(1) before it could complete.
+func testRestoreDoneHookOnFailure(t *testing.T) {
+	// Ensure a clean cluster state — preceding tests (e.g., terminatedRestore)
+	// may have torn down all tablets.
+	restartPrimaryAndReplica(t)
+
+	// 1. Install a vttablet_restore_done hook that writes env vars to a file.
+	vtroot := os.Getenv("VTROOT")
+	require.NotEmpty(t, vtroot, "VTROOT must be set")
+
+	hookDir := filepath.Join(vtroot, "vthook")
+	require.NoError(t, os.MkdirAll(hookDir, 0o755))
+
+	hookOutputFile := filepath.Join(localCluster.CurrentVTDATAROOT, "hook_restore_done_output")
+	hookScript := filepath.Join(hookDir, "vttablet_restore_done")
+	hookContent := fmt.Sprintf("#!/bin/bash\nenv > %s\n", hookOutputFile)
+	require.NoError(t, os.WriteFile(hookScript, []byte(hookContent), 0o755))
+	t.Cleanup(func() {
+		os.Remove(hookScript)
+		os.Remove(hookOutputFile)
+	})
+
+	// 2. Take a backup (using replica1 which is already running).
+	err := localCluster.VtctldClientProcess.ExecuteCommand("Backup", replica1.Alias)
+	require.NoError(t, err)
+	backups := localCluster.VerifyBackupCount(t, shardKsName, 1)
+	require.Len(t, backups, 1)
+
+	// 3. Corrupt the backup by overwriting one of its data files with garbage.
+	backupDir := filepath.Join(replica1.VttabletProcess.FileBackupStorageRoot, keyspaceName, shardName, backups[0])
+	entries, err := os.ReadDir(backupDir)
+	require.NoError(t, err)
+
+	corrupted := false
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == "MANIFEST" {
+			continue
+		}
+		// Overwrite with deterministic garbage to cause a checksum/read error.
+		garbage := []byte("CORRUPTED_FOR_TEST_DO_NOT_USE")
+		require.NoError(t, os.WriteFile(filepath.Join(backupDir, entry.Name()), garbage, 0o644))
+		corrupted = true
+		break
+	}
+	require.True(t, corrupted, "expected at least one data file to corrupt in backup")
+
+	// 4. Start replica3 — it will attempt to restore from the corrupted backup.
+	//    The restore will fail and the process will exit with os.Exit(1).
+	//    We set ExplicitServingStatus so Setup() waits only for SERVING (not
+	//    NOT_SERVING). Since the tablet never reaches SERVING (the background
+	//    restore goroutine fails and calls os.Exit), the exit channel fires
+	//    and Setup() returns "exited prematurely".
+	replica3.VttabletProcess.ExtraArgs = commonTabletArg
+	replica3.VttabletProcess.ServingStatus = "SERVING"
+	replica3.VttabletProcess.ExplicitServingStatus = true
+	err = replica3.VttabletProcess.Setup()
+	require.Error(t, err, "expected vttablet to exit due to failed restore")
+	require.Contains(t, err.Error(), "exited prematurely")
+
+	// 5. Verify the hook output file exists and contains the expected env vars.
+	//    Before the fix, this file would not exist because the hook goroutine was
+	//    killed by os.Exit(1) before it could complete.
+	hookOutput, err := os.ReadFile(hookOutputFile)
+	require.NoError(t, err, "hook output file must exist — hook should fire synchronously before os.Exit")
+
+	output := string(hookOutput)
+	assert.Contains(t, output, "TM_RESTORE_DATA_ERROR=")
+	assert.Contains(t, output, "TM_RESTORE_DATA_START_TS=")
+	assert.Contains(t, output, "TM_RESTORE_DATA_STOP_TS=")
+	assert.Contains(t, output, "TM_RESTORE_DATA_DURATION=")
+	assert.Contains(t, output, "TABLET_ALIAS=")
+	assert.Contains(t, output, "KEYSPACE="+keyspaceName)
+	assert.Contains(t, output, "SHARD="+shardName)
+
+	// With the backup engine fix, the engine should be reported even on failure.
+	switch currentSetupType {
+	case BuiltinBackup:
+		assert.Contains(t, output, "TM_RESTORE_DATA_BACKUP_ENGINE=builtin")
+	case XtraBackup:
+		assert.Contains(t, output, "TM_RESTORE_DATA_BACKUP_ENGINE=xtrabackup")
+	case MySQLShell:
+		assert.Contains(t, output, "TM_RESTORE_DATA_BACKUP_ENGINE=mysqlshell")
+	}
+
+	// Clean up: remove all backups so other tests aren't affected.
+	localCluster.RemoveAllBackups(t, shardKsName)
 }
