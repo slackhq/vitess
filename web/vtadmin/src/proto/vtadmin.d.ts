@@ -48275,6 +48275,21 @@ export namespace replicationdata {
 
         /** Status backup_running */
         backup_running?: (boolean|null);
+
+        /** Status semi_sync_primary_enabled */
+        semi_sync_primary_enabled?: (boolean|null);
+
+        /** Status semi_sync_replica_enabled */
+        semi_sync_replica_enabled?: (boolean|null);
+
+        /** Status semi_sync_primary_status */
+        semi_sync_primary_status?: (boolean|null);
+
+        /** Status semi_sync_replica_status */
+        semi_sync_replica_status?: (boolean|null);
+
+        /** Status server_version */
+        server_version?: (string|null);
     }
 
     /** Represents a Status. */
@@ -48354,6 +48369,21 @@ export namespace replicationdata {
 
         /** Status backup_running. */
         public backup_running: boolean;
+
+        /** Status semi_sync_primary_enabled. */
+        public semi_sync_primary_enabled: boolean;
+
+        /** Status semi_sync_replica_enabled. */
+        public semi_sync_replica_enabled: boolean;
+
+        /** Status semi_sync_primary_status. */
+        public semi_sync_primary_status: boolean;
+
+        /** Status semi_sync_replica_status. */
+        public semi_sync_replica_status: boolean;
+
+        /** Status server_version. */
+        public server_version: string;
 
         /**
          * Creates a new Status instance using the specified properties.
@@ -48656,6 +48686,9 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid */
         server_uuid?: (string|null);
+
+        /** PrimaryStatus server_version */
+        server_version?: (string|null);
     }
 
     /** Represents a PrimaryStatus. */
@@ -48675,6 +48708,9 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid. */
         public server_uuid: string;
+
+        /** PrimaryStatus server_version. */
+        public server_version: string;
 
         /**
          * Creates a new PrimaryStatus instance using the specified properties.

@@ -117184,6 +117184,11 @@ export const replicationdata = $root.replicationdata = (() => {
          * @property {boolean|null} [ssl_allowed] Status ssl_allowed
          * @property {boolean|null} [replication_lag_unknown] Status replication_lag_unknown
          * @property {boolean|null} [backup_running] Status backup_running
+         * @property {boolean|null} [semi_sync_primary_enabled] Status semi_sync_primary_enabled
+         * @property {boolean|null} [semi_sync_replica_enabled] Status semi_sync_replica_enabled
+         * @property {boolean|null} [semi_sync_primary_status] Status semi_sync_primary_status
+         * @property {boolean|null} [semi_sync_replica_status] Status semi_sync_replica_status
+         * @property {string|null} [server_version] Status server_version
          */
 
         /**
@@ -117386,6 +117391,46 @@ export const replicationdata = $root.replicationdata = (() => {
         Status.prototype.backup_running = false;
 
         /**
+         * Status semi_sync_primary_enabled.
+         * @member {boolean} semi_sync_primary_enabled
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.semi_sync_primary_enabled = false;
+
+        /**
+         * Status semi_sync_replica_enabled.
+         * @member {boolean} semi_sync_replica_enabled
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.semi_sync_replica_enabled = false;
+
+        /**
+         * Status semi_sync_primary_status.
+         * @member {boolean} semi_sync_primary_status
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.semi_sync_primary_status = false;
+
+        /**
+         * Status semi_sync_replica_status.
+         * @member {boolean} semi_sync_replica_status
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.semi_sync_replica_status = false;
+
+        /**
+         * Status server_version.
+         * @member {string} server_version
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.server_version = "";
+
+        /**
          * Creates a new Status instance using the specified properties.
          * @function create
          * @memberof replicationdata.Status
@@ -117455,6 +117500,16 @@ export const replicationdata = $root.replicationdata = (() => {
                 writer.uint32(/* id 24, wireType 0 =*/192).bool(message.replication_lag_unknown);
             if (message.backup_running != null && Object.hasOwnProperty.call(message, "backup_running"))
                 writer.uint32(/* id 25, wireType 0 =*/200).bool(message.backup_running);
+            if (message.semi_sync_primary_enabled != null && Object.hasOwnProperty.call(message, "semi_sync_primary_enabled"))
+                writer.uint32(/* id 26, wireType 0 =*/208).bool(message.semi_sync_primary_enabled);
+            if (message.semi_sync_replica_enabled != null && Object.hasOwnProperty.call(message, "semi_sync_replica_enabled"))
+                writer.uint32(/* id 27, wireType 0 =*/216).bool(message.semi_sync_replica_enabled);
+            if (message.semi_sync_primary_status != null && Object.hasOwnProperty.call(message, "semi_sync_primary_status"))
+                writer.uint32(/* id 28, wireType 0 =*/224).bool(message.semi_sync_primary_status);
+            if (message.semi_sync_replica_status != null && Object.hasOwnProperty.call(message, "semi_sync_replica_status"))
+                writer.uint32(/* id 29, wireType 0 =*/232).bool(message.semi_sync_replica_status);
+            if (message.server_version != null && Object.hasOwnProperty.call(message, "server_version"))
+                writer.uint32(/* id 30, wireType 2 =*/242).string(message.server_version);
             return writer;
         };
 
@@ -117581,6 +117636,26 @@ export const replicationdata = $root.replicationdata = (() => {
                         message.backup_running = reader.bool();
                         break;
                     }
+                case 26: {
+                        message.semi_sync_primary_enabled = reader.bool();
+                        break;
+                    }
+                case 27: {
+                        message.semi_sync_replica_enabled = reader.bool();
+                        break;
+                    }
+                case 28: {
+                        message.semi_sync_primary_status = reader.bool();
+                        break;
+                    }
+                case 29: {
+                        message.semi_sync_replica_status = reader.bool();
+                        break;
+                    }
+                case 30: {
+                        message.server_version = reader.string();
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -117685,6 +117760,21 @@ export const replicationdata = $root.replicationdata = (() => {
             if (message.backup_running != null && message.hasOwnProperty("backup_running"))
                 if (typeof message.backup_running !== "boolean")
                     return "backup_running: boolean expected";
+            if (message.semi_sync_primary_enabled != null && message.hasOwnProperty("semi_sync_primary_enabled"))
+                if (typeof message.semi_sync_primary_enabled !== "boolean")
+                    return "semi_sync_primary_enabled: boolean expected";
+            if (message.semi_sync_replica_enabled != null && message.hasOwnProperty("semi_sync_replica_enabled"))
+                if (typeof message.semi_sync_replica_enabled !== "boolean")
+                    return "semi_sync_replica_enabled: boolean expected";
+            if (message.semi_sync_primary_status != null && message.hasOwnProperty("semi_sync_primary_status"))
+                if (typeof message.semi_sync_primary_status !== "boolean")
+                    return "semi_sync_primary_status: boolean expected";
+            if (message.semi_sync_replica_status != null && message.hasOwnProperty("semi_sync_replica_status"))
+                if (typeof message.semi_sync_replica_status !== "boolean")
+                    return "semi_sync_replica_status: boolean expected";
+            if (message.server_version != null && message.hasOwnProperty("server_version"))
+                if (!$util.isString(message.server_version))
+                    return "server_version: string expected";
             return null;
         };
 
@@ -117746,6 +117836,16 @@ export const replicationdata = $root.replicationdata = (() => {
                 message.replication_lag_unknown = Boolean(object.replication_lag_unknown);
             if (object.backup_running != null)
                 message.backup_running = Boolean(object.backup_running);
+            if (object.semi_sync_primary_enabled != null)
+                message.semi_sync_primary_enabled = Boolean(object.semi_sync_primary_enabled);
+            if (object.semi_sync_replica_enabled != null)
+                message.semi_sync_replica_enabled = Boolean(object.semi_sync_replica_enabled);
+            if (object.semi_sync_primary_status != null)
+                message.semi_sync_primary_status = Boolean(object.semi_sync_primary_status);
+            if (object.semi_sync_replica_status != null)
+                message.semi_sync_replica_status = Boolean(object.semi_sync_replica_status);
+            if (object.server_version != null)
+                message.server_version = String(object.server_version);
             return message;
         };
 
@@ -117786,6 +117886,11 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.ssl_allowed = false;
                 object.replication_lag_unknown = false;
                 object.backup_running = false;
+                object.semi_sync_primary_enabled = false;
+                object.semi_sync_replica_enabled = false;
+                object.semi_sync_primary_status = false;
+                object.semi_sync_replica_status = false;
+                object.server_version = "";
             }
             if (message.position != null && message.hasOwnProperty("position"))
                 object.position = message.position;
@@ -117833,6 +117938,16 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.replication_lag_unknown = message.replication_lag_unknown;
             if (message.backup_running != null && message.hasOwnProperty("backup_running"))
                 object.backup_running = message.backup_running;
+            if (message.semi_sync_primary_enabled != null && message.hasOwnProperty("semi_sync_primary_enabled"))
+                object.semi_sync_primary_enabled = message.semi_sync_primary_enabled;
+            if (message.semi_sync_replica_enabled != null && message.hasOwnProperty("semi_sync_replica_enabled"))
+                object.semi_sync_replica_enabled = message.semi_sync_replica_enabled;
+            if (message.semi_sync_primary_status != null && message.hasOwnProperty("semi_sync_primary_status"))
+                object.semi_sync_primary_status = message.semi_sync_primary_status;
+            if (message.semi_sync_replica_status != null && message.hasOwnProperty("semi_sync_replica_status"))
+                object.semi_sync_replica_status = message.semi_sync_replica_status;
+            if (message.server_version != null && message.hasOwnProperty("server_version"))
+                object.server_version = message.server_version;
             return object;
         };
 
@@ -118352,6 +118467,7 @@ export const replicationdata = $root.replicationdata = (() => {
          * @property {string|null} [position] PrimaryStatus position
          * @property {string|null} [file_position] PrimaryStatus file_position
          * @property {string|null} [server_uuid] PrimaryStatus server_uuid
+         * @property {string|null} [server_version] PrimaryStatus server_version
          */
 
         /**
@@ -118394,6 +118510,14 @@ export const replicationdata = $root.replicationdata = (() => {
         PrimaryStatus.prototype.server_uuid = "";
 
         /**
+         * PrimaryStatus server_version.
+         * @member {string} server_version
+         * @memberof replicationdata.PrimaryStatus
+         * @instance
+         */
+        PrimaryStatus.prototype.server_version = "";
+
+        /**
          * Creates a new PrimaryStatus instance using the specified properties.
          * @function create
          * @memberof replicationdata.PrimaryStatus
@@ -118423,6 +118547,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 writer.uint32(/* id 2, wireType 2 =*/18).string(message.file_position);
             if (message.server_uuid != null && Object.hasOwnProperty.call(message, "server_uuid"))
                 writer.uint32(/* id 3, wireType 2 =*/26).string(message.server_uuid);
+            if (message.server_version != null && Object.hasOwnProperty.call(message, "server_version"))
+                writer.uint32(/* id 4, wireType 2 =*/34).string(message.server_version);
             return writer;
         };
 
@@ -118469,6 +118595,10 @@ export const replicationdata = $root.replicationdata = (() => {
                         message.server_uuid = reader.string();
                         break;
                     }
+                case 4: {
+                        message.server_version = reader.string();
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -118513,6 +118643,9 @@ export const replicationdata = $root.replicationdata = (() => {
             if (message.server_uuid != null && message.hasOwnProperty("server_uuid"))
                 if (!$util.isString(message.server_uuid))
                     return "server_uuid: string expected";
+            if (message.server_version != null && message.hasOwnProperty("server_version"))
+                if (!$util.isString(message.server_version))
+                    return "server_version: string expected";
             return null;
         };
 
@@ -118534,6 +118667,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 message.file_position = String(object.file_position);
             if (object.server_uuid != null)
                 message.server_uuid = String(object.server_uuid);
+            if (object.server_version != null)
+                message.server_version = String(object.server_version);
             return message;
         };
 
@@ -118554,6 +118689,7 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.position = "";
                 object.file_position = "";
                 object.server_uuid = "";
+                object.server_version = "";
             }
             if (message.position != null && message.hasOwnProperty("position"))
                 object.position = message.position;
@@ -118561,6 +118697,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.file_position = message.file_position;
             if (message.server_uuid != null && message.hasOwnProperty("server_uuid"))
                 object.server_uuid = message.server_uuid;
+            if (message.server_version != null && message.hasOwnProperty("server_version"))
+                object.server_version = message.server_version;
             return object;
         };
 
