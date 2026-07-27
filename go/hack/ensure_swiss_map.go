@@ -1,4 +1,4 @@
-//go:build !goexperiment.swissmap
+//go:build !goexperiment.swissmap && !go1.26
 
 /*
 Copyright (c) 2009 The Go Authors. All rights reserved.
