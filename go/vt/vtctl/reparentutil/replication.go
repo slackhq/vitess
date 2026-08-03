@@ -169,12 +169,27 @@ func FindPositionsOfAllCandidates(
 
 	// Fold former-primary flavors into detection. A zero position (a former primary
 	// with no executed transactions) tells us nothing about the flavor, so skip it
-	// rather than treating it as non-GTID.
+	// rather than treating it as non-GTID. An empty-but-typed GTID set (e.g. a fresh,
+	// never-initialized tablet reporting "MySQL56/") is equally flavor-agnostic: its
+	// GTIDSet is non-nil, so this fork's Position.IsZero (which only checks for a nil
+	// GTIDSet) does not treat it as zero. Skip empty sets explicitly so an
+	// uninitialized shard is not misclassified as GTID-based, which would trigger
+	// errant-GTID detection and its reparent-journal reads against tablets that have
+	// no _vt database yet.
+	//
+	// TODO: simplify to just `if pos.IsZero()` once this fork includes upstream
+	// commit 1c5ca23f5d (PR #18196), which makes Position.IsZero fold in
+	// GTIDSet.Empty() and adds Empty() to the GTIDSet interface. At that point the
+	// explicit concrete-type emptiness check below is redundant and this loop can
+	// match upstream verbatim, reducing our divergence from upstream/main.
 	for _, pos := range primaryPositions {
 		if pos.IsZero() {
 			continue
 		}
-		if _, ok := pos.GTIDSet.(replication.Mysql56GTIDSet); ok {
+		if gtidSet, ok := pos.GTIDSet.(replication.Mysql56GTIDSet); ok {
+			if len(gtidSet) == 0 {
+				continue
+			}
 			isGTIDBased = true
 		} else {
 			isNonGTIDBased = true
