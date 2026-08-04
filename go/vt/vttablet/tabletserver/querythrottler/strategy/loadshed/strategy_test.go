@@ -64,14 +64,12 @@ func TestSnakePriority(t *testing.T) {
 func TestSnakePriority_UndroppableSchema(t *testing.T) {
 	s := New([]string{"performance_schema", "mysql"})
 
-	// A query against an undroppable schema is never shed, regardless of priority.
 	got := s.snakePriority(registry.QueryAttributes{
 		Priority:         50,
-		SchemaQualifiers: []string{"Performance_Schema"}, // case-insensitive
+		SchemaQualifiers: []string{"Performance_Schema"},
 	})
 	assert.Equal(t, loadshed.PriorityUndroppable, got)
 
-	// A query against a normal schema uses the inverted priority.
 	got = s.snakePriority(registry.QueryAttributes{
 		Priority:         50,
 		SchemaQualifiers: []string{"myapp"},
@@ -87,7 +85,6 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 		Gate{Pool: registry.PoolTx, Snake: tx},
 	)
 
-	// Admit to the tx pool; the tx Snake should hold one slot, the oltp none.
 	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, registry.PoolTx)
 	require.NoError(t, err)
 	require.NotNil(t, release)
@@ -101,9 +98,8 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 func TestAdmit_UnconfiguredPoolAdmits(t *testing.T) {
 	s := New(nil, Gate{Pool: registry.PoolOltpRead, Snake: newTestSnake(1)})
 
-	// No gate for PoolTx: admit without shedding, non-nil release.
 	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, registry.PoolTx)
 	require.NoError(t, err)
 	require.NotNil(t, release)
-	release(nil) // must not panic
+	release(nil)
 }

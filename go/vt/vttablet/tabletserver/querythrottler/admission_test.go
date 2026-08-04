@@ -31,8 +31,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
-// predicateOnlyStrategy implements ThrottlingStrategyHandler but NOT
-// AdmissionController, so AcquireAdmission must treat it as no-gating.
 type predicateOnlyStrategy struct{}
 
 func (predicateOnlyStrategy) Evaluate(context.Context, topodatapb.TabletType, *sqlparser.ParsedQuery, int64, registry.QueryAttributes) registry.ThrottleDecision {
@@ -42,8 +40,6 @@ func (predicateOnlyStrategy) Start()                  {}
 func (predicateOnlyStrategy) Stop()                   {}
 func (predicateOnlyStrategy) GetStrategyName() string { return "predicate-only" }
 
-// admissionStrategy also implements AdmissionController and records the pool it
-// was asked to admit, returning a configurable outcome.
 type admissionStrategy struct {
 	predicateOnlyStrategy
 	admitErr    error
@@ -68,7 +64,7 @@ func TestAcquireAdmission_NonAdmissionStrategyIsNoOp(t *testing.T) {
 	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, registry.PoolOltpRead)
 	require.NoError(t, err)
 	require.NotNil(t, release, "release must be non-nil so callers can defer it unconditionally")
-	release(nil) // must not panic
+	release(nil)
 }
 
 func TestAcquireAdmission_RoutesToAdmissionController(t *testing.T) {
@@ -107,9 +103,6 @@ func TestInstallStrategy_PinnedAgainstConfigUpdate(t *testing.T) {
 	qt.InstallStrategy(pinned)
 	require.True(t, qt.pinnedStrategy)
 
-	// A config update selecting a different strategy type must NOT replace the
-	// pinned strategy, because the pinned one holds resources the topo factory
-	// cannot rebuild.
 	srvks := createTestSrvKeyspace(true, querythrottlerpb.ThrottlingStrategy_TABLET_THROTTLER, false)
 	require.True(t, qt.HandleConfigUpdate(srvks, nil))
 

@@ -264,10 +264,6 @@ func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
 	c.Release(tx.TxCommit)
 }
 
-// snakeAdmitter adapts a single Snake to the txAdmitter interface, mirroring
-// what the production loadshed strategy does for the transaction pool. It lets
-// these tests exercise TxPool.Begin's admission path without standing up the
-// full query-throttler + strategy wiring.
 type snakeAdmitter struct {
 	snake *loadshed.Snake
 }

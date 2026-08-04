@@ -865,9 +865,6 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 
-	// Gate entry to the OLTP read pool through the query throttler's admission
-	// controller (Snake load shedding, when installed). release is a no-op when
-	// no admission strategy is active, so this path is unconditional.
 	release, err := qre.tsv.queryThrottler.AcquireAdmission(ctx, qre.admissionAttrs(), registry.PoolOltpRead)
 	if err != nil {
 		return nil, nil, errLoadShed
@@ -880,10 +877,6 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	return conn, func() { release(nil) }, nil
 }
 
-// admissionAttrs builds the query-throttler admission metadata for this query.
-// Priority is the proto priority (0 = most important); the admission strategy
-// applies any inversion. FairnessKey groups fan-out from one logical caller,
-// and SchemaQualifiers lets the strategy exempt system-schema traffic.
 func (qre *QueryExecutor) admissionAttrs() registry.QueryAttributes {
 	return registry.QueryAttributes{
 		WorkloadName:     qre.options.GetWorkloadName(),

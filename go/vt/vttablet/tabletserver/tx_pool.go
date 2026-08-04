@@ -70,8 +70,6 @@ type (
 		scp     *StatefulConnectionPool
 		ticks   *timer.Timer
 		limiter txlimiter.TxLimiter
-		// admitter gates entry to the transaction pool (Snake load shedding, when
-		// installed). Nil until wired at tablet startup; a nil admitter admits all.
 		admitter txAdmitter
 
 		logMu   sync.Mutex
@@ -79,9 +77,6 @@ type (
 		txStats *servenv.TimingsWrapper
 	}
 
-	// txAdmitter gates entry to the transaction pool for the lifetime of the
-	// reservation. It is satisfied by the query throttler; defined here so the
-	// pool depends only on the narrow behavior it needs.
 	txAdmitter interface {
 		AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error)
 	}

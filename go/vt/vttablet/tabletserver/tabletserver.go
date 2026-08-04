@@ -657,15 +657,6 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	return optionsPriority
 }
 
-// installLoadshedStrategy assembles the Snake load-shedding gates (one per
-// connection pool) into a querythrottler AdmissionController strategy and
-// installs it as the query throttler's active strategy, then points the tx pool
-// at the throttler for admission. It is a no-op when load shedding is disabled
-// (no gates exist).
-//
-// The strategy is installed directly rather than selected via topo config
-// because the Snakes are wired to live connection-pool capacity, which the
-// topo-driven strategy factory cannot reach. Snake tuning remains flag-driven.
 func (tsv *TabletServer) installLoadshedStrategy() {
 	var gates []loadshedstrategy.Gate
 	if s := tsv.qe.Snake(); s != nil {

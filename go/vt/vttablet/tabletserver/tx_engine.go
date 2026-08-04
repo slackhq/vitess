@@ -97,13 +97,9 @@ type TxEngine struct {
 	twoPC        *TwoPC
 	dxNotify     func()
 
-	// snake is the CoDel-based load-shedding gate for the transaction pool, or
-	// nil when load shedding is disabled.
 	snake *loadshed.Snake
 }
 
-// Snake returns the transaction pool's load-shedding gate, or nil when load
-// shedding is disabled. Used at startup to assemble the admission strategy.
 func (te *TxEngine) Snake() *loadshed.Snake {
 	return te.snake
 }
