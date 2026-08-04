@@ -827,7 +827,7 @@ func (cached *Plan) CachedSize(alloc bool) int64 {
 	}
 	size := int64(0)
 	if alloc {
-		size += int64(224)
+		size += int64(240)
 	}
 	// field Original string
 	size += hack.RuntimeAllocSize(int64(len(cached.Original)))
