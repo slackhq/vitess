@@ -174,6 +174,16 @@ func (sc *StatefulConnection) ReleaseString(reason string) {
 	if sc.dbConn == nil {
 		return
 	}
+	// Release any load-shed (Snake) slot this connection holds. This is the
+	// universal teardown funnel: every conn lifecycle (Commit/Rollback via
+	// txComplete, but also the transaction killer, shutdown, taint, and
+	// renew-failure paths that call Release directly and bypass txComplete) passes
+	// through here. txComplete also invokes SnakeRelease, but SafeUnlock.Release is
+	// idempotent, so a slot held by a conn torn down without txComplete is still
+	// freed here instead of leaking until the gate's capacity is exhausted.
+	if sc.txProps != nil && sc.txProps.SnakeRelease != nil {
+		sc.txProps.SnakeRelease()
+	}
 	if sc.pool != nil {
 		sc.pool.unregister(sc.ConnID, reason)
 	}

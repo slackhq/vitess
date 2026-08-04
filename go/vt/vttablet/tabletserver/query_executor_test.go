@@ -1707,10 +1707,11 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() happy path
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
+	release()
 
 	// getStreamConn() happy path
 	qre = newTestQueryExecutor(ctx, tsv, input, 0)
@@ -1724,7 +1725,7 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() error path
 	qre = newTestQueryExecutor(ctx, tsv, input, 0)
-	_, err = qre.getConn()
+	_, _, err = qre.getConn()
 	assert.Error(t, err)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 
@@ -1733,6 +1734,101 @@ func TestGetConnectionLogStats(t *testing.T) {
 	_, err = qre.getStreamConn()
 	assert.Error(t, err)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
+}
+
+func TestGetConnSnakeEmptyValveID(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	cfg := tabletenv.NewDefaultConfig()
+	cfg.OltpReadPool.Size = 2
+	cfg.TxPool.Size = 100
+	cfg.LoadshedEnabled = true
+	cfg.LoadshedTarget = 5 * time.Millisecond
+	cfg.LoadshedIntervalRatio = 20
+	cfg.DB = newDBConfigs(db)
+
+	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	target := &querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}
+	err := tsv.StartService(target, cfg.DB, nil)
+	require.NoError(t, err)
+	defer tsv.StopService()
+
+	require.NotNil(t, tsv.qe.snake)
+
+	input := "select * from test_table limit 1"
+
+	// Without a valve ID the request still passes through the Snake gate
+	// (entering the CoDel queue directly, bypassing only the per-valve layer)
+	// and is admitted when capacity is available.
+	qre := newTestQueryExecutor(ctx, tsv, input, 0)
+	conn, release, err := qre.getConn()
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+
+	// While the slot is held, the gate reports one holder — proof that Acquire
+	// ran on the empty valve ID rather than being skipped.
+	assert.Equal(t, 1, tsv.qe.snake.Stats().HolderCount, "empty valve ID should still acquire a Snake slot")
+
+	conn.Recycle()
+	release()
+
+	assert.Equal(t, 0, tsv.qe.snake.Stats().HolderCount, "slot should be released after getConn cleanup")
+}
+
+func TestGetConnWithSnake(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	cfg := tabletenv.NewDefaultConfig()
+	cfg.OltpReadPool.Size = 2
+	cfg.TxPool.Size = 100
+	cfg.LoadshedEnabled = true
+	cfg.LoadshedTarget = 5 * time.Millisecond
+	cfg.LoadshedIntervalRatio = 20
+	cfg.DB = newDBConfigs(db)
+
+	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	target := &querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}
+	err := tsv.StartService(target, cfg.DB, nil)
+	require.NoError(t, err)
+	defer tsv.StopService()
+
+	require.NotNil(t, tsv.qe.snake, "snake should be initialized when LoadshedEnabled=true")
+
+	input := "select * from test_table limit 1"
+
+	// With a valve ID set, Snake gate admits the request
+	qre := newTestQueryExecutor(ctx, tsv, input, 0)
+	qre.options = &querypb.ExecuteOptions{LoadshedValveId: "test-request-123"}
+	conn, release, err := qre.getConn()
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	conn.Recycle()
+	release()
+}
+
+func TestGetConnSnakeDisabled(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	tsv := newTestTabletServer(ctx, noFlags, db)
+	defer tsv.StopService()
+
+	assert.Nil(t, tsv.qe.snake, "snake should be nil when LoadshedEnabled=false")
+
+	input := "select * from test_table limit 1"
+	qre := newTestQueryExecutor(ctx, tsv, input, 0)
+	conn, release, err := qre.getConn()
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	conn.Recycle()
+	release()
 }
 
 type executorFlags int64
@@ -1782,6 +1878,9 @@ func newTestTabletServer(ctx context.Context, flags executorFlags, db *fakesqldb
 	} else {
 		cfg.Consolidator = tabletenv.Disable
 	}
+	// Loadshed defaults to on, but the shared test tablet should leave Snake
+	// disabled unless a test opts in (TestGetConnWithSnake builds its own config).
+	cfg.LoadshedEnabled = false
 	dbconfigs := newDBConfigs(db)
 	cfg.DB = dbconfigs
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")

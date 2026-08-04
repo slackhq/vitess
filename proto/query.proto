@@ -386,6 +386,13 @@ message ExecuteOptions {
   // currently honored by StreamExecute. This is useful for warming reads
   // where the goal is to warm the buffer pool, not to retrieve data.
   bool no_result = 21;
+
+  // loadshed_valve_id identifies the logical request or job that issued this
+  // query. Used by the Snake load shedder's self-contention valve to detect
+  // fan-out from a single caller (e.g., map_async issuing N queries on the
+  // same shard). When empty, the request bypasses the per-valve fairness layer
+  // but still passes through the CoDel gate.
+  string loadshed_valve_id = 22;
 }
 
 // Field describes a single column returned by a query

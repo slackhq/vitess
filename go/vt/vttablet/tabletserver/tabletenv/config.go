@@ -82,6 +82,7 @@ var (
 	transitionGracePeriod               time.Duration
 	enableReplicationReporter           bool
 	queryThrottlerConfigRefreshInterval time.Duration
+	enableLoadshed                      bool
 )
 
 func init() {
@@ -228,6 +229,14 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&queryThrottlerConfigRefreshInterval, "query-throttler-config-refresh-interval", time.Minute, "How frequently to refresh configuration for the query throttler")
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
+
+	fs.BoolVar(&enableLoadshed, "loadshed-enabled", true, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
+	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
+	fs.Float64Var(&currentConfig.LoadshedIntervalRatio, "loadshed-interval-ratio", defaultConfig.LoadshedIntervalRatio, "CoDel observation interval for the load shedder, as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20.")
+	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
+	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).")
+	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
+	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
 }
 
 var (
@@ -292,6 +301,7 @@ func Init() {
 
 	currentConfig.QueryThrottlerConfigRefreshInterval = queryThrottlerConfigRefreshInterval
 
+	currentConfig.LoadshedEnabled = enableLoadshed
 	logFormat := streamlog.GetQueryLogConfig().Format
 	switch logFormat {
 	case streamlog.QueryLogFormatText:
@@ -386,6 +396,18 @@ type TabletConfig struct {
 	EnablePerWorkloadTableMetrics       bool          `json:"-"`
 	SkipUserMetrics                     bool          `json:"-"`
 	QueryThrottlerConfigRefreshInterval time.Duration `json:"-"`
+
+	LoadshedEnabled       bool          `json:"-"`
+	LoadshedTarget        time.Duration `json:"-"`
+	LoadshedIntervalRatio float64       `json:"-"`
+	LoadshedDropMode      string        `json:"-"`
+	LoadshedTrigger       time.Duration `json:"-"`
+	LoadshedGraceCount    int           `json:"-"`
+	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
+	// whose queries are marked undroppable by the load shedder, so low-volume
+	// health-check/monitoring traffic against them is never shed. Matched
+	// case-insensitively against the query's table qualifiers.
+	LoadshedUndroppableSchemas []string `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1143,6 +1165,16 @@ var defaultConfig = TabletConfig{
 	TwoPCAbandonAge: 15 * time.Minute,
 
 	QueryThrottlerConfigRefreshInterval: time.Minute,
+
+	LoadshedEnabled:       true,
+	LoadshedTarget:        5 * time.Millisecond,
+	LoadshedIntervalRatio: 20,
+	LoadshedDropMode:      "slow",
+	LoadshedTrigger:       0,
+	LoadshedGraceCount:    1,
+	// System schemas are queried by health checks/monitoring, which are
+	// low-volume and must succeed; default to marking them undroppable.
+	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on

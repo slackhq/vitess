@@ -190,6 +190,13 @@ Flags:
       --keep-logs-by-mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --keyspaces-to-watch strings                                       Specifies which keyspaces this vtgate should have access to while routing queries or accessing the vschema.
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
+      --loadshed-drop-mode string                                        CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both. (default "slow")
+      --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools. (default true)
+      --loadshed-grace-count int                                         CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period. (default 1)
+      --loadshed-interval-ratio float                                    CoDel observation interval for the load shedder, as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20. (default 20)
+      --loadshed-target duration                                         CoDel target delay for the load shedder. (default 5ms)
+      --loadshed-trigger duration                                        CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).
+      --loadshed-undroppable-schemas strings                             Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed. (default [performance_schema,information_schema,sys,mysql])
       --lock-heartbeat-time duration                                     If there is lock function used. This will keep the lock connection active by using this heartbeat (default 5s)
       --lock-tables-timeout duration                                     How long to keep the table locked before timing out (default 1m0s)
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)

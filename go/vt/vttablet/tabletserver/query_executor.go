@@ -44,6 +44,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -89,6 +90,14 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+
+	// errLoadShed and errDMLLoadShed are pre-built so that a load-shed rejection
+	// — an expected, high-volume outcome under overload — does not call
+	// vterrors.Errorf per shed, which captures a stack trace (runtime.Callers)
+	// and allocates. The underlying snake error is a constant
+	// (*loadshed.DroppedRequestError), so no per-request detail is lost.
+	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
+	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -140,6 +149,10 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		var errCode string
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
+
+		// Split timings by result code so successful-request latency (errCode "OK")
+		// can be measured apart from fast-failing shed rejections (RESOURCE_EXHAUSTED).
+		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {
 			qre.tsv.qe.AddStats(qre.plan, tableName, qre.options.GetWorkloadName(), qre.targetTabletType, 1, duration, mysqlTime, 0, 0, 1, errCode)
@@ -755,12 +768,13 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		waiterCapExceeded := false
 		if original {
 			defer q.Broadcast()
-			conn, err := qre.getConn()
+			conn, release, err := qre.getConn()
 
 			if err != nil {
 				q.SetErr(err)
 			} else {
 				defer conn.Recycle()
+				defer release()
 				res, err := qre.execDBConn(conn.Conn, sql, true)
 				if qre.tsv.config.ConsolidatorCacheProto3Rows && q.HasWaiters() {
 					res.CacheProto3Rows()
@@ -791,11 +805,12 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		}
 		// If waiter cap exceeded, fall through to independent execution
 	}
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	res, err := qre.execDBConn(conn.Conn, sql, true)
 	if err != nil {
 		return nil, err
@@ -833,22 +848,69 @@ func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 }
 
 func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	return qre.execDBConn(conn.Conn, qre.query, true)
 }
 
-func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
+func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+
+	snake := qre.tsv.qe.snake
+	if snake != nil {
+		valveID := qre.options.GetLoadshedValveId()
+		// Translate the Vitess proto priority (0 = most important) into Snake's
+		// convention (higher priority shed last). Queries against a configured
+		// schema (e.g. performance_schema health checks) are marked undroppable
+		// instead, so they are never shed.
+		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
+		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedUndroppableSchemas) {
+			snakePriority = loadshed.PriorityUndroppable
+		}
+		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
+		if err != nil {
+			return nil, nil, errLoadShed
+		}
+		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+		if err != nil {
+			unlock.Release()
+			return nil, nil, err
+		}
+		return conn, func() { unlock.Release() }, nil
+	}
+
+	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, func() {}, nil
+}
+
+// matchesUndroppableSchema reports whether any of the query's schema qualifiers
+// is in the configured undroppable-schema allowlist (case-insensitive). The
+// common case is queryQualifiers empty (unqualified tables), which returns
+// immediately without scanning the allowlist.
+func matchesUndroppableSchema(queryQualifiers, allowlist []string) bool {
+	if len(queryQualifiers) == 0 || len(allowlist) == 0 {
+		return false
+	}
+	for _, q := range queryQualifiers {
+		for _, a := range allowlist {
+			if strings.EqualFold(q, a) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
@@ -963,11 +1025,12 @@ func rewriteOUTParamError(err error) error {
 }
 
 func (qre *QueryExecutor) execCallProc() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	sql, _, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err

@@ -629,7 +629,11 @@ func (tsv *TabletServer) begin(
 }
 
 func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
-	priority := tsv.config.TxThrottlerDefaultPriority
+	return priorityFromOptions(options, tsv.config.TxThrottlerDefaultPriority)
+}
+
+func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) int {
+	priority := defaultPriority
 	if options == nil {
 		return priority
 	}
@@ -648,6 +652,14 @@ func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions)
 	}
 
 	return optionsPriority
+}
+
+// snakePriorityFromOptions reads the proto priority and inverts it into Snake's
+// convention. Vitess proto priority runs 0 (most important) to MaxPriorityValue
+// (least important); Snake sheds the lowest value first, so we flip it: the most
+// important query gets the highest Snake priority and is shed last.
+func snakePriorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) float64 {
+	return float64(sqlparser.MaxPriorityValue - priorityFromOptions(options, defaultPriority))
 }
 
 // resolveTargetType returns the appropriate target tablet type for a
@@ -1925,12 +1937,21 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Error
+	// skipQueryString suppresses building the (expensive) query+bindvars string
+	// for the log message. RESOURCE_EXHAUSTED is a high-volume, expected outcome
+	// under load shedding / pool exhaustion, and its log is rate-limited
+	// (logPoolFull) anyway — so formatting the SQL and prototext-marshalling every
+	// bind variable per rejection is wasted work that dominates CPU exactly when
+	// the tablet is already overloaded. The returned client error is unaffected;
+	// only the throttled log line omits the query detail.
+	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
 		logMethod = nil
 	case vtrpcpb.Code_RESOURCE_EXHAUSTED:
 		logMethod = func(msg string, _ ...slog.Attr) { logPoolFull.Errorf("%s", msg) }
+		skipQueryString = true
 	case vtrpcpb.Code_ABORTED:
 		logMethod = log.Warn
 	case vtrpcpb.Code_INVALID_ARGUMENT, vtrpcpb.Code_DEADLINE_EXCEEDED:
@@ -1962,10 +1983,27 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 				message = fmt.Sprintf("%s (errno %d) (sqlstate %s)%s: %s", sqlErr.Message, errnum, sqlState, callerID, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
 			}
 		}
+	} else if skipQueryString {
+		// High-volume, rate-limited error (RESOURCE_EXHAUSTED, e.g. load shed):
+		// return the (typically pre-built) error as-is. Avoids a per-error
+		// vterrors.Errorf, which captures a stack trace (runtime.Callers) and
+		// allocates — pure overhead on the shed path, and at saturation the single
+		// largest stack-capture site since most requests are being rejected. Any
+		// callerID goes only into the (rate-limited) log line, not the returned
+		// error, so no stack-capturing re-wrap is needed even when a caller is set.
+		if logMethod != nil {
+			message = fmt.Sprintf("%v%s", err, callerID)
+		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
 		if logMethod != nil {
-			message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			// For high-volume, rate-limited errors (RESOURCE_EXHAUSTED) skip the
+			// expensive query+bindvars stringification; log just the error.
+			if skipQueryString {
+				message = fmt.Sprintf("%v", err)
+			} else {
+				message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			}
 		}
 	}
 
