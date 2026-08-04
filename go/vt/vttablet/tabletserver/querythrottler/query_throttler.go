@@ -75,8 +75,13 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
-	env                     tabletenv.Env
-	stats                   Stats
+	// pinnedStrategy is set when a strategy is installed directly via
+	// InstallStrategy rather than selected from topo config. A pinned strategy is
+	// owned by its installer (which holds resources the topo factory cannot build,
+	// e.g. the connection pools), so HandleConfigUpdate must not replace it.
+	pinnedStrategy bool
+	env            tabletenv.Env
+	stats          Stats
 }
 
 // NewQueryThrottler creates a new  query throttler.
@@ -207,6 +212,56 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 	// Normal throttling: return an error to reject the query
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
 }
+
+// InstallStrategy pins strategy as the active throttling strategy, replacing the
+// current one. It exists for strategies that cannot be built by the topo-driven
+// factory because they depend on resources constructed elsewhere in the tablet
+// (e.g. the connection pools that an AdmissionController gates). A pinned
+// strategy is not replaced by subsequent topo config updates; see
+// HandleConfigUpdate. Passing nil clears the pin and restores the default no-op
+// strategy.
+func (qt *QueryThrottler) InstallStrategy(strategy registry.ThrottlingStrategyHandler) {
+	if strategy == nil {
+		strategy = &registry.NoOpStrategy{}
+	}
+	strategy.Start()
+
+	qt.mu.Lock()
+	old := qt.strategyHandlerInstance
+	qt.strategyHandlerInstance = strategy
+	qt.pinnedStrategy = true
+	qt.mu.Unlock()
+
+	if old != nil {
+		old.Stop()
+	}
+}
+
+// AcquireAdmission gates entry to pool through the active strategy when that
+// strategy implements registry.AdmissionController. It blocks until the request
+// is admitted or rejected. On admission it returns a non-nil release the caller
+// must invoke when the reservation ends. When the active strategy does not
+// implement AdmissionController, the request is admitted immediately with a
+// no-op release, so callers can invoke this unconditionally.
+//
+// Unlike Throttle, this does not gate on cfg.Enabled: admission strategies may
+// be installed and configured out of band (e.g. via flags) rather than through
+// topo config, and own their own enable/disable decision.
+func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+	qt.mu.RLock()
+	strategy := qt.strategyHandlerInstance
+	qt.mu.RUnlock()
+
+	ac, ok := strategy.(registry.AdmissionController)
+	if !ok {
+		return noopAdmissionRelease, nil
+	}
+	return ac.Admit(ctx, attrs, pool)
+}
+
+// noopAdmissionRelease is returned when no admission gating applies; it is safe
+// to call and does nothing.
+func noopAdmissionRelease(error) {}
 
 // startSrvKeyspaceWatch starts watching the SrvKeyspace for event-driven config updates.
 // This method performs two critical operations:
@@ -347,8 +402,10 @@ func (qt *QueryThrottler) HandleConfigUpdate(srvks *topodatapb.SrvKeyspace, err 
 		return true
 	}
 
-	// No Locking is required because only this function updates the configs of Query Throttler.
-	needsStrategyChange := qt.cfg.GetStrategy() != newCfg.GetStrategy()
+	// A pinned strategy (installed via InstallStrategy) is owned by its installer
+	// and cannot be rebuilt from topo config, so never swap it out here. The
+	// config is still updated below so dry-run/enabled toggles take effect.
+	needsStrategyChange := !qt.pinnedStrategy && qt.cfg.GetStrategy() != newCfg.GetStrategy()
 	oldStrategyInstance := qt.strategyHandlerInstance
 
 	var newStrategy registry.ThrottlingStrategyHandler

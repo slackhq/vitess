@@ -32,7 +32,7 @@ import (
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txlimiter"
@@ -70,11 +70,20 @@ type (
 		scp     *StatefulConnectionPool
 		ticks   *timer.Timer
 		limiter txlimiter.TxLimiter
-		snake   *loadshed.Snake
+		// admitter gates entry to the transaction pool (Snake load shedding, when
+		// installed). Nil until wired at tablet startup; a nil admitter admits all.
+		admitter txAdmitter
 
 		logMu   sync.Mutex
 		lastLog time.Time
 		txStats *servenv.TimingsWrapper
+	}
+
+	// txAdmitter gates entry to the transaction pool for the lifetime of the
+	// reservation. It is satisfied by the query throttler; defined here so the
+	// pool depends only on the narrow behavior it needs.
+	txAdmitter interface {
+		AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error)
 	}
 )
 
@@ -254,15 +263,18 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 			return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "per-user transaction pool connection limit exceeded")
 		}
 
-		if tp.snake != nil {
-			valveID := options.GetLoadshedValveId()
-			snakePriority := snakePriorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)
-			unlock, snakeErr := tp.snake.Acquire(ctx, valveID, snakePriority)
-			if snakeErr != nil {
+		if tp.admitter != nil {
+			attrs := registry.QueryAttributes{
+				WorkloadName: options.GetWorkloadName(),
+				Priority:     priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority),
+				FairnessKey:  options.GetLoadshedValveId(),
+			}
+			release, admitErr := tp.admitter.AcquireAdmission(ctx, attrs, registry.PoolTx)
+			if admitErr != nil {
 				tp.limiter.Release(immediateCaller, effectiveCaller)
 				return nil, "", "", errDMLLoadShed
 			}
-			snakeRelease = func() { unlock.Release() }
+			snakeRelease = func() { release(nil) }
 		}
 
 		conn, err = tp.createConn(ctx, options, setting)

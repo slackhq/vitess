@@ -27,8 +27,10 @@ import (
 	"vitess.io/vitess/go/mysql/fakesqldb"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/dbconfigs"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 
@@ -48,7 +50,7 @@ func setupWithSnake(t *testing.T, capacity int) (*fakesqldb.DB, *TxPool, func())
 
 	limiter := &fakeLimiter{}
 	txPool := NewTxPool(env, limiter)
-	txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+	snake := loadshed.NewSnake(loadshed.SnakeConfig{
 		Name: "dml-test",
 		CoDel: loadshed.CoDelConfig{
 			TargetNs:       func() int64 { return (5 * time.Millisecond).Nanoseconds() },
@@ -59,6 +61,7 @@ func setupWithSnake(t *testing.T, capacity int) (*fakesqldb.DB, *TxPool, func())
 		Capacity:            func() int { return capacity },
 		LoadsheddingAllowed: func() bool { return true },
 	})
+	txPool.admitter = &snakeAdmitter{snake: snake}
 
 	db := fakesqldb.New(t)
 	db.AddQueryPattern(".*", &sqltypes.Result{})
@@ -259,6 +262,23 @@ func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
 	c, _ := txPool.GetAndLock(conn2.ReservedID(), "")
 	_, _ = txPool.Commit(ctx, c)
 	c.Release(tx.TxCommit)
+}
+
+// snakeAdmitter adapts a single Snake to the txAdmitter interface, mirroring
+// what the production loadshed strategy does for the transaction pool. It lets
+// these tests exercise TxPool.Begin's admission path without standing up the
+// full query-throttler + strategy wiring.
+type snakeAdmitter struct {
+	snake *loadshed.Snake
+}
+
+func (a *snakeAdmitter) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+	priority := float64(sqlparser.MaxPriorityValue - attrs.Priority)
+	unlock, err := a.snake.Acquire(ctx, attrs.FairnessKey, priority)
+	if err != nil {
+		return nil, err
+	}
+	return func(releaseErr error) { unlock.Release(releaseErr) }, nil
 }
 
 func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {

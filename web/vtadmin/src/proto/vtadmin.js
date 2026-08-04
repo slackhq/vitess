@@ -54819,11 +54819,13 @@ export const querythrottler = $root.querythrottler = (() => {
      * @enum {number}
      * @property {number} UNKNOWN=0 UNKNOWN value
      * @property {number} TABLET_THROTTLER=1 TABLET_THROTTLER value
+     * @property {number} LOADSHED=2 LOADSHED value
      */
     querythrottler.ThrottlingStrategy = (function() {
         const valuesById = {}, values = Object.create(valuesById);
         values[valuesById[0] = "UNKNOWN"] = 0;
         values[valuesById[1] = "TABLET_THROTTLER"] = 1;
+        values[valuesById[2] = "LOADSHED"] = 2;
         return values;
     })();
 
@@ -55048,6 +55050,7 @@ export const querythrottler = $root.querythrottler = (() => {
                     return "strategy: enum value expected";
                 case 0:
                 case 1:
+                case 2:
                     break;
                 }
             if (message.tablet_strategy_config != null && message.hasOwnProperty("tablet_strategy_config")) {
@@ -55095,6 +55098,10 @@ export const querythrottler = $root.querythrottler = (() => {
                 case "TABLET_THROTTLER":
                 case 1:
                     message.strategy = 1;
+                    break;
+                case "LOADSHED":
+                case 2:
+                    message.strategy = 2;
                     break;
                 }
             if (object.tablet_strategy_config != null) {

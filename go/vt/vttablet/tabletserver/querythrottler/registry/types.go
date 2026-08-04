@@ -30,6 +30,18 @@ type QueryAttributes struct {
 
 	// Priority contains the priority of the query (0-100, where 0 is highest priority).
 	Priority int
+
+	// FairnessKey groups queries that a fairness-aware admission strategy should
+	// treat as one logical origin (e.g. a request or async job issuing fan-out to
+	// the same shard). Empty means the query is not grouped. Carried generically
+	// here so the framework interface stays strategy-agnostic; only strategies
+	// that implement AdmissionController consult it.
+	FairnessKey string
+
+	// SchemaQualifiers are the schema qualifiers referenced by the query (e.g.
+	// "performance_schema"). An admission strategy may use these to exempt
+	// low-volume system-schema traffic from shedding.
+	SchemaQualifiers []string
 }
 
 // ThrottleDecision represents the result of evaluating whether a query should be throttled.

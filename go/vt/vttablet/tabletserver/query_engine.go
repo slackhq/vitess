@@ -207,6 +207,12 @@ type QueryEngine struct {
 	snake *loadshed.Snake
 }
 
+// Snake returns the OLTP read pool's load-shedding gate, or nil when load
+// shedding is disabled. Used at startup to assemble the admission strategy.
+func (qe *QueryEngine) Snake() *loadshed.Snake {
+	return qe.snake
+}
+
 // NewQueryEngine creates a new QueryEngine.
 // This is a singleton class.
 // You must call this only once.

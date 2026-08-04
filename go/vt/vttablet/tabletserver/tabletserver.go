@@ -68,6 +68,8 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
+	loadshedstrategy "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -201,6 +203,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
 	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
+	tsv.installLoadshedStrategy()
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
 	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
@@ -654,12 +657,29 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	return optionsPriority
 }
 
-// snakePriorityFromOptions reads the proto priority and inverts it into Snake's
-// convention. Vitess proto priority runs 0 (most important) to MaxPriorityValue
-// (least important); Snake sheds the lowest value first, so we flip it: the most
-// important query gets the highest Snake priority and is shed last.
-func snakePriorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) float64 {
-	return float64(sqlparser.MaxPriorityValue - priorityFromOptions(options, defaultPriority))
+// installLoadshedStrategy assembles the Snake load-shedding gates (one per
+// connection pool) into a querythrottler AdmissionController strategy and
+// installs it as the query throttler's active strategy, then points the tx pool
+// at the throttler for admission. It is a no-op when load shedding is disabled
+// (no gates exist).
+//
+// The strategy is installed directly rather than selected via topo config
+// because the Snakes are wired to live connection-pool capacity, which the
+// topo-driven strategy factory cannot reach. Snake tuning remains flag-driven.
+func (tsv *TabletServer) installLoadshedStrategy() {
+	var gates []loadshedstrategy.Gate
+	if s := tsv.qe.Snake(); s != nil {
+		gates = append(gates, loadshedstrategy.Gate{Pool: registry.PoolOltpRead, Snake: s})
+	}
+	if s := tsv.te.Snake(); s != nil {
+		gates = append(gates, loadshedstrategy.Gate{Pool: registry.PoolTx, Snake: s})
+	}
+	if len(gates) == 0 {
+		return
+	}
+	strategy := loadshedstrategy.New(tsv.config.LoadshedUndroppableSchemas, gates...)
+	tsv.queryThrottler.InstallStrategy(strategy)
+	tsv.te.txPool.admitter = tsv.queryThrottler
 }
 
 // resolveTargetType returns the appropriate target tablet type for a

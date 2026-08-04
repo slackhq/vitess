@@ -44,8 +44,8 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
@@ -865,52 +865,32 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 
-	snake := qre.tsv.qe.snake
-	if snake != nil {
-		valveID := qre.options.GetLoadshedValveId()
-		// Translate the Vitess proto priority (0 = most important) into Snake's
-		// convention (higher priority shed last). Queries against a configured
-		// schema (e.g. performance_schema health checks) are marked undroppable
-		// instead, so they are never shed.
-		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
-		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedUndroppableSchemas) {
-			snakePriority = loadshed.PriorityUndroppable
-		}
-		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
-		if err != nil {
-			return nil, nil, errLoadShed
-		}
-		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
-		if err != nil {
-			unlock.Release()
-			return nil, nil, err
-		}
-		return conn, func() { unlock.Release() }, nil
+	// Gate entry to the OLTP read pool through the query throttler's admission
+	// controller (Snake load shedding, when installed). release is a no-op when
+	// no admission strategy is active, so this path is unconditional.
+	release, err := qre.tsv.queryThrottler.AcquireAdmission(ctx, qre.admissionAttrs(), registry.PoolOltpRead)
+	if err != nil {
+		return nil, nil, errLoadShed
 	}
-
 	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
 	if err != nil {
+		release(err)
 		return nil, nil, err
 	}
-	return conn, func() {}, nil
+	return conn, func() { release(nil) }, nil
 }
 
-// matchesUndroppableSchema reports whether any of the query's schema qualifiers
-// is in the configured undroppable-schema allowlist (case-insensitive). The
-// common case is queryQualifiers empty (unqualified tables), which returns
-// immediately without scanning the allowlist.
-func matchesUndroppableSchema(queryQualifiers, allowlist []string) bool {
-	if len(queryQualifiers) == 0 || len(allowlist) == 0 {
-		return false
+// admissionAttrs builds the query-throttler admission metadata for this query.
+// Priority is the proto priority (0 = most important); the admission strategy
+// applies any inversion. FairnessKey groups fan-out from one logical caller,
+// and SchemaQualifiers lets the strategy exempt system-schema traffic.
+func (qre *QueryExecutor) admissionAttrs() registry.QueryAttributes {
+	return registry.QueryAttributes{
+		WorkloadName:     qre.options.GetWorkloadName(),
+		Priority:         priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority),
+		FairnessKey:      qre.options.GetLoadshedValveId(),
+		SchemaQualifiers: qre.plan.SchemaQualifiers,
 	}
-	for _, q := range queryQualifiers {
-		for _, a := range allowlist {
-			if strings.EqualFold(q, a) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {

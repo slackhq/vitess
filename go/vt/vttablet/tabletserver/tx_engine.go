@@ -96,6 +96,16 @@ type TxEngine struct {
 	preparedPool *TxPreparedPool
 	twoPC        *TwoPC
 	dxNotify     func()
+
+	// snake is the CoDel-based load-shedding gate for the transaction pool, or
+	// nil when load shedding is disabled.
+	snake *loadshed.Snake
+}
+
+// Snake returns the transaction pool's load-shedding gate, or nil when load
+// shedding is disabled. Used at startup to assemble the admission strategy.
+func (te *TxEngine) Snake() *loadshed.Snake {
+	return te.snake
 }
 
 // TwoPC can be disallowed for various reasons. These are the reasons we keep track off
@@ -117,7 +127,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 	limiter := txlimiter.New(env)
 	te.txPool = NewTxPool(env, limiter)
 	if config.LoadshedEnabled {
-		te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+		te.snake = loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: "dml",
 			CoDel: loadshed.CoDelConfig{
 				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
@@ -140,7 +150,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 			},
 			LoadsheddingAllowed: func() bool { return true },
 		})
-		loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
+		loadshed.PublishStats(env.Exporter(), "SnakeDml", te.snake)
 	}
 	// We initially allow twoPC (handles vttablet restarts).
 	// We will disallow them for a few reasons -

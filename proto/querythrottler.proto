@@ -8,6 +8,10 @@ option go_package = "vitess.io/vitess/go/vt/proto/querythrottler";
 enum ThrottlingStrategy {
   UNKNOWN = 0;
   TABLET_THROTTLER = 1;
+  // LOADSHED is a CoDel-based occupancy gate (Snake) that admits work into a
+  // connection pool for the lifetime of the reservation, rather than making a
+  // one-shot metric-threshold verdict. See registry.AdmissionController.
+  LOADSHED = 2;
 }
 
 // Config defines the runtime configuration for the IncomingQueryThrottler

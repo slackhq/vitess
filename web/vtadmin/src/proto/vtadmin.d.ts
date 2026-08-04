@@ -21082,7 +21082,8 @@ export namespace querythrottler {
     /** ThrottlingStrategy enum. */
     enum ThrottlingStrategy {
         UNKNOWN = 0,
-        TABLET_THROTTLER = 1
+        TABLET_THROTTLER = 1,
+        LOADSHED = 2
     }
 
     /** Properties of a Config. */
