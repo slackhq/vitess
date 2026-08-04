@@ -268,7 +268,7 @@ type snakeAdmitter struct {
 	snake *loadshed.Snake
 }
 
-func (a *snakeAdmitter) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+func (a *snakeAdmitter) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
 	priority := float64(sqlparser.MaxPriorityValue - attrs.Priority)
 	unlock, err := a.snake.Acquire(ctx, attrs.FairnessKey, priority)
 	if err != nil {

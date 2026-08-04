@@ -26,6 +26,7 @@ import (
 
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
 func newTestSnake(capacity int) *loadshed.Snake {
@@ -81,11 +82,11 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 	oltp := newTestSnake(1)
 	tx := newTestSnake(1)
 	s := New(nil,
-		Gate{Pool: registry.PoolOltpRead, Snake: oltp},
-		Gate{Pool: registry.PoolTx, Snake: tx},
+		Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: oltp},
+		Gate{Pool: tabletenv.PoolTypeTx, Snake: tx},
 	)
 
-	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, registry.PoolTx)
+	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	assert.Equal(t, 1, tx.Stats().HolderCount, "tx gate should hold the slot")
@@ -96,9 +97,9 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 }
 
 func TestAdmit_UnconfiguredPoolAdmits(t *testing.T) {
-	s := New(nil, Gate{Pool: registry.PoolOltpRead, Snake: newTestSnake(1)})
+	s := New(nil, Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: newTestSnake(1)})
 
-	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, registry.PoolTx)
+	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	release(nil)

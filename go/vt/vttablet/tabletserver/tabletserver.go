@@ -68,7 +68,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	loadshedstrategy "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
@@ -660,10 +659,10 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 func (tsv *TabletServer) installLoadshedStrategy() {
 	var gates []loadshedstrategy.Gate
 	if s := tsv.qe.Snake(); s != nil {
-		gates = append(gates, loadshedstrategy.Gate{Pool: registry.PoolOltpRead, Snake: s})
+		gates = append(gates, loadshedstrategy.Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: s})
 	}
 	if s := tsv.te.Snake(); s != nil {
-		gates = append(gates, loadshedstrategy.Gate{Pool: registry.PoolTx, Snake: s})
+		gates = append(gates, loadshedstrategy.Gate{Pool: tabletenv.PoolTypeTx, Snake: s})
 	}
 	if len(gates) == 0 {
 		return

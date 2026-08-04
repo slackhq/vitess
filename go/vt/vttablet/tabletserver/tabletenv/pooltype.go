@@ -14,14 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+package tabletenv
 
-import (
-	"context"
+type PoolType int
 
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
+const (
+	PoolTypeOltpRead PoolType = iota
+	PoolTypeOlapRead
+	PoolTypeTx
 )
-
-type AdmissionController interface {
-	Admit(ctx context.Context, attrs QueryAttributes, pool tabletenv.PoolType) (release func(err error), err error)
-}

@@ -226,7 +226,7 @@ func (qt *QueryThrottler) InstallStrategy(strategy registry.ThrottlingStrategyHa
 	}
 }
 
-func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
 	qt.mu.RLock()
 	strategy := qt.strategyHandlerInstance
 	qt.mu.RUnlock()

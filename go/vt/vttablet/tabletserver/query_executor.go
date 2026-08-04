@@ -865,7 +865,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 
-	release, err := qre.tsv.queryThrottler.AcquireAdmission(ctx, qre.admissionAttrs(), registry.PoolOltpRead)
+	release, err := qre.tsv.queryThrottler.AcquireAdmission(ctx, qre.admissionAttrs(), tabletenv.PoolTypeOltpRead)
 	if err != nil {
 		return nil, nil, errLoadShed
 	}

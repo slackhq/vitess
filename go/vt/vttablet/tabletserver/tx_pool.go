@@ -78,7 +78,7 @@ type (
 	}
 
 	txAdmitter interface {
-		AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error)
+		AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error)
 	}
 )
 
@@ -264,7 +264,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 				Priority:     priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority),
 				FairnessKey:  options.GetLoadshedValveId(),
 			}
-			release, admitErr := tp.admitter.AcquireAdmission(ctx, attrs, registry.PoolTx)
+			release, admitErr := tp.admitter.AcquireAdmission(ctx, attrs, tabletenv.PoolTypeTx)
 			if admitErr != nil {
 				tp.limiter.Release(immediateCaller, effectiveCaller)
 				return nil, "", "", errDMLLoadShed

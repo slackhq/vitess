@@ -45,11 +45,11 @@ type admissionStrategy struct {
 	admitErr    error
 	released    bool
 	releasedErr error
-	gotPool     registry.Pool
+	gotPool     tabletenv.PoolType
 	called      bool
 }
 
-func (a *admissionStrategy) Admit(_ context.Context, _ registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+func (a *admissionStrategy) Admit(_ context.Context, _ registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
 	a.called = true
 	a.gotPool = pool
 	if a.admitErr != nil {
@@ -61,7 +61,7 @@ func (a *admissionStrategy) Admit(_ context.Context, _ registry.QueryAttributes,
 func TestAcquireAdmission_NonAdmissionStrategyIsNoOp(t *testing.T) {
 	qt := &QueryThrottler{strategyHandlerInstance: predicateOnlyStrategy{}}
 
-	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, registry.PoolOltpRead)
+	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeOltpRead)
 	require.NoError(t, err)
 	require.NotNil(t, release, "release must be non-nil so callers can defer it unconditionally")
 	release(nil)
@@ -71,11 +71,11 @@ func TestAcquireAdmission_RoutesToAdmissionController(t *testing.T) {
 	strategy := &admissionStrategy{}
 	qt := &QueryThrottler{strategyHandlerInstance: strategy}
 
-	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, registry.PoolTx)
+	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	assert.True(t, strategy.called, "Admit should have been invoked")
-	assert.Equal(t, registry.PoolTx, strategy.gotPool, "pool must be forwarded to the strategy")
+	assert.Equal(t, tabletenv.PoolTypeTx, strategy.gotPool, "pool must be forwarded to the strategy")
 
 	release(errors.New("done"))
 	assert.True(t, strategy.released, "release must reach the strategy's release func")
@@ -86,7 +86,7 @@ func TestAcquireAdmission_PropagatesRejection(t *testing.T) {
 	strategy := &admissionStrategy{admitErr: errors.New("shed")}
 	qt := &QueryThrottler{strategyHandlerInstance: strategy}
 
-	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, registry.PoolOltpRead)
+	release, err := qt.AcquireAdmission(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeOltpRead)
 	assert.Nil(t, release, "no release on rejection")
 	assert.EqualError(t, err, "shed")
 }

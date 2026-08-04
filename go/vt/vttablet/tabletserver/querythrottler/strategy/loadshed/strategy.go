@@ -24,22 +24,23 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
 const strategyName = "loadshed"
 
 type Gate struct {
-	Pool  registry.Pool
+	Pool  tabletenv.PoolType
 	Snake *loadshed.Snake
 }
 
 type Strategy struct {
-	gates              map[registry.Pool]*loadshed.Snake
+	gates              map[tabletenv.PoolType]*loadshed.Snake
 	undroppableSchemas []string
 }
 
 func New(undroppableSchemas []string, gates ...Gate) *Strategy {
-	m := make(map[registry.Pool]*loadshed.Snake, len(gates))
+	m := make(map[tabletenv.PoolType]*loadshed.Snake, len(gates))
 	for _, g := range gates {
 		m[g.Pool] = g.Snake
 	}
@@ -53,7 +54,7 @@ func (s *Strategy) Evaluate(ctx context.Context, targetTabletType topodatapb.Tab
 	return registry.ThrottleDecision{Throttle: false}
 }
 
-func (s *Strategy) Admit(ctx context.Context, attrs registry.QueryAttributes, pool registry.Pool) (func(err error), error) {
+func (s *Strategy) Admit(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
 	snake, ok := s.gates[pool]
 	if !ok || snake == nil {
 		return func(error) {}, nil
