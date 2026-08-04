@@ -66,10 +66,10 @@ type (
 	// concern itself with a connections life cycle. The two exceptions are Begin, which creates a new StatefulConnection,
 	// and RollbackAndRelease, which does a Release after doing the rollback.
 	TxPool struct {
-		env     tabletenv.Env
-		scp     *StatefulConnectionPool
-		ticks   *timer.Timer
-		limiter txlimiter.TxLimiter
+		env      tabletenv.Env
+		scp      *StatefulConnectionPool
+		ticks    *timer.Timer
+		limiter  txlimiter.TxLimiter
 		admitter txAdmitter
 
 		logMu   sync.Mutex

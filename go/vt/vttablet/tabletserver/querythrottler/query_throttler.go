@@ -75,9 +75,9 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
-	pinnedStrategy bool
-	env            tabletenv.Env
-	stats          Stats
+	pinnedStrategy          bool
+	env                     tabletenv.Env
+	stats                   Stats
 }
 
 // NewQueryThrottler creates a new  query throttler.

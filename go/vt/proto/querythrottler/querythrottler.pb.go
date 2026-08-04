@@ -27,10 +27,7 @@ type ThrottlingStrategy int32
 const (
 	ThrottlingStrategy_UNKNOWN          ThrottlingStrategy = 0
 	ThrottlingStrategy_TABLET_THROTTLER ThrottlingStrategy = 1
-	// LOADSHED is a CoDel-based occupancy gate (Snake) that admits work into a
-	// connection pool for the lifetime of the reservation, rather than making a
-	// one-shot metric-threshold verdict. See registry.AdmissionController.
-	ThrottlingStrategy_LOADSHED ThrottlingStrategy = 2
+	ThrottlingStrategy_LOADSHED         ThrottlingStrategy = 2
 )
 
 // Enum value maps for ThrottlingStrategy.
