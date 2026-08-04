@@ -1,5 +1,5 @@
 /*eslint-disable block-scoped-var, id-length, no-control-regex, no-magic-numbers, no-prototype-builtins, no-redeclare, no-shadow, no-var, sort-vars*/
-import * as $protobuf from "protobufjs/minimal";
+import $protobuf from "protobufjs/minimal.js";
 
 // Common aliases
 const $Reader = $protobuf.Reader, $Writer = $protobuf.Writer, $util = $protobuf.util;
@@ -116870,6 +116870,7 @@ export const query = $root.query = (() => {
          * @property {boolean|null} [in_dml_execution] ExecuteOptions in_dml_execution
          * @property {number|Long|null} [transaction_timeout] ExecuteOptions transaction_timeout
          * @property {boolean|null} [no_result] ExecuteOptions no_result
+         * @property {string|null} [loadshed_valve_id] ExecuteOptions loadshed_valve_id
          */
 
         /**
@@ -117024,6 +117025,14 @@ export const query = $root.query = (() => {
          */
         ExecuteOptions.prototype.no_result = false;
 
+        /**
+         * ExecuteOptions loadshed_valve_id.
+         * @member {string} loadshed_valve_id
+         * @memberof query.ExecuteOptions
+         * @instance
+         */
+        ExecuteOptions.prototype.loadshed_valve_id = "";
+
         // OneOf field names bound to virtual getters and setters
         let $oneOfFields;
 
@@ -117106,6 +117115,8 @@ export const query = $root.query = (() => {
                 writer.uint32(/* id 20, wireType 0 =*/160).int64(message.transaction_timeout);
             if (message.no_result != null && Object.hasOwnProperty.call(message, "no_result"))
                 writer.uint32(/* id 21, wireType 0 =*/168).bool(message.no_result);
+            if (message.loadshed_valve_id != null && Object.hasOwnProperty.call(message, "loadshed_valve_id"))
+                writer.uint32(/* id 22, wireType 2 =*/178).string(message.loadshed_valve_id);
             if (message.$unknowns != null && Object.hasOwnProperty.call(message, "$unknowns"))
                 for (let i = 0; i < message.$unknowns.length; ++i)
                     writer.raw(message.$unknowns[i]);
@@ -117309,6 +117320,15 @@ export const query = $root.query = (() => {
                             delete message.no_result;
                         continue;
                     }
+                case 22: {
+                        if (u !== 2)
+                            break;
+                        if ((v = reader.string()).length)
+                            message.loadshed_valve_id = v;
+                        else
+                            delete message.loadshed_valve_id;
+                        continue;
+                    }
                 }
                 reader.skipType(u, q, tag);
                 $util.makeProp(message, "$unknowns", false);
@@ -117457,6 +117477,9 @@ export const query = $root.query = (() => {
             if (message.no_result != null && message.hasOwnProperty("no_result"))
                 if (typeof message.no_result !== "boolean")
                     return "no_result: boolean expected";
+            if (message.loadshed_valve_id != null && message.hasOwnProperty("loadshed_valve_id"))
+                if (!$util.isString(message.loadshed_valve_id))
+                    return "loadshed_valve_id: string expected";
             return null;
         };
 
@@ -117702,6 +117725,9 @@ export const query = $root.query = (() => {
             if (object.no_result != null)
                 if (object.no_result)
                     message.no_result = Boolean(object.no_result);
+            if (object.loadshed_valve_id != null)
+                if (typeof object.loadshed_valve_id !== "string" || object.loadshed_valve_id.length)
+                    message.loadshed_valve_id = String(object.loadshed_valve_id);
             return message;
         };
 
@@ -117739,6 +117765,7 @@ export const query = $root.query = (() => {
                 object.fetch_last_insert_id = false;
                 object.in_dml_execution = false;
                 object.no_result = false;
+                object.loadshed_valve_id = "";
             }
             if (message.included_fields != null && message.hasOwnProperty("included_fields"))
                 object.included_fields = options.enums === String ? $root.query.ExecuteOptions.IncludedFields[message.included_fields] === undefined ? message.included_fields : $root.query.ExecuteOptions.IncludedFields[message.included_fields] : message.included_fields;
@@ -117792,6 +117819,8 @@ export const query = $root.query = (() => {
             }
             if (message.no_result != null && message.hasOwnProperty("no_result"))
                 object.no_result = message.no_result;
+            if (message.loadshed_valve_id != null && message.hasOwnProperty("loadshed_valve_id"))
+                object.loadshed_valve_id = message.loadshed_valve_id;
             return object;
         };
 

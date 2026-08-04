@@ -43324,6 +43324,9 @@ export namespace query {
 
         /** ExecuteOptions no_result */
         no_result?: (boolean|null);
+
+        /** ExecuteOptions loadshed_valve_id */
+        loadshed_valve_id?: (string|null);
     }
 
     /** Represents an ExecuteOptions. */
@@ -43385,6 +43388,9 @@ export namespace query {
 
         /** ExecuteOptions no_result. */
         public no_result: boolean;
+
+        /** ExecuteOptions loadshed_valve_id. */
+        public loadshed_valve_id: string;
 
         /** ExecuteOptions timeout. */
         public timeout?: "authoritative_timeout";
