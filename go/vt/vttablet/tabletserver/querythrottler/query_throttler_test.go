@@ -65,7 +65,8 @@ func TestSelectThrottlingStrategy(t *testing.T) {
 				QueryThrottlerConfigRefreshInterval: 10 * time.Millisecond,
 			}
 
-			strategy := selectThrottlingStrategy(&querythrottlerpb.Config{Enabled: true, Strategy: tt.giveThrottlingStrategy}, mockClient, config)
+			qt := &QueryThrottler{throttleClient: mockClient, tabletConfig: config}
+			strategy := qt.selectThrottlingStrategy(&querythrottlerpb.Config{Enabled: true, Strategy: tt.giveThrottlingStrategy})
 
 			require.IsType(t, tt.expectedType, strategy)
 		})

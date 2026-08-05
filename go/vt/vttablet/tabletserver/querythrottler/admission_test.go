@@ -27,6 +27,7 @@ import (
 	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/sqlparser"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
@@ -91,21 +92,34 @@ func TestAcquireAdmission_PropagatesRejection(t *testing.T) {
 	assert.EqualError(t, err, "shed")
 }
 
-func TestInstallStrategy_PinnedAgainstConfigUpdate(t *testing.T) {
+// admissionFactory registers admissionStrategy for a strategy name and records
+// the Deps it was built with, so the test can assert the pool accessors reach
+// the factory.
+type admissionFactory struct {
+	built *admissionStrategy
+	deps  registry.Deps
+}
+
+func (f *admissionFactory) New(deps registry.Deps, _ registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {
+	f.deps = deps
+	f.built = &admissionStrategy{}
+	return f.built, nil
+}
+
+func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithPoolSnakes(t *testing.T) {
+	fac := &admissionFactory{}
+	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, fac)
+	t.Cleanup(func() { registry.Unregister(querythrottlerpb.ThrottlingStrategy_LOADSHED) })
+
+	sentinel := func() *loadshed.Snake { return nil }
 	qt := &QueryThrottler{
-		ctx:                     t.Context(),
-		cfg:                     &querythrottlerpb.Config{Strategy: querythrottlerpb.ThrottlingStrategy_UNKNOWN},
-		strategyHandlerInstance: &registry.NoOpStrategy{},
-		tabletConfig:            &tabletenv.TabletConfig{},
+		tabletConfig: &tabletenv.TabletConfig{},
+		poolSnakes:   map[tabletenv.PoolType]func() *loadshed.Snake{tabletenv.PoolTypeOltpRead: sentinel},
 	}
 
-	pinned := &admissionStrategy{}
-	qt.InstallStrategy(pinned)
-	require.True(t, qt.pinnedStrategy)
+	strategy := qt.selectThrottlingStrategy(&querythrottlerpb.Config{Enabled: true, Strategy: querythrottlerpb.ThrottlingStrategy_LOADSHED})
 
-	srvks := createTestSrvKeyspace(true, querythrottlerpb.ThrottlingStrategy_TABLET_THROTTLER, false)
-	require.True(t, qt.HandleConfigUpdate(srvks, nil))
-
-	_, ok := qt.strategyHandlerInstance.(*admissionStrategy)
-	assert.True(t, ok, "pinned strategy must survive a config update that selects another strategy")
+	require.Same(t, fac.built, strategy, "config selecting LOADSHED must build via the registered factory")
+	_, ok := fac.deps.PoolSnakes[tabletenv.PoolTypeOltpRead]
+	assert.True(t, ok, "pool-snake accessors must be threaded into Deps")
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"strings"
 
+	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
@@ -28,6 +29,33 @@ import (
 )
 
 const strategyName = "loadshed"
+
+func init() {
+	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, factory{})
+}
+
+// factory builds the loadshed Strategy from the per-pool gate accessors carried
+// on Deps. It registers a gate only for pools whose accessor resolves to a
+// non-nil Snake, so a pool without load shedding (e.g. OLAP) is simply absent
+// and Admit no-ops for it.
+type factory struct{}
+
+func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {
+	var gates []Gate
+	for pool, accessor := range deps.PoolSnakes {
+		if accessor == nil {
+			continue
+		}
+		if snake := accessor(); snake != nil {
+			gates = append(gates, Gate{Pool: pool, Snake: snake})
+		}
+	}
+	var undroppableSchemas []string
+	if deps.TabletConfig != nil {
+		undroppableSchemas = deps.TabletConfig.LoadshedUndroppableSchemas
+	}
+	return New(undroppableSchemas, gates...), nil
+}
 
 type Gate struct {
 	Pool  tabletenv.PoolType

@@ -54,6 +54,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txthrottler"
 
 	querypb "vitess.io/vitess/go/vt/proto/query"
+	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
 	tableaclpb "vitess.io/vitess/go/vt/proto/tableacl"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -1736,6 +1737,21 @@ func TestGetConnectionLogStats(t *testing.T) {
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 }
 
+// activateLoadshed selects the LOADSHED strategy on the tablet's query throttler
+// via the normal config path, so the Snake gates built from --loadshed-enabled
+// actually gate admission. Building the gates (the flag) and activating them
+// (the config) are separate switches by design.
+func activateLoadshed(t *testing.T, tsv *TabletServer) {
+	t.Helper()
+	ok := tsv.queryThrottler.HandleConfigUpdate(&topodatapb.SrvKeyspace{
+		QueryThrottlerConfig: &querythrottlerpb.Config{
+			Enabled:  true,
+			Strategy: querythrottlerpb.ThrottlingStrategy_LOADSHED,
+		},
+	}, nil)
+	require.True(t, ok)
+}
+
 func TestGetConnSnakeEmptyValveID(t *testing.T) {
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()
@@ -1757,6 +1773,7 @@ func TestGetConnSnakeEmptyValveID(t *testing.T) {
 	defer tsv.StopService()
 
 	require.NotNil(t, tsv.qe.snake)
+	activateLoadshed(t, tsv)
 
 	input := "select * from test_table limit 1"
 
@@ -1799,6 +1816,7 @@ func TestGetConnWithSnake(t *testing.T) {
 	defer tsv.StopService()
 
 	require.NotNil(t, tsv.qe.snake, "snake should be initialized when LoadshedEnabled=true")
+	activateLoadshed(t, tsv)
 
 	input := "select * from test_table limit 1"
 

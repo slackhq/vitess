@@ -65,10 +65,11 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/onlineddl"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/gc"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler"
-	loadshedstrategy "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed"
+	_ "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed" // registers the LOADSHED strategy factory
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -202,7 +203,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
 	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
-	tsv.installLoadshedStrategy()
+	tsv.wireLoadshedAdmission()
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
 	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
@@ -656,19 +657,18 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	return optionsPriority
 }
 
-func (tsv *TabletServer) installLoadshedStrategy() {
-	var gates []loadshedstrategy.Gate
-	if s := tsv.qe.Snake(); s != nil {
-		gates = append(gates, loadshedstrategy.Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: s})
-	}
-	if s := tsv.te.Snake(); s != nil {
-		gates = append(gates, loadshedstrategy.Gate{Pool: tabletenv.PoolTypeTx, Snake: s})
-	}
-	if len(gates) == 0 {
-		return
-	}
-	strategy := loadshedstrategy.New(tsv.config.LoadshedUndroppableSchemas, gates...)
-	tsv.queryThrottler.InstallStrategy(strategy)
+// wireLoadshedAdmission connects the query throttler to the per-pool Snake gates
+// so that, when the throttler's config selects the LOADSHED strategy, its factory
+// can build a strategy over the live gates. The accessors resolve the Snake
+// lazily (at strategy-construction time, after the pools are wired), which is why
+// the throttler can be constructed before the pools exist. It also points the tx
+// pool at the throttler for admission. Whether load shedding is actually active is
+// governed by the throttler config (Strategy=LOADSHED), not by this wiring.
+func (tsv *TabletServer) wireLoadshedAdmission() {
+	tsv.queryThrottler.SetPoolSnakes(map[tabletenv.PoolType]func() *loadshed.Snake{
+		tabletenv.PoolTypeOltpRead: func() *loadshed.Snake { return tsv.qe.Snake() },
+		tabletenv.PoolTypeTx:       func() *loadshed.Snake { return tsv.te.Snake() },
+	})
 	tsv.te.txPool.admitter = tsv.queryThrottler
 }
 

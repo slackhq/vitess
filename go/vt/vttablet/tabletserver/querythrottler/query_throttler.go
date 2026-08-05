@@ -37,6 +37,7 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle"
@@ -75,9 +76,12 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
-	pinnedStrategy          bool
-	env                     tabletenv.Env
-	stats                   Stats
+	// poolSnakes carries the per-pool load-shedding gate accessors into the
+	// strategy factory via Deps. Set by SetPoolSnakes during tablet startup,
+	// after the connection pools are constructed.
+	poolSnakes map[tabletenv.PoolType]func() *loadshed.Snake
+	env        tabletenv.Env
+	stats      Stats
 }
 
 // NewQueryThrottler creates a new  query throttler.
@@ -209,21 +213,14 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
 }
 
-func (qt *QueryThrottler) InstallStrategy(strategy registry.ThrottlingStrategyHandler) {
-	if strategy == nil {
-		strategy = &registry.NoOpStrategy{}
-	}
-	strategy.Start()
-
+// SetPoolSnakes supplies the per-pool load-shedding gate accessors that the
+// LOADSHED strategy factory needs. Called once during tablet startup after the
+// connection pools are constructed; the accessors are resolved lazily so the
+// factory sees the live gates.
+func (qt *QueryThrottler) SetPoolSnakes(poolSnakes map[tabletenv.PoolType]func() *loadshed.Snake) {
 	qt.mu.Lock()
-	old := qt.strategyHandlerInstance
-	qt.strategyHandlerInstance = strategy
-	qt.pinnedStrategy = true
+	qt.poolSnakes = poolSnakes
 	qt.mu.Unlock()
-
-	if old != nil {
-		old.Stop()
-	}
 }
 
 func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
@@ -379,13 +376,13 @@ func (qt *QueryThrottler) HandleConfigUpdate(srvks *topodatapb.SrvKeyspace, err 
 		return true
 	}
 
-	needsStrategyChange := !qt.pinnedStrategy && qt.cfg.GetStrategy() != newCfg.GetStrategy()
+	needsStrategyChange := qt.cfg.GetStrategy() != newCfg.GetStrategy()
 	oldStrategyInstance := qt.strategyHandlerInstance
 
 	var newStrategy registry.ThrottlingStrategyHandler
 	if needsStrategyChange {
 		// Create the new strategy (doesn't need lock)
-		newStrategy = selectThrottlingStrategy(newCfg, qt.throttleClient, qt.tabletConfig)
+		newStrategy = qt.selectThrottlingStrategy(newCfg)
 	}
 
 	// Acquire write lock only for the actual swap operation.
@@ -415,10 +412,11 @@ func (qt *QueryThrottler) HandleConfigUpdate(srvks *topodatapb.SrvKeyspace, err 
 }
 
 // selectThrottlingStrategy returns the appropriate strategy implementation based on the config.
-func selectThrottlingStrategy(cfg *querythrottlerpb.Config, client *throttle.Client, tabletConfig *tabletenv.TabletConfig) registry.ThrottlingStrategyHandler {
+func (qt *QueryThrottler) selectThrottlingStrategy(cfg *querythrottlerpb.Config) registry.ThrottlingStrategyHandler {
 	deps := registry.Deps{
-		ThrottleClient: client,
-		TabletConfig:   tabletConfig,
+		ThrottleClient: qt.throttleClient,
+		TabletConfig:   qt.tabletConfig,
+		PoolSnakes:     qt.poolSnakes,
 	}
 	return registry.CreateStrategy(cfg, deps)
 }
