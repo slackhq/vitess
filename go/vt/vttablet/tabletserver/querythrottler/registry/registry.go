@@ -43,9 +43,7 @@ func Register(name querythrottlerpb.ThrottlingStrategy, factory StrategyFactory)
 	log.Info(fmt.Sprintf("Registered throttling strategy: %s", name))
 }
 
-// Unregister removes a strategy factory. It exists primarily so tests can
-// register a fake factory and clean up afterward without leaking it into other
-// tests. A no-op if the name was not registered.
+// Unregister removes a strategy factory. A no-op if the name was not registered.
 func Unregister(name querythrottlerpb.ThrottlingStrategy) {
 	mu.Lock()
 	defer mu.Unlock()
