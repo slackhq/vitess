@@ -34,10 +34,6 @@ func init() {
 	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, factory{})
 }
 
-// factory builds the loadshed Strategy from the per-pool gate accessors carried
-// on Deps. It registers a gate only for pools whose accessor resolves to a
-// non-nil Snake, so a pool without load shedding (e.g. OLAP) is simply absent
-// and Admit no-ops for it.
 type factory struct{}
 
 func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {

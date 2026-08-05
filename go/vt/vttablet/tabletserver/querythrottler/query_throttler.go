@@ -210,10 +210,6 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
 }
 
-// SetSnakes supplies the per-pool load-shedding gate accessors that the LOADSHED
-// strategy factory needs. Called once during tablet startup after the connection
-// pools are constructed; the accessors are resolved lazily so the factory sees
-// the live gates.
 func (qt *QueryThrottler) SetSnakes(snakes map[tabletenv.PoolType]func() *loadshed.Snake) {
 	qt.mu.Lock()
 	qt.snakes = snakes

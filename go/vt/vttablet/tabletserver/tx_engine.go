@@ -100,10 +100,6 @@ type TxEngine struct {
 	snake *loadshed.Snake
 }
 
-func (te *TxEngine) Snake() *loadshed.Snake {
-	return te.snake
-}
-
 // TwoPC can be disallowed for various reasons. These are the reasons we keep track off
 // when deciding if new prepared transactions should be allowed or not.
 const (

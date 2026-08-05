@@ -1737,10 +1737,6 @@ func TestGetConnectionLogStats(t *testing.T) {
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 }
 
-// activateLoadshed selects the LOADSHED strategy on the tablet's query throttler
-// via the normal config path, so the Snake gates built from --loadshed-enabled
-// actually gate admission. Building the gates (the flag) and activating them
-// (the config) are separate switches by design.
 func activateLoadshed(t *testing.T, tsv *TabletServer) {
 	t.Helper()
 	ok := tsv.queryThrottler.HandleConfigUpdate(&topodatapb.SrvKeyspace{

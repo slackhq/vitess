@@ -207,10 +207,6 @@ type QueryEngine struct {
 	snake *loadshed.Snake
 }
 
-func (qe *QueryEngine) Snake() *loadshed.Snake {
-	return qe.snake
-}
-
 // NewQueryEngine creates a new QueryEngine.
 // This is a singleton class.
 // You must call this only once.

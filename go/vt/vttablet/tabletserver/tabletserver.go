@@ -657,17 +657,10 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	return optionsPriority
 }
 
-// wireLoadshedAdmission connects the query throttler to the per-pool Snake gates
-// so that, when the throttler's config selects the LOADSHED strategy, its factory
-// can build a strategy over the live gates. The accessors resolve the Snake
-// lazily (at strategy-construction time, after the pools are wired), which is why
-// the throttler can be constructed before the pools exist. It also points the tx
-// pool at the throttler for admission. Whether load shedding is actually active is
-// governed by the throttler config (Strategy=LOADSHED), not by this wiring.
 func (tsv *TabletServer) wireLoadshedAdmission() {
 	tsv.queryThrottler.SetSnakes(map[tabletenv.PoolType]func() *loadshed.Snake{
-		tabletenv.PoolTypeOltpRead: func() *loadshed.Snake { return tsv.qe.Snake() },
-		tabletenv.PoolTypeTx:       func() *loadshed.Snake { return tsv.te.Snake() },
+		tabletenv.PoolTypeOltpRead: func() *loadshed.Snake { return tsv.qe.snake },
+		tabletenv.PoolTypeTx:       func() *loadshed.Snake { return tsv.te.snake },
 	})
 	tsv.te.txPool.admitter = tsv.queryThrottler
 }
