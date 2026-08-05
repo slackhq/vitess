@@ -104,3 +104,28 @@ func TestAdmit_UnconfiguredPoolAdmits(t *testing.T) {
 	require.NotNil(t, release)
 	release(nil)
 }
+
+func TestMatchesUndroppableSchema(t *testing.T) {
+	allow := []string{"performance_schema", "information_schema", "sys", "mysql"}
+
+	tcases := []struct {
+		name       string
+		qualifiers []string
+		allowlist  []string
+		want       bool
+	}{
+		{"unqualified query", nil, allow, false},
+		{"empty allowlist", []string{"performance_schema"}, nil, false},
+		{"match", []string{"performance_schema"}, allow, true},
+		{"case-insensitive match", []string{"Performance_Schema"}, allow, true},
+		{"no match", []string{"myapp"}, allow, false},
+		{"one of several matches", []string{"myapp", "sys"}, allow, true},
+		{"none of several match", []string{"myapp", "other"}, allow, false},
+	}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, matchesUndroppableSchema(tc.qualifiers, tc.allowlist))
+		})
+	}
+}

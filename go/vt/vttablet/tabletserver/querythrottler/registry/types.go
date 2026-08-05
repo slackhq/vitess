@@ -32,7 +32,7 @@ type QueryAttributes struct {
 	// Priority contains the priority of the query (0-100, where 0 is highest priority).
 	Priority int
 
-	// AppExecutionContextID identifies the request or async job that issued the query.
+	// AppExecutionContextID identifies the application-level request or async job that issued the query.
 	AppExecutionContextID string
 
 	// SchemaQualifiers holds the schema qualifiers of the query's tables, to exempt system-schema traffic from shedding.
