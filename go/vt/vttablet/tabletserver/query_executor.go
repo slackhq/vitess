@@ -879,10 +879,10 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 
 func (qre *QueryExecutor) admissionAttrs() registry.QueryAttributes {
 	return registry.QueryAttributes{
-		WorkloadName:     qre.options.GetWorkloadName(),
-		Priority:         priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority),
-		FairnessKey:      qre.options.GetLoadshedValveId(),
-		SchemaQualifiers: qre.plan.SchemaQualifiers,
+		WorkloadName:          qre.options.GetWorkloadName(),
+		Priority:              priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority),
+		AppExecutionContextID: qre.options.GetLoadshedValveId(),
+		SchemaQualifiers:      qre.plan.SchemaQualifiers,
 	}
 }
 

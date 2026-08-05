@@ -260,9 +260,9 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 
 		if tp.admitter != nil {
 			attrs := registry.QueryAttributes{
-				WorkloadName: options.GetWorkloadName(),
-				Priority:     priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority),
-				FairnessKey:  options.GetLoadshedValveId(),
+				WorkloadName:          options.GetWorkloadName(),
+				Priority:              priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority),
+				AppExecutionContextID: options.GetLoadshedValveId(),
 			}
 			release, admitErr := tp.admitter.AcquireAdmission(ctx, attrs, tabletenv.PoolTypeTx)
 			if admitErr != nil {

@@ -270,7 +270,7 @@ type snakeAdmitter struct {
 
 func (a *snakeAdmitter) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
 	priority := float64(sqlparser.MaxPriorityValue - attrs.Priority)
-	unlock, err := a.snake.Acquire(ctx, attrs.FairnessKey, priority)
+	unlock, err := a.snake.Acquire(ctx, attrs.AppExecutionContextID, priority)
 	if err != nil {
 		return nil, err
 	}

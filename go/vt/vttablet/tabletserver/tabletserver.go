@@ -665,7 +665,7 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 // pool at the throttler for admission. Whether load shedding is actually active is
 // governed by the throttler config (Strategy=LOADSHED), not by this wiring.
 func (tsv *TabletServer) wireLoadshedAdmission() {
-	tsv.queryThrottler.SetPoolSnakes(map[tabletenv.PoolType]func() *loadshed.Snake{
+	tsv.queryThrottler.SetSnakes(map[tabletenv.PoolType]func() *loadshed.Snake{
 		tabletenv.PoolTypeOltpRead: func() *loadshed.Snake { return tsv.qe.Snake() },
 		tabletenv.PoolTypeTx:       func() *loadshed.Snake { return tsv.te.Snake() },
 	})

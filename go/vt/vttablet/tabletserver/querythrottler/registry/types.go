@@ -32,7 +32,7 @@ type QueryAttributes struct {
 	// Priority contains the priority of the query (0-100, where 0 is highest priority).
 	Priority int
 
-	FairnessKey string
+	AppExecutionContextID string
 
 	SchemaQualifiers []string
 }
@@ -72,12 +72,7 @@ type StrategyConfig interface {
 type Deps struct {
 	ThrottleClient *throttle.Client
 	TabletConfig   *tabletenv.TabletConfig
-
-	// PoolSnakes provides the load-shedding gate for each connection pool, or nil
-	// for a pool that has none. The values are resolved lazily (called at strategy
-	// construction, after the pools are wired), so a factory reads the live gate
-	// rather than a possibly-nil reference captured at throttler construction.
-	PoolSnakes map[tabletenv.PoolType]func() *loadshed.Snake
+	Snakes         map[tabletenv.PoolType]func() *loadshed.Snake
 }
 
 // StrategyFactory creates a new strategy instance with the given dependencies and configuration.

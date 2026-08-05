@@ -76,12 +76,9 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
-	// poolSnakes carries the per-pool load-shedding gate accessors into the
-	// strategy factory via Deps. Set by SetPoolSnakes during tablet startup,
-	// after the connection pools are constructed.
-	poolSnakes map[tabletenv.PoolType]func() *loadshed.Snake
-	env        tabletenv.Env
-	stats      Stats
+	snakes                  map[tabletenv.PoolType]func() *loadshed.Snake
+	env                     tabletenv.Env
+	stats                   Stats
 }
 
 // NewQueryThrottler creates a new  query throttler.
@@ -213,13 +210,13 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
 }
 
-// SetPoolSnakes supplies the per-pool load-shedding gate accessors that the
-// LOADSHED strategy factory needs. Called once during tablet startup after the
-// connection pools are constructed; the accessors are resolved lazily so the
-// factory sees the live gates.
-func (qt *QueryThrottler) SetPoolSnakes(poolSnakes map[tabletenv.PoolType]func() *loadshed.Snake) {
+// SetSnakes supplies the per-pool load-shedding gate accessors that the LOADSHED
+// strategy factory needs. Called once during tablet startup after the connection
+// pools are constructed; the accessors are resolved lazily so the factory sees
+// the live gates.
+func (qt *QueryThrottler) SetSnakes(snakes map[tabletenv.PoolType]func() *loadshed.Snake) {
 	qt.mu.Lock()
-	qt.poolSnakes = poolSnakes
+	qt.snakes = snakes
 	qt.mu.Unlock()
 }
 
@@ -416,7 +413,7 @@ func (qt *QueryThrottler) selectThrottlingStrategy(cfg *querythrottlerpb.Config)
 	deps := registry.Deps{
 		ThrottleClient: qt.throttleClient,
 		TabletConfig:   qt.tabletConfig,
-		PoolSnakes:     qt.poolSnakes,
+		Snakes:         qt.snakes,
 	}
 	return registry.CreateStrategy(cfg, deps)
 }

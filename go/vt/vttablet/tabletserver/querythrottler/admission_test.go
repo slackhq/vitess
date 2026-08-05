@@ -106,7 +106,7 @@ func (f *admissionFactory) New(deps registry.Deps, _ registry.StrategyConfig) (r
 	return f.built, nil
 }
 
-func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithPoolSnakes(t *testing.T) {
+func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithSnakes(t *testing.T) {
 	fac := &admissionFactory{}
 	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, fac)
 	t.Cleanup(func() { registry.Unregister(querythrottlerpb.ThrottlingStrategy_LOADSHED) })
@@ -114,12 +114,12 @@ func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithPoolSnakes(t *testi
 	sentinel := func() *loadshed.Snake { return nil }
 	qt := &QueryThrottler{
 		tabletConfig: &tabletenv.TabletConfig{},
-		poolSnakes:   map[tabletenv.PoolType]func() *loadshed.Snake{tabletenv.PoolTypeOltpRead: sentinel},
+		snakes:       map[tabletenv.PoolType]func() *loadshed.Snake{tabletenv.PoolTypeOltpRead: sentinel},
 	}
 
 	strategy := qt.selectThrottlingStrategy(&querythrottlerpb.Config{Enabled: true, Strategy: querythrottlerpb.ThrottlingStrategy_LOADSHED})
 
 	require.Same(t, fac.built, strategy, "config selecting LOADSHED must build via the registered factory")
-	_, ok := fac.deps.PoolSnakes[tabletenv.PoolTypeOltpRead]
-	assert.True(t, ok, "pool-snake accessors must be threaded into Deps")
+	_, ok := fac.deps.Snakes[tabletenv.PoolTypeOltpRead]
+	assert.True(t, ok, "snake accessors must be threaded into Deps")
 }

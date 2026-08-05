@@ -42,10 +42,7 @@ type factory struct{}
 
 func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {
 	var gates []Gate
-	for pool, accessor := range deps.PoolSnakes {
-		if accessor == nil {
-			continue
-		}
+	for pool, accessor := range deps.Snakes {
 		if snake := accessor(); snake != nil {
 			gates = append(gates, Gate{Pool: pool, Snake: snake})
 		}
@@ -89,7 +86,7 @@ func (s *Strategy) Admit(ctx context.Context, attrs registry.QueryAttributes, po
 	}
 
 	priority := s.snakePriority(attrs)
-	unlock, err := snake.Acquire(ctx, attrs.FairnessKey, priority)
+	unlock, err := snake.Acquire(ctx, attrs.AppExecutionContextID, priority)
 	if err != nil {
 		return nil, err
 	}
