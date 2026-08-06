@@ -91,10 +91,6 @@ var (
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
 
-	// errAdmissionRejected and errDMLAdmissionRejected are pre-built so that an
-	// admission rejection — an expected, high-volume outcome under overload —
-	// does not call vterrors.Errorf per rejection, which captures a stack trace
-	// (runtime.Callers) and allocates.
 	errAdmissionRejected    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "admission rejected")
 	errDMLAdmissionRejected = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml admission rejected")
 )
@@ -149,8 +145,6 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
 
-		// Split timings by result code so successful-request latency (errCode "OK")
-		// can be measured apart from fast-failing shed rejections (RESOURCE_EXHAUSTED).
 		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {

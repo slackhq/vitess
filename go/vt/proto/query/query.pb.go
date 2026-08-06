@@ -1410,11 +1410,7 @@ type ExecuteOptions struct {
 	// currently honored by StreamExecute. This is useful for warming reads
 	// where the goal is to warm the buffer pool, not to retrieve data.
 	NoResult bool `protobuf:"varint,21,opt,name=no_result,json=noResult,proto3" json:"no_result,omitempty"`
-	// app_execution_context_id identifies the logical request or job that issued
-	// this query. An admission-control strategy may use it to detect fan-out from
-	// a single caller (e.g., an async helper issuing N queries against the same
-	// shard) and apply per-context fairness. When empty, admission control still
-	// applies but without the per-context grouping.
+	// app_execution_context_id identifies the logical request or job that issued this query.
 	AppExecutionContextId string `protobuf:"bytes,22,opt,name=app_execution_context_id,json=appExecutionContextId,proto3" json:"app_execution_context_id,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache

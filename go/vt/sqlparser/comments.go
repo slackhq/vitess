@@ -62,9 +62,7 @@ const (
 	// DirectivePriority specifies the priority of a workload. It should be an integer between 0 and MaxPriorityValue,
 	// where 0 is the highest priority, and MaxPriorityValue is the lowest one.
 	DirectivePriority = "PRIORITY"
-	// DirectiveAppExecutionContextID identifies the logical caller (request, job, etc.) issuing the query, so a
-	// vttablet admission-control strategy can treat one caller's fan-out to a single shard as self-contention
-	// rather than independent load.
+	// DirectiveAppExecutionContextID identifies the logical caller (request, job, etc.) issuing the query.
 	DirectiveAppExecutionContextID = "APP_EXECUTION_CONTEXT_ID"
 
 	// MaxPriorityValue specifies the maximum value allowed for the priority query directive. Valid priority values are

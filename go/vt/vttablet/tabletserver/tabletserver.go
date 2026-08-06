@@ -1947,13 +1947,6 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Error
-	// skipQueryString suppresses building the (expensive) query+bindvars string
-	// for the log message. RESOURCE_EXHAUSTED is a high-volume, expected outcome
-	// under load shedding / pool exhaustion, and its log is rate-limited
-	// (logPoolFull) anyway — so formatting the SQL and prototext-marshalling every
-	// bind variable per rejection is wasted work that dominates CPU exactly when
-	// the tablet is already overloaded. The returned client error is unaffected;
-	// only the throttled log line omits the query detail.
 	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
@@ -1994,21 +1987,12 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 			}
 		}
 	} else if skipQueryString {
-		// High-volume, rate-limited error (RESOURCE_EXHAUSTED, e.g. load shed):
-		// return the (typically pre-built) error as-is. Avoids a per-error
-		// vterrors.Errorf, which captures a stack trace (runtime.Callers) and
-		// allocates — pure overhead on the shed path, and at saturation the single
-		// largest stack-capture site since most requests are being rejected. Any
-		// callerID goes only into the (rate-limited) log line, not the returned
-		// error, so no stack-capturing re-wrap is needed even when a caller is set.
 		if logMethod != nil {
 			message = fmt.Sprintf("%v%s", err, callerID)
 		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
 		if logMethod != nil {
-			// For high-volume, rate-limited errors (RESOURCE_EXHAUSTED) skip the
-			// expensive query+bindvars stringification; log just the error.
 			if skipQueryString {
 				message = fmt.Sprintf("%v", err)
 			} else {
