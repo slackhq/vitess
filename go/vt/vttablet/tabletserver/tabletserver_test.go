@@ -2826,3 +2826,10 @@ func TestPriorityFromOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestLiveCapacity(t *testing.T) {
+	assert.Equal(t, 5, liveCapacity(func() int { return 5 }, 10)(),
+		"a live pool capacity should be used as-is")
+	assert.Equal(t, 10, liveCapacity(func() int { return 0 }, 10)(),
+		"capacity 0 (pool not open) should fall back to the configured size")
+}

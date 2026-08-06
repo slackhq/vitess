@@ -74,9 +74,6 @@ type Deps struct {
 	ThrottleClient *throttle.Client
 	TabletConfig   *tabletenv.TabletConfig
 	Env            tabletenv.Env
-	// PoolCapacities gives each connection pool's live capacity, for strategies
-	// that gate on pool occupancy. Resolved lazily (called at strategy
-	// construction, after the pools are wired).
 	PoolCapacities map[tabletenv.PoolType]func() int
 }
 

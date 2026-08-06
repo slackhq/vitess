@@ -222,12 +222,10 @@ func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.Q
 
 	ac, ok := strategy.(registry.AdmissionController)
 	if !ok {
-		return noopAdmissionRelease, nil
+		return func(error) {}, nil
 	}
 	return ac.Admit(ctx, attrs, pool)
 }
-
-func noopAdmissionRelease(error) {}
 
 // startSrvKeyspaceWatch starts watching the SrvKeyspace for event-driven config updates.
 // This method performs two critical operations:

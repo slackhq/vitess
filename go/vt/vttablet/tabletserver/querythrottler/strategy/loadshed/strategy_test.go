@@ -81,7 +81,7 @@ func TestSnakePriority_UndroppableSchema(t *testing.T) {
 func TestAdmit_DispatchesByPool(t *testing.T) {
 	oltp := newTestSnake(1)
 	tx := newTestSnake(1)
-	s := &Strategy{gates: map[tabletenv.PoolType]*loadshed.Snake{
+	s := &Strategy{snakes: map[tabletenv.PoolType]*loadshed.Snake{
 		tabletenv.PoolTypeOltpRead: oltp,
 		tabletenv.PoolTypeTx:       tx,
 	}}
@@ -97,7 +97,7 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 }
 
 func TestAdmit_UnconfiguredPoolAdmits(t *testing.T) {
-	s := &Strategy{gates: map[tabletenv.PoolType]*loadshed.Snake{tabletenv.PoolTypeOltpRead: newTestSnake(1)}}
+	s := &Strategy{snakes: map[tabletenv.PoolType]*loadshed.Snake{tabletenv.PoolTypeOltpRead: newTestSnake(1)}}
 
 	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)

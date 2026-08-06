@@ -44,7 +44,7 @@ type factory struct{}
 
 func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {
 	config := deps.TabletConfig
-	gates := make(map[tabletenv.PoolType]*loadshed.Snake, len(deps.PoolCapacities))
+	snakes := make(map[tabletenv.PoolType]*loadshed.Snake, len(deps.PoolCapacities))
 	for pool, capacity := range deps.PoolCapacities {
 		snake := loadshed.NewSnake(loadshed.SnakeConfig{
 			Name: poolStatsName[pool],
@@ -63,16 +63,16 @@ func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.Th
 			LoadsheddingAllowed: func() bool { return true },
 		})
 		loadshed.PublishStats(deps.Env.Exporter(), poolStatsName[pool], snake)
-		gates[pool] = snake
+		snakes[pool] = snake
 	}
 	return &Strategy{
-		gates:              gates,
+		snakes:             snakes,
 		undroppableSchemas: config.LoadshedUndroppableSchemas,
 	}, nil
 }
 
 type Strategy struct {
-	gates              map[tabletenv.PoolType]*loadshed.Snake
+	snakes             map[tabletenv.PoolType]*loadshed.Snake
 	undroppableSchemas []string
 }
 
@@ -81,7 +81,7 @@ func (s *Strategy) Evaluate(ctx context.Context, targetTabletType topodatapb.Tab
 }
 
 func (s *Strategy) Admit(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
-	snake, ok := s.gates[pool]
+	snake, ok := s.snakes[pool]
 	if !ok || snake == nil {
 		return func(error) {}, nil
 	}

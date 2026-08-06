@@ -68,7 +68,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler"
-	_ "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed" // registers the LOADSHED strategy factory
+	_ "vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/strategy/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -664,8 +664,6 @@ func (tsv *TabletServer) wireLoadshedAdmission() {
 	tsv.te.txPool.admitter = tsv.queryThrottler
 }
 
-// liveCapacity returns the pool's live capacity, falling back to configured
-// until the pool is open (Capacity reports 0 before Open).
 func liveCapacity(live func() int, configured int) func() int {
 	return func() int {
 		if c := live(); c > 0 {
