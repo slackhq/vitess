@@ -75,6 +75,7 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
+	poolCapacities          map[tabletenv.PoolType]func() int
 	env                     tabletenv.Env
 	stats                   Stats
 }
@@ -206,6 +207,24 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 
 	// Normal throttling: return an error to reject the query
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
+}
+
+func (qt *QueryThrottler) SetPoolCapacities(capacities map[tabletenv.PoolType]func() int) {
+	qt.mu.Lock()
+	qt.poolCapacities = capacities
+	qt.mu.Unlock()
+}
+
+func (qt *QueryThrottler) AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error) {
+	qt.mu.RLock()
+	strategy := qt.strategyHandlerInstance
+	qt.mu.RUnlock()
+
+	ac, ok := strategy.(registry.AdmissionController)
+	if !ok {
+		return func(error) {}, nil
+	}
+	return ac.Admit(ctx, attrs, pool)
 }
 
 // startSrvKeyspaceWatch starts watching the SrvKeyspace for event-driven config updates.
@@ -347,14 +366,13 @@ func (qt *QueryThrottler) HandleConfigUpdate(srvks *topodatapb.SrvKeyspace, err 
 		return true
 	}
 
-	// No Locking is required because only this function updates the configs of Query Throttler.
 	needsStrategyChange := qt.cfg.GetStrategy() != newCfg.GetStrategy()
 	oldStrategyInstance := qt.strategyHandlerInstance
 
 	var newStrategy registry.ThrottlingStrategyHandler
 	if needsStrategyChange {
 		// Create the new strategy (doesn't need lock)
-		newStrategy = selectThrottlingStrategy(newCfg, qt.throttleClient, qt.tabletConfig)
+		newStrategy = qt.selectThrottlingStrategy(newCfg)
 	}
 
 	// Acquire write lock only for the actual swap operation.
@@ -384,10 +402,12 @@ func (qt *QueryThrottler) HandleConfigUpdate(srvks *topodatapb.SrvKeyspace, err 
 }
 
 // selectThrottlingStrategy returns the appropriate strategy implementation based on the config.
-func selectThrottlingStrategy(cfg *querythrottlerpb.Config, client *throttle.Client, tabletConfig *tabletenv.TabletConfig) registry.ThrottlingStrategyHandler {
+func (qt *QueryThrottler) selectThrottlingStrategy(cfg *querythrottlerpb.Config) registry.ThrottlingStrategyHandler {
 	deps := registry.Deps{
-		ThrottleClient: client,
-		TabletConfig:   tabletConfig,
+		ThrottleClient: qt.throttleClient,
+		TabletConfig:   qt.tabletConfig,
+		Env:            qt.env,
+		PoolCapacities: qt.poolCapacities,
 	}
 	return registry.CreateStrategy(cfg, deps)
 }

@@ -30,6 +30,12 @@ type QueryAttributes struct {
 
 	// Priority contains the priority of the query (0-100, where 0 is highest priority).
 	Priority int
+
+	// AppExecutionContextID identifies the application-level request or async job that issued the query.
+	AppExecutionContextID string
+
+	// SchemaQualifiers holds the schema qualifiers of the query's tables, to exempt system-schema traffic from shedding.
+	SchemaQualifiers []string
 }
 
 // ThrottleDecision represents the result of evaluating whether a query should be throttled.
@@ -67,6 +73,8 @@ type StrategyConfig interface {
 type Deps struct {
 	ThrottleClient *throttle.Client
 	TabletConfig   *tabletenv.TabletConfig
+	Env            tabletenv.Env
+	PoolCapacities map[tabletenv.PoolType]func() int
 }
 
 // StrategyFactory creates a new strategy instance with the given dependencies and configuration.
