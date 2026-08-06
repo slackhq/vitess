@@ -174,6 +174,11 @@ func (sc *StatefulConnection) ReleaseString(reason string) {
 	if sc.dbConn == nil {
 		return
 	}
+	// Universal teardown funnel: frees any admission slot even on paths that bypass
+	// txComplete (killer, shutdown, taint, renew-failure). Release is idempotent.
+	if sc.txProps != nil && sc.txProps.AdmissionRelease != nil {
+		sc.txProps.AdmissionRelease()
+	}
 	if sc.pool != nil {
 		sc.pool.unregister(sc.ConnID, reason)
 	}

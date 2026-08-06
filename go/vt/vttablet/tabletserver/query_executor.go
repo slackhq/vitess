@@ -45,6 +45,7 @@ import (
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
@@ -89,6 +90,9 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+
+	errAdmissionRejected    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "admission rejected")
+	errDMLAdmissionRejected = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml admission rejected")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -140,6 +144,8 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		var errCode string
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
+
+		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {
 			qre.tsv.qe.AddStats(qre.plan, tableName, qre.options.GetWorkloadName(), qre.targetTabletType, 1, duration, mysqlTime, 0, 0, 1, errCode)
@@ -755,12 +761,13 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		waiterCapExceeded := false
 		if original {
 			defer q.Broadcast()
-			conn, err := qre.getConn()
+			conn, release, err := qre.getConn()
 
 			if err != nil {
 				q.SetErr(err)
 			} else {
 				defer conn.Recycle()
+				defer release()
 				res, err := qre.execDBConn(conn.Conn, sql, true)
 				if qre.tsv.config.ConsolidatorCacheProto3Rows && q.HasWaiters() {
 					res.CacheProto3Rows()
@@ -791,11 +798,12 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		}
 		// If waiter cap exceeded, fall through to independent execution
 	}
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	res, err := qre.execDBConn(conn.Conn, sql, true)
 	if err != nil {
 		return nil, err
@@ -833,22 +841,42 @@ func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 }
 
 func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	return qre.execDBConn(conn.Conn, qre.query, true)
 }
 
-func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
+func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+
+	release, err := qre.tsv.queryThrottler.AcquireAdmission(ctx, qre.admissionAttrs(), tabletenv.PoolTypeOltpRead)
+	if err != nil {
+		return nil, nil, errAdmissionRejected
+	}
+	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	if err != nil {
+		release(err)
+		return nil, nil, err
+	}
+	return conn, func() { release(nil) }, nil
+}
+
+func (qre *QueryExecutor) admissionAttrs() registry.QueryAttributes {
+	return registry.QueryAttributes{
+		WorkloadName:          qre.options.GetWorkloadName(),
+		Priority:              priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority),
+		AppExecutionContextID: qre.options.GetAppExecutionContextId(),
+		SchemaQualifiers:      qre.plan.SchemaQualifiers,
+	}
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
@@ -963,11 +991,12 @@ func rewriteOUTParamError(err error) error {
 }
 
 func (qre *QueryExecutor) execCallProc() (*sqltypes.Result, error) {
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
+	defer release()
 	sql, _, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err

@@ -201,6 +201,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
 	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
+	tsv.wireAdmissionControl()
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
 	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
@@ -629,7 +630,11 @@ func (tsv *TabletServer) begin(
 }
 
 func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
-	priority := tsv.config.TxThrottlerDefaultPriority
+	return priorityFromOptions(options, tsv.config.TxThrottlerDefaultPriority)
+}
+
+func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) int {
+	priority := defaultPriority
 	if options == nil {
 		return priority
 	}
@@ -648,6 +653,23 @@ func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions)
 	}
 
 	return optionsPriority
+}
+
+func (tsv *TabletServer) wireAdmissionControl() {
+	tsv.queryThrottler.SetPoolCapacities(map[tabletenv.PoolType]func() int{
+		tabletenv.PoolTypeOltpRead: liveCapacity(func() int { return int(tsv.qe.conns.Capacity()) }, tsv.config.OltpReadPool.Size),
+		tabletenv.PoolTypeTx:       liveCapacity(tsv.te.txPool.scp.Capacity, tsv.config.TxPool.Size),
+	})
+	tsv.te.txPool.admitter = tsv.queryThrottler
+}
+
+func liveCapacity(live func() int, configured int) func() int {
+	return func() int {
+		if c := live(); c > 0 {
+			return c
+		}
+		return configured
+	}
 }
 
 // resolveTargetType returns the appropriate target tablet type for a
@@ -1925,12 +1947,14 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Error
+	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
 		logMethod = nil
 	case vtrpcpb.Code_RESOURCE_EXHAUSTED:
 		logMethod = func(msg string, _ ...slog.Attr) { logPoolFull.Errorf("%s", msg) }
+		skipQueryString = true
 	case vtrpcpb.Code_ABORTED:
 		logMethod = log.Warn
 	case vtrpcpb.Code_INVALID_ARGUMENT, vtrpcpb.Code_DEADLINE_EXCEEDED:
@@ -1962,10 +1986,18 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 				message = fmt.Sprintf("%s (errno %d) (sqlstate %s)%s: %s", sqlErr.Message, errnum, sqlState, callerID, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
 			}
 		}
+	} else if skipQueryString {
+		if logMethod != nil {
+			message = fmt.Sprintf("%v%s", err, callerID)
+		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
 		if logMethod != nil {
-			message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			if skipQueryString {
+				message = fmt.Sprintf("%v", err)
+			} else {
+				message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			}
 		}
 	}
 

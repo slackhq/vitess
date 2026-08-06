@@ -8,6 +8,7 @@ option go_package = "vitess.io/vitess/go/vt/proto/querythrottler";
 enum ThrottlingStrategy {
   UNKNOWN = 0;
   TABLET_THROTTLER = 1;
+  ADMISSION_CONTROL = 2;
 }
 
 // Config defines the runtime configuration for the IncomingQueryThrottler

@@ -1,5 +1,5 @@
 /*eslint-disable block-scoped-var, id-length, no-control-regex, no-magic-numbers, no-prototype-builtins, no-redeclare, no-shadow, no-var, sort-vars*/
-import * as $protobuf from "protobufjs/minimal";
+import $protobuf from "protobufjs/minimal.js";
 
 // Common aliases
 const $Reader = $protobuf.Reader, $Writer = $protobuf.Writer, $util = $protobuf.util;
@@ -54819,11 +54819,13 @@ export const querythrottler = $root.querythrottler = (() => {
      * @enum {number}
      * @property {number} UNKNOWN=0 UNKNOWN value
      * @property {number} TABLET_THROTTLER=1 TABLET_THROTTLER value
+     * @property {number} ADMISSION_CONTROL=2 ADMISSION_CONTROL value
      */
     querythrottler.ThrottlingStrategy = (function() {
         const valuesById = {}, values = Object.create(valuesById);
         values[valuesById[0] = "UNKNOWN"] = 0;
         values[valuesById[1] = "TABLET_THROTTLER"] = 1;
+        values[valuesById[2] = "ADMISSION_CONTROL"] = 2;
         return values;
     })();
 
@@ -55048,6 +55050,7 @@ export const querythrottler = $root.querythrottler = (() => {
                     return "strategy: enum value expected";
                 case 0:
                 case 1:
+                case 2:
                     break;
                 }
             if (message.tablet_strategy_config != null && message.hasOwnProperty("tablet_strategy_config")) {
@@ -55095,6 +55098,10 @@ export const querythrottler = $root.querythrottler = (() => {
                 case "TABLET_THROTTLER":
                 case 1:
                     message.strategy = 1;
+                    break;
+                case "ADMISSION_CONTROL":
+                case 2:
+                    message.strategy = 2;
                     break;
                 }
             if (object.tablet_strategy_config != null) {
@@ -116870,6 +116877,7 @@ export const query = $root.query = (() => {
          * @property {boolean|null} [in_dml_execution] ExecuteOptions in_dml_execution
          * @property {number|Long|null} [transaction_timeout] ExecuteOptions transaction_timeout
          * @property {boolean|null} [no_result] ExecuteOptions no_result
+         * @property {string|null} [app_execution_context_id] ExecuteOptions app_execution_context_id
          */
 
         /**
@@ -117024,6 +117032,14 @@ export const query = $root.query = (() => {
          */
         ExecuteOptions.prototype.no_result = false;
 
+        /**
+         * ExecuteOptions app_execution_context_id.
+         * @member {string} app_execution_context_id
+         * @memberof query.ExecuteOptions
+         * @instance
+         */
+        ExecuteOptions.prototype.app_execution_context_id = "";
+
         // OneOf field names bound to virtual getters and setters
         let $oneOfFields;
 
@@ -117106,6 +117122,8 @@ export const query = $root.query = (() => {
                 writer.uint32(/* id 20, wireType 0 =*/160).int64(message.transaction_timeout);
             if (message.no_result != null && Object.hasOwnProperty.call(message, "no_result"))
                 writer.uint32(/* id 21, wireType 0 =*/168).bool(message.no_result);
+            if (message.app_execution_context_id != null && Object.hasOwnProperty.call(message, "app_execution_context_id"))
+                writer.uint32(/* id 22, wireType 2 =*/178).string(message.app_execution_context_id);
             if (message.$unknowns != null && Object.hasOwnProperty.call(message, "$unknowns"))
                 for (let i = 0; i < message.$unknowns.length; ++i)
                     writer.raw(message.$unknowns[i]);
@@ -117309,6 +117327,15 @@ export const query = $root.query = (() => {
                             delete message.no_result;
                         continue;
                     }
+                case 22: {
+                        if (u !== 2)
+                            break;
+                        if ((v = reader.string()).length)
+                            message.app_execution_context_id = v;
+                        else
+                            delete message.app_execution_context_id;
+                        continue;
+                    }
                 }
                 reader.skipType(u, q, tag);
                 $util.makeProp(message, "$unknowns", false);
@@ -117457,6 +117484,9 @@ export const query = $root.query = (() => {
             if (message.no_result != null && message.hasOwnProperty("no_result"))
                 if (typeof message.no_result !== "boolean")
                     return "no_result: boolean expected";
+            if (message.app_execution_context_id != null && message.hasOwnProperty("app_execution_context_id"))
+                if (!$util.isString(message.app_execution_context_id))
+                    return "app_execution_context_id: string expected";
             return null;
         };
 
@@ -117702,6 +117732,9 @@ export const query = $root.query = (() => {
             if (object.no_result != null)
                 if (object.no_result)
                     message.no_result = Boolean(object.no_result);
+            if (object.app_execution_context_id != null)
+                if (typeof object.app_execution_context_id !== "string" || object.app_execution_context_id.length)
+                    message.app_execution_context_id = String(object.app_execution_context_id);
             return message;
         };
 
@@ -117739,6 +117772,7 @@ export const query = $root.query = (() => {
                 object.fetch_last_insert_id = false;
                 object.in_dml_execution = false;
                 object.no_result = false;
+                object.app_execution_context_id = "";
             }
             if (message.included_fields != null && message.hasOwnProperty("included_fields"))
                 object.included_fields = options.enums === String ? $root.query.ExecuteOptions.IncludedFields[message.included_fields] === undefined ? message.included_fields : $root.query.ExecuteOptions.IncludedFields[message.included_fields] : message.included_fields;
@@ -117792,6 +117826,8 @@ export const query = $root.query = (() => {
             }
             if (message.no_result != null && message.hasOwnProperty("no_result"))
                 object.no_result = message.no_result;
+            if (message.app_execution_context_id != null && message.hasOwnProperty("app_execution_context_id"))
+                object.app_execution_context_id = message.app_execution_context_id;
             return object;
         };
 

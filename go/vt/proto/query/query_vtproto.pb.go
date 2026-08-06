@@ -179,6 +179,7 @@ func (m *ExecuteOptions) CloneVT() *ExecuteOptions {
 	r.FetchLastInsertId = m.FetchLastInsertId
 	r.InDmlExecution = m.InDmlExecution
 	r.NoResult = m.NoResult
+	r.AppExecutionContextId = m.AppExecutionContextId
 	if rhs := m.TransactionAccessMode; rhs != nil {
 		tmpContainer := make([]ExecuteOptions_TransactionAccessMode, len(rhs))
 		copy(tmpContainer, rhs)
@@ -1900,6 +1901,15 @@ func (m *ExecuteOptions) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 			return 0, err
 		}
 		i -= size
+	}
+	if len(m.AppExecutionContextId) > 0 {
+		i -= len(m.AppExecutionContextId)
+		copy(dAtA[i:], m.AppExecutionContextId)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.AppExecutionContextId)))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xb2
 	}
 	if m.NoResult {
 		i--
@@ -6242,6 +6252,10 @@ func (m *ExecuteOptions) SizeVT() (n int) {
 	if m.NoResult {
 		n += 3
 	}
+	l = len(m.AppExecutionContextId)
+	if l > 0 {
+		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -9070,6 +9084,38 @@ func (m *ExecuteOptions) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.NoResult = bool(v != 0)
+		case 22:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AppExecutionContextId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.AppExecutionContextId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

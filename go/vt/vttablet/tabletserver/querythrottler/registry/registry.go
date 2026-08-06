@@ -43,6 +43,12 @@ func Register(name querythrottlerpb.ThrottlingStrategy, factory StrategyFactory)
 	log.Info(fmt.Sprintf("Registered throttling strategy: %s", name))
 }
 
+func Unregister(name querythrottlerpb.ThrottlingStrategy) {
+	mu.Lock()
+	defer mu.Unlock()
+	delete(factories, name)
+}
+
 // Get retrieves a strategy factory by name.
 // Returns the factory and true if found, nil and false otherwise.
 func Get(name querythrottlerpb.ThrottlingStrategy) (StrategyFactory, bool) {

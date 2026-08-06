@@ -32,6 +32,7 @@ import (
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txlimiter"
@@ -65,14 +66,19 @@ type (
 	// concern itself with a connections life cycle. The two exceptions are Begin, which creates a new StatefulConnection,
 	// and RollbackAndRelease, which does a Release after doing the rollback.
 	TxPool struct {
-		env     tabletenv.Env
-		scp     *StatefulConnectionPool
-		ticks   *timer.Timer
-		limiter txlimiter.TxLimiter
+		env      tabletenv.Env
+		scp      *StatefulConnectionPool
+		ticks    *timer.Timer
+		limiter  txlimiter.TxLimiter
+		admitter txAdmitter
 
 		logMu   sync.Mutex
 		lastLog time.Time
 		txStats *servenv.TimingsWrapper
+	}
+
+	txAdmitter interface {
+		AcquireAdmission(ctx context.Context, attrs registry.QueryAttributes, pool tabletenv.PoolType) (func(err error), error)
 	}
 )
 
@@ -236,6 +242,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 
 	var conn *StatefulConnection
 	var err error
+	var admissionRelease func()
 	if reservedID != 0 {
 		conn, err = tp.scp.GetAndLock(reservedID, "start transaction on reserve conn")
 		if err != nil {
@@ -250,12 +257,30 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 		if !tp.limiter.Get(immediateCaller, effectiveCaller) {
 			return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "per-user transaction pool connection limit exceeded")
 		}
+
+		if tp.admitter != nil {
+			attrs := registry.QueryAttributes{
+				WorkloadName:          options.GetWorkloadName(),
+				Priority:              priorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority),
+				AppExecutionContextID: options.GetAppExecutionContextId(),
+			}
+			release, admitErr := tp.admitter.AcquireAdmission(ctx, attrs, tabletenv.PoolTypeTx)
+			if admitErr != nil {
+				tp.limiter.Release(immediateCaller, effectiveCaller)
+				return nil, "", "", errDMLAdmissionRejected
+			}
+			admissionRelease = func() { release(nil) }
+		}
+
 		conn, err = tp.createConn(ctx, options, setting)
 		defer func() {
 			if err != nil {
 				// The transaction limiter frees transactions on rollback or commit. If we fail to create the transaction,
 				// release immediately since there will be no rollback or commit.
 				tp.limiter.Release(immediateCaller, effectiveCaller)
+				if admissionRelease != nil {
+					admissionRelease()
+				}
 			}
 		}()
 	}
@@ -273,6 +298,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 	if setting != nil {
 		conn.TxProperties().RecordQueryDetail(setting.ApplyQuery(), nil)
 	}
+	conn.TxProperties().AdmissionRelease = admissionRelease
 	return conn, sql, sessionStateChanges, nil
 }
 
@@ -458,6 +484,9 @@ func (tp *TxPool) LogActive() {
 
 func (tp *TxPool) txComplete(conn *StatefulConnection, reason tx.ReleaseReason) {
 	conn.LogTransaction(reason)
+	if release := conn.TxProperties().AdmissionRelease; release != nil {
+		release()
+	}
 	tp.limiter.Release(conn.TxProperties().ImmediateCaller, conn.TxProperties().EffectiveCaller)
 	conn.CleanTxState()
 }

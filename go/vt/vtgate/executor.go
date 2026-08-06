@@ -1242,6 +1242,7 @@ func (e *Executor) applyQueryHints(vcursor *econtext.VCursorImpl, plan *engine.P
 	vcursor.SetConsolidator(qh.Consolidator)
 	vcursor.SetWorkloadName(qh.Workload)
 	vcursor.SetPriority(qh.Priority)
+	vcursor.SetAppExecutionContextID(qh.AppExecutionContextID)
 	vcursor.SetExecQueryTimeout(qh.Timeout)
 }
 

@@ -178,6 +178,10 @@ type Plan struct {
 
 	// NeedsReservedConn indicates at a reserved connection is needed to execute this plan
 	NeedsReservedConn bool
+
+	// SchemaQualifiers holds the distinct schema qualifiers of the query's tables
+	// (e.g. "performance_schema"); nil for the common unqualified case.
+	SchemaQualifiers []string
 }
 
 // TableName returns the table name for the plan.
@@ -261,7 +265,25 @@ func Build(env *vtenv.Environment, statement sqlparser.Statement, tables map[str
 	}
 	plan.AllTables = lookupAllTables(statement, tables)
 	plan.Permissions = BuildPermissions(statement)
+	plan.SchemaQualifiers = extractSchemaQualifiers(statement)
 	return plan, nil
+}
+
+func extractSchemaQualifiers(statement sqlparser.Statement) []string {
+	var qualifiers []string
+	seen := make(map[string]struct{})
+	_ = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+		if tn, ok := node.(sqlparser.TableName); ok && tn.Qualifier.NotEmpty() {
+			q := tn.Qualifier.String()
+			key := strings.ToLower(q)
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				qualifiers = append(qualifiers, q)
+			}
+		}
+		return true, nil
+	}, statement)
+	return qualifiers
 }
 
 // BuildStreaming builds a streaming plan based on the schema.

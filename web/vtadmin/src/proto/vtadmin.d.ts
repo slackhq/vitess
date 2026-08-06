@@ -21082,7 +21082,8 @@ export namespace querythrottler {
     /** ThrottlingStrategy enum. */
     enum ThrottlingStrategy {
         UNKNOWN = 0,
-        TABLET_THROTTLER = 1
+        TABLET_THROTTLER = 1,
+        ADMISSION_CONTROL = 2
     }
 
     /** Properties of a Config. */
@@ -43324,6 +43325,9 @@ export namespace query {
 
         /** ExecuteOptions no_result */
         no_result?: (boolean|null);
+
+        /** ExecuteOptions app_execution_context_id */
+        app_execution_context_id?: (string|null);
     }
 
     /** Represents an ExecuteOptions. */
@@ -43385,6 +43389,9 @@ export namespace query {
 
         /** ExecuteOptions no_result. */
         public no_result: boolean;
+
+        /** ExecuteOptions app_execution_context_id. */
+        public app_execution_context_id: string;
 
         /** ExecuteOptions timeout. */
         public timeout?: "authoritative_timeout";

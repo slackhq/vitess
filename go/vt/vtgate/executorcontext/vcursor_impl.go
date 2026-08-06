@@ -1251,6 +1251,10 @@ func (vc *VCursorImpl) SetPriority(priority string) {
 	}
 }
 
+func (vc *VCursorImpl) SetAppExecutionContextID(contextID string) {
+	vc.SafeSession.GetOrCreateOptions().AppExecutionContextId = contextID
+}
+
 func (vc *VCursorImpl) SetExecQueryTimeout(timeout *int) {
 	// Determine the effective timeout: use passed timeout if non-nil, otherwise use session's query timeout if available
 	var execTimeout *int

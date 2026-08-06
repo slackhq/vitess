@@ -22,6 +22,7 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
 // ThrottlingStrategyHandler defines the interface for throttling strategies
@@ -46,4 +47,8 @@ type ThrottlingStrategyHandler interface {
 
 	// GetStrategyName returns the name of the strategy.
 	GetStrategyName() string
+}
+
+type AdmissionController interface {
+	Admit(ctx context.Context, attrs QueryAttributes, pool tabletenv.PoolType) (release func(err error), err error)
 }

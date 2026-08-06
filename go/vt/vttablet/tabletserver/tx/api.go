@@ -57,6 +57,8 @@ type (
 		LogToFile       bool
 
 		Stats *servenv.TimingsWrapper
+
+		AdmissionRelease func()
 	}
 
 	// Query contains the query and involved tables executed inside transaction.
