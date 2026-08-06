@@ -20,6 +20,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"time"
 
 	"vitess.io/vitess/go/list"
 )
@@ -33,6 +34,14 @@ type waiter[C Connection] struct {
 	conn chan *Pooled[C]
 	// age is the amount of cycles this client has been on the waitlist
 	age uint32
+	// enqueuedAt is the monotonic time at which this waiter joined the list,
+	// used to measure sojourn for CoDel load shedding.
+	enqueuedAt time.Duration
+	// shed is set by the CoDel head-drop path when this waiter is evicted rather
+	// than handed a connection; the receiver maps it to ErrPoolLoadShed. It
+	// disambiguates a shed from the pool-forced-expiration case, which also
+	// delivers a nil connection.
+	shed bool
 }
 
 type waitlist[C Connection] struct {
@@ -43,6 +52,8 @@ type waitlist[C Connection] struct {
 	onWait func()
 	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
 	onWaiterCapReached func()
+	// codel is the pool-level CoDel load shedder, or nil if shedding is disabled.
+	codel *codelState
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -93,6 +104,9 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		}
 		return nil, ErrPoolWaiterCapReached
 	}
+	if wl.codel != nil {
+		elem.Value.enqueuedAt = monotonicNow()
+	}
 	wl.list.PushBackValue(elem)
 	wl.mu.Unlock()
 
@@ -117,8 +131,12 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		}
 
 		// if we weren't able to remove ourselves from the waitlist, it means
-		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, nil
+		// another goroutine is trying to hand us a connection (or shed us)
+		conn := <-elem.Value.conn
+		if elem.Value.shed {
+			return nil, ErrPoolLoadShed
+		}
+		return conn, nil
 
 	case <-ctx.Done():
 		// Context expired. We need to try to remove ourselves from the waitlist to
@@ -141,10 +159,17 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		}
 
 		// if we weren't able to remove ourselves from the waitlist, it means
-		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, nil
+		// another goroutine is trying to hand us a connection (or shed us)
+		conn := <-elem.Value.conn
+		if elem.Value.shed {
+			return nil, ErrPoolLoadShed
+		}
+		return conn, nil
 
 	case conn := <-elem.Value.conn:
+		if elem.Value.shed {
+			return nil, ErrPoolLoadShed
+		}
 		return conn, nil
 	}
 }
@@ -187,9 +212,30 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	var (
 		target      *list.Element[waiter[D]]
 		connSetting = conn.Conn.Setting()
+		shed        []*list.Element[waiter[D]]
 	)
 
 	wl.mu.Lock()
+	// CoDel head-drop: when the queue's realized sojourn has stayed above target
+	// for a full interval, evict stale head-of-line waiters (the oldest, most
+	// likely to have burned their deadline) so the returned connection goes to a
+	// fresher waiter. The connection itself is untouched — only which waiter
+	// receives it changes. Evicted waiters are signaled after the lock is
+	// released. Note this only runs when a connection is returned, so a total
+	// stall with no returns will not shed; the waiter cap is the backstop there.
+	if wl.codel != nil {
+		now := int64(monotonicNow())
+		for front := wl.list.Front(); front != nil; front = wl.list.Front() {
+			sojourn := now - int64(front.Value.enqueuedAt)
+			if !wl.codel.overTarget(sojourn, now) || !wl.codel.dropDue(now) {
+				break
+			}
+			wl.list.Remove(front)
+			front.Value.shed = true
+			shed = append(shed, front)
+		}
+	}
+
 	target = wl.list.Front()
 	// iterate through the waitlist looking for either waiters that have been
 	// here too long, or a waiter that is looking exactly for the same Setting
@@ -211,10 +257,17 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	}
 	wl.mu.Unlock()
 
+	// Signal evicted waiters outside the lock: each already carries shed=true, so
+	// a nil send resolves to ErrPoolLoadShed on the receiving side. Doing this off
+	// the lock keeps the wakeup storm out of the critical section.
+	for _, s := range shed {
+		s.Value.conn <- nil
+	}
+
 	// maybe there isn't anybody to hand over the connection to, because we've
-	// raced with another client returning another connection
+	// raced with another client returning another connection (or shed everyone)
 	if target == nil {
-		return false
+		return len(shed) > 0
 	}
 
 	// if we have a target to return the connection to, simply write the connection

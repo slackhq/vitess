@@ -61,6 +61,17 @@ type Pool struct {
 // NewPool creates a new Pool. The name is used
 // to publish stats only.
 func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool {
+	return newPoolWithCoDel(env, name, cfg, nil)
+}
+
+// NewPoolWithLoadshed creates a new Pool with CoDel load shedding enabled. Only
+// pools that should shed under overload (currently the OLTP read pool) use this;
+// all other pools use NewPool and are never shed.
+func NewPoolWithLoadshed(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig, codel *smartconnpool.CoDelConfig) *Pool {
+	return newPoolWithCoDel(env, name, cfg, codel)
+}
+
+func newPoolWithCoDel(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig, codel *smartconnpool.CoDelConfig) *Pool {
 	cp := &Pool{
 		timeout: cfg.Timeout,
 		env:     env,
@@ -73,6 +84,7 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		MaxLifetime:     cfg.MaxLifetime,
 		RefreshInterval: mysqlctl.PoolDynamicHostnameResolution,
 		MaxWaiters:      cfg.MaxWaiters,
+		CoDel:           codel,
 	}
 
 	if name != "" {

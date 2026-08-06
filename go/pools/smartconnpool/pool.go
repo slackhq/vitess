@@ -43,6 +43,9 @@ var (
 	// ErrPoolWaiterCapReached is returned when the waiter cap has been reached
 	ErrPoolWaiterCapReached = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool waiter cap reached")
 
+	// ErrPoolLoadShed is returned when a waiter is shed by the pool's CoDel load shedder
+	ErrPoolLoadShed = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool load shed")
+
 	// PoolCloseTimeout is how long to wait for all connections to be returned to the pool during close
 	PoolCloseTimeout = 10 * time.Second
 )
@@ -106,6 +109,8 @@ type Config[C Connection] struct {
 	RefreshInterval time.Duration
 	MaxWaiters      uint
 	LogWait         func(time.Time)
+	// CoDel enables pool-level CoDel load shedding when non-nil; nil disables it.
+	CoDel *CoDelConfig
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -180,6 +185,9 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters = config.MaxWaiters
 	pool.wait.init()
+	if config.CoDel != nil {
+		pool.wait.codel = newCodelState(*config.CoDel)
+	}
 	pool.wait.onWait = func() {
 		pool.Metrics.waitCount.Add(1)
 	}
@@ -633,7 +641,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 
 		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, pool.config.maxWaiters)
 		if err != nil {
-			if errors.Is(err, ErrPoolWaiterCapReached) {
+			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
 			}
 			return nil, ErrTimeout
@@ -954,4 +962,10 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	stats.NewCounterFunc(name+"ResetSetting", "Number of times pool reset the setting", func() int64 {
 		return pool.Metrics.ResetSettingCount()
 	})
+
+	if pool.wait.codel != nil {
+		stats.NewCounterFunc(name+"CoDelShed", "Tablet server conn pool CoDel load-shed count", func() int64 {
+			return pool.wait.codel.ShedCount()
+		})
+	}
 }

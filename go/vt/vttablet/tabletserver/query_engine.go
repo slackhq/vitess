@@ -228,7 +228,16 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 		epoch:  0,
 	})
 
-	qe.conns = connpool.NewPool(env, "ConnPool", config.OltpReadPool)
+	if config.LoadshedEnabled {
+		target := config.LoadshedTarget.Nanoseconds()
+		qe.conns = connpool.NewPoolWithLoadshed(env, "ConnPool", config.OltpReadPool, &smartconnpool.CoDelConfig{
+			TargetNs:   target,
+			IntervalNs: int64(float64(target) * config.LoadshedIntervalRatio),
+			Exponent:   1,
+		})
+	} else {
+		qe.conns = connpool.NewPool(env, "ConnPool", config.OltpReadPool)
+	}
 	qe.streamConns = connpool.NewPool(env, "StreamConnPool", config.OlapReadPool)
 	qe.consolidatorMode.Store(config.Consolidator)
 	qe.consolidator = sync2.NewConsolidator()

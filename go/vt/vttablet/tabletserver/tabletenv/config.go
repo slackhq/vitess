@@ -153,6 +153,11 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&currentConfig.OltpReadPool.IdleTimeout, "queryserver-config-idle-timeout", defaultConfig.OltpReadPool.IdleTimeout, "query server idle timeout, vttablet manages various mysql connection pools. This config means if a connection has not been used in given idle timeout, this connection will be removed from pool. This effectively manages number of connection objects and optimize the pool performance.")
 	fs.DurationVar(&currentConfig.OltpReadPool.MaxLifetime, "queryserver-config-pool-conn-max-lifetime", defaultConfig.OltpReadPool.MaxLifetime, "query server connection max lifetime, vttablet manages various mysql connection pools. This config means if a connection has lived at least this long, it connection will be removed from pool upon the next time it is returned to the pool.")
 
+	// CoDel load shedding for the OLTP read pool.
+	fs.BoolVar(&currentConfig.LoadshedEnabled, "loadshed-enabled", defaultConfig.LoadshedEnabled, "enable CoDel load shedding on the OLTP read connection pool.")
+	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay: the acceptable standing wait time for a connection before load shedding considers the pool overloaded.")
+	fs.Float64Var(&currentConfig.LoadshedIntervalRatio, "loadshed-interval-ratio", defaultConfig.LoadshedIntervalRatio, "CoDel observation interval as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20.")
+
 	// tableacl related configurations.
 	fs.BoolVar(&currentConfig.StrictTableACL, "queryserver-config-strict-table-acl", defaultConfig.StrictTableACL, "only allow queries that pass table acl checks")
 	fs.BoolVar(&currentConfig.EnableTableACLDryRun, "queryserver-config-enable-table-acl-dry-run", defaultConfig.EnableTableACLDryRun, "If this flag is enabled, tabletserver will emit monitoring metrics and let the request pass regardless of table acl check results")
@@ -325,6 +330,11 @@ type TabletConfig struct {
 	OltpReadPool ConnPoolConfig `json:"oltpReadPool,omitempty"`
 	OlapReadPool ConnPoolConfig `json:"olapReadPool,omitempty"`
 	TxPool       ConnPoolConfig `json:"txPool,omitempty"`
+
+	// CoDel load shedding for the OLTP read pool.
+	LoadshedEnabled       bool          `json:"-"`
+	LoadshedTarget        time.Duration `json:"-"`
+	LoadshedIntervalRatio float64       `json:"-"`
 
 	Olap             OlapConfig             `json:"olap,omitempty"`
 	Oltp             OltpConfig             `json:"oltp,omitempty"`
@@ -1059,6 +1069,9 @@ var defaultConfig = TabletConfig{
 		Timeout:     time.Second,
 		IdleTimeout: 30 * time.Minute,
 	},
+	LoadshedEnabled:       false,
+	LoadshedTarget:        5 * time.Millisecond,
+	LoadshedIntervalRatio: 20,
 	Olap: OlapConfig{
 		TxTimeout: 30 * time.Second,
 	},
