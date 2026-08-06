@@ -1798,6 +1798,36 @@ func TestGetPlanPriority(t *testing.T) {
 	}
 }
 
+func TestGetPlanAppExecutionContextID(t *testing.T) {
+	testCases := []struct {
+		name              string
+		sql               string
+		expectedContextID string
+	}{
+		{name: "context ID set", sql: "select /*vt+ APP_EXECUTION_CONTEXT_ID=req123 */ * from music_user_map", expectedContextID: "req123"},
+		{name: "no context ID", sql: "select * from music_user_map", expectedContextID: ""},
+	}
+
+	// A single session is reused across cases so we also cover the clear-on-empty
+	// path: a query without the directive must not inherit the prior query's context ID.
+	session := econtext.NewSafeSession(&vtgatepb.Session{TargetString: "@unknown", Options: &querypb.ExecuteOptions{}})
+
+	for _, aTestCase := range testCases {
+		testCase := aTestCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			r, _, _, _, ctx := createExecutorEnvWithConfig(t, createExecutorConfigWithNormalizer())
+
+			logStats := logstats.NewLogStats(ctx, "Test", "", "", nil, streamlog.NewQueryLogConfigForTest())
+
+			plan, _, _, err := r.fetchOrCreatePlan(context.Background(), session, testCase.sql, map[string]*querypb.BindVariable{}, r.config.Normalize, false, logStats, true)
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.expectedContextID, plan.QueryHints.AppExecutionContextID)
+			assert.Equal(t, testCase.expectedContextID, session.Options.AppExecutionContextId)
+		})
+	}
+}
+
 func TestPassthroughDDL(t *testing.T) {
 	executor, sbc1, sbc2, _, ctx := createExecutorEnvWithConfig(t, createExecutorConfigWithNormalizer())
 	session := &vtgatepb.Session{

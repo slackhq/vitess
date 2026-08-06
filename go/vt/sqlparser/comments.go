@@ -62,6 +62,10 @@ const (
 	// DirectivePriority specifies the priority of a workload. It should be an integer between 0 and MaxPriorityValue,
 	// where 0 is the highest priority, and MaxPriorityValue is the lowest one.
 	DirectivePriority = "PRIORITY"
+	// DirectiveAppExecutionContextID identifies the logical caller (request, job, etc.) issuing the query, so a
+	// vttablet admission-control strategy can treat one caller's fan-out to a single shard as self-contention
+	// rather than independent load.
+	DirectiveAppExecutionContextID = "APP_EXECUTION_CONTEXT_ID"
 
 	// MaxPriorityValue specifies the maximum value allowed for the priority query directive. Valid priority values are
 	// between zero and MaxPriorityValue.
@@ -590,12 +594,13 @@ func checkDirective(stmt Statement, key string) bool {
 }
 
 type QueryHints struct {
-	IgnoreMaxMemoryRows bool
-	Consolidator        querypb.ExecuteOptions_Consolidator
-	Workload            string
-	ForeignKeyChecks    *bool
-	Priority            string
-	Timeout             *int
+	IgnoreMaxMemoryRows   bool
+	Consolidator          querypb.ExecuteOptions_Consolidator
+	Workload              string
+	ForeignKeyChecks      *bool
+	Priority              string
+	AppExecutionContextID string
+	Timeout               *int
 }
 
 func BuildQueryHints(stmt Statement) (qh QueryHints, err error) {
@@ -615,6 +620,7 @@ func BuildQueryHints(stmt Statement) (qh QueryHints, err error) {
 	qh.IgnoreMaxMemoryRows = directives.IsSet(DirectiveIgnoreMaxMemoryRows)
 	qh.Consolidator = getConsolidator(stmt, directives)
 	qh.Workload = getWorkload(directives)
+	qh.AppExecutionContextID = getAppExecutionContextID(directives)
 	qh.ForeignKeyChecks = getForeignKeyChecksState(comment)
 	qh.Timeout = getQueryTimeout(directives)
 
@@ -641,6 +647,11 @@ func getConsolidator(stmt Statement, directives *CommentDirectives) querypb.Exec
 func getWorkload(directives *CommentDirectives) string {
 	workloadName, _ := directives.GetString(DirectiveWorkloadName, "")
 	return workloadName
+}
+
+func getAppExecutionContextID(directives *CommentDirectives) string {
+	contextID, _ := directives.GetString(DirectiveAppExecutionContextID, "")
+	return contextID
 }
 
 // getForeignKeyChecksState returns the state of foreign_key_checks variable if it is part of a SET_VAR optimizer hint in the comments.

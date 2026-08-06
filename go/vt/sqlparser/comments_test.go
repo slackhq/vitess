@@ -709,3 +709,28 @@ func TestQueryTimeout(t *testing.T) {
 		})
 	}
 }
+
+// TestAppExecutionContextID tests the extraction of APP_EXECUTION_CONTEXT_ID from the comments.
+func TestAppExecutionContextID(t *testing.T) {
+	testCases := []struct {
+		query      string
+		expectedID string
+	}{{
+		query:      "select * from a_table",
+		expectedID: "",
+	}, {
+		query:      "select /*vt+ APP_EXECUTION_CONTEXT_ID=req123 */ * from another_table",
+		expectedID: "req123",
+	}}
+
+	parser := NewTestParser()
+	for _, tc := range testCases {
+		t.Run(tc.query, func(t *testing.T) {
+			stmt, err := parser.Parse(tc.query)
+			assert.NoError(t, err)
+			qh, err := BuildQueryHints(stmt)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedID, qh.AppExecutionContextID)
+		})
+	}
+}
