@@ -57,6 +57,11 @@ type (
 		LogToFile       bool
 
 		Stats *servenv.TimingsWrapper
+
+		// AdmissionRelease releases the admission-control slot this transaction
+		// holds on the tx pool, if any. It is invoked when the transaction
+		// completes so the slot is freed exactly once.
+		AdmissionRelease func()
 	}
 
 	// Query contains the query and involved tables executed inside transaction.

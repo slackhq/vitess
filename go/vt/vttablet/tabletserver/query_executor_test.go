@@ -1707,10 +1707,11 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() happy path
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
-	conn, err := qre.getConn()
+	conn, release, err := qre.getConn()
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
+	release()
 
 	// getStreamConn() happy path
 	qre = newTestQueryExecutor(ctx, tsv, input, 0)
@@ -1724,7 +1725,7 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() error path
 	qre = newTestQueryExecutor(ctx, tsv, input, 0)
-	_, err = qre.getConn()
+	_, _, err = qre.getConn()
 	assert.Error(t, err)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 

@@ -49,6 +49,12 @@ type Stats struct {
 
 	QueryTimingsByTabletType *servenv.TimingsWrapper // Query timings split by current tablet type
 
+	// QueryTimingsByErrorCode splits query timings by result vterrors code (e.g.
+	// OK for successful queries, RESOURCE_EXHAUSTED for load-shed rejections), so
+	// successful-request latency percentiles can be measured in isolation from
+	// fast-failing shed requests.
+	QueryTimingsByErrorCode *servenv.TimingsWrapper
+
 	// Atomic Transactions
 	Unresolved         *stats.GaugesWithSingleLabel
 	CommitPreparedFail *stats.CountersWithSingleLabel
@@ -101,6 +107,8 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 		UserReservedTimesNs:     exporter.NewCountersWithSingleLabel("UserReservedTimesNs", "Total reserved connection latency for each CallerID", "CallerID"),
 
 		QueryTimingsByTabletType: exporter.NewTimings("QueryTimingsByTabletType", "Query timings broken down by active tablet type", "TabletType"),
+
+		QueryTimingsByErrorCode: exporter.NewTimings("QueryTimingsByErrorCode", "Query timings broken down by result error code (OK for successful queries)", "ErrorCode"),
 
 		Unresolved:         exporter.NewGaugesWithSingleLabel("UnresolvedTransaction", "Current unresolved transactions", "ManagerType"),
 		CommitPreparedFail: exporter.NewCountersWithSingleLabel("CommitPreparedFail", "failed prepared transactions commit", "FailureType"),
