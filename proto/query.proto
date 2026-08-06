@@ -386,6 +386,13 @@ message ExecuteOptions {
   // currently honored by StreamExecute. This is useful for warming reads
   // where the goal is to warm the buffer pool, not to retrieve data.
   bool no_result = 21;
+
+  // app_execution_context_id identifies the logical request or job that issued
+  // this query. An admission-control strategy may use it to detect fan-out from
+  // a single caller (e.g., an async helper issuing N queries against the same
+  // shard) and apply per-context fairness. When empty, admission control still
+  // applies but without the per-context grouping.
+  string app_execution_context_id = 22;
 }
 
 // Field describes a single column returned by a query

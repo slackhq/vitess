@@ -25,8 +25,9 @@ const (
 type ThrottlingStrategy int32
 
 const (
-	ThrottlingStrategy_UNKNOWN          ThrottlingStrategy = 0
-	ThrottlingStrategy_TABLET_THROTTLER ThrottlingStrategy = 1
+	ThrottlingStrategy_UNKNOWN           ThrottlingStrategy = 0
+	ThrottlingStrategy_TABLET_THROTTLER  ThrottlingStrategy = 1
+	ThrottlingStrategy_ADMISSION_CONTROL ThrottlingStrategy = 2
 )
 
 // Enum value maps for ThrottlingStrategy.
@@ -34,10 +35,12 @@ var (
 	ThrottlingStrategy_name = map[int32]string{
 		0: "UNKNOWN",
 		1: "TABLET_THROTTLER",
+		2: "ADMISSION_CONTROL",
 	}
 	ThrottlingStrategy_value = map[string]int32{
-		"UNKNOWN":          0,
-		"TABLET_THROTTLER": 1,
+		"UNKNOWN":           0,
+		"TABLET_THROTTLER":  1,
+		"ADMISSION_CONTROL": 2,
 	}
 )
 
@@ -402,10 +405,11 @@ const file_querythrottler_proto_rawDesc = "" +
 	"thresholds\"E\n" +
 	"\x11ThrottleThreshold\x12\x14\n" +
 	"\x05above\x18\x01 \x01(\x01R\x05above\x12\x1a\n" +
-	"\bthrottle\x18\x02 \x01(\x05R\bthrottle*7\n" +
+	"\bthrottle\x18\x02 \x01(\x05R\bthrottle*N\n" +
 	"\x12ThrottlingStrategy\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x14\n" +
-	"\x10TABLET_THROTTLER\x10\x01B-Z+vitess.io/vitess/go/vt/proto/querythrottlerb\x06proto3"
+	"\x10TABLET_THROTTLER\x10\x01\x12\x15\n" +
+	"\x11ADMISSION_CONTROL\x10\x02B-Z+vitess.io/vitess/go/vt/proto/querythrottlerb\x06proto3"
 
 var (
 	file_querythrottler_proto_rawDescOnce sync.Once
