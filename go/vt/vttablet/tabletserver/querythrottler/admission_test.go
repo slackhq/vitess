@@ -27,7 +27,6 @@ import (
 	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/sqlparser"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
@@ -106,20 +105,19 @@ func (f *admissionFactory) New(deps registry.Deps, _ registry.StrategyConfig) (r
 	return f.built, nil
 }
 
-func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithSnakes(t *testing.T) {
+func TestSelectThrottlingStrategy_BuildsAdmissionStrategyWithPoolCapacities(t *testing.T) {
 	fac := &admissionFactory{}
 	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, fac)
 	t.Cleanup(func() { registry.Unregister(querythrottlerpb.ThrottlingStrategy_LOADSHED) })
 
-	sentinel := func() *loadshed.Snake { return nil }
 	qt := &QueryThrottler{
-		tabletConfig: &tabletenv.TabletConfig{},
-		snakes:       map[tabletenv.PoolType]func() *loadshed.Snake{tabletenv.PoolTypeOltpRead: sentinel},
+		tabletConfig:   &tabletenv.TabletConfig{},
+		poolCapacities: map[tabletenv.PoolType]func() int{tabletenv.PoolTypeOltpRead: func() int { return 4 }},
 	}
 
 	strategy := qt.selectThrottlingStrategy(&querythrottlerpb.Config{Enabled: true, Strategy: querythrottlerpb.ThrottlingStrategy_LOADSHED})
 
 	require.Same(t, fac.built, strategy, "config selecting LOADSHED must build via the registered factory")
-	_, ok := fac.deps.Snakes[tabletenv.PoolTypeOltpRead]
-	assert.True(t, ok, "snake accessors must be threaded into Deps")
+	_, ok := fac.deps.PoolCapacities[tabletenv.PoolTypeOltpRead]
+	assert.True(t, ok, "pool capacities must be threaded into Deps")
 }

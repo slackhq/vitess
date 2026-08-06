@@ -18,7 +18,6 @@ package registry
 
 import (
 	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle"
 )
@@ -74,7 +73,11 @@ type StrategyConfig interface {
 type Deps struct {
 	ThrottleClient *throttle.Client
 	TabletConfig   *tabletenv.TabletConfig
-	Snakes         map[tabletenv.PoolType]func() *loadshed.Snake
+	Env            tabletenv.Env
+	// PoolCapacities gives each connection pool's live capacity, for strategies
+	// that gate on pool occupancy. Resolved lazily (called at strategy
+	// construction, after the pools are wired).
+	PoolCapacities map[tabletenv.PoolType]func() int
 }
 
 // StrategyFactory creates a new strategy instance with the given dependencies and configuration.

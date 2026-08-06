@@ -44,7 +44,7 @@ func newTestSnake(capacity int) *loadshed.Snake {
 }
 
 func TestSnakePriority(t *testing.T) {
-	s := New(nil)
+	s := &Strategy{}
 
 	tcases := []struct {
 		name  string
@@ -63,7 +63,7 @@ func TestSnakePriority(t *testing.T) {
 }
 
 func TestSnakePriority_UndroppableSchema(t *testing.T) {
-	s := New([]string{"performance_schema", "mysql"})
+	s := &Strategy{undroppableSchemas: []string{"performance_schema", "mysql"}}
 
 	got := s.snakePriority(registry.QueryAttributes{
 		Priority:         50,
@@ -81,10 +81,10 @@ func TestSnakePriority_UndroppableSchema(t *testing.T) {
 func TestAdmit_DispatchesByPool(t *testing.T) {
 	oltp := newTestSnake(1)
 	tx := newTestSnake(1)
-	s := New(nil,
-		Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: oltp},
-		Gate{Pool: tabletenv.PoolTypeTx, Snake: tx},
-	)
+	s := &Strategy{gates: map[tabletenv.PoolType]*loadshed.Snake{
+		tabletenv.PoolTypeOltpRead: oltp,
+		tabletenv.PoolTypeTx:       tx,
+	}}
 
 	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestAdmit_DispatchesByPool(t *testing.T) {
 }
 
 func TestAdmit_UnconfiguredPoolAdmits(t *testing.T) {
-	s := New(nil, Gate{Pool: tabletenv.PoolTypeOltpRead, Snake: newTestSnake(1)})
+	s := &Strategy{gates: map[tabletenv.PoolType]*loadshed.Snake{tabletenv.PoolTypeOltpRead: newTestSnake(1)}}
 
 	release, err := s.Admit(context.Background(), registry.QueryAttributes{}, tabletenv.PoolTypeTx)
 	require.NoError(t, err)

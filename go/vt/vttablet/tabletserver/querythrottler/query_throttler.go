@@ -37,7 +37,6 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle"
@@ -76,7 +75,7 @@ type QueryThrottler struct {
 	cfg *querythrottlerpb.Config
 	// strategyHandlerInstance is the current throttling strategy handler instance
 	strategyHandlerInstance registry.ThrottlingStrategyHandler
-	snakes                  map[tabletenv.PoolType]func() *loadshed.Snake
+	poolCapacities          map[tabletenv.PoolType]func() int
 	env                     tabletenv.Env
 	stats                   Stats
 }
@@ -210,9 +209,9 @@ func (qt *QueryThrottler) Throttle(ctx context.Context, tabletType topodatapb.Ta
 	return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, decision.Message)
 }
 
-func (qt *QueryThrottler) SetSnakes(snakes map[tabletenv.PoolType]func() *loadshed.Snake) {
+func (qt *QueryThrottler) SetPoolCapacities(capacities map[tabletenv.PoolType]func() int) {
 	qt.mu.Lock()
-	qt.snakes = snakes
+	qt.poolCapacities = capacities
 	qt.mu.Unlock()
 }
 
@@ -409,7 +408,8 @@ func (qt *QueryThrottler) selectThrottlingStrategy(cfg *querythrottlerpb.Config)
 	deps := registry.Deps{
 		ThrottleClient: qt.throttleClient,
 		TabletConfig:   qt.tabletConfig,
-		Snakes:         qt.snakes,
+		Env:            qt.env,
+		PoolCapacities: qt.poolCapacities,
 	}
 	return registry.CreateStrategy(cfg, deps)
 }

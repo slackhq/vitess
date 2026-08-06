@@ -65,7 +65,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/onlineddl"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/gc"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/querythrottler"
@@ -658,11 +657,22 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 }
 
 func (tsv *TabletServer) wireLoadshedAdmission() {
-	tsv.queryThrottler.SetSnakes(map[tabletenv.PoolType]func() *loadshed.Snake{
-		tabletenv.PoolTypeOltpRead: func() *loadshed.Snake { return tsv.qe.snake },
-		tabletenv.PoolTypeTx:       func() *loadshed.Snake { return tsv.te.snake },
+	tsv.queryThrottler.SetPoolCapacities(map[tabletenv.PoolType]func() int{
+		tabletenv.PoolTypeOltpRead: liveCapacity(func() int { return int(tsv.qe.conns.Capacity()) }, tsv.config.OltpReadPool.Size),
+		tabletenv.PoolTypeTx:       liveCapacity(tsv.te.txPool.scp.Capacity, tsv.config.TxPool.Size),
 	})
 	tsv.te.txPool.admitter = tsv.queryThrottler
+}
+
+// liveCapacity returns the pool's live capacity, falling back to configured
+// until the pool is open (Capacity reports 0 before Open).
+func liveCapacity(live func() int, configured int) func() int {
+	return func() int {
+		if c := live(); c > 0 {
+			return c
+		}
+		return configured
+	}
 }
 
 // resolveTargetType returns the appropriate target tablet type for a

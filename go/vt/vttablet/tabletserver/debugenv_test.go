@@ -65,7 +65,6 @@ func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedIntervalRatio)
-
 }
 
 func TestDebugEnvLoadshedJumpStartParams(t *testing.T) {
@@ -113,11 +112,11 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 	}
 }
 
-// TestDebugEnvDropModeWiredToGate confirms a drop-mode override flows through to
-// the live OLTP read gate, not just the config struct.
-func TestDebugEnvDropModeWiredToGate(t *testing.T) {
+// TestDebugEnvDropModeUpdatesConfig confirms a /debug/env drop-mode override
+// updates LoadshedDropMode; the gate reads this config lazily on each drop
+// check, so the override takes effect without rebuilding the gate.
+func TestDebugEnvDropModeUpdatesConfig(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
-	require.NotNil(t, tsv.qe.snake, "loadshed must be enabled for this test")
 
 	postVar(t, tsv, "LoadshedDropMode", "jump")
 

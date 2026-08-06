@@ -19,6 +19,7 @@ package loadshed
 import (
 	"context"
 	"strings"
+	"time"
 
 	querythrottlerpb "vitess.io/vitess/go/vt/proto/querythrottler"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -30,6 +31,11 @@ import (
 
 const strategyName = "loadshed"
 
+var poolStatsName = map[tabletenv.PoolType]string{
+	tabletenv.PoolTypeOltpRead: "SnakeOltpRead",
+	tabletenv.PoolTypeTx:       "SnakeDml",
+}
+
 func init() {
 	registry.Register(querythrottlerpb.ThrottlingStrategy_LOADSHED, factory{})
 }
@@ -37,38 +43,37 @@ func init() {
 type factory struct{}
 
 func (factory) New(deps registry.Deps, cfg registry.StrategyConfig) (registry.ThrottlingStrategyHandler, error) {
-	var gates []Gate
-	for pool, accessor := range deps.Snakes {
-		if snake := accessor(); snake != nil {
-			gates = append(gates, Gate{Pool: pool, Snake: snake})
-		}
+	config := deps.TabletConfig
+	gates := make(map[tabletenv.PoolType]*loadshed.Snake, len(deps.PoolCapacities))
+	for pool, capacity := range deps.PoolCapacities {
+		snake := loadshed.NewSnake(loadshed.SnakeConfig{
+			Name: poolStatsName[pool],
+			CoDel: loadshed.CoDelConfig{
+				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
+				IntervalNs: func() int64 {
+					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
+				},
+				Exponent:       func() float64 { return 1 },
+				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
+				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
+				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
+				GraceCount:     func() int { return config.LoadshedGraceCount },
+			},
+			Capacity:            capacity,
+			LoadsheddingAllowed: func() bool { return true },
+		})
+		loadshed.PublishStats(deps.Env.Exporter(), poolStatsName[pool], snake)
+		gates[pool] = snake
 	}
-	var undroppableSchemas []string
-	if deps.TabletConfig != nil {
-		undroppableSchemas = deps.TabletConfig.LoadshedUndroppableSchemas
-	}
-	return New(undroppableSchemas, gates...), nil
-}
-
-type Gate struct {
-	Pool  tabletenv.PoolType
-	Snake *loadshed.Snake
+	return &Strategy{
+		gates:              gates,
+		undroppableSchemas: config.LoadshedUndroppableSchemas,
+	}, nil
 }
 
 type Strategy struct {
 	gates              map[tabletenv.PoolType]*loadshed.Snake
 	undroppableSchemas []string
-}
-
-func New(undroppableSchemas []string, gates ...Gate) *Strategy {
-	m := make(map[tabletenv.PoolType]*loadshed.Snake, len(gates))
-	for _, g := range gates {
-		m[g.Pool] = g.Snake
-	}
-	return &Strategy{
-		gates:              m,
-		undroppableSchemas: undroppableSchemas,
-	}
 }
 
 func (s *Strategy) Evaluate(ctx context.Context, targetTabletType topodatapb.TabletType, parsedQuery *sqlparser.ParsedQuery, transactionID int64, attrs registry.QueryAttributes) registry.ThrottleDecision {

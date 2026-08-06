@@ -46,7 +46,6 @@ import (
 	tacl "vitess.io/vitess/go/vt/tableacl/acl"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -202,9 +201,6 @@ type QueryEngine struct {
 	accessCheckerLogger *logutil.ThrottledLogger
 
 	redactUIQuery bool
-
-	// snake is the CoDel-based load-shedding gate for the OLTP read pool.
-	snake *loadshed.Snake
 }
 
 // NewQueryEngine creates a new QueryEngine.
@@ -247,33 +243,6 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 		log.Info("Stream consolidator is not enabled.")
 	}
 	qe.txSerializer = txserializer.New(env)
-
-	if config.LoadshedEnabled {
-		qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
-			Name: "oltp-read",
-			CoDel: loadshed.CoDelConfig{
-				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
-				IntervalNs: func() int64 {
-					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
-				},
-				Exponent:       func() float64 { return 1 },
-				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
-				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
-				GraceCount:     func() int { return config.LoadshedGraceCount },
-			},
-			// Track live pool capacity so runtime resizes keep the gate in sync.
-			// Capacity() is 0 until the pool opens; fall back to config until then.
-			Capacity: func() int {
-				if c := int(qe.conns.Capacity()); c > 0 {
-					return c
-				}
-				return config.OltpReadPool.Size
-			},
-			LoadsheddingAllowed: func() bool { return true },
-		})
-		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
-	}
 
 	qe.strictTableACL = config.StrictTableACL
 	qe.enableTableACLDryRun = config.EnableTableACLDryRun
