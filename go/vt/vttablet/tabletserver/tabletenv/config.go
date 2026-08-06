@@ -444,6 +444,14 @@ func (cfg *TabletConfig) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
+type PoolType int
+
+const (
+	PoolTypeOltpRead PoolType = iota
+	PoolTypeOlapRead
+	PoolTypeTx
+)
+
 // ConnPoolConfig contains the config for a conn pool.
 type ConnPoolConfig struct {
 	Size               int           `json:"size,omitempty"`
