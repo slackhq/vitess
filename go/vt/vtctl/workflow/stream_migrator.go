@@ -399,6 +399,11 @@ func (sm *StreamMigrator) readTabletStreams(ctx context.Context, ti *topo.Tablet
 		}
 
 		for _, stream := range workflow.Streams {
+			if workflow.WorkflowType == binlogdatapb.VReplicationWorkflowType_OnlineDDL &&
+				stream.State == binlogdatapb.VReplicationWorkflowState_Stopped {
+				continue
+			}
+
 			isReference, err := sm.blsIsReference(stream.Bls)
 			if err != nil {
 				return nil, vterrors.Wrap(err, "blsIsReference")
@@ -452,23 +457,24 @@ func (sm *StreamMigrator) legacyReadSourceStreams(ctx context.Context, cancelMig
 			// If so, we request the operator to clean them up, or restart them before going ahead.
 			// This allows us to assume that all stopped streams can be safely restarted
 			// if we cancel the operation.
-			stoppedStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), "state = 'Stopped' and message != 'FROZEN' and message != 'stopped for online DDL cutover'")
+			stoppedStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), "state = 'Stopped' and message != 'FROZEN'")
 			if err != nil {
 				return err
 			}
 
-			if len(stoppedStreams) != 0 {
-				return fmt.Errorf("cannot migrate until all streams are running: %s: %d", source.GetShard().ShardName(), source.GetPrimary().Alias.Uid)
+			for _, stream := range stoppedStreams {
+				if stream.WorkflowType != binlogdatapb.VReplicationWorkflowType_OnlineDDL {
+					return fmt.Errorf("cannot migrate until all non-OnlineDDL streams are running: %s: %d", source.GetShard().ShardName(), source.GetPrimary().Alias.Uid)
+				}
 			}
 		}
 
-		tabletStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), "")
+		tabletStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), "NOT (workflow_type = 5 AND state = 'Stopped')")
 		if err != nil {
 			return err
 		}
 
 		if len(tabletStreams) == 0 {
-			// No VReplication is running. So, we have no work to do.
 			return nil
 		}
 
@@ -564,14 +570,10 @@ func (sm *StreamMigrator) readSourceStreams(ctx context.Context, cancelMigrate b
 				return err
 			}
 
-			nonOnlineDDLStopped := make([]*VReplicationStream, 0, len(stoppedStreams))
 			for _, stream := range stoppedStreams {
 				if stream.WorkflowType != binlogdatapb.VReplicationWorkflowType_OnlineDDL {
-					nonOnlineDDLStopped = append(nonOnlineDDLStopped, stream)
+					return fmt.Errorf("cannot migrate until all non-OnlineDDL streams are running: %s: %d", source.GetShard().ShardName(), source.GetPrimary().Alias.Uid)
 				}
-			}
-			if len(nonOnlineDDLStopped) != 0 {
-				return fmt.Errorf("cannot migrate until all streams are running: %s: %d", source.GetShard().ShardName(), source.GetPrimary().Alias.Uid)
 			}
 		}
 
@@ -581,7 +583,6 @@ func (sm *StreamMigrator) readSourceStreams(ctx context.Context, cancelMigrate b
 		}
 
 		if len(tabletStreams) == 0 {
-			// No VReplication is running. So, we have no work to do.
 			return nil
 		}
 
