@@ -382,6 +382,11 @@ func (pool *ConnPool[C]) Active() int64 {
 	return pool.active.Load()
 }
 
+// WaitersQueued returns the number of clients currently waiting for a connection.
+func (pool *ConnPool[C]) WaitersQueued() int64 {
+	return int64(pool.wait.waiting())
+}
+
 func (pool *ConnPool[D]) IdleTimeout() time.Duration {
 	return time.Duration(pool.config.idleTimeout.Load())
 }
@@ -927,6 +932,9 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	})
 	stats.NewGaugeFunc(name+"IdleAllowed", "Tablet server conn pool idle allowed limit", func() int64 {
 		return pool.IdleCount()
+	})
+	stats.NewGaugeFunc(name+"WaitersQueued", "Tablet server conn pool waiters currently queued", func() int64 {
+		return pool.WaitersQueued()
 	})
 	stats.NewCounterFunc(name+"WaitCount", "Tablet server conn pool wait count", func() int64 {
 		return pool.Metrics.WaitCount()
