@@ -743,17 +743,10 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 						q.AddWaiterCounter(-1)
 						return nil, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "consolidator waiter cap (%d) exceeded", waiterCap)
 					}
-					// Dryrun: metric fired, but still wait on consolidation
-					qre.logStats.QuerySources |= tabletenv.QuerySourceConsolidator
-					startTime := time.Now()
-					q.Wait()
-					qre.tsv.stats.WaitTimings.Record("Consolidations", startTime)
-					q.AddWaiterCounter(-1)
-				} else {
-					// fallthrough: execute independently
-					q.AddWaiterCounter(-1)
-					waiterCapExceeded = true
 				}
+				// fallthrough or dryrun: execute independently
+				q.AddWaiterCounter(-1)
+				waiterCapExceeded = true
 			}
 		}
 

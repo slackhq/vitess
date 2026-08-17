@@ -1613,7 +1613,7 @@ func TestQueryExecutorConsolidatorWaiterCapReject(t *testing.T) {
 
 func TestQueryExecutorConsolidatorWaiterCapRejectDryRun(t *testing.T) {
 	// Test that when dryrun is enabled, the reject metric fires but the query
-	// still waits on the consolidator instead of being rejected.
+	// falls through to independent execution instead of being rejected.
 
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()
@@ -1652,17 +1652,20 @@ func TestQueryExecutorConsolidatorWaiterCapRejectDryRun(t *testing.T) {
 		PendingResult: fakePendingResult,
 	}
 
+	// Set up database query/response for independent execution
+	db.AddQuery(input, result)
+
 	qre := newTestQueryExecutor(context.Background(), tsv, input, 0)
 	qre.options = &querypb.ExecuteOptions{Consolidator: querypb.ExecuteOptions_CONSOLIDATOR_ENABLED}
 
 	rejectCountBefore := tsv.stats.ConsolidatorWaiterCapRejectCount.Get()
 
-	// Execute query - should succeed (dryrun allows through)
+	// Execute query - should succeed (dryrun falls through to independent execution)
 	actualResult, err := qre.Execute()
 	require.NoError(t, err)
 	require.NotNil(t, actualResult)
 
-	// Verify we got the consolidation result
+	// Verify we got the correct result
 	require.Equal(t, result.Fields, actualResult.Fields)
 	require.Equal(t, result.Rows, actualResult.Rows)
 
@@ -1672,15 +1675,15 @@ func TestQueryExecutorConsolidatorWaiterCapRejectDryRun(t *testing.T) {
 	// Verify consolidator was attempted exactly once
 	require.Len(t, fakeConsolidator.CreateCalls, 1)
 
-	// Verify we waited on the consolidator (because dryrun let it through)
-	require.Equal(t, 1, fakePendingResult.WaitCalls)
+	// Verify we did NOT wait (dryrun falls through like fallthrough method)
+	require.Equal(t, 0, fakePendingResult.WaitCalls)
 
-	// Verify AddWaiterCounter was called once with -1 (cleanup after wait)
+	// Verify AddWaiterCounter was called once with -1 (cleanup)
 	require.Len(t, fakePendingResult.AddWaiterCounterCalls, 1)
 	require.Equal(t, int64(-1), fakePendingResult.AddWaiterCounterCalls[0])
 
-	// Verify no database query was executed independently
-	require.Equal(t, 0, db.GetQueryCalledNum(input))
+	// Verify fallback executed the query independently
+	require.Equal(t, 1, db.GetQueryCalledNum(input))
 }
 
 func TestGetConnectionLogStats(t *testing.T) {
