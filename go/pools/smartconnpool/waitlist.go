@@ -70,10 +70,10 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// there when those requests can still get a connection without waiting. The cap
 	// is just for waiting.
 	if wl.aboveWaiterCap(maxWaiters) {
-		if wl.onWaiterCapReached != nil {
-			wl.onWaiterCapReached()
-		}
 		if !dryRun {
+			if wl.onWaiterCapReached != nil {
+				wl.onWaiterCapReached()
+			}
 			return nil, ErrPoolWaiterCapReached
 		}
 	}

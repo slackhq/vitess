@@ -135,7 +135,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 		return wl.waiting() == maxWaiters+1
 	}, time.Second, 5*time.Millisecond)
 
-	assert.True(t, capReachedCount.Load() >= 1)
+	assert.Equal(t, int32(1), capReachedCount.Load())
 
 	close(poolClose)
 
