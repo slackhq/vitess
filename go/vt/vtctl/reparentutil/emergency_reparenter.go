@@ -600,7 +600,13 @@ func (erp *EmergencyReparenter) reparentReplicas(
 		switch {
 		case alias == topoproto.TabletAliasString(newPrimaryTablet.Alias):
 			continue
-		case !opts.IgnoreReplicas.Has(alias):
+		case opts.IgnoreReplicas.Has(alias):
+			continue
+		default:
+			if status, ok := statusMap[alias]; ok && isTabletBackingUp(status) {
+				log.Infof("skipping SetReplicationSource on %v because it is taking a backup", alias)
+				continue
+			}
 			replWg.Add(1)
 			numReplicas++
 			go handleReplica(alias, ti)

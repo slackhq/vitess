@@ -3559,6 +3559,73 @@ func TestEmergencyReparenter_reparentReplicas(t *testing.T) {
 			shouldErr:        true,
 			errShouldContain: "failed to promote zone1-0000000100 to primary: primary-elect tablet zone1-0000000100 failed to be upgraded to primary: context deadline exceeded",
 		},
+		{
+			name:                 "skips tablets taking backup",
+			emergencyReparentOps: EmergencyReparentOptions{IgnoreReplicas: sets.New[string]()},
+			tmc: &testutil.TabletManagerClient{
+				PopulateReparentJournalResults: map[string]error{
+					"zone1-0000000100": nil,
+				},
+				PromoteReplicaResults: map[string]struct {
+					Result string
+					Error  error
+				}{
+					"zone1-0000000100": {
+						Error: nil,
+					},
+				},
+				SetReplicationSourceResults: map[string]error{
+					"zone1-0000000101": nil,
+				},
+			},
+			newPrimaryTabletAlias: "zone1-0000000100",
+			tabletMap: map[string]*topo.TabletInfo{
+				"zone1-0000000100": {
+					Tablet: &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  100,
+						},
+						Hostname: "primary-elect",
+					},
+				},
+				"zone1-0000000101": {
+					Tablet: &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  101,
+						},
+					},
+				},
+				"zone1-0000000102": {
+					Tablet: &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  102,
+						},
+						Hostname: "backup-tablet",
+					},
+				},
+			},
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000101": {
+					Before: &replicationdatapb.Status{
+						IoState:  int32(replication.ReplicationStateRunning),
+						SqlState: int32(replication.ReplicationStateRunning),
+					},
+				},
+				"zone1-0000000102": {
+					After: &replicationdatapb.Status{
+						IoState:      int32(replication.ReplicationStateStopped),
+						SqlState:     int32(replication.ReplicationStateRunning),
+						BackupRunning: true,
+					},
+				},
+			},
+			keyspace:  "testkeyspace",
+			shard:     "-",
+			shouldErr: false,
+		},
 	}
 
 	durability, _ := policy.GetDurabilityPolicy(policy.DurabilityNone)

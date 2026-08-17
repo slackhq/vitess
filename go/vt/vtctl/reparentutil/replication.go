@@ -196,6 +196,19 @@ func ReplicaWasRunning(stopStatus *replicationdatapb.StopReplicationStatus) (boo
 		(replStatus.SQLState == replication.ReplicationStateRunning), nil
 }
 
+func isTabletBackingUp(stopStatus *replicationdatapb.StopReplicationStatus) bool {
+	if stopStatus == nil {
+		return false
+	}
+	if stopStatus.After != nil {
+		return stopStatus.After.BackupRunning
+	}
+	if stopStatus.Before != nil {
+		return stopStatus.Before.BackupRunning
+	}
+	return false
+}
+
 // SetReplicationSource is used to set the replication source on the specified
 // tablet to the current shard primary (if available). It also figures out if
 // the tablet should be sending semi-sync ACKs or not and passes that to the
