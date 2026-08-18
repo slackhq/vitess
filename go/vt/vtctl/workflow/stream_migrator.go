@@ -373,7 +373,7 @@ func (sm *StreamMigrator) legacyReadTabletStreams(ctx context.Context, ti *topo.
 
 // readTabletStreams reads all of the VReplication workflow streams *except*
 // the Reshard workflow's reverse variant.
-func (sm *StreamMigrator) readTabletStreams(ctx context.Context, ti *topo.TabletInfo, ids []int32, states []binlogdatapb.VReplicationWorkflowState, excludeFrozen bool) ([]*VReplicationStream, error) {
+func (sm *StreamMigrator) readTabletStreams(ctx context.Context, ti *topo.TabletInfo, ids []int32, states []binlogdatapb.VReplicationWorkflowState, excludeFrozen bool, excludeStoppedOnlineDDL bool) ([]*VReplicationStream, error) {
 	req := &tabletmanagerdatapb.ReadVReplicationWorkflowsRequest{
 		ExcludeWorkflows: []string{sm.ts.ReverseWorkflowName()},
 		IncludeIds:       ids,
@@ -399,7 +399,8 @@ func (sm *StreamMigrator) readTabletStreams(ctx context.Context, ti *topo.Tablet
 		}
 
 		for _, stream := range workflow.Streams {
-			if workflow.WorkflowType == binlogdatapb.VReplicationWorkflowType_OnlineDDL &&
+			if excludeStoppedOnlineDDL &&
+				workflow.WorkflowType == binlogdatapb.VReplicationWorkflowType_OnlineDDL &&
 				stream.State == binlogdatapb.VReplicationWorkflowState_Stopped {
 				continue
 			}
@@ -565,7 +566,7 @@ func (sm *StreamMigrator) readSourceStreams(ctx context.Context, cancelMigrate b
 			// This allows us to assume that all stopped streams can be safely restarted
 			// if we cancel the operation.
 			stoppedStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), nil,
-				[]binlogdatapb.VReplicationWorkflowState{binlogdatapb.VReplicationWorkflowState_Stopped}, true)
+				[]binlogdatapb.VReplicationWorkflowState{binlogdatapb.VReplicationWorkflowState_Stopped}, true, false)
 			if err != nil {
 				return err
 			}
@@ -577,7 +578,7 @@ func (sm *StreamMigrator) readSourceStreams(ctx context.Context, cancelMigrate b
 			}
 		}
 
-		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), nil, nil, false)
+		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), nil, nil, false, true)
 		if err != nil {
 			return err
 		}
@@ -764,7 +765,7 @@ func (sm *StreamMigrator) stopSourceStreams(ctx context.Context) error {
 			return err
 		}
 
-		tabletStreams, err = sm.readTabletStreams(ctx, source.GetPrimary(), VReplicationStreams(tabletStreams).IDs(), nil, false)
+		tabletStreams, err = sm.readTabletStreams(ctx, source.GetPrimary(), VReplicationStreams(tabletStreams).IDs(), nil, false, false)
 		if err != nil {
 			return err
 		}
@@ -940,7 +941,7 @@ func (sm *StreamMigrator) verifyStreamPositions(ctx context.Context, stopPositio
 			return nil
 		}
 
-		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), VReplicationStreams(tabletStreams).IDs(), nil, false)
+		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), VReplicationStreams(tabletStreams).IDs(), nil, false, false)
 		if err != nil {
 			return err
 		}
