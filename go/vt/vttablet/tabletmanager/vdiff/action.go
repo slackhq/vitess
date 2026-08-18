@@ -114,21 +114,18 @@ func (vde *Engine) PerformVDiffAction(ctx context.Context, req *tabletmanagerdat
 	return resp, nil
 }
 
-// vdiffSummaryQuery returns the summary query with its report select-expression
-// resolved. When summaryOnly is true it selects a literal empty object in place
-// of the stored report, so the (potentially very large) per-table report body is
-// never read from MySQL, never held in tablet memory, and never sent to vtctld.
-// This lets callers that only need the vdiff/table state and has_mismatch avoid
+// vdiffSummaryQuery returns the summary query to run. When summaryOnly is true
+// it returns the variant that selects a literal empty object in place of the
+// stored report, so the (potentially very large) per-table report body is never
+// read from MySQL, never held in tablet memory, and never sent to vtctld. This
+// lets callers that only need the vdiff/table state and has_mismatch avoid
 // transferring reports that can exceed gRPC message limits for tables with large
-// blob/JSON rows. All other summary columns are unaffected. strings.Replace is
-// used (not fmt.Sprintf) so the %a bind placeholders are left intact for
-// ParseAndBind.
+// blob/JSON rows. All other summary columns are unaffected.
 func vdiffSummaryQuery(summaryOnly bool) string {
-	reportExpr := "vdt.report"
 	if summaryOnly {
-		reportExpr = "'{}'"
+		return sqlVDiffSummaryNoReport
 	}
-	return strings.Replace(sqlVDiffSummary, reportExprToken, reportExpr, 1)
+	return sqlVDiffSummary
 }
 
 func (vde *Engine) getVDiffSummary(vdiffID int64, dbClient binlogplayer.DBClient, reportOpts *tabletmanagerdatapb.VDiffReportOptions) (*query.QueryResult, error) {
