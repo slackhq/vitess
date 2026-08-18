@@ -518,6 +518,15 @@ func (s *Server) VDiffShow(ctx context.Context, req *vtctldatapb.VDiffShowReques
 		Action:    string(vdiff.ShowAction),
 		ActionArg: req.Arg,
 	}
+	// Forward summary_only to each target before the fan-out so the report body
+	// is never selected on the target primaries and thus never sent to vtctld.
+	if req.GetSummaryOnly() {
+		tabletreq.Options = &tabletmanagerdatapb.VDiffOptions{
+			ReportOptions: &tabletmanagerdatapb.VDiffReportOptions{
+				SummaryOnly: true,
+			},
+		}
+	}
 
 	ts, err := s.buildTrafficSwitcher(ctx, req.TargetKeyspace, req.Workflow)
 	if err != nil {

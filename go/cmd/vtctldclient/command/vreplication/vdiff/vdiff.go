@@ -81,8 +81,9 @@ var (
 	}{}
 
 	showOptions = struct {
-		Arg     string
-		Verbose bool
+		Arg         string
+		Verbose     bool
+		SummaryOnly bool
 	}{}
 
 	stopOptions = struct {
@@ -625,6 +626,7 @@ func commandShow(cmd *cobra.Command, args []string) error {
 		Workflow:       common.BaseOptions.Workflow,
 		TargetKeyspace: common.BaseOptions.TargetKeyspace,
 		Arg:            showOptions.Arg,
+		SummaryOnly:    showOptions.SummaryOnly,
 	})
 
 	if err != nil {
@@ -691,6 +693,7 @@ func registerCommands(root *cobra.Command) {
 	base.AddCommand(resume)
 
 	show.Flags().BoolVar(&showOptions.Verbose, "verbose", false, "Show verbose output in summaries")
+	show.Flags().BoolVar(&showOptions.SummaryOnly, "summary-only", false, "Omit the per-table report body (sample row diffs) from each target, returning only state, has_mismatch, and rows_compared. Avoids transferring very large reports from target primaries.")
 	base.AddCommand(show)
 
 	stop.Flags().StringSliceVar(&stopOptions.TargetShards, "target-shards", nil, "The target shards to stop the vdiff on; default is all shards.")

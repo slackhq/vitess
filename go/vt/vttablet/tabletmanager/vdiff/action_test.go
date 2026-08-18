@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,32 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
+
+func TestVDiffSummaryQuery(t *testing.T) {
+	// The token must always be resolved so the query is valid SQL, and the %a
+	// bind placeholders must be preserved for ParseAndBind.
+	require.NotContains(t, sqlVDiffSummary, "%s", "summary query must not use fmt-style verbs; it is bound via ParseAndBind")
+
+	full := vdiffSummaryQuery(false)
+	require.NotContains(t, full, reportExprToken, "report expression token must be resolved")
+	require.Contains(t, full, "vdt.report as report", "non-summary query must select the stored report")
+	require.NotContains(t, full, "'{}' as report", "non-summary query must not blank the report")
+	require.Contains(t, full, "%a", "bind placeholders must be preserved for ParseAndBind")
+
+	summary := vdiffSummaryQuery(true)
+	require.NotContains(t, summary, reportExprToken, "report expression token must be resolved")
+	require.Contains(t, summary, "'{}' as report", "summary-only query must select an empty report so the stored report is never read")
+	require.NotContains(t, summary, "vdt.report as report", "summary-only query must not read the stored report column")
+	require.Contains(t, summary, "%a", "bind placeholders must be preserved for ParseAndBind")
+
+	// Only the report select-expression should differ between the two variants;
+	// every other column stays identical so summary-only never drops other data.
+	require.Equal(t,
+		strings.Replace(full, "vdt.report as report", "'{}' as report", 1),
+		summary,
+		"summary-only must differ from the full query only in the report select-expression",
+	)
+}
 
 func TestPerformVDiffAction(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
