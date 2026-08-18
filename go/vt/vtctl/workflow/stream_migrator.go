@@ -470,7 +470,11 @@ func (sm *StreamMigrator) legacyReadSourceStreams(ctx context.Context, cancelMig
 			}
 		}
 
-		tabletStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), "NOT (workflow_type = 5 AND state = 'Stopped')")
+		constraint := ""
+		if !cancelMigrate {
+			constraint = "NOT (workflow_type = 5 AND state = 'Stopped')"
+		}
+		tabletStreams, err := sm.legacyReadTabletStreams(ctx, source.GetPrimary(), constraint)
 		if err != nil {
 			return err
 		}
@@ -578,7 +582,7 @@ func (sm *StreamMigrator) readSourceStreams(ctx context.Context, cancelMigrate b
 			}
 		}
 
-		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), nil, nil, false, true)
+		tabletStreams, err := sm.readTabletStreams(ctx, source.GetPrimary(), nil, nil, false, !cancelMigrate)
 		if err != nil {
 			return err
 		}

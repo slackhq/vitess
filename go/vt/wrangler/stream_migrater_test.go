@@ -1208,8 +1208,8 @@ func TestStreamMigrateCancelWithStoppedStreams(t *testing.T) {
 		}
 
 		for i, dbclient := range tme.dbSourceClients {
-			// sm.stopStreams->sm.readSourceStreams->readTabletStreams('') and VReplicationExec(_vt.copy_state)
-			dbclient.addQuery("select id, workflow, source, pos, workflow_type, workflow_sub_type, defer_secondary_keys from _vt.vreplication where db_name='vt_ks' and workflow != 'test_reverse' and NOT (workflow_type = 5 AND state = 'Stopped')", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
+			// cancelMigrate=true so no OnlineDDL filter in the full read query
+			dbclient.addQuery("select id, workflow, source, pos, workflow_type, workflow_sub_type, defer_secondary_keys from _vt.vreplication where db_name='vt_ks' and workflow != 'test_reverse'", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
 				"id|workflow|source|pos|workflow_type|workflow_sub_type|defer_secondary_keys",
 				"int64|varbinary|varchar|varbinary|int64|int64|int64"),
 				sourceRows[i]...),
