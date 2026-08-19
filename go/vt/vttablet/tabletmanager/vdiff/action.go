@@ -115,15 +115,17 @@ func (vde *Engine) PerformVDiffAction(ctx context.Context, req *tabletmanagerdat
 }
 
 // vdiffSummaryQuery returns the summary query to run. When summaryOnly is true
-// it returns the variant that selects a literal empty object in place of the
-// stored report, so the (potentially very large) per-table report body is never
-// read from MySQL, never held in tablet memory, and never sent to vtctld. This
-// lets callers that only need the vdiff/table state and has_mismatch avoid
-// transferring reports that can exceed gRPC message limits for tables with large
-// blob/JSON rows. All other summary columns are unaffected.
+// it returns the variant that strips the row-sample arrays from the per-table
+// report, keeping the scalar counters. The samples are the part that can grow
+// very large (they carry sampled row data, including large blob/JSON columns)
+// and, fanned out across many target shards, can push the aggregated response
+// past gRPC message limits. Stripping them lets callers that only need the
+// vdiff/table state, counts and has_mismatch avoid transferring that data while
+// keeping the summary counters accurate. All other summary columns are
+// unaffected.
 func vdiffSummaryQuery(summaryOnly bool) string {
 	if summaryOnly {
-		return sqlVDiffSummaryNoReport
+		return sqlVDiffSummaryOnly
 	}
 	return sqlVDiffSummary
 }
