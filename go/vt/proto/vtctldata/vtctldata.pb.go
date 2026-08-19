@@ -15149,10 +15149,11 @@ type VDiffShowRequest struct {
 	TargetKeyspace string                 `protobuf:"bytes,2,opt,name=target_keyspace,json=targetKeyspace,proto3" json:"target_keyspace,omitempty"`
 	// This will be 'all', 'last', or a UUID.
 	Arg string `protobuf:"bytes,3,opt,name=arg,proto3" json:"arg,omitempty"`
-	// summary_only requests that each target only return the vdiff and per-table
-	// state, has_mismatch, and rows_compared, omitting the per-table report body
-	// (sample row diffs). This avoids transferring very large reports (e.g. for
-	// tables with large blob/JSON rows) from the target primaries to vtctld.
+	// summary_only requests that each target strip the per-table report's
+	// sampled-row arrays (sample row diffs) while preserving the scalar counters
+	// and all other summary state. This avoids transferring the sampled rows
+	// (e.g. for tables with large blob/JSON rows), which aggregated across target
+	// primaries can exceed gRPC message limits, while keeping counts accurate.
 	SummaryOnly   bool `protobuf:"varint,4,opt,name=summary_only,json=summaryOnly,proto3" json:"summary_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

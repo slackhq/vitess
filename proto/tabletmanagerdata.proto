@@ -743,11 +743,14 @@ message VDiffReportOptions {
   string format = 3;
   int64 max_sample_rows = 4;
   int64 row_diff_column_truncate_at = 5;
-  // summary_only omits the per-table report body (sample row diffs and the
-  // per-table difference counts) from a show response, keeping only the vdiff
-  // and per-table state, has_mismatch, and rows_compared. It lets callers that
-  // only need a continue/cancel decision avoid transferring very large reports
-  // (e.g. tables with large blob/JSON rows) that can exceed gRPC message limits.
+  // summary_only strips the per-table report's sampled-row arrays
+  // (MismatchedRowsSample, ExtraRowsSourceSample, ExtraRowsTargetSample) from a
+  // show response while preserving the scalar counters (ProcessedRows,
+  // MatchingRows, MismatchedRows, ExtraRows*) and all other summary state. The
+  // sampled rows carry actual row data (e.g. large blob/JSON columns) and,
+  // aggregated across target shards, can push the response past gRPC message
+  // limits; stripping them lets callers avoid transferring that data while
+  // keeping the reported counts accurate.
   bool summary_only = 6;
 }
 

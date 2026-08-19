@@ -693,7 +693,7 @@ func registerCommands(root *cobra.Command) {
 	base.AddCommand(resume)
 
 	show.Flags().BoolVar(&showOptions.Verbose, "verbose", false, "Show verbose output in summaries")
-	show.Flags().BoolVar(&showOptions.SummaryOnly, "summary-only", false, "Omit the per-table report body (sample row diffs) from each target, returning only state, has_mismatch, and rows_compared. Avoids transferring very large reports from target primaries.")
+	show.Flags().BoolVar(&showOptions.SummaryOnly, "summary-only", false, "Strip the per-table report's sampled-row arrays (sample row diffs) from each target while keeping the scalar counters and other summary state. Avoids transferring large reports from target primaries where they can exceed gRPC message limits.")
 	base.AddCommand(show)
 
 	stop.Flags().StringSliceVar(&stopOptions.TargetShards, "target-shards", nil, "The target shards to stop the vdiff on; default is all shards.")

@@ -6453,11 +6453,14 @@ type VDiffReportOptions struct {
 	Format                  string                 `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
 	MaxSampleRows           int64                  `protobuf:"varint,4,opt,name=max_sample_rows,json=maxSampleRows,proto3" json:"max_sample_rows,omitempty"`
 	RowDiffColumnTruncateAt int64                  `protobuf:"varint,5,opt,name=row_diff_column_truncate_at,json=rowDiffColumnTruncateAt,proto3" json:"row_diff_column_truncate_at,omitempty"`
-	// summary_only omits the per-table report body (sample row diffs and the
-	// per-table difference counts) from a show response, keeping only the vdiff
-	// and per-table state, has_mismatch, and rows_compared. It lets callers that
-	// only need a continue/cancel decision avoid transferring very large reports
-	// (e.g. tables with large blob/JSON rows) that can exceed gRPC message limits.
+	// summary_only strips the per-table report's sampled-row arrays
+	// (MismatchedRowsSample, ExtraRowsSourceSample, ExtraRowsTargetSample) from a
+	// show response while preserving the scalar counters (ProcessedRows,
+	// MatchingRows, MismatchedRows, ExtraRows*) and all other summary state. The
+	// sampled rows carry actual row data (e.g. large blob/JSON columns) and,
+	// aggregated across target shards, can push the response past gRPC message
+	// limits; stripping them lets callers avoid transferring that data while
+	// keeping the reported counts accurate.
 	SummaryOnly   bool `protobuf:"varint,6,opt,name=summary_only,json=summaryOnly,proto3" json:"summary_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

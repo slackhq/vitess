@@ -2113,10 +2113,11 @@ message VDiffShowRequest {
   string target_keyspace = 2;
   // This will be 'all', 'last', or a UUID.
   string arg = 3;
-  // summary_only requests that each target only return the vdiff and per-table
-  // state, has_mismatch, and rows_compared, omitting the per-table report body
-  // (sample row diffs). This avoids transferring very large reports (e.g. for
-  // tables with large blob/JSON rows) from the target primaries to vtctld.
+  // summary_only requests that each target strip the per-table report's
+  // sampled-row arrays (sample row diffs) while preserving the scalar counters
+  // and all other summary state. This avoids transferring the sampled rows
+  // (e.g. for tables with large blob/JSON rows), which aggregated across target
+  // primaries can exceed gRPC message limits, while keeping counts accurate.
   bool summary_only = 4;
 }
 
