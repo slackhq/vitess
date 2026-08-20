@@ -39,7 +39,7 @@ func TestSnake_NHolder_ConcurrentGrants(t *testing.T) {
 
 			unlocks := make([]*SafeUnlock, cap)
 			for i := range cap {
-				u, err := s.Acquire(t.Context(), "", 0)
+				u, err := s.Acquire(t.Context(), 0)
 				require.NoError(t, err, "acquire %d should succeed (capacity=%d)", i, cap)
 				unlocks[i] = u
 			}
@@ -63,14 +63,14 @@ func TestSnake_NHolder_BlocksAtCapacity(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 3)
 	for i := range 3 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -112,7 +112,7 @@ func TestSnake_NHolder_ParallelThroughput(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerWorker {
-				u, err := s.Acquire(t.Context(), "", 0)
+				u, err := s.Acquire(t.Context(), 0)
 				if err != nil {
 					continue
 				}
@@ -145,12 +145,12 @@ func TestSnake_NHolder_DynamicCapacityIncrease(t *testing.T) {
 	cfg.Capacity = func() int { return int(cap.Load()) }
 	s := NewSnake(cfg)
 
-	u1, err := s.Acquire(t.Context(), "", 0)
+	u1, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -185,7 +185,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 4)
 	for i := range 4 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
@@ -195,7 +195,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 
 	acquired := make(chan struct{})
 	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		if err == nil {
 			close(acquired)
 			u.Release()
@@ -222,53 +222,6 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 	unlocks[3].Release()
 }
 
-// --- N-holder: valve serialization with multiple slots ---
-
-func TestSnake_NHolder_ValveSerialization(t *testing.T) {
-	cfg := defaultSnakeConfig()
-	cfg.Capacity = func() int { return 3 }
-	s := NewSnake(cfg)
-
-	u1, err := s.Acquire(t.Context(), "valve-a", 0)
-	require.NoError(t, err)
-	u2, err := s.Acquire(t.Context(), "valve-b", 0)
-	require.NoError(t, err)
-	u3, err := s.Acquire(t.Context(), "valve-c", 0)
-	require.NoError(t, err)
-	assert.Equal(t, 3, s.nGranted())
-
-	results := make(chan string, 6)
-	var wg sync.WaitGroup
-	for _, id := range []string{"valve-a", "valve-b", "valve-c"} {
-		for range 2 {
-			vid := id
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				u, err := s.Acquire(t.Context(), vid, 0)
-				if err == nil {
-					results <- vid
-					u.Release()
-				}
-			}()
-		}
-	}
-
-	time.Sleep(10 * time.Millisecond)
-	u1.Release()
-	u2.Release()
-	u3.Release()
-	wg.Wait()
-	close(results)
-
-	var count int
-	for range results {
-		count++
-	}
-	assert.Equal(t, 6, count, "all valve-serialized requests should complete")
-	assert.Equal(t, 0, s.nGranted())
-}
-
 // --- N-holder: NGranted accuracy under concurrency ---
 
 func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
@@ -284,7 +237,7 @@ func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			u, err := s.Acquire(t.Context(), "", 0)
+			u, err := s.Acquire(t.Context(), 0)
 			if err != nil {
 				return
 			}
@@ -308,15 +261,15 @@ func TestSnake_NHolder_ContextCancelFreesSlot(t *testing.T) {
 	s := NewSnake(cfg)
 
 	ctx1, cancel1 := context.WithCancel(t.Context())
-	u1, err := s.Acquire(ctx1, "", 0)
+	u1, err := s.Acquire(ctx1, 0)
 	require.NoError(t, err)
 
-	u2, err := s.Acquire(t.Context(), "", 0)
+	u2, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 
 	waiterDone := make(chan error, 1)
 	go func() {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		if err == nil {
 			u.Release()
 		}
@@ -350,7 +303,7 @@ func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {
 
 	unlocks := make([]*SafeUnlock, 3)
 	for i := range 3 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks[i] = u
 	}
@@ -362,86 +315,7 @@ func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {
 	assert.Equal(t, int64(3), count.Load(), "release callback should fire for each holder")
 }
 
-// --- N-holder: valve invariant under sufficient capacity ---
-
-func TestSnake_NHolder_ValveInvariant_AllGranted(t *testing.T) {
-	const capacity = 10
-	const M = 5
-
-	cfg := defaultSnakeConfig()
-	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
-
-	unlocks := make([]*SafeUnlock, M)
-	for i := range M {
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-		u, err := s.Acquire(ctx, "foo", 0)
-		cancel()
-		require.NoError(t, err, "request %d should be granted (capacity=%d, holders=%d)", i, capacity, i)
-		unlocks[i] = u
-	}
-
-	assert.Equal(t, M, s.nGranted(), "all %d requests should be granted concurrently", M)
-
-	for _, u := range unlocks {
-		u.Release()
-	}
-	assert.Equal(t, 0, s.nGranted())
-}
-
-// --- N-holder: valve invariant under exhausted capacity ---
-
-func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
-	const capacity = 3
-
-	cfg := defaultSnakeConfig()
-	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
-
-	unlocks := make([]*SafeUnlock, capacity)
-	for i := range capacity {
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-		u, err := s.Acquire(ctx, "foo", 0)
-		cancel()
-		require.NoError(t, err, "request %d should be granted", i)
-		unlocks[i] = u
-	}
-	assert.Equal(t, capacity, s.nGranted())
-
-	blocked := make(chan struct{})
-	granted := make(chan *SafeUnlock, 1)
-	go func() {
-		close(blocked)
-		u, err := s.Acquire(context.Background(), "foo", 0)
-		if err == nil {
-			granted <- u
-		}
-	}()
-	<-blocked
-	time.Sleep(10 * time.Millisecond)
-
-	s.mu.Lock()
-	droppable, hasDroppable := s.q.droppablePerValve["foo"]
-	s.mu.Unlock()
-	assert.True(t, hasDroppable, "nonempty valve must have a droppable representative")
-	assert.NotNil(t, droppable)
-
-	unlocks[0].Release()
-
-	select {
-	case u := <-granted:
-		assert.Equal(t, capacity, s.nGranted())
-		u.Release()
-	case <-time.After(2 * time.Second):
-		t.Fatal("blocked request should have been granted after release")
-	}
-
-	for i := 1; i < capacity; i++ {
-		unlocks[i].Release()
-	}
-}
-
-// --- N-holder: memory cleanup with multi-slot ---
+// --- N-holder: memory cleanup ---
 
 func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 	cfg := defaultSnakeConfig()
@@ -451,7 +325,7 @@ func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 	for range 500 {
 		unlocks := make([]*SafeUnlock, 5)
 		for i := range 5 {
-			u, err := s.Acquire(t.Context(), fmt.Sprintf("id-%d", i), 0)
+			u, err := s.Acquire(t.Context(), 0)
 			require.NoError(t, err)
 			unlocks[i] = u
 		}

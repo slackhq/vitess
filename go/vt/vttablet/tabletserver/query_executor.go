@@ -257,7 +257,6 @@ func (qre *QueryExecutor) execAutocommit(f func(conn *StatefulConnection) (*sqlt
 	}
 
 	conn, _, _, err := qre.tsv.te.txPool.Begin(qre.ctx, qre.options, false, 0, qre.setting)
-
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +582,8 @@ func (qre *QueryExecutor) execDDL(conn *StatefulConnection) (result *sqltypes.Re
 	}
 
 	if conn == nil {
-		conn, err = qre.tsv.te.txPool.createConn(qre.ctx, qre.options, qre.setting)
+		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
+		conn, err = qre.tsv.te.txPool.createConn(qre.ctx, qre.options, qre.setting, snakePriority)
 		if err != nil {
 			return nil, err
 		}
@@ -829,31 +829,16 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 
-	snake := qre.tsv.qe.snake
-	if snake != nil {
-		valveID := qre.options.GetLoadshedValveId()
-		// Translate the Vitess proto priority (0 = most important) into Snake's
-		// convention (higher priority shed last). Queries against a configured
-		// schema (e.g. performance_schema health checks) are marked undroppable
-		// instead, so they are never shed.
-		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
-		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedUndroppableSchemas) {
-			snakePriority = loadshed.PriorityUndroppable
-		}
-		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
-		if err != nil {
-			return nil, nil, errLoadShed
-		}
-		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
-		if err != nil {
-			unlock.Release()
-			return nil, nil, err
-		}
-		return conn, func() { unlock.Release() }, nil
+	snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
+	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedUndroppableSchemas) {
+		snakePriority = loadshed.PriorityUndroppable
 	}
 
-	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, snakePriority)
 	if err != nil {
+		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+			return nil, nil, errLoadShed
+		}
 		return nil, nil, err
 	}
 	return conn, func() {}, nil

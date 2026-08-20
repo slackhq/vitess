@@ -19,6 +19,8 @@ package smartconnpool
 import (
 	"context"
 	"sync/atomic"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 type Connection interface {
@@ -35,15 +37,33 @@ type Pooled[C Connection] struct {
 	timeCreated timestamp
 	timeUsed    timestamp
 	pool        *ConnPool[C]
+	snakeUnlock *loadshed.SafeUnlock
 
 	Conn C
 }
 
+func NewUnpooled[C Connection](conn C) *Pooled[C] {
+	return &Pooled[C]{Conn: conn}
+}
+
+func (dbc *Pooled[C]) SetSnakeUnlock(unlock *loadshed.SafeUnlock) {
+	dbc.snakeUnlock = unlock
+}
+
+func (dbc *Pooled[C]) releaseSnakeUnlock() {
+	if dbc.snakeUnlock != nil {
+		_ = dbc.snakeUnlock.Release()
+		dbc.snakeUnlock = nil
+	}
+}
+
 func (dbc *Pooled[C]) Close() {
+	dbc.releaseSnakeUnlock()
 	dbc.Conn.Close()
 }
 
 func (dbc *Pooled[C]) Recycle() {
+	dbc.releaseSnakeUnlock()
 	switch {
 	case dbc.pool == nil:
 		dbc.Conn.Close()
@@ -58,6 +78,7 @@ func (dbc *Pooled[C]) Taint() {
 	if dbc.pool == nil {
 		return
 	}
+	dbc.releaseSnakeUnlock()
 	dbc.pool.put(nil)
 	dbc.pool = nil
 }

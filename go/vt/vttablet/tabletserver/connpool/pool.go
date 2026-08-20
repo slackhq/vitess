@@ -31,6 +31,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -118,15 +119,32 @@ func (cp *Pool) Close() {
 // Get returns a connection.
 // You must call Recycle on DBConn once done.
 func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*PooledConn, error) {
+	return cp.GetWithPriority(ctx, setting, cp.ConnPool.DefaultPriority())
+}
+
+func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority float64) (*PooledConn, error) {
 	span, ctx := trace.NewSpan(ctx, "Pool.Get")
 	defer span.Finish()
 
 	if cp.isCallerIDAppDebug(ctx) {
+		var unlock *loadshed.SafeUnlock
+		if snake := cp.Snake(); snake != nil {
+			var err error
+			unlock, err = snake.Acquire(ctx, priority)
+			if err != nil {
+				return nil, smartconnpool.ErrPoolLoadShed
+			}
+		}
 		conn, err := NewConn(ctx, cp.appDebugParams, cp.dbaPool, setting, cp.env)
 		if err != nil {
+			if unlock != nil {
+				_ = unlock.Release(err)
+			}
 			return nil, err
 		}
-		return &smartconnpool.Pooled[*Conn]{Conn: conn}, nil
+		pooled := smartconnpool.NewUnpooled[*Conn](conn)
+		pooled.SetSnakeUnlock(unlock)
+		return pooled, nil
 	}
 	span.Annotate("capacity", cp.Capacity())
 	span.Annotate("in_use", cp.InUse())
@@ -140,7 +158,7 @@ func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*Poole
 	}
 
 	start := time.Now()
-	conn, err := cp.ConnPool.Get(ctx, setting)
+	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, priority)
 	if err != nil {
 		return nil, err
 	}

@@ -55,7 +55,8 @@ func (state txEngineState) String() string {
 		"NotServing",
 		"Transitioning",
 		"AcceptReadWrite",
-		"AcceptingReadOnly"}
+		"AcceptingReadOnly",
+	}
 
 	if state < NotServing || state > AcceptingReadOnly {
 		return fmt.Sprintf("Unknown - %d", int(state))
@@ -140,6 +141,9 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 			LoadsheddingAllowed: func() bool { return true },
 		})
 		loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
+		defaultPriority := snakePriorityFromOptions(nil, config.TxThrottlerDefaultPriority)
+		te.txPool.scp.conns.SetSnake(te.txPool.snake, defaultPriority)
+		te.txPool.scp.foundRowsPool.SetSnake(te.txPool.snake, defaultPriority)
 	}
 	// We initially allow twoPC (handles vttablet restarts).
 	// We will disallow them for a few reasons -
@@ -706,7 +710,8 @@ func (te *TxEngine) Reserve(ctx context.Context, options *querypb.ExecuteOptions
 
 // Reserve creates a reserved connection and returns the id to it
 func (te *TxEngine) reserve(ctx context.Context, options *querypb.ExecuteOptions, preQueries []string) (*StatefulConnection, error) {
-	conn, err := te.txPool.scp.NewConn(ctx, options, nil)
+	snakePriority := snakePriorityFromOptions(options, te.env.Config().TxThrottlerDefaultPriority)
+	conn, err := te.txPool.scp.NewConn(ctx, options, nil, snakePriority)
 	if err != nil {
 		return nil, err
 	}

@@ -44,7 +44,7 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	s.q.codelq.nowNs = now.Load // queue uses defaultClock otherwise — keep clocks consistent
 
 	// Grant the single slot to a holder we control.
-	holder, err := s.Acquire(t.Context(), "", 0)
+	holder, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 
 	// Enqueue several droppable waiters directly into the queue and force the

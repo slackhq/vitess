@@ -33,21 +33,7 @@ func BenchmarkSnake_Uncontended(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "", 0)
-		if err != nil {
-			b.Fatal(err)
-		}
-		u.Release()
-	}
-}
-
-func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
-	ctx := context.Background()
-
-	b.ResetTimer()
-	for range b.N {
-		u, err := s.Acquire(ctx, "valve-1", 0)
+		u, err := s.Acquire(ctx, 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -67,69 +53,13 @@ func BenchmarkSnake_Contended(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "", 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						continue
 					}
 					u.Release()
 				}
 			})
-		})
-	}
-}
-
-// --- Valve overhead: measure cost of valve bookkeeping vs. direct entry ---
-
-func BenchmarkSnake_ValveOverhead(b *testing.B) {
-	b.Run("NoValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
-		ctx := context.Background()
-
-		b.ResetTimer()
-		for range b.N {
-			u, err := s.Acquire(ctx, "", 0)
-			if err != nil {
-				b.Fatal(err)
-			}
-			u.Release()
-		}
-	})
-
-	b.Run("WithValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
-		ctx := context.Background()
-
-		b.ResetTimer()
-		for range b.N {
-			u, err := s.Acquire(ctx, "single-id", 0)
-			if err != nil {
-				b.Fatal(err)
-			}
-			u.Release()
-		}
-	})
-}
-
-// --- Valve ID scaling: many distinct valve IDs ---
-
-func BenchmarkSnake_ValveIDScaling(b *testing.B) {
-	for _, numIDs := range []int{1, 10, 100, 1000} {
-		b.Run(fmt.Sprintf("IDs%d", numIDs), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
-			ctx := context.Background()
-			ids := make([]string, numIDs)
-			for i := range numIDs {
-				ids[i] = fmt.Sprintf("valve-%d", i)
-			}
-
-			b.ResetTimer()
-			for i := range b.N {
-				u, err := s.Acquire(ctx, ids[i%numIDs], 0)
-				if err != nil {
-					b.Fatal(err)
-				}
-				u.Release()
-			}
 		})
 	}
 }
@@ -149,7 +79,7 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "", 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						continue
 					}
@@ -257,22 +187,7 @@ func BenchmarkSnake_Allocs_Uncontended(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		u, err := s.Acquire(ctx, "", 0)
-		if err != nil {
-			b.Fatal(err)
-		}
-		u.Release()
-	}
-}
-
-func BenchmarkSnake_Allocs_WithValve(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
-	ctx := context.Background()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		u, err := s.Acquire(ctx, "valve-1", 0)
+		u, err := s.Acquire(ctx, 0)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -295,7 +210,7 @@ func BenchmarkSnake_Allocs_Contended(b *testing.B) {
 		go func() {
 			defer wg.Done()
 			for range opsPerWorker {
-				u, err := s.Acquire(ctx, "", 0)
+				u, err := s.Acquire(ctx, 0)
 				if err != nil {
 					continue
 				}
@@ -304,29 +219,6 @@ func BenchmarkSnake_Allocs_Contended(b *testing.B) {
 		}()
 	}
 	wg.Wait()
-}
-
-// --- Throughput under contention (ops/sec) ---
-
-func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
-	for _, parallelism := range []int{2, 4, 8} {
-		b.Run(fmt.Sprintf("SameID_P%d", parallelism), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
-			ctx := context.Background()
-
-			b.SetParallelism(parallelism / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					u, err := s.Acquire(ctx, "shared-id", 0)
-					if err != nil {
-						continue
-					}
-					u.Release()
-				}
-			})
-		})
-	}
 }
 
 // --- N-holder: multi-slot throughput ---
@@ -343,7 +235,7 @@ func BenchmarkSnake_NHolder_Throughput(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "", 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						continue
 					}
@@ -366,7 +258,7 @@ func BenchmarkSnake_NHolder_Uncontended(b *testing.B) {
 
 			b.ResetTimer()
 			for range b.N {
-				u, err := s.Acquire(ctx, "", 0)
+				u, err := s.Acquire(ctx, 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -390,40 +282,7 @@ func BenchmarkSnake_NHolder_Saturated(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					u, err := s.Acquire(ctx, "", 0)
-					if err != nil {
-						continue
-					}
-					u.Release()
-				}
-			})
-		})
-	}
-}
-
-// --- N-holder: valve + multi-slot (self-contention across multiple slots) ---
-
-func BenchmarkSnake_NHolder_WithValve(b *testing.B) {
-	for _, capacity := range []int{1, 4, 8} {
-		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
-			cfg := defaultSnakeConfig()
-			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
-			ctx := context.Background()
-
-			ids := make([]string, 4)
-			for i := range ids {
-				ids[i] = fmt.Sprintf("valve-%d", i)
-			}
-
-			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
-			b.ResetTimer()
-			var counter atomic.Int64
-			b.RunParallel(func(pb *testing.PB) {
-				idx := int(counter.Add(1) - 1)
-				id := ids[idx%len(ids)]
-				for pb.Next() {
-					u, err := s.Acquire(ctx, id, 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						continue
 					}
@@ -447,7 +306,7 @@ func BenchmarkSnake_NHolder_Allocs(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				u, err := s.Acquire(ctx, "", 0)
+				u, err := s.Acquire(ctx, 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -536,24 +395,7 @@ func BenchmarkSnake_HighContention(b *testing.B) {
 				cfg.Capacity = hugeCapacity
 				s := NewSnake(cfg)
 				runPooledContention(b, level, func() {
-					u, err := s.Acquire(ctx, "", 0)
-					if err != nil {
-						return
-					}
-					u.Release()
-				})
-			})
-		}
-	})
-
-	b.Run("FastPath_WithValve", func(b *testing.B) {
-		for _, level := range contentionLevels {
-			b.Run(fmt.Sprintf("C%d", level), func(b *testing.B) {
-				cfg := defaultSnakeConfig()
-				cfg.Capacity = hugeCapacity
-				s := NewSnake(cfg)
-				runPooledContention(b, level, func() {
-					u, err := s.Acquire(ctx, "shared-valve", 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						return
 					}
@@ -571,7 +413,7 @@ func BenchmarkSnake_HighContention(b *testing.B) {
 				// CoDel; either way the mutex is the serialization point.
 				s := NewSnake(defaultSnakeConfig())
 				runPooledContention(b, level, func() {
-					u, err := s.Acquire(ctx, "", 0)
+					u, err := s.Acquire(ctx, 0)
 					if err != nil {
 						// Dropped by CoDel under load; count the attempt and
 						// move on, matching the existing contended benchmark.

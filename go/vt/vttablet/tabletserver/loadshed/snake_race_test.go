@@ -47,7 +47,7 @@ func TestSnake_CancelVsGrant_Race(t *testing.T) {
 	for range iterations {
 		s := newTestSnake(cfg)
 
-		unlockA, err := s.Acquire(t.Context(), "", 0)
+		unlockA, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -60,7 +60,7 @@ func TestSnake_CancelVsGrant_Race(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			unlockB, acquireErr = s.Acquire(ctx, "", 0)
+			unlockB, acquireErr = s.Acquire(ctx, 0)
 		}()
 
 		runtime.Gosched()
@@ -83,7 +83,7 @@ func TestSnake_CancelVsGrant_Race(t *testing.T) {
 
 			// Verify lock is still usable.
 			ctx2, cancel2 := context.WithTimeout(t.Context(), 10*time.Millisecond)
-			unlockC, err2 := s.Acquire(ctx2, "", 0)
+			unlockC, err2 := s.Acquire(ctx2, 0)
 			cancel2()
 			if assert.NoError(t, err2, "lock must remain acquirable") {
 				unlockC.Release()

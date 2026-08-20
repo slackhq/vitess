@@ -34,7 +34,7 @@ func acquireN(t *testing.T, s *loadshed.Snake, count int) []*loadshed.SafeUnlock
 	t.Helper()
 	unlocks := make([]*loadshed.SafeUnlock, count)
 	for i := range count {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoErrorf(t, err, "acquire %d of %d should be granted", i+1, count)
 		unlocks[i] = u
 	}
@@ -46,7 +46,7 @@ func acquireN(t *testing.T, s *loadshed.Snake, count int) []*loadshed.SafeUnlock
 func acquireBlocks(s *loadshed.Snake) bool {
 	granted := make(chan *loadshed.SafeUnlock, 1)
 	go func() {
-		u, err := s.Acquire(context.Background(), "", 0)
+		u, err := s.Acquire(context.Background(), 0)
 		if err == nil {
 			granted <- u
 		}

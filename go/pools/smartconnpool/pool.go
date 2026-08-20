@@ -28,6 +28,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -42,6 +43,8 @@ var (
 
 	// ErrPoolWaiterCapReached is returned when the waiter cap has been reached
 	ErrPoolWaiterCapReached = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool waiter cap reached")
+
+	ErrPoolLoadShed = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool load shed")
 
 	// PoolCloseTimeout is how long to wait for all connections to be returned to the pool during close
 	PoolCloseTimeout = 10 * time.Second
@@ -95,8 +98,10 @@ func (m *Metrics) WaiterCapRejected() int64 {
 	return m.waiterCapRejected.Load()
 }
 
-type Connector[C Connection] func(ctx context.Context) (C, error)
-type RefreshCheck func() (bool, error)
+type (
+	Connector[C Connection] func(ctx context.Context) (C, error)
+	RefreshCheck            func() (bool, error)
+)
 
 type Config[C Connection] struct {
 	Capacity        int64
@@ -106,6 +111,8 @@ type Config[C Connection] struct {
 	RefreshInterval time.Duration
 	MaxWaiters      uint
 	LogWait         func(time.Time)
+	Snake           *loadshed.Snake
+	DefaultPriority float64
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -161,7 +168,9 @@ type ConnPool[C Connection] struct {
 		logWait func(time.Time)
 		// maxWaiters is the maximum number of clients that can be waiting for a connection;
 		// 0 means unlimited
-		maxWaiters uint
+		maxWaiters      uint
+		snake           *loadshed.Snake
+		defaultPriority float64
 	}
 
 	Metrics Metrics
@@ -179,6 +188,8 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters = config.MaxWaiters
+	pool.config.snake = config.Snake
+	pool.config.defaultPriority = config.DefaultPriority
 	pool.wait.init()
 	pool.wait.onWait = func() {
 		pool.Metrics.waitCount.Add(1)
@@ -346,6 +357,19 @@ func (pool *ConnPool[C]) Capacity() int64 {
 	return pool.capacity.Load()
 }
 
+func (pool *ConnPool[C]) SetSnake(snake *loadshed.Snake, defaultPriority float64) {
+	pool.config.snake = snake
+	pool.config.defaultPriority = defaultPriority
+}
+
+func (pool *ConnPool[C]) Snake() *loadshed.Snake {
+	return pool.config.snake
+}
+
+func (pool *ConnPool[C]) DefaultPriority() float64 {
+	return pool.config.defaultPriority
+}
+
 // MaxCapacity returns the maximum value to which Capacity can be set via ConnPool.SetCapacity
 func (pool *ConnPool[C]) MaxCapacity() int64 {
 	return pool.config.maxCapacity
@@ -406,22 +430,53 @@ func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle
 func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C], error) {
+	return pool.GetWithPriority(ctx, setting, pool.config.defaultPriority)
+}
+
+func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
 	if pool.capacity.Load() == 0 {
 		return nil, ErrConnPoolClosed
 	}
-	if setting == nil {
-		return pool.get(ctx)
+
+	var unlock *loadshed.SafeUnlock
+	if pool.config.snake != nil {
+		var err error
+		unlock, err = pool.config.snake.Acquire(ctx, priority)
+		if err != nil {
+			return nil, ErrPoolLoadShed
+		}
 	}
-	return pool.getWithSetting(ctx, setting)
+
+	var conn *Pooled[C]
+	var err error
+	if setting == nil {
+		conn, err = pool.get(ctx)
+	} else {
+		conn, err = pool.getWithSetting(ctx, setting)
+	}
+	if err != nil {
+		if unlock != nil {
+			_ = unlock.Release(err)
+		}
+		return nil, err
+	}
+
+	conn.snakeUnlock = unlock
+	return conn, nil
 }
 
 // put returns a connection to the pool. This is a private API.
 // Return connections to the pool by calling Pooled.Recycle
 func (pool *ConnPool[C]) put(conn *Pooled[C]) {
 	pool.borrowed.Add(-1)
+
+	if conn != nil && conn.snakeUnlock != nil {
+		_ = conn.snakeUnlock.Release()
+		conn.snakeUnlock = nil
+	}
 
 	if conn == nil {
 		var err error

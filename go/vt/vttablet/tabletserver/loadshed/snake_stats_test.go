@@ -118,7 +118,7 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 	// Hold every slot, then pile on contending acquires so CoDel drops some.
 	var unlocks []*SafeUnlock
 	for range 4 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks = append(unlocks, u)
 	}
@@ -126,7 +126,7 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 	errCh := make(chan error, contenders)
 	for range contenders {
 		go func() {
-			_, err := s.Acquire(t.Context(), "", 0)
+			_, err := s.Acquire(t.Context(), 0)
 			errCh <- err
 		}()
 	}
@@ -158,7 +158,7 @@ func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {
 	shedGauge := exp.counters["SnakeOltpReadShedCount"]
 
 	// Occupy the only slot so the next acquire must wait.
-	unlock, err := s.Acquire(t.Context(), "", 0)
+	unlock, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 	defer unlock.Release()
 
@@ -166,7 +166,7 @@ func TestPublishStats_ShedCountIgnoresContextCancellation(t *testing.T) {
 	// the caller giving up — not a gate shed — so it must not be counted.
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = s.Acquire(ctx, "", 0)
+	_, err = s.Acquire(ctx, 0)
 	require.Error(t, err)
 
 	assert.Equal(t, int64(0), shedGauge(), "context cancellation must not count as a shed")
@@ -183,7 +183,7 @@ func TestPublishStats_SojournRecordsGrant(t *testing.T) {
 	assert.Equal(t, int64(0), hist.Count(), "no grants before any acquire")
 
 	// A granted request records exactly one sojourn observation.
-	unlock, err := s.Acquire(t.Context(), "", 0)
+	unlock, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), hist.Count(), "one grant should record one sojourn observation")
 	assert.GreaterOrEqual(t, hist.Total(), int64(0), "sojourn total should be a non-negative duration")
@@ -200,7 +200,7 @@ func TestPublishStats_SojournBucketing(t *testing.T) {
 
 	// A fast, uncontended grant lands in one of the low buckets: well under the
 	// 1ms cutoff. Assert nothing landed at or above the 5ms (5e6) cutoff.
-	unlock, err := s.Acquire(t.Context(), "", 0)
+	unlock, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 	require.NoError(t, unlock.Release())
 
@@ -223,7 +223,7 @@ func TestNewSnake_DistributionMetricsInitializedBeforePublish(t *testing.T) {
 	require.NotNil(t, s.interval)
 	require.NotNil(t, s.dropCount)
 
-	unlock, err := s.Acquire(t.Context(), "", 0)
+	unlock, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 	// The detached histograms accumulate even before PublishStats swaps in the
 	// exporter-registered instances.
@@ -247,7 +247,7 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 
 	// A grant observes both: the enqueue records queue length, the holder insert
 	// records holder count.
-	unlock, err := s.Acquire(t.Context(), "", 0)
+	unlock, err := s.Acquire(t.Context(), 0)
 	require.NoError(t, err)
 	assert.Positive(t, queueLen.Count(), "enqueue should record a queue-length observation")
 	assert.Positive(t, holderCount.Count(), "grant should record a holder-count observation")
@@ -259,69 +259,6 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 	require.NoError(t, unlock.Release())
 	assert.Greater(t, queueLen.Count(), beforeQueue, "release should record another queue-length observation")
 	assert.Greater(t, holderCount.Count(), beforeHolder, "release should record another holder-count observation")
-}
-
-func TestPublishStats_ValveDepthHistogramRecords(t *testing.T) {
-	// Fast CoDel timing so that at teardown the queued valve entries are shed
-	// promptly (the drop fires on the control-law interval). The default 1s
-	// interval would not drain them within the teardown window — the depth
-	// observations under test are unaffected by the timing.
-	cfg := defaultSnakeConfig() // capacity 1
-	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
-	cfg.CoDel.TargetNs = func() int64 { return 1 }
-	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
-	s := newTestSnake(cfg)
-	exp := newFakeExporter()
-	PublishStats(exp, "SnakeOltpRead", s)
-
-	valveDepth := exp.histograms["SnakeOltpReadValveDepthObserved"]
-	require.NotNil(t, valveDepth)
-	assert.Equal(t, int64(0), valveDepth.Count(), "no observations before any acquire")
-
-	// Occupy the single slot with an empty-valve acquire. This also covers the
-	// exclusion rule: an empty valve ID bypasses the valve and is not observed.
-	holder, err := s.Acquire(t.Context(), "", 0)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), valveDepth.Count(), "empty valve ID should not record a valve-depth observation")
-
-	// With the slot occupied, a valve-keyed acquire cannot be granted, so it
-	// waits in the CoDel queue as valve "v"'s droppable representative. Its
-	// enqueue records depth 0 (nothing stacked behind it yet). The observation
-	// is synchronous inside Acquire before it blocks, so wait for the count.
-	// Cancelable context so any queued entry left below keepDroppableFloor (never
-	// shed) can be released at teardown rather than hanging.
-	ctx, cancel := context.WithCancel(t.Context())
-	errCh := make(chan error, 2)
-	go func() {
-		_, err := s.Acquire(ctx, "v", 0)
-		errCh <- err
-	}()
-	assert.Eventually(t, func() bool { return valveDepth.Count() == 1 }, 2*time.Second, time.Millisecond,
-		"valve-keyed representative enqueue should record a depth observation")
-	assert.Equal(t, int64(0), valveDepth.Total(), "first valve entry becomes the representative, depth 0")
-
-	// A second acquire on the same valve ID stacks behind the representative
-	// and records depth 1.
-	go func() {
-		_, err := s.Acquire(ctx, "v", 0)
-		errCh <- err
-	}()
-	assert.Eventually(t, func() bool { return valveDepth.Count() == 2 }, 2*time.Second, time.Millisecond,
-		"stacked valve entry should record a second depth observation")
-	assert.Equal(t, int64(1), valveDepth.Total(), "second same-valve entry stacks at depth 1")
-
-	// Release the holder and cancel the context so the queued "v" entries drain
-	// (granted, or shed, or cancelled if kept below the floor) and the goroutines
-	// return. This is teardown; the depth observations above are the assertions.
-	require.NoError(t, holder.Release())
-	cancel()
-	for range 2 {
-		select {
-		case <-errCh:
-		case <-time.After(2 * time.Second):
-			t.Fatal("queued goroutine did not return")
-		}
-	}
 }
 
 func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T) {
@@ -349,7 +286,7 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 	// timer fires (recording interval and drop-count observations).
 	var unlocks []*SafeUnlock
 	for range 4 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks = append(unlocks, u)
 	}
@@ -357,7 +294,7 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 	errCh := make(chan error, contenders)
 	for range contenders {
 		go func() {
-			_, err := s.Acquire(t.Context(), "", 0)
+			_, err := s.Acquire(t.Context(), 0)
 			errCh <- err
 		}()
 	}
@@ -422,7 +359,7 @@ func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
 	// Drive a dropping episode: hold every slot and pile on contenders.
 	var unlocks []*SafeUnlock
 	for range 4 {
-		u, err := s.Acquire(t.Context(), "", 0)
+		u, err := s.Acquire(t.Context(), 0)
 		require.NoError(t, err)
 		unlocks = append(unlocks, u)
 	}
@@ -430,7 +367,7 @@ func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
 	errCh := make(chan error, contenders)
 	for range contenders {
 		go func() {
-			_, err := s.Acquire(t.Context(), "", 0)
+			_, err := s.Acquire(t.Context(), 0)
 			errCh <- err
 		}()
 	}

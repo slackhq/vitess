@@ -59,6 +59,8 @@ func setupWithSnake(t *testing.T, capacity int) (*fakesqldb.DB, *TxPool, func())
 		Capacity:            func() int { return capacity },
 		LoadsheddingAllowed: func() bool { return true },
 	})
+	txPool.scp.conns.SetSnake(txPool.snake, 0)
+	txPool.scp.foundRowsPool.SetSnake(txPool.snake, 0)
 
 	db := fakesqldb.New(t)
 	db.AddQueryPattern(".*", &sqltypes.Result{})
@@ -76,19 +78,19 @@ func TestTxPoolSnake_BeginAcquiresSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
-	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
-	assert.NotNil(t, conn.TxProperties().SnakeRelease)
+	assert.Equal(t, 1, txPool.snake.Stats().HolderCount)
 	conn.Unlock()
 
-	// Commit releases the snake slot via txComplete.
+	// Commit releases the snake slot via the connection's normal Recycle path.
 	conn2, err := txPool.GetAndLock(conn.ReservedID(), "")
 	require.NoError(t, err)
 	_, err = txPool.Commit(ctx, conn2)
 	require.NoError(t, err)
 	conn2.Release(tx.TxCommit)
+	assert.Equal(t, 0, txPool.snake.Stats().HolderCount)
 }
 
 func TestTxPoolSnake_CommitReleasesSlot(t *testing.T) {
@@ -96,14 +98,13 @@ func TestTxPoolSnake_CommitReleasesSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	// Fill the single slot.
-	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	conn.Unlock()
 
-	// Second begin with a different ID would block/fail if slot is not released.
+	// Second begin would block/fail if the slot is not released.
 	// Commit the first to free the slot.
 	conn2, err := txPool.GetAndLock(conn.ReservedID(), "")
 	require.NoError(t, err)
@@ -112,7 +113,7 @@ func TestTxPoolSnake_CommitReleasesSlot(t *testing.T) {
 	conn2.Release(tx.TxCommit)
 
 	// Now a new begin should succeed.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	conn3.Unlock()
 	conn4, err := txPool.GetAndLock(conn3.ReservedID(), "")
@@ -126,9 +127,8 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
-	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	conn.Unlock()
 
@@ -138,7 +138,7 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	txPool.RollbackAndRelease(ctx, conn2)
 
 	// Slot is free — new begin should succeed.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	conn3.Unlock()
 	conn4, err := txPool.GetAndLock(conn3.ReservedID(), "")
@@ -147,34 +147,14 @@ func TestTxPoolSnake_RollbackReleasesSlot(t *testing.T) {
 	conn4.Release(tx.TxCommit)
 }
 
-func TestTxPoolSnake_EmptyValveIDAcquiresSlot(t *testing.T) {
-	_, txPool, closer := setupWithSnake(t, 2)
-	defer closer()
-
-	ctx := context.Background()
-
-	// A request with no valve ID still acquires a Snake slot — it enters the
-	// CoDel queue directly, bypassing only the per-valve fairness layer.
-	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
-	require.NoError(t, err)
-	assert.NotNil(t, conn.TxProperties().SnakeRelease, "empty valve ID should still acquire a Snake slot")
-	conn.Unlock()
-
-	// Cleanup.
-	c, _ := txPool.GetAndLock(conn.ReservedID(), "")
-	_, _ = txPool.Commit(ctx, c)
-	c.Release(tx.TxCommit)
-}
-
 func TestTxPoolSnake_ReservedConnSkipsSnake(t *testing.T) {
 	_, txPool, closer := setupWithSnake(t, 1)
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
 	// Fill the single slot.
-	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	reservedID := conn.ReservedID()
 	conn.Unlock()
@@ -184,19 +164,21 @@ func TestTxPoolSnake_ReservedConnSkipsSnake(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = txPool.Commit(ctx, conn2)
 	conn2.Release(tx.TxCommit)
+	assert.Equal(t, 0, txPool.snake.Stats().HolderCount)
 
 	// Begin with reservedID on the same conn: since the first tx committed and released,
 	// we need a new conn to test reservedID path. Create one via Begin first.
-	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	conn3, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	rid := conn3.ReservedID()
 	conn3.Unlock()
+	assert.Equal(t, 1, txPool.snake.Stats().HolderCount)
 
-	// Now do a Begin with the reservedID — this takes the reservedID != 0 path.
-	conn4, _, _, err := txPool.Begin(ctx, opts, false, rid, nil)
+	// Now do a Begin with the reservedID — this takes the reservedID != 0 path and
+	// must not acquire a second slot.
+	conn4, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, rid, nil)
 	require.NoError(t, err)
-	// SnakeRelease is nil because the reservedID path doesn't acquire from snake.
-	assert.Nil(t, conn4.TxProperties().SnakeRelease)
+	assert.Equal(t, 1, txPool.snake.Stats().HolderCount, "the reservedID path must not acquire from snake")
 	conn4.Unlock()
 	conn5, _ := txPool.GetAndLock(rid, "")
 	_, _ = txPool.Commit(ctx, conn5)
@@ -210,16 +192,16 @@ func TestTxPoolSnake_CapacityExhaustedShedsLoad(t *testing.T) {
 	ctx := context.Background()
 
 	// Fill the single slot.
-	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-1"}, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	conn.Unlock()
 
-	// Second request with a different contention ID should be shed once CoDel kicks in.
-	// Use a short-lived context to avoid waiting forever.
+	// A second request should be shed once CoDel kicks in. Use a short-lived context
+	// to avoid waiting forever.
 	shortCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 
-	_, _, _, err = txPool.Begin(shortCtx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	_, _, _, err = txPool.Begin(shortCtx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dml load shed")
 
@@ -232,8 +214,8 @@ func TestTxPoolSnake_CapacityExhaustedShedsLoad(t *testing.T) {
 // TestTxPoolSnake_DirectReleaseFreesSlot covers the leak path: a connection that
 // acquired a Snake slot in Begin but is torn down via conn.Release() directly —
 // as the kill/shutdown/taint/renew-fail paths do — instead of through
-// Commit/Rollback (txComplete). The Snake slot must still be freed, or the gate
-// leaks holders until capacity is exhausted and all writes stall.
+// Commit/Rollback. The Snake slot must still be freed, or the gate leaks holders
+// until capacity is exhausted and all writes stall.
 func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
 	_, txPool, closer := setupWithSnake(t, 1)
 	defer closer()
@@ -241,9 +223,9 @@ func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
 	ctx := context.Background()
 
 	// Fill the single slot.
-	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{LoadshedValveId: "req-1"}, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
-	require.NotNil(t, conn.TxProperties().SnakeRelease)
+	require.Equal(t, 1, txPool.snake.Stats().HolderCount)
 
 	// Tear the connection down the "bypass" way: a direct Release, NOT via
 	// Commit/Rollback. This is what transactionKiller, Shutdown, and tainted-conn
@@ -253,12 +235,50 @@ func TestTxPoolSnake_DirectReleaseFreesSlot(t *testing.T) {
 	// If the slot leaked, this Begin never gets granted and times out (shed).
 	shortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	conn2, _, _, err := txPool.Begin(shortCtx, &querypb.ExecuteOptions{LoadshedValveId: "req-2"}, false, 0, nil)
+	conn2, _, _, err := txPool.Begin(shortCtx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err, "slot must be freed by a direct Release; a leak would starve this Begin")
 	conn2.Unlock()
 	c, _ := txPool.GetAndLock(conn2.ReservedID(), "")
 	_, _ = txPool.Commit(ctx, c)
 	c.Release(tx.TxCommit)
+}
+
+// TestTxPoolSnake_SharedAcrossFoundRowsPool proves conns and foundRowsPool
+// share ONE Snake instance and capacity, not two independent gates. If the
+// wiring in tx_engine.go ever regressed to constructing two Snakes (or
+// forgetting to attach the second SetSnake call), a CLIENT_FOUND_ROWS
+// transaction would bypass shedding entirely while still counting against
+// the capacity the shared Snake believes it's tracking.
+func TestTxPoolSnake_SharedAcrossFoundRowsPool(t *testing.T) {
+	_, txPool, closer := setupWithSnake(t, 1)
+	defer closer()
+
+	ctx := context.Background()
+
+	// Fill the single shared slot via the regular (non-found-rows) pool.
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+	require.NoError(t, err)
+	conn.Unlock()
+
+	// A CLIENT_FOUND_ROWS transaction must be gated too, since it shares the
+	// same Snake capacity — not routed to an independently-gated pool.
+	shortCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	_, _, _, err = txPool.Begin(shortCtx, &querypb.ExecuteOptions{ClientFoundRows: true}, false, 0, nil)
+	require.Error(t, err, "found-rows transaction should be gated by the same shared Snake capacity")
+
+	// Releasing the original holder frees the shared slot for the
+	// found-rows transaction.
+	c, _ := txPool.GetAndLock(conn.ReservedID(), "")
+	_, _ = txPool.Commit(ctx, c)
+	c.Release(tx.TxCommit)
+
+	conn2, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{ClientFoundRows: true}, false, 0, nil)
+	require.NoError(t, err, "found-rows transaction should succeed once the shared slot is free")
+	conn2.Unlock()
+	c2, _ := txPool.GetAndLock(conn2.ReservedID(), "")
+	_, _ = txPool.Commit(ctx, c2)
+	c2.Release(tx.TxCommit)
 }
 
 func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
@@ -267,11 +287,9 @@ func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
 	defer closer()
 
 	ctx := context.Background()
-	opts := &querypb.ExecuteOptions{LoadshedValveId: "req-1"}
 
-	conn, _, _, err := txPool.Begin(ctx, opts, false, 0, nil)
+	conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
-	assert.Nil(t, conn.TxProperties().SnakeRelease)
 	conn.Unlock()
 	c, _ := txPool.GetAndLock(conn.ReservedID(), "")
 	_, _ = txPool.Commit(ctx, c)

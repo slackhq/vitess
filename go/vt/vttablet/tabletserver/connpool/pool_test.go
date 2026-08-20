@@ -30,6 +30,7 @@ import (
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/vtenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -115,6 +116,45 @@ func TestConnPoolGetAppDebug(t *testing.T) {
 	if !dbConn.Conn.IsClosed() {
 		t.Fatalf("db conn should be closed after recycle")
 	}
+}
+
+func TestConnPoolGetAppDebug_GatedButUndroppable(t *testing.T) {
+	db := fakesqldb.New(t)
+	debugConn := dbconfigs.New(db.ConnParamsWithUname("debugUsername"))
+	ctx := context.Background()
+	im := callerid.NewImmediateCallerID("debugUsername")
+	ecid := callerid.NewEffectiveCallerID("p", "c", "sc")
+	ctx = callerid.NewContext(ctx, ecid, im)
+	defer db.Close()
+	connPool := newPool()
+	snake := loadshed.NewSnake(loadshed.SnakeConfig{
+		Name: "test",
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs:     func() int64 { return int64(time.Second) },
+			TargetNs:       func() int64 { return int64(time.Second) },
+			Exponent:       func() float64 { return 1.0 },
+			MinDropDelayNs: func() int64 { return 100 },
+		},
+		Capacity:            func() int { return 1 },
+		LoadsheddingAllowed: func() bool { return true },
+	})
+	connPool.SetSnake(snake, 0)
+	params := dbconfigs.New(db.ConnParams())
+	connPool.Open(params, params, debugConn)
+	defer connPool.Close()
+
+	// The appDebug path must go through the same Snake gate as everyone else
+	// (tracked as a holder) rather than bypassing it entirely, as it did
+	// before this integration existed.
+	assert.Equal(t, 0, snake.Stats().HolderCount)
+
+	dbConn, err := connPool.Get(ctx, nil)
+	require.NoError(t, err, "appDebug connections must never be shed")
+	require.NotNil(t, dbConn)
+	assert.Equal(t, 1, snake.Stats().HolderCount, "appDebug acquisition should be tracked as a Snake holder")
+	dbConn.Recycle()
+	assert.True(t, dbConn.Conn.IsClosed(), "db conn should be closed after recycle")
+	assert.Equal(t, 0, snake.Stats().HolderCount, "recycling the appDebug conn should release its Snake slot")
 }
 
 func TestConnPoolSetCapacity(t *testing.T) {
