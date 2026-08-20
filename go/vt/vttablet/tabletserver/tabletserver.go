@@ -2035,11 +2035,14 @@ func (tsv *TabletServer) ReadPoolWaiterCap() int {
 	return int(tsv.qe.conns.MaxWaiters())
 }
 
-func (tsv *TabletServer) SetReadPoolWaiterCapDryRun(val bool) {
+func (tsv *TabletServer) SetPoolWaiterCapDryRun(val bool) {
 	tsv.qe.conns.SetWaiterCapDryRun(val)
+	tsv.qe.streamConns.SetWaiterCapDryRun(val)
+	tsv.te.txPool.scp.conns.SetWaiterCapDryRun(val)
+	tsv.te.txPool.scp.foundRowsPool.SetWaiterCapDryRun(val)
 }
 
-func (tsv *TabletServer) ReadPoolWaiterCapDryRun() bool {
+func (tsv *TabletServer) PoolWaiterCapDryRun() bool {
 	return tsv.qe.conns.WaiterCapDryRun()
 }
 
@@ -2051,14 +2054,6 @@ func (tsv *TabletServer) StreamPoolWaiterCap() int {
 	return int(tsv.qe.streamConns.MaxWaiters())
 }
 
-func (tsv *TabletServer) SetStreamPoolWaiterCapDryRun(val bool) {
-	tsv.qe.streamConns.SetWaiterCapDryRun(val)
-}
-
-func (tsv *TabletServer) StreamPoolWaiterCapDryRun() bool {
-	return tsv.qe.streamConns.WaiterCapDryRun()
-}
-
 func (tsv *TabletServer) SetTxPoolWaiterCap(val int) {
 	tsv.te.txPool.scp.conns.SetMaxWaiters(uint(val))
 	tsv.te.txPool.scp.foundRowsPool.SetMaxWaiters(uint(val))
@@ -2066,15 +2061,6 @@ func (tsv *TabletServer) SetTxPoolWaiterCap(val int) {
 
 func (tsv *TabletServer) TxPoolWaiterCap() int {
 	return int(tsv.te.txPool.scp.conns.MaxWaiters())
-}
-
-func (tsv *TabletServer) SetTxPoolWaiterCapDryRun(val bool) {
-	tsv.te.txPool.scp.conns.SetWaiterCapDryRun(val)
-	tsv.te.txPool.scp.foundRowsPool.SetWaiterCapDryRun(val)
-}
-
-func (tsv *TabletServer) TxPoolWaiterCapDryRun() bool {
-	return tsv.te.txPool.scp.conns.WaiterCapDryRun()
 }
 
 // QueryPlanCacheCap returns the plan cache capacity

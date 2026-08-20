@@ -166,16 +166,12 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setIntValCtx(tsv.SetTxPoolSize)
 	case "ReadPoolWaiterCap":
 		err = setIntVal(tsv.SetReadPoolWaiterCap)
-	case "ReadPoolWaiterCapDryRun":
-		err = setBoolVal(tsv.SetReadPoolWaiterCapDryRun)
 	case "StreamPoolWaiterCap":
 		err = setIntVal(tsv.SetStreamPoolWaiterCap)
-	case "StreamPoolWaiterCapDryRun":
-		err = setBoolVal(tsv.SetStreamPoolWaiterCapDryRun)
 	case "TransactionPoolWaiterCap":
 		err = setIntVal(tsv.SetTxPoolWaiterCap)
-	case "TransactionPoolWaiterCapDryRun":
-		err = setBoolVal(tsv.SetTxPoolWaiterCapDryRun)
+	case "PoolWaiterCapDryRun":
+		err = setBoolVal(tsv.SetPoolWaiterCapDryRun)
 	case "ConsolidatorWaiterCap":
 		err = setIntVal(tsv.SetConsolidatorWaiterCap)
 	case "ConsolidatorWaiterCapDryRun":
@@ -226,11 +222,9 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "StreamPoolSize", tsv.StreamPoolSize)
 	vars = addVar(vars, "TransactionPoolSize", tsv.TxPoolSize)
 	vars = addVar(vars, "ReadPoolWaiterCap", tsv.ReadPoolWaiterCap)
-	vars = addVar(vars, "ReadPoolWaiterCapDryRun", tsv.ReadPoolWaiterCapDryRun)
 	vars = addVar(vars, "StreamPoolWaiterCap", tsv.StreamPoolWaiterCap)
-	vars = addVar(vars, "StreamPoolWaiterCapDryRun", tsv.StreamPoolWaiterCapDryRun)
 	vars = addVar(vars, "TransactionPoolWaiterCap", tsv.TxPoolWaiterCap)
-	vars = addVar(vars, "TransactionPoolWaiterCapDryRun", tsv.TxPoolWaiterCapDryRun)
+	vars = addVar(vars, "PoolWaiterCapDryRun", tsv.PoolWaiterCapDryRun)
 	vars = addVar(vars, "ConsolidatorWaiterCap", tsv.ConsolidatorWaiterCap)
 	vars = addVar(vars, "ConsolidatorWaiterCapDryRun", tsv.ConsolidatorWaiterCapDryRun)
 	vars = addVar(vars, "MaxResultSize", tsv.MaxResultSize)
