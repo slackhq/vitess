@@ -277,7 +277,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 	}
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.lockedCompleteAndShed(req)
+	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
@@ -297,7 +297,7 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.lockedCompleteAndShed(req)
+	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
@@ -308,14 +308,15 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	}
 }
 
-// lockedCompleteAndShed unlinks the released request and, when an episode is
-// active, sheds stale requests synchronously at this dequeue point using a
+// lockedReleaseAndShed releases the request from the valved queue and, when an
+// episode is active, sheds stale requests synchronously at release using a
 // fresh clock — so shedding tracks target continuously instead of waiting on
 // the (possibly late) backstop timer, and runs before granting the next waiter
-// so we promote the freshest survivor. The lockedNeedsAdvance guard keeps the
-// healthy path free of both the advance call and the clock read.
-func (s *Snake) lockedCompleteAndShed(req *Request) {
-	s.q.lockedComplete(req)
+// so we promote the freshest survivor.
+// The lockedNeedsAdvance guard keeps the healthy path free of both the advance
+// call and the clock read.
+func (s *Snake) lockedReleaseAndShed(req *Request) {
+	s.q.lockedRelease(req)
 	if s.q.lockedNeedsAdvance() {
 		s.q.lockedRunTimer()
 	}

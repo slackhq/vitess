@@ -40,7 +40,7 @@ func testValvedDequeue(sq *ValvedCoDelQueue) *Request {
 	}
 	sq.lockedOnGrant(req)
 	req.signal(grantSentinel)
-	sq.lockedComplete(req)
+	sq.lockedRelease(req)
 	return req
 }
 

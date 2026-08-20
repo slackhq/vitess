@@ -185,13 +185,12 @@ func (q *ValvedCoDelQueue) lockedEnqueue(valveID string, priority float64) *Requ
 	return req
 }
 
-// lockedComplete removes a granted (undroppable) request from the queue on
-// Release. Decrements outstanding counts for the valve ID. Promotes the next
+// lockedRelease releases a granted request. Decrements outstanding counts for
+// the valve ID. Promotes the next
 // valve entry if this was the last active entry for the valve ID (i.e., the
 // eager promotion at grant time found nothing to promote, but requests arrived
 // in the valve between grant and release).
-func (q *ValvedCoDelQueue) lockedComplete(req *Request) {
-	q.codelq.lockedComplete(req)
+func (q *ValvedCoDelQueue) lockedRelease(req *Request) {
 	q.decrementOutstanding(req.valveID)
 	if req.valveID != "" {
 		// Promote if no droppable entry exists. This handles the case where
