@@ -185,11 +185,8 @@ func (q *ValvedCoDelQueue) lockedEnqueue(valveID string, priority float64) *Requ
 	return req
 }
 
-// lockedRelease releases a granted request. Decrements outstanding counts for
-// the valve ID. Promotes the next
-// valve entry if this was the last active entry for the valve ID (i.e., the
-// eager promotion at grant time found nothing to promote, but requests arrived
-// in the valve between grant and release).
+// lockedRelease updates valve accounting for a granted request and promotes a
+// pending request when needed.
 func (q *ValvedCoDelQueue) lockedRelease(req *Request) {
 	q.decrementOutstanding(req.valveID)
 	if req.valveID != "" {

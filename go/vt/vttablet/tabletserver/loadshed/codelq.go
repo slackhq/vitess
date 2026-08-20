@@ -78,7 +78,7 @@ import (
         | * timer: armed            |
         *---------------------------*
               |  ^            ^
-    timer     |  |            | release path w/ sojourn < target
+    timer     |  |            | dequeue/release w/ sojourn < target
     fires,    |  |            | or queue emptied (sets dropping=false)
     NOT       |  | timer fires,
     healthy   |  | healthy (dropping=false)
@@ -100,7 +100,7 @@ import (
         interval), jumping count to log2(droppableLen). An episode ends when
         count eases back to 1 — even if a backlog remains; the monitor then
         re-checks the head and re-arms when it next crosses the trigger. The
-        monitor (not release) drives arming so a stuck queue with no
+        monitor (not dequeue/release) drives arming so a stuck queue with no
         completions can still shed.
       * DropBoth: arms on enqueue like slow-start, but while count==1 it also
         watches the head's sojourn (lockedTryJump). The episode leaves count==1
@@ -126,7 +126,7 @@ import (
                |  |
  episode       |  | count eases to 1
  triggered in  |  | (fully relaxed, nothing to do)
- release path  |  |
+ dequeue/release|  |
  (sojourn>trig)|  v
       *-----------------*
       | timer not armed |

@@ -42,11 +42,6 @@ type (
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
 	// Capacity() concurrent holders are allowed. Acquire requests are either
 	// granted or dropped, each within a timely manner.
-	//
-	// Granted requests leave the CoDel queue immediately (see
-	// CoDelQueue.lockedOnGrant) — sojourn is measured at grant, so a held
-	// request no longer needs to occupy a queue node to preserve the
-	// shedding signal.
 	Snake struct {
 		mu sync.Mutex
 
@@ -308,13 +303,8 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	}
 }
 
-// lockedReleaseAndShed releases the request from the valved queue and, when an
-// episode is active, sheds stale requests synchronously at release using a
-// fresh clock — so shedding tracks target continuously instead of waiting on
-// the (possibly late) backstop timer, and runs before granting the next waiter
-// so we promote the freshest survivor.
-// The lockedNeedsAdvance guard keeps the healthy path free of both the advance
-// call and the clock read.
+// lockedReleaseAndShed releases the request and advances CoDel before granting
+// the next waiter when there is active shedding work.
 func (s *Snake) lockedReleaseAndShed(req *Request) {
 	s.q.lockedRelease(req)
 	if s.q.lockedNeedsAdvance() {

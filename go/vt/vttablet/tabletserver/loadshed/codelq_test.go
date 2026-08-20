@@ -139,8 +139,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-// testDequeue simulates the old lockedDequeue behavior using the new primitives:
-// lockedFirstWaiting + lockedOnGrant + signal.
+// testDequeue grants the oldest waiting request.
 func testDequeue(q *CoDelQueue) *Request {
 	req := q.lockedFirstWaiting()
 	if req == nil {
@@ -151,7 +150,7 @@ func testDequeue(q *CoDelQueue) *Request {
 	return req
 }
 
-// --- FirstWaiting tests (replaces old Dequeue tests) ---
+// --- FirstWaiting tests ---
 
 func TestCoDelQueue_FirstWaiting_FIFO(t *testing.T) {
 	clock := newTestClock()
@@ -953,7 +952,7 @@ func TestCoDelQueue_Grant_DoesNotArmInGatedMode(t *testing.T) {
 	q.lockedOnGrant(r)
 	r.signal(grantSentinel)
 	clock.now = 2_000_000_000 // slow sojourn > trigger
-	assert.False(t, q.dropping, "grant no longer arms an episode; the monitor does")
+	assert.False(t, q.dropping, "grant does not arm an episode; the monitor does")
 }
 
 func TestCoDelQueue_Easing_DisarmsAtCountOneWithBacklog(t *testing.T) {
