@@ -71,7 +71,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 	u.Release()
 }
 
-// --- Holder not counted in queue length (sojourn is measured at grant) ---
+// --- Holder not counted in queue length ---
 
 func TestSnake_Overload_HolderNotCountedInQueueLen(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
@@ -79,26 +79,19 @@ func TestSnake_Overload_HolderNotCountedInQueueLen(t *testing.T) {
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
-	// Sojourn is measured at grant, before the request is evicted from the
-	// list, so a held request no longer needs to stay resident to preserve
-	// the shedding signal — queue length should be 0 even right after grant.
 	s.mu.Lock()
 	qLen := s.q.lockedLen()
 	s.mu.Unlock()
-	assert.Equal(t, 0, qLen, "holder should not be counted toward queue length")
+	assert.Equal(t, 0, qLen)
 
 	unlock.Release()
 
 	s.mu.Lock()
 	qLen = s.q.lockedLen()
 	s.mu.Unlock()
-	assert.Equal(t, 0, qLen, "queue should still be empty after release")
+	assert.Equal(t, 0, qLen)
 }
 
-// TestSnake_Overload_WaiterCountedNotHolder proves QueueLen reflects only
-// requests actually waiting for a slot — a held (granted) request is
-// evicted from the list at grant, so it's never counted, while a request
-// still waiting behind it is.
 func TestSnake_Overload_WaiterCountedNotHolder(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
@@ -118,7 +111,7 @@ func TestSnake_Overload_WaiterCountedNotHolder(t *testing.T) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return s.q.lockedLen() == 1
-	}, time.Second, time.Millisecond, "the waiter should be counted, the holder should not")
+	}, time.Second, time.Millisecond, "waiter counted, holder not")
 
 	unlock.Release()
 	require.NoError(t, <-waiterDone)

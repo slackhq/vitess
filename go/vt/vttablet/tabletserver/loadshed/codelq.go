@@ -320,10 +320,8 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 	}
 }
 
-// lockedComplete is a no-op in the common case: lockedOnGrant already evicted
-// the request from the list eagerly at grant time, so by Release there's
-// nothing left to unlink. Guards against a nil codelqElem so a granted
-// request's Release is always safe.
+// lockedComplete unlinks a request from the queue. Usually a no-op, since
+// lockedOnGrant already evicted it at grant time.
 func (q *CoDelQueue) lockedComplete(r *Request) {
 	if r.codelqElem == nil {
 		return
@@ -409,12 +407,8 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	}
 }
 
-// lockedOnGrant marks a request granted and evicts it from the underlying
-// list immediately: sojourn (queue-wait) is measured right here, at grant,
-// so a held request no longer needs to occupy a list node to preserve the
-// shedding signal — that's now lockedAdvance's job via lockedFirstWaiting.
-// Guarded by codelqElem != nil so a second call (or a subsequent
-// lockedComplete) is a safe no-op.
+// lockedOnGrant marks a request granted and evicts it from the list.
+// Guarded so a second call, or a subsequent lockedComplete, is a no-op.
 func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	// CoDel health check, measured at grant: if this request's queue-wait
 	// (now - enqueue) was under target, the system is healthy — leave the

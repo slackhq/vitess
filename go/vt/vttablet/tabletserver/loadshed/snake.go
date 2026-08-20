@@ -44,9 +44,9 @@ type (
 	// granted or dropped, each within a timely manner.
 	//
 	// Granted requests leave the CoDel queue immediately (see
-	// CoDelQueue.lockedOnGrant): sojourn — the shedding signal — is measured
-	// at grant, before eviction, so a held request no longer needs to
-	// occupy a queue node to preserve that signal.
+	// CoDelQueue.lockedOnGrant) — sojourn is measured at grant, so a held
+	// request no longer needs to occupy a queue node to preserve the
+	// shedding signal.
 	Snake struct {
 		mu sync.Mutex
 
