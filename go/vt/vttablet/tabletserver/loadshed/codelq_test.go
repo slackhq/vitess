@@ -503,19 +503,6 @@ func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-func TestCoDelQueue_OnGrant_Idempotent(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	r1 := testEnqueue(q, 0)
-	assert.Equal(t, 1, q.droppableLen)
-
-	q.lockedOnGrant(r1)
-	q.lockedOnGrant(r1)
-	assert.Equal(t, 0, q.droppableLen)
-	assert.Nil(t, r1.codelqElem, "no double-remove")
-}
-
 // --- Advance head-check: resident holder vs. real backlog staleness ---
 
 func TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops(t *testing.T) {

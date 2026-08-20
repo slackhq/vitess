@@ -407,8 +407,6 @@ func (q *CoDelQueue) lockedRemove(r *Request) {
 	}
 }
 
-// lockedOnGrant marks a request granted and evicts it from the list.
-// Guarded so a second call, or a subsequent lockedComplete, is a no-op.
 func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	// CoDel health check, measured at grant: if this request's queue-wait
 	// (now - enqueue) was under target, the system is healthy — leave the
@@ -424,11 +422,9 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 			q.dropping = false
 		}
 	}
-	if r.codelqElem != nil {
-		q.lockedAdvanceFirstWaiting(r.codelqElem)
-		q.queue.Remove(r.codelqElem)
-		r.codelqElem = nil
-	}
+	q.lockedAdvanceFirstWaiting(r.codelqElem)
+	q.queue.Remove(r.codelqElem)
+	r.codelqElem = nil
 }
 
 // lockedAdvanceFirstWaiting advances the firstWaiting pointer past elem if
