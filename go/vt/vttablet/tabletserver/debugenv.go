@@ -143,6 +143,19 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setBoolVal := func(f func(bool)) error {
+		switch value {
+		case "true", "1":
+			f(true)
+		case "false", "0":
+			f(false)
+		default:
+			return fmt.Errorf("invalid bool value for %v: %v", varname, value)
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	var err error
 	switch varname {
 	case "ReadPoolSize":
@@ -151,6 +164,22 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setIntValCtx(tsv.SetStreamPoolSize)
 	case "TransactionPoolSize":
 		err = setIntValCtx(tsv.SetTxPoolSize)
+	case "ReadPoolWaiterCap":
+		err = setIntVal(tsv.SetReadPoolWaiterCap)
+	case "ReadPoolWaiterCapDryRun":
+		err = setBoolVal(tsv.SetReadPoolWaiterCapDryRun)
+	case "StreamPoolWaiterCap":
+		err = setIntVal(tsv.SetStreamPoolWaiterCap)
+	case "StreamPoolWaiterCapDryRun":
+		err = setBoolVal(tsv.SetStreamPoolWaiterCapDryRun)
+	case "TransactionPoolWaiterCap":
+		err = setIntVal(tsv.SetTxPoolWaiterCap)
+	case "TransactionPoolWaiterCapDryRun":
+		err = setBoolVal(tsv.SetTxPoolWaiterCapDryRun)
+	case "ConsolidatorWaiterCap":
+		err = setIntVal(tsv.SetConsolidatorWaiterCap)
+	case "ConsolidatorWaiterCapDryRun":
+		err = setBoolVal(tsv.SetConsolidatorWaiterCapDryRun)
 	case "MaxResultSize":
 		err = setIntVal(tsv.SetMaxResultSize)
 	case "WarnResultSize":
@@ -196,6 +225,14 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "ReadPoolSize", tsv.PoolSize)
 	vars = addVar(vars, "StreamPoolSize", tsv.StreamPoolSize)
 	vars = addVar(vars, "TransactionPoolSize", tsv.TxPoolSize)
+	vars = addVar(vars, "ReadPoolWaiterCap", tsv.ReadPoolWaiterCap)
+	vars = addVar(vars, "ReadPoolWaiterCapDryRun", tsv.ReadPoolWaiterCapDryRun)
+	vars = addVar(vars, "StreamPoolWaiterCap", tsv.StreamPoolWaiterCap)
+	vars = addVar(vars, "StreamPoolWaiterCapDryRun", tsv.StreamPoolWaiterCapDryRun)
+	vars = addVar(vars, "TransactionPoolWaiterCap", tsv.TxPoolWaiterCap)
+	vars = addVar(vars, "TransactionPoolWaiterCapDryRun", tsv.TxPoolWaiterCapDryRun)
+	vars = addVar(vars, "ConsolidatorWaiterCap", tsv.ConsolidatorWaiterCap)
+	vars = addVar(vars, "ConsolidatorWaiterCapDryRun", tsv.ConsolidatorWaiterCapDryRun)
 	vars = addVar(vars, "MaxResultSize", tsv.MaxResultSize)
 	vars = addVar(vars, "WarnResultSize", tsv.WarnResultSize)
 	vars = addVar(vars, "RowStreamerMaxInnoDBTrxHistLen", func() int64 { return tsv.Config().RowStreamer.MaxInnoDBTrxHistLen })

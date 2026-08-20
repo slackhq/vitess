@@ -1478,7 +1478,7 @@ func TestQueryExecutorConsolidatorWaiterCapFallback(t *testing.T) {
 	defer tsv.StopService()
 
 	// Set a waiter cap of 1
-	tsv.config.ConsolidatorQueryWaiterCap = 1
+	tsv.consolidatorWaiterCap.Store(1)
 
 	fakeConsolidator := sync2.NewFakeConsolidator()
 	tsv.qe.consolidator = fakeConsolidator
@@ -1551,7 +1551,7 @@ func TestQueryExecutorConsolidatorWaiterCapReject(t *testing.T) {
 	defer tsv.StopService()
 
 	// Set waiter cap of 1 and method to "reject"
-	tsv.config.ConsolidatorQueryWaiterCap = 1
+	tsv.consolidatorWaiterCap.Store(1)
 	tsv.config.ConsolidatorQueryWaiterCapMethod = "reject"
 
 	fakeConsolidator := sync2.NewFakeConsolidator()
@@ -1623,9 +1623,9 @@ func TestQueryExecutorConsolidatorWaiterCapRejectDryRun(t *testing.T) {
 	defer tsv.StopService()
 
 	// Set waiter cap of 1, method to "reject", and enable dryrun
-	tsv.config.ConsolidatorQueryWaiterCap = 1
+	tsv.consolidatorWaiterCap.Store(1)
 	tsv.config.ConsolidatorQueryWaiterCapMethod = "reject"
-	tsv.config.ConsolidatorQueryWaiterCapDryRun = true
+	tsv.consolidatorWaiterCapDryRun.Store(true)
 
 	fakeConsolidator := sync2.NewFakeConsolidator()
 	tsv.qe.consolidator = fakeConsolidator
