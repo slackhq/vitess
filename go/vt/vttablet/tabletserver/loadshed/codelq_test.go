@@ -513,25 +513,6 @@ func TestCoDelQueue_OnGrant_Idempotent(t *testing.T) {
 
 // --- Advance head-check: resident holder vs. real backlog staleness ---
 
-// TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops proves
-// that lockedAdvance's re-arm head-check judges staleness by the oldest
-// WAITING request, not by whatever happens to sit at the raw list front. A
-// granted request that's still resident in the queue (as an UNDROPPABLE
-// entry, pending Release) can never itself be dropped, so its age is
-// irrelevant to "is there a stale droppable candidate" — using it anyway
-// makes a multi-interval catch-up (e.g. a backstop timer that fired late)
-// ramp count and shed a perfectly healthy backlog.
-//
-// Concretely: a straggler granted 900ms ago is still resident. A backstop
-// timer that's 3 intervals (300ms) behind fires against 6 requests that are
-// each only 5ms old (well under target). Judging staleness by the straggler
-// sheds the entire healthy backlog (6 drops, count ramps to 7) before easing
-// back down; judging it by the oldest real waiter sheds only 1 before
-// recognizing the backlog is healthy (count never exceeds 2). Both end with
-// dropping=true — the very last iteration's check is a tautology (any
-// resident timestamp is by definition <= now < the just-advanced
-// dropNextNs) — so the bug is about how many requests get shed along the
-// way during catch-up, not about the final dropping/healthy verdict.
 func TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops(t *testing.T) {
 	clock := newTestClock()
 	cfg := CoDelConfig{
@@ -543,14 +524,10 @@ func TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops(t *te
 	}
 	q, _ := newTestQueue(cfg, clock)
 
-	// Straggler: enqueued early, granted almost immediately, stays resident
-	// in the raw list (undroppable) until Release — that's unrelated to this
-	// fix; it's exactly the pre-existing "semaphore fused into the queue"
-	// behavior. This fix only changes which entry the staleness check reads.
 	clock.now = 100_000_000
 	straggler := testEnqueue(q, 0)
 	q.lockedOnGrant(straggler)
-	require.NotNil(t, straggler.codelqElem, "sanity: straggler remains resident (grant-time eviction is separate work)")
+	require.NotNil(t, straggler.codelqElem, "precondition")
 
 	// Six fresh, healthy waiters arrive together, well after the straggler.
 	clock.now = 995_000_000

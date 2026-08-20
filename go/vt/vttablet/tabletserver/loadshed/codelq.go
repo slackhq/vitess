@@ -537,16 +537,8 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 		// from re-arming: only the monitor (on a trigger crossing) may take count
 		// off 1 in jump-start. In arm-on-enqueue modes the head-check re-arms at
 		// count==1 as usual.
-		//
-		// Judge staleness by the oldest WAITING request (lockedFirstWaiting),
-		// not the raw list head (lockedPeek): a granted request can stay
-		// resident in the list as UNDROPPABLE until Release, and it can never
-		// be a drop candidate, so its age must not drive this decision. We
-		// still call lockedPeek for its defensive cleanup side effect (it
-		// purges a done-with-error request left resident by a bypassed
-		// signal path) and to keep firstWaiting itself in sync.
 		if q.droppableLen > 0 && (q.count > 1 || q.armsOnEnqueue()) {
-			q.lockedPeek()
+			q.lockedPeek() // cleanup
 			if first := q.lockedFirstWaiting(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
 				q.dropping = true
 			}
