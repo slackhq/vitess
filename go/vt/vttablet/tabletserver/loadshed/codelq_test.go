@@ -547,11 +547,11 @@ func TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops(t *te
 	drops := 0
 	q.lockedRunTimer(countingDropFn(q, &drops))
 
-	assert.Equal(t, 1, drops, "only the straggler's presence in the list should be irrelevant; the fresh backlog should cause at most 1 drop before being recognized as healthy")
-	assert.Equal(t, 1, q.count, "count should never ramp past the point where the real backlog is recognized as healthy")
+	assert.Equal(t, 1, drops)
+	assert.Equal(t, 1, q.count)
 	assert.Equal(t, int64(1_050_000_000), q.dropNextNs)
 	assert.Equal(t, 5, q.droppableLen)
-	assert.True(t, q.dropping, "final-iteration tautology: re-marked true regardless, since dropNextNs just advanced past now")
+	assert.True(t, q.dropping, "tautology: last iteration always re-marks true")
 }
 
 // --- Integration: fast vs slow moving ---
