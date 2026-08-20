@@ -43,8 +43,10 @@ type (
 	// Capacity() concurrent holders are allowed. Acquire requests are either
 	// granted or dropped, each within a timely manner.
 	//
-	// Granted requests stay in the CoDel queue as undroppable until Release,
-	// preserving the queue's system-pressure signal for accurate shedding.
+	// Granted requests leave the CoDel queue immediately (see
+	// CoDelQueue.lockedOnGrant): sojourn — the shedding signal — is measured
+	// at grant, before eviction, so a held request no longer needs to
+	// occupy a queue node to preserve that signal.
 	Snake struct {
 		mu sync.Mutex
 

@@ -252,8 +252,8 @@ func TestPublishStats_QueueAndHolderHistogramsRecord(t *testing.T) {
 	assert.Positive(t, queueLen.Count(), "enqueue should record a queue-length observation")
 	assert.Positive(t, holderCount.Count(), "grant should record a holder-count observation")
 
-	// Release records again (queue length drops as the granted entry leaves; the
-	// holder delete is observed too).
+	// Release records again (queue length already dropped at grant, when the
+	// entry was evicted from the list; the holder delete is observed here).
 	beforeQueue := queueLen.Count()
 	beforeHolder := holderCount.Count()
 	require.NoError(t, unlock.Release())

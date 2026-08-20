@@ -71,27 +71,57 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 	u.Release()
 }
 
-// --- Holder keeps queue non-empty (preserves CoDel pressure signal) ---
+// --- Holder not counted in queue length (sojourn is measured at grant) ---
 
-func TestSnake_Overload_HolderKeepsQueueNonEmpty(t *testing.T) {
+func TestSnake_Overload_HolderNotCountedInQueueLen(t *testing.T) {
 	s := NewSnake(defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
-	// The holder stays at the head — queue length should be 1 even though
-	// the lock is granted and no one else is waiting.
+	// Sojourn is measured at grant, before the request is evicted from the
+	// list, so a held request no longer needs to stay resident to preserve
+	// the shedding signal — queue length should be 0 even right after grant.
 	s.mu.Lock()
 	qLen := s.q.lockedLen()
 	s.mu.Unlock()
-	assert.Equal(t, 1, qLen, "holder should remain in queue to preserve pressure signal")
+	assert.Equal(t, 0, qLen, "holder should not be counted toward queue length")
 
 	unlock.Release()
 
 	s.mu.Lock()
 	qLen = s.q.lockedLen()
 	s.mu.Unlock()
-	assert.Equal(t, 0, qLen, "queue should be empty after release")
+	assert.Equal(t, 0, qLen, "queue should still be empty after release")
+}
+
+// TestSnake_Overload_WaiterCountedNotHolder proves QueueLen reflects only
+// requests actually waiting for a slot — a held (granted) request is
+// evicted from the list at grant, so it's never counted, while a request
+// still waiting behind it is.
+func TestSnake_Overload_WaiterCountedNotHolder(t *testing.T) {
+	s := NewSnake(defaultSnakeConfig())
+
+	unlock, err := s.Acquire(t.Context(), "", 0)
+	require.NoError(t, err)
+
+	waiterDone := make(chan error, 1)
+	go func() {
+		u, err := s.Acquire(t.Context(), "", 0)
+		if err == nil {
+			u.Release()
+		}
+		waiterDone <- err
+	}()
+
+	assert.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.q.lockedLen() == 1
+	}, time.Second, time.Millisecond, "the waiter should be counted, the holder should not")
+
+	unlock.Release()
+	require.NoError(t, <-waiterDone)
 }
 
 // --- Mass cancel at Snake layer ---

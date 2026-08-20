@@ -249,18 +249,28 @@ func TestCoDelQueue_Peek_CleansHeadCancelled(t *testing.T) {
 	assert.Equal(t, 1, q.lockedLen())
 }
 
-func TestCoDelQueue_Peek_KeepsDoneNotCancelled(t *testing.T) {
+// TestCoDelQueue_OnGrant_EvictsFromListImmediately proves that a granted
+// request leaves the underlying list at grant time rather than lingering
+// (as an UNDROPPABLE entry) until Release — sojourn is measured at grant, so
+// the queue no longer needs a held request occupying a list node to
+// preserve the shedding signal. lockedComplete on the already-evicted
+// request must stay a safe no-op (no double-removal panic).
+func TestCoDelQueue_OnGrant_EvictsFromListImmediately(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	r1 := testEnqueue(q, 0)
+	require.NotNil(t, r1.codelqElem)
 
 	r1.signal(grantSentinel)
 	q.lockedOnGrant(r1)
 
-	peeked := q.lockedPeek()
-	assert.Same(t, r1, peeked)
-	assert.Equal(t, 1, q.lockedLen())
+	assert.Nil(t, r1.codelqElem, "grant should evict immediately")
+	assert.Nil(t, q.lockedPeek(), "nothing left to peek")
+	assert.Equal(t, 0, q.lockedLen())
+
+	q.lockedComplete(r1)
+	assert.Equal(t, 0, q.lockedLen(), "release after grant-time eviction is a no-op, not a double-decrement")
 }
 
 // --- Drop tests ---
@@ -509,6 +519,7 @@ func TestCoDelQueue_OnGrant_Idempotent(t *testing.T) {
 	q.lockedOnGrant(r1)
 	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
+	assert.Nil(t, r1.codelqElem, "second grant must not double-remove an already-evicted request")
 }
 
 // --- Advance head-check: resident holder vs. real backlog staleness ---
