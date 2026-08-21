@@ -51,9 +51,8 @@ type (
 	// job execution instance ID.
 	//
 	// Invariant: each nonempty valve always has exactly one droppable entry
-	// in the CoDel queue. A valve may also have one undroppable (granted)
-	// entry — but the droppable entry is always present so CoDel can measure
-	// sojourn time and shed load when necessary.
+	// in the CoDel queue. The droppable entry is always present so CoDel can
+	// measure sojourn time and shed load when necessary.
 	//
 	// This approach has a few benefits:
 	//   1. Pushes successive requests back to the end of the queue, which is
@@ -90,9 +89,7 @@ type (
 		valves map[string][]*Request
 
 		// outstandingCounts tracks the total number of outstanding requests per
-		// valve ID (in CoDel queue + in valve). Note that there may be multiple
-		// requests for any one valve in the CoDel queue (one droppable and
-		// one-or-more granted).
+		// valve ID (in CoDel queue + in valve).
 		outstandingCounts map[string]int
 
 		// droppablePerValve tracks which request is the current droppable

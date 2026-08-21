@@ -335,7 +335,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 	for q.queue.Len() > 0 {
 		front := q.queue.Front()
 		req := front.Value.(*Request)
-		if req.signaledValue == nil || req.signaledValue == grantSentinel {
+		if req.signaledValue == nil {
 			return req
 		}
 		q.lockedAdvanceFirstWaiting(front)
@@ -406,7 +406,6 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	}
 	if r.isDroppable() {
 		q.droppable.remove(r)
-		r.priority = PriorityUndroppable
 		q.droppableLen--
 		if q.droppableLen == 0 {
 			q.dropping = false

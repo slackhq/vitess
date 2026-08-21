@@ -484,7 +484,6 @@ func TestCoDelQueue_OnGrant(t *testing.T) {
 
 	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
-	assert.False(t, r1.isDroppable())
 }
 
 func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
