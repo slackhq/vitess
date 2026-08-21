@@ -1122,7 +1122,6 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	before := replication.ReplicationStatusToProto(rs)
 	before.BackupRunning = tm.IsBackupRunning()
 
-
 	if stopReplicationMode == replicationdatapb.StopReplicationMode_IOTHREADONLY {
 		if !rs.IOHealthy() {
 			before.ServerVersion = tm.getMySQLVersionStringBounded(ctx)
