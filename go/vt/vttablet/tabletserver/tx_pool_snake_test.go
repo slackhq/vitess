@@ -294,3 +294,18 @@ func TestTxPoolSnake_RuntimeEnablement(t *testing.T) {
 	assert.NotNil(t, conn.TxProperties().SnakeRelease)
 	conn.Release(tx.ConnRelease)
 }
+
+func TestTxPoolSnake_RespectsPoolTimeout(t *testing.T) {
+	_, txPool, closer := setupWithSnake(t, 1)
+	defer closer()
+	txPool.env.Config().TxPool.Timeout = 20 * time.Millisecond
+
+	conn, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
+	require.NoError(t, err)
+	defer conn.Release(tx.ConnRelease)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, _, _, err = txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+	require.ErrorContains(t, err, "transaction pool connection limit exceeded")
+}
