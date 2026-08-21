@@ -112,6 +112,14 @@ func sortRelayLogPositions(p []*RelayLogPositions) []*RelayLogPositions {
 	return positions
 }
 
+// hasMysql56GTIDSet reports whether a position carries a MySQL 5.6-style GTID
+// set (the "GTID-based" classification), including a typed-but-empty set such
+// as "MySQL56/". A nil or non-Mysql56 GTID set returns false.
+func hasMysql56GTIDSet(pos replication.Position) bool {
+	_, ok := pos.GTIDSet.(replication.Mysql56GTIDSet)
+	return ok
+}
+
 // FindPositionsOfAllCandidates will find candidates for an emergency
 // reparent, and, if successful, return a mapping of those tablet aliases (as
 // raw strings) to their replication positions for later comparison.
@@ -153,7 +161,7 @@ func FindPositionsOfAllCandidates(
 	)
 
 	for alias, status := range replicationStatusMap {
-		if _, ok := status.RelayLogPosition.GTIDSet.(replication.Mysql56GTIDSet); ok {
+		if hasMysql56GTIDSet(status.RelayLogPosition) {
 			isGTIDBased = true
 		} else {
 			isNonGTIDBased = true
@@ -167,29 +175,16 @@ func FindPositionsOfAllCandidates(
 		}
 	}
 
-	// Fold former-primary flavors into detection. A zero position (a former primary
-	// with no executed transactions) tells us nothing about the flavor, so skip it
-	// rather than treating it as non-GTID. An empty-but-typed GTID set (e.g. a fresh,
-	// never-initialized tablet reporting "MySQL56/") is equally flavor-agnostic: its
-	// GTIDSet is non-nil, so this fork's Position.IsZero (which only checks for a nil
-	// GTIDSet) does not treat it as zero. Skip empty sets explicitly so an
-	// uninitialized shard is not misclassified as GTID-based, which would trigger
-	// errant-GTID detection and its reparent-journal reads against tablets that have
-	// no _vt database yet.
-	//
-	// TODO: simplify to just `if pos.IsZero()` once this fork includes upstream
-	// commit 1c5ca23f5d (PR #18196), which makes Position.IsZero fold in
-	// GTIDSet.Empty() and adds Empty() to the GTIDSet interface. At that point the
-	// explicit concrete-type emptiness check below is redundant and this loop can
-	// match upstream verbatim, reducing our divergence from upstream/main.
+	// Fold former-primary flavors into detection. A position with no decoded GTID
+	// set at all (a former primary whose executed position was empty, e.g. "") is
+	// flavor-agnostic, so skip it rather than treating it as non-GTID. A typed but
+	// empty set (e.g. "MySQL56/" with no transactions) still identifies the flavor
+	// and is counted.
 	for _, pos := range primaryPositions {
-		if pos.IsZero() {
+		if pos.GTIDSet == nil {
 			continue
 		}
-		if gtidSet, ok := pos.GTIDSet.(replication.Mysql56GTIDSet); ok {
-			if len(gtidSet) == 0 {
-				continue
-			}
+		if hasMysql56GTIDSet(pos) {
 			isGTIDBased = true
 		} else {
 			isNonGTIDBased = true
