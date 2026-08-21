@@ -277,3 +277,20 @@ func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
 	_, _ = txPool.Commit(ctx, c)
 	c.Release(tx.TxCommit)
 }
+
+func TestTxPoolSnake_RuntimeEnablement(t *testing.T) {
+	_, txPool, closer := setupWithSnake(t, 2)
+	defer closer()
+
+	txPool.env.Config().LoadshedTx.SetEnabled(false)
+	conn, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, conn.TxProperties().SnakeRelease)
+	conn.Release(tx.ConnRelease)
+
+	txPool.env.Config().LoadshedTx.SetEnabled(true)
+	conn, _, _, err = txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, conn.TxProperties().SnakeRelease)
+	conn.Release(tx.ConnRelease)
+}

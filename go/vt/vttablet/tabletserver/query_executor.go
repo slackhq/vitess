@@ -837,7 +837,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		// schema (e.g. performance_schema health checks) are marked undroppable
 		// instead, so they are never shed.
 		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
-		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedUndroppableSchemas) {
+		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
 			snakePriority = loadshed.PriorityUndroppable
 		}
 		unlock, err := snake.Acquire(ctx, valveID, snakePriority)

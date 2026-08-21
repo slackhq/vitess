@@ -856,16 +856,108 @@ func TestSnake_Priority_HonorsCallerPriority(t *testing.T) {
 	}
 }
 
-// TestSnake_Priority_GateOverridesToUndroppable confirms that when shedding is
-// disallowed the caller's priority is ignored and the request is made
-// undroppable, regardless of how important the caller marked it.
-func TestSnake_Priority_GateOverridesToUndroppable(t *testing.T) {
+func TestSnake_Priority_DisabledPreservesCallerPriority(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.LoadsheddingAllowed = func() bool { return false }
 	s := newTestSnake(cfg)
 
 	for _, priority := range []float64{0, 50, 100} {
-		assert.Equal(t, PriorityUndroppable, s.priority(priority),
-			"a closed shedding gate must override any caller priority to undroppable")
+		assert.Equal(t, priority, s.priority(priority))
 	}
+}
+
+func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
+	type result struct {
+		unlock *SafeUnlock
+		err    error
+	}
+	const waiters = 10
+
+	runDueBatch := func(s *Snake) {
+		s.mu.Lock()
+		s.lockedStopDropTimer()
+		s.q.codelq.dropping = true
+		s.q.codelq.count = s.q.codelq.graceCount()
+		s.q.codelq.dropNextNs = s.clockFunc()
+		pending := s.lockedEnqueueAdvance()
+		s.mu.Unlock()
+		for _, req := range pending {
+			req.sendSignal()
+		}
+	}
+
+	newLoadedSnake := func(t *testing.T) (*Snake, *SafeUnlock, *atomic.Bool, context.CancelFunc, <-chan result) {
+		t.Helper()
+		allowed := &atomic.Bool{}
+		allowed.Store(true)
+		cfg := defaultSnakeConfig()
+		cfg.Capacity = func() int { return 1 }
+		cfg.LoadsheddingAllowed = allowed.Load
+		cfg.CoDel.TargetNs = func() int64 { return time.Millisecond.Nanoseconds() }
+		cfg.CoDel.IntervalNs = func() int64 { return (10 * time.Millisecond).Nanoseconds() }
+		cfg.CoDel.MinDropDelayNs = func() int64 { return (10 * time.Millisecond).Nanoseconds() }
+		s := newTestSnake(cfg)
+
+		holder, err := s.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		resultCh := make(chan result, waiters)
+		for range waiters {
+			go func() {
+				unlock, err := s.Acquire(ctx, "", 0)
+				resultCh <- result{unlock: unlock, err: err}
+			}()
+		}
+		require.Eventually(t, func() bool {
+			return s.Stats().DroppableLen == waiters
+		}, time.Second, time.Millisecond)
+		return s, holder, allowed, cancel, resultCh
+	}
+
+	t.Run("enabled sheds", func(t *testing.T) {
+		s, holder, _, cancel, resultCh := newLoadedSnake(t)
+		defer cancel()
+		runDueBatch(s)
+
+		var first result
+		require.Eventually(t, func() bool {
+			select {
+			case first = <-resultCh:
+				return true
+			default:
+				return false
+			}
+		}, time.Second, time.Millisecond)
+		assert.Error(t, first.err)
+
+		cancel()
+		require.NoError(t, holder.Release())
+		for range waiters - 1 {
+			res := <-resultCh
+			if res.unlock != nil {
+				require.NoError(t, res.unlock.Release())
+			}
+		}
+	})
+
+	t.Run("disabled preserves waiters", func(t *testing.T) {
+		s, holder, allowed, cancel, resultCh := newLoadedSnake(t)
+		defer cancel()
+		allowed.Store(false)
+		runDueBatch(s)
+
+		assert.Never(t, func() bool {
+			return len(resultCh) > 0
+		}, 150*time.Millisecond, time.Millisecond)
+		assert.False(t, s.IsHealthy(), "disabled shedding must still observe queue health")
+
+		require.NoError(t, holder.Release())
+		for range waiters {
+			res := <-resultCh
+			require.NoError(t, res.err)
+			require.NotNil(t, res.unlock)
+			require.NoError(t, res.unlock.Release())
+		}
+	})
 }

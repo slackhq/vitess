@@ -450,6 +450,10 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 // independent of drop pacing, so it runs on every call; the paced drop/ease/
 // re-arm work runs only when a drop is actually due (now >= dropNextNs).
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
+	q.lockedRunTimerLimited(dropFn, -1)
+}
+
+func (q *CoDelQueue) lockedRunTimerLimited(dropFn func() bool, maxDrops int) {
 	now := q.nowNs()
 
 	// Jump-start: while count==1 the timer is disarmed and only monitors the
@@ -471,7 +475,7 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 		return
 	}
 
-	q.lockedAdvance(now, dropFn)
+	q.lockedAdvanceLimited(now, dropFn, maxDrops)
 
 	// Jump-start: after easing back to 1, hand off to the monitor rather than
 	// re-arming. In jump-start the monitor is the sole arming authority (it arms
@@ -497,12 +501,17 @@ func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 // waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer
 // or run mode-specific jump/monitor logic; those remain the timer's job.
 func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
+	q.lockedAdvanceLimited(now, dropFn, -1)
+}
+
+func (q *CoDelQueue) lockedAdvanceLimited(now int64, dropFn func() bool, maxDrops int) {
+	drops := 0
 	// Step the control law per interval while a drop is due AND there is still
 	// work to do: either a droppable backlog to shed, or an elevated count that
 	// must ease back to 1. The count>1 term is essential for recovery — once the
 	// queue drains (droppableLen==0) the ease branch still needs to run to decay
 	// count and end the episode, otherwise the queue never returns to healthy.
-	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) {
+	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) && (maxDrops < 0 || drops < maxDrops) {
 		// Dropping: actively shed load.
 		dropped := q.dropping
 		if q.dropping {
@@ -512,6 +521,7 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 				dropped = dropFn()
 			}
 			if dropped {
+				drops++
 				q.count++
 				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 			}

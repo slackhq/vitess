@@ -80,7 +80,6 @@ var (
 	unhealthyThreshold           time.Duration
 	transitionGracePeriod        time.Duration
 	enableReplicationReporter    bool
-	enableLoadshed               bool
 )
 
 func init() {
@@ -225,13 +224,18 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
-	fs.BoolVar(&enableLoadshed, "loadshed-enabled", true, "If true, enables CoDel-based load shedding on the OLTP read and transaction pools.")
-	fs.DurationVar(&currentConfig.LoadshedTarget, "loadshed-target", defaultConfig.LoadshedTarget, "CoDel target delay for the load shedder.")
-	fs.Float64Var(&currentConfig.LoadshedIntervalRatio, "loadshed-interval-ratio", defaultConfig.LoadshedIntervalRatio, "CoDel observation interval for the load shedder, as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20.")
-	fs.StringVar(&currentConfig.LoadshedDropMode, "loadshed-drop-mode", defaultConfig.LoadshedDropMode, "CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both.")
-	fs.DurationVar(&currentConfig.LoadshedTrigger, "loadshed-trigger", defaultConfig.LoadshedTrigger, "CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).")
-	fs.IntVar(&currentConfig.LoadshedGraceCount, "loadshed-grace-count", defaultConfig.LoadshedGraceCount, "CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period.")
-	fs.StringSliceVar(&currentConfig.LoadshedUndroppableSchemas, "loadshed-undroppable-schemas", defaultConfig.LoadshedUndroppableSchemas, "Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed.")
+	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead.LoadshedConfig, defaultConfig.LoadshedOltpRead.LoadshedConfig)
+	fs.StringSliceVar(&currentConfig.LoadshedOltpRead.UndroppableSchemas, "loadshed-oltp-read-undroppable-schemas", defaultConfig.LoadshedOltpRead.UndroppableSchemas, "Schema qualifiers whose OLTP read queries are never shed.")
+	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
+}
+
+func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, defaultCfg LoadshedConfig) {
+	fs.BoolVar(&cfg.Enabled, "loadshed-"+pool+"-enabled", defaultCfg.Enabled, "If true, enables CoDel-based load shedding on the "+pool+" pool.")
+	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
+	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
+	fs.StringVar(&cfg.DropMode, "loadshed-"+pool+"-drop-mode", defaultCfg.DropMode, "CoDel drop mode for the "+pool+" load shedder: slow, jump, or both.")
+	fs.DurationVar(&cfg.Trigger, "loadshed-"+pool+"-trigger", defaultCfg.Trigger, "CoDel sojourn threshold for the "+pool+" load shedder. 0 defaults to its CoDel interval.")
+	fs.IntVar(&cfg.GraceCount, "loadshed-"+pool+"-grace-count", defaultCfg.GraceCount, "CoDel grace count for the "+pool+" load shedder.")
 }
 
 var (
@@ -304,7 +308,6 @@ func Init() {
 	currentConfig.GracePeriods.Transition = transitionGracePeriod
 	currentConfig.SemiSyncMonitor.Interval = semiSyncMonitorInterval
 
-	currentConfig.LoadshedEnabled = enableLoadshed
 	logFormat := streamlog.GetQueryLogConfig().Format
 	switch logFormat {
 	case streamlog.QueryLogFormatText:
@@ -398,35 +401,133 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedEnabled       bool          `json:"-"`
-	LoadshedTarget        time.Duration `json:"-"`
-	LoadshedIntervalRatio float64       `json:"-"`
-	LoadshedDropMode      string        `json:"-"`
-	LoadshedTrigger       time.Duration `json:"-"`
-	LoadshedGraceCount    int           `json:"-"`
-	// LoadshedUndroppableSchemas lists schema qualifiers (e.g. performance_schema)
-	// whose queries are marked undroppable by the load shedder, so low-volume
-	// health-check/monitoring traffic against them is never shed. Matched
-	// case-insensitively against the query's table qualifiers.
-	LoadshedUndroppableSchemas []string `json:"-"`
+	LoadshedOltpRead OltpLoadshedConfig `json:"-"`
+	LoadshedTx       LoadshedConfig     `json:"-"`
+}
+
+type LoadshedConfig struct {
+	mu            *sync.RWMutex
+	Enabled       bool
+	Target        time.Duration
+	IntervalRatio float64
+	DropMode      string
+	Trigger       time.Duration
+	GraceCount    int
+}
+
+type OltpLoadshedConfig struct {
+	LoadshedConfig
+	schemasMu          *sync.RWMutex
+	UndroppableSchemas []string
+}
+
+func (c *LoadshedConfig) IsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Enabled
+}
+
+func (c *LoadshedConfig) SetEnabled(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Enabled = enabled
+}
+
+func (c *LoadshedConfig) TargetValue() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Target
+}
+
+func (c *LoadshedConfig) SetTarget(target time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Target = target
+}
+
+func (c *LoadshedConfig) IntervalRatioValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.IntervalRatio
+}
+
+func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.IntervalRatio = intervalRatio
+}
+
+func (c *LoadshedConfig) DropModeValue() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DropMode
+}
+
+func (c *LoadshedConfig) SetDropMode(dropMode string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.DropMode = dropMode
+}
+
+func (c *LoadshedConfig) TriggerValue() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Trigger
+}
+
+func (c *LoadshedConfig) SetTrigger(trigger time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Trigger = trigger
+}
+
+func (c *LoadshedConfig) GraceCountValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.GraceCount
+}
+
+func (c *LoadshedConfig) SetGraceCount(graceCount int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.GraceCount = graceCount
+}
+
+func (c *OltpLoadshedConfig) UndroppableSchemasValue() []string {
+	if c.schemasMu == nil {
+		return append([]string(nil), c.UndroppableSchemas...)
+	}
+	c.schemasMu.RLock()
+	defer c.schemasMu.RUnlock()
+	return append([]string(nil), c.UndroppableSchemas...)
+}
+
+func (c *OltpLoadshedConfig) SetUndroppableSchemas(schemas []string) {
+	if c.schemasMu == nil {
+		c.schemasMu = &sync.RWMutex{}
+	}
+	c.schemasMu.Lock()
+	defer c.schemasMu.Unlock()
+	c.UndroppableSchemas = append([]string(nil), schemas...)
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
 	type TCProxy TabletConfig
 
+	snapshot := cfg.Clone()
 	tmp := struct {
 		TCProxy
 		SchemaReloadInterval      string `json:"schemaReloadIntervalSeconds,omitempty"`
 		SchemaChangeReloadTimeout string `json:"schemaChangeReloadTimeout,omitempty"`
 	}{
-		TCProxy: TCProxy(*cfg),
+		TCProxy: TCProxy(*snapshot),
 	}
 
-	if d := cfg.SchemaReloadInterval; d != 0 {
+	if d := snapshot.SchemaReloadInterval; d != 0 {
 		tmp.SchemaReloadInterval = d.String()
 	}
 
-	if d := cfg.SchemaChangeReloadTimeout; d != 0 {
+	if d := snapshot.SchemaChangeReloadTimeout; d != 0 {
 		tmp.SchemaChangeReloadTimeout = d.String()
 	}
 
@@ -898,11 +999,70 @@ func NewDefaultConfig() *TabletConfig {
 
 // Clone creates a clone of TabletConfig.
 func (c *TabletConfig) Clone() *TabletConfig {
+	if c.LoadshedOltpRead.mu != nil {
+		c.LoadshedOltpRead.mu.RLock()
+		defer c.LoadshedOltpRead.mu.RUnlock()
+	}
+	if c.LoadshedOltpRead.schemasMu != nil {
+		c.LoadshedOltpRead.schemasMu.RLock()
+		defer c.LoadshedOltpRead.schemasMu.RUnlock()
+	}
+	if c.LoadshedTx.mu != nil {
+		c.LoadshedTx.mu.RLock()
+		defer c.LoadshedTx.mu.RUnlock()
+	}
+
 	tc := *c
 	if tc.DB != nil {
 		tc.DB = c.DB.Clone()
 	}
+	var oltpMu *sync.RWMutex
+	if c.LoadshedOltpRead.mu != nil {
+		oltpMu = &sync.RWMutex{}
+	}
+	var schemasMu *sync.RWMutex
+	if c.LoadshedOltpRead.schemasMu != nil {
+		schemasMu = &sync.RWMutex{}
+	}
+	tc.LoadshedOltpRead = OltpLoadshedConfig{
+		LoadshedConfig: LoadshedConfig{
+			mu:            oltpMu,
+			Enabled:       c.LoadshedOltpRead.Enabled,
+			Target:        c.LoadshedOltpRead.Target,
+			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
+			DropMode:      c.LoadshedOltpRead.DropMode,
+			Trigger:       c.LoadshedOltpRead.Trigger,
+			GraceCount:    c.LoadshedOltpRead.GraceCount,
+		},
+		schemasMu:          schemasMu,
+		UndroppableSchemas: append([]string(nil), c.LoadshedOltpRead.UndroppableSchemas...),
+	}
+	var txMu *sync.RWMutex
+	if c.LoadshedTx.mu != nil {
+		txMu = &sync.RWMutex{}
+	}
+	tc.LoadshedTx = LoadshedConfig{
+		mu:            txMu,
+		Enabled:       c.LoadshedTx.Enabled,
+		Target:        c.LoadshedTx.Target,
+		IntervalRatio: c.LoadshedTx.IntervalRatio,
+		DropMode:      c.LoadshedTx.DropMode,
+		Trigger:       c.LoadshedTx.Trigger,
+		GraceCount:    c.LoadshedTx.GraceCount,
+	}
 	return &tc
+}
+
+func (c *TabletConfig) InitLoadshedConfig() {
+	if c.LoadshedOltpRead.mu == nil {
+		c.LoadshedOltpRead.mu = &sync.RWMutex{}
+	}
+	if c.LoadshedOltpRead.schemasMu == nil {
+		c.LoadshedOltpRead.schemasMu = &sync.RWMutex{}
+	}
+	if c.LoadshedTx.mu == nil {
+		c.LoadshedTx.mu = &sync.RWMutex{}
+	}
 }
 
 // SetTxTimeoutForWorkload updates workload transaction timeouts. Used in tests only.
@@ -1161,15 +1321,24 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedEnabled:       true,
-	LoadshedTarget:        5 * time.Millisecond,
-	LoadshedIntervalRatio: 20,
-	LoadshedDropMode:      "slow",
-	LoadshedTrigger:       0,
-	LoadshedGraceCount:    1,
-	// System schemas are queried by health checks/monitoring, which are
-	// low-volume and must succeed; default to marking them undroppable.
-	LoadshedUndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
+	LoadshedOltpRead: OltpLoadshedConfig{
+		LoadshedConfig:     defaultLoadshedConfig(),
+		schemasMu:          &sync.RWMutex{},
+		UndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
+	},
+	LoadshedTx: defaultLoadshedConfig(),
+}
+
+func defaultLoadshedConfig() LoadshedConfig {
+	return LoadshedConfig{
+		mu:            &sync.RWMutex{},
+		Enabled:       true,
+		Target:        5 * time.Millisecond,
+		IntervalRatio: 20,
+		DropMode:      "slow",
+		Trigger:       0,
+		GraceCount:    1,
+	}
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on

@@ -136,3 +136,55 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 		}
 	}
 }
+
+func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
+	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
+
+	const backlog = 5
+	reqs := make([]*Request, backlog)
+	for i := range reqs {
+		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
+	}
+	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.dropNextNs = 1
+	clock.advance(1_000_000_000)
+
+	initialCount := sq.codelq.count
+	sq.lockedRunTimerIf(func() bool { return false })
+
+	assert.Greater(t, sq.codelq.count, initialCount)
+	assert.Equal(t, backlog, sq.lockedLen())
+	for _, req := range reqs {
+		assert.Nil(t, req.signaledValue)
+	}
+}
+
+func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
+	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
+
+	const backlog = 10
+	reqs := make([]*Request, backlog)
+	for i := range reqs {
+		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
+	}
+	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.dropNextNs = 1
+	clock.advance(1_000_000_000)
+
+	checks := 0
+	sq.lockedRunTimerIf(func() bool {
+		checks++
+		return false
+	})
+
+	assert.Equal(t, 1, checks)
+	for _, req := range reqs {
+		assert.Nil(t, req.signaledValue)
+	}
+}

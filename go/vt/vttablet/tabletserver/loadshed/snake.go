@@ -308,7 +308,7 @@ func (s *Snake) releaseOnCancel(req *Request) {
 func (s *Snake) lockedReleaseAndShed(req *Request) {
 	s.q.lockedRelease(req)
 	if s.q.lockedNeedsAdvance() {
-		s.q.lockedRunTimer()
+		s.q.lockedRunTimerIf(s.loadsheddingAllowed)
 	}
 }
 
@@ -319,7 +319,7 @@ func (s *Snake) lockedReleaseAndShed(req *Request) {
 // drops; the pending rejections are returned so the caller sends them AFTER
 // releasing s.mu (draining the goready storm off the lock).
 func (s *Snake) lockedEnqueueAdvance() []*Request {
-	s.q.lockedRunTimer()
+	s.q.lockedRunTimerIf(s.loadsheddingAllowed)
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
 	return s.q.lockedTakePendingSignals()
@@ -383,10 +383,11 @@ func (s *Snake) runReleaseCBs(excValue error) {
 }
 
 func (s *Snake) priority(priority float64) float64 {
-	if s.cfg.LoadsheddingAllowed != nil && !s.cfg.LoadsheddingAllowed() {
-		return PriorityUndroppable
-	}
 	return priority
+}
+
+func (s *Snake) loadsheddingAllowed() bool {
+	return s.cfg.LoadsheddingAllowed == nil || s.cfg.LoadsheddingAllowed()
 }
 
 func (s *Snake) acquireError(priority float64) error {
@@ -464,7 +465,7 @@ func (s *Snake) runDropTimer() {
 	} else {
 		s.timerLag.Add(0)
 	}
-	s.q.lockedRunTimer()
+	s.q.lockedRunTimerIf(s.loadsheddingAllowed)
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
 	s.lockedObserveLengths()
