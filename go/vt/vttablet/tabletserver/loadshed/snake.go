@@ -42,9 +42,6 @@ type (
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
 	// Capacity() concurrent holders are allowed. Acquire requests are either
 	// granted or dropped, each within a timely manner.
-	//
-	// Granted requests stay in the CoDel queue as undroppable until Release,
-	// preserving the queue's system-pressure signal for accurate shedding.
 	Snake struct {
 		mu sync.Mutex
 
@@ -275,7 +272,7 @@ func (s *Snake) release(req *Request, excValue error) error {
 	}
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.lockedCompleteAndShed(req)
+	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
@@ -295,7 +292,7 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	s.mu.Lock()
 	delete(s.holders, req)
 	s.lockedObserveHolderCount()
-	s.lockedCompleteAndShed(req)
+	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
@@ -306,14 +303,10 @@ func (s *Snake) releaseOnCancel(req *Request) {
 	}
 }
 
-// lockedCompleteAndShed unlinks the released request and, when an episode is
-// active, sheds stale requests synchronously at this dequeue point using a
-// fresh clock — so shedding tracks target continuously instead of waiting on
-// the (possibly late) backstop timer, and runs before granting the next waiter
-// so we promote the freshest survivor. The lockedNeedsAdvance guard keeps the
-// healthy path free of both the advance call and the clock read.
-func (s *Snake) lockedCompleteAndShed(req *Request) {
-	s.q.lockedComplete(req)
+// lockedReleaseAndShed releases the request and advances CoDel before granting
+// the next waiter when there is active shedding work.
+func (s *Snake) lockedReleaseAndShed(req *Request) {
+	s.q.lockedRelease(req)
 	if s.q.lockedNeedsAdvance() {
 		s.q.lockedRunTimer()
 	}

@@ -51,9 +51,8 @@ type (
 	// job execution instance ID.
 	//
 	// Invariant: each nonempty valve always has exactly one droppable entry
-	// in the CoDel queue. A valve may also have one undroppable (granted)
-	// entry — but the droppable entry is always present so CoDel can measure
-	// sojourn time and shed load when necessary.
+	// in the CoDel queue. The droppable entry is always present so CoDel can
+	// measure sojourn time and shed load when necessary.
 	//
 	// This approach has a few benefits:
 	//   1. Pushes successive requests back to the end of the queue, which is
@@ -90,9 +89,7 @@ type (
 		valves map[string][]*Request
 
 		// outstandingCounts tracks the total number of outstanding requests per
-		// valve ID (in CoDel queue + in valve). Note that there may be multiple
-		// requests for any one valve in the CoDel queue (one droppable and
-		// one-or-more granted).
+		// valve ID (in CoDel queue + in valve).
 		outstandingCounts map[string]int
 
 		// droppablePerValve tracks which request is the current droppable
@@ -185,13 +182,9 @@ func (q *ValvedCoDelQueue) lockedEnqueue(valveID string, priority float64) *Requ
 	return req
 }
 
-// lockedComplete removes a granted (undroppable) request from the queue on
-// Release. Decrements outstanding counts for the valve ID. Promotes the next
-// valve entry if this was the last active entry for the valve ID (i.e., the
-// eager promotion at grant time found nothing to promote, but requests arrived
-// in the valve between grant and release).
-func (q *ValvedCoDelQueue) lockedComplete(req *Request) {
-	q.codelq.lockedComplete(req)
+// lockedRelease updates valve accounting for a granted request and promotes a
+// pending request when needed.
+func (q *ValvedCoDelQueue) lockedRelease(req *Request) {
 	q.decrementOutstanding(req.valveID)
 	if req.valveID != "" {
 		// Promote if no droppable entry exists. This handles the case where

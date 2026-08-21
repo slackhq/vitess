@@ -26,9 +26,9 @@ type (
 	// Request represents an entry in the CoDel queue. Named a 'request' since
 	// it may be rejected(dropped) or granted. Each request owns a signalChan
 	// that receives nil on grant or a *DroppedRequestError on drop. The
-	// signaledValue field allows non-consuming inspection of signal state
-	// (used by lockedPeek to avoid channel pop/push-back): nil means
-	// unsignaled, grantSentinel means granted, any other value means dropped.
+	// signaledValue allows non-consuming inspection of signal state (used by
+	// lockedPeek to avoid channel pop/push-back): nil means unsignaled, and any
+	// non-nil value means the request has completed.
 	Request struct {
 		priority           float64
 		codelqEnqueuedAtNs int64

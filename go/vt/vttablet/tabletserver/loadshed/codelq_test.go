@@ -139,8 +139,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-// testDequeue simulates the old lockedDequeue behavior using the new primitives:
-// lockedFirstWaiting + lockedOnGrant + signal + lockedComplete.
+// testDequeue grants the oldest waiting request.
 func testDequeue(q *CoDelQueue) *Request {
 	req := q.lockedFirstWaiting()
 	if req == nil {
@@ -148,11 +147,10 @@ func testDequeue(q *CoDelQueue) *Request {
 	}
 	q.lockedOnGrant(req)
 	req.signal(grantSentinel)
-	q.lockedComplete(req)
 	return req
 }
 
-// --- FirstWaiting / Complete tests (replaces old Dequeue tests) ---
+// --- FirstWaiting tests ---
 
 func TestCoDelQueue_FirstWaiting_FIFO(t *testing.T) {
 	clock := newTestClock()
@@ -183,7 +181,7 @@ func TestCoDelQueue_OnGrant_DecrementsDroppableLen(t *testing.T) {
 	assert.Equal(t, 1, q.droppableLen)
 }
 
-func TestCoDelQueue_Complete_ExitsDroppingOnTarget(t *testing.T) {
+func TestCoDelQueue_Grant_ExitsDroppingOnTarget(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
 	cfg.TargetNs = func() int64 { return 1_000_000 }
@@ -249,18 +247,19 @@ func TestCoDelQueue_Peek_CleansHeadCancelled(t *testing.T) {
 	assert.Equal(t, 1, q.lockedLen())
 }
 
-func TestCoDelQueue_Peek_KeepsDoneNotCancelled(t *testing.T) {
+func TestCoDelQueue_OnGrant_EvictsFromListImmediately(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	r1 := testEnqueue(q, 0)
+	require.NotNil(t, r1.codelqElem)
 
 	r1.signal(grantSentinel)
 	q.lockedOnGrant(r1)
 
-	peeked := q.lockedPeek()
-	assert.Same(t, r1, peeked)
-	assert.Equal(t, 1, q.lockedLen())
+	assert.Nil(t, r1.codelqElem)
+	assert.Nil(t, q.lockedPeek())
+	assert.Equal(t, 0, q.lockedLen())
 }
 
 // --- Drop tests ---
@@ -485,7 +484,6 @@ func TestCoDelQueue_OnGrant(t *testing.T) {
 
 	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
-	assert.False(t, r1.isDroppable())
 }
 
 func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
@@ -497,61 +495,6 @@ func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
 
 	q.lockedOnGrant(r1)
 	assert.Equal(t, 0, q.droppableLen)
-}
-
-func TestCoDelQueue_OnGrant_Idempotent(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	r1 := testEnqueue(q, 0)
-	assert.Equal(t, 1, q.droppableLen)
-
-	q.lockedOnGrant(r1)
-	q.lockedOnGrant(r1)
-	assert.Equal(t, 0, q.droppableLen)
-}
-
-// --- Advance head-check: resident holder vs. real backlog staleness ---
-
-func TestCoDelQueue_Advance_ResidentGrantedStragglerDoesNotCauseExtraDrops(t *testing.T) {
-	clock := newTestClock()
-	cfg := CoDelConfig{
-		IntervalNs:     func() int64 { return 100_000_000 }, // 100ms
-		TargetNs:       func() int64 { return 20_000_000 },  // 20ms
-		Exponent:       func() float64 { return 1.0 },
-		MinDropDelayNs: func() int64 { return 100 },
-		EasingLogBase:  func() float64 { return 3.0 },
-	}
-	q, _ := newTestQueue(cfg, clock)
-
-	clock.now = 100_000_000
-	straggler := testEnqueue(q, 0)
-	q.lockedOnGrant(straggler)
-	require.NotNil(t, straggler.codelqElem, "precondition")
-
-	// Six fresh, healthy waiters arrive together, well after the straggler.
-	clock.now = 995_000_000
-	for range 6 {
-		testEnqueue(q, 0)
-	}
-	require.Equal(t, 6, q.droppableLen)
-
-	// Seed a catch-up scenario: dropNextNs is 3 intervals stale relative to
-	// "now" (simulating a delayed backstop timer fire), dropping already
-	// armed from whenever the episode originally started.
-	q.dropping = true
-	q.count = 1
-	q.dropNextNs = 700_000_000
-	clock.now = 1_000_000_000
-
-	drops := 0
-	q.lockedRunTimer(countingDropFn(q, &drops))
-
-	assert.Equal(t, 1, drops)
-	assert.Equal(t, 1, q.count)
-	assert.Equal(t, int64(1_050_000_000), q.dropNextNs)
-	assert.Equal(t, 5, q.droppableLen)
-	assert.True(t, q.dropping, "tautology: last iteration always re-marks true")
 }
 
 // --- Integration: fast vs slow moving ---
@@ -583,7 +526,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 	assert.Equal(t, enqueued, dequeued, "fast-moving queue should not drop")
 }
 
-func TestCoDelQueue_Complete_TransitionsToEasing(t *testing.T) {
+func TestCoDelQueue_Grant_TransitionsToEasing(t *testing.T) {
 	clock := newTestClock()
 	cfg := CoDelConfig{
 		IntervalNs:     func() int64 { return 1_000_000 },
@@ -603,10 +546,8 @@ func TestCoDelQueue_Complete_TransitionsToEasing(t *testing.T) {
 	q.count = 4
 	q.dropNextNs = clock.now + cfg.IntervalNs()
 
-	// Grant r1 (mark not droppable) and then complete it with a fast sojourn
+	// Grant r1 with a fast sojourn.
 	q.lockedOnGrant(r1)
-	clock.now = 100
-	q.lockedComplete(r1)
 
 	assert.False(t, q.dropping, "should exit dropping state")
 	assert.Equal(t, 4, q.count, "count preserved for easing — timer will halve it when it fires")
@@ -646,22 +587,6 @@ func TestCoDelQueue_Sojourn_SlowGrantKeepsDropping(t *testing.T) {
 	clock.now = 100 * 1_000_000 // 100ms > 50ms target
 	q.lockedOnGrant(r)
 	assert.True(t, q.dropping, "slow queue-wait keeps dropping")
-}
-
-func TestCoDelQueue_Sojourn_CompletionDoesNotRecord(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
-
-	clock.now = 0
-	r := testEnqueue(q, 0)
-	testEnqueue(q, 0) // second droppable keeps droppableLen > 0
-	q.dropping = true
-
-	// Completion never records sojourn, even a fast one that would otherwise
-	// clear the dropping state.
-	r.codelqEnqueuedAtNs = q.nowNs() - 10*1_000_000 // 10ms < 50ms target
-	q.lockedComplete(r)
-	assert.True(t, q.dropping, "completion does not record sojourn")
 }
 
 // --- Easing tests ---
@@ -820,7 +745,7 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 	assert.True(t, rec.scheduled, "timer should re-arm for continued dropping")
 }
 
-func TestCoDelQueue_Easing_CompleteDoesNotResetCount(t *testing.T) {
+func TestCoDelQueue_Easing_GrantDoesNotResetCount(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
 	cfg.TargetNs = func() int64 { return 1_000_000 }
@@ -834,10 +759,6 @@ func TestCoDelQueue_Easing_CompleteDoesNotResetCount(t *testing.T) {
 	req := testEnqueue(q, 0)
 	q.lockedOnGrant(req)
 	req.signal(grantSentinel)
-
-	// Complete with sojourn < target → transitions to !dropping
-	clock.now = 500_000
-	q.lockedComplete(req)
 
 	assert.False(t, q.dropping, "should exit dropping")
 	assert.Equal(t, 10, q.count, "count should NOT be reset on transition to healthy")
@@ -978,7 +899,7 @@ func TestCoDelQueue_Enqueue_DoesNotArm(t *testing.T) {
 	assert.Equal(t, 1, q.count, "gated enqueue must not raise count")
 }
 
-func TestCoDelQueue_Complete_DoesNotArmInGatedMode(t *testing.T) {
+func TestCoDelQueue_Grant_DoesNotArmInGatedMode(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTriggerGatedConfig(), clock)
 	clock.now = 0
@@ -987,8 +908,7 @@ func TestCoDelQueue_Complete_DoesNotArmInGatedMode(t *testing.T) {
 	q.lockedOnGrant(r)
 	r.signal(grantSentinel)
 	clock.now = 2_000_000_000 // slow sojourn > trigger
-	q.lockedComplete(r)
-	assert.False(t, q.dropping, "completion no longer arms an episode; the monitor does")
+	assert.False(t, q.dropping, "grant does not arm an episode; the monitor does")
 }
 
 func TestCoDelQueue_Easing_DisarmsAtCountOneWithBacklog(t *testing.T) {

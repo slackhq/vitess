@@ -162,7 +162,7 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 
 // --- CoDel queue enqueue/dequeue (low-level, no Snake overhead) ---
 
-func BenchmarkCoDelQueue_EnqueueComplete(b *testing.B) {
+func BenchmarkCoDelQueue_EnqueueGrant(b *testing.B) {
 	clock := newTestClock()
 	rec := &testDropTimerRecorder{}
 	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
@@ -172,7 +172,6 @@ func BenchmarkCoDelQueue_EnqueueComplete(b *testing.B) {
 		req := newRequest(0)
 		q.lockedEnqueue(req)
 		q.lockedOnGrant(req)
-		q.lockedComplete(req)
 	}
 }
 

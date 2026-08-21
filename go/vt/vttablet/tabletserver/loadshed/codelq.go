@@ -78,7 +78,7 @@ import (
         | * timer: armed            |
         *---------------------------*
               |  ^            ^
-    timer     |  |            | lockedComplete() w/ sojourn < target
+    timer     |  |            | dequeue/release w/ sojourn < target
     fires,    |  |            | or queue emptied (sets dropping=false)
     NOT       |  | timer fires,
     healthy   |  | healthy (dropping=false)
@@ -100,7 +100,7 @@ import (
         interval), jumping count to log2(droppableLen). An episode ends when
         count eases back to 1 — even if a backlog remains; the monitor then
         re-checks the head and re-arms when it next crosses the trigger. The
-        monitor (not lockedComplete) drives arming so a stuck queue with no
+        monitor (not dequeue/release) drives arming so a stuck queue with no
         completions can still shed.
       * DropBoth: arms on enqueue like slow-start, but while count==1 it also
         watches the head's sojourn (lockedTryJump). The episode leaves count==1
@@ -126,7 +126,7 @@ import (
                |  |
  episode       |  | count eases to 1
  triggered in  |  | (fully relaxed, nothing to do)
- lockedComplete|  |
+ dequeue/release|  |
  (sojourn>trig)|  v
       *-----------------*
       | timer not armed |
@@ -320,14 +320,6 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 	}
 }
 
-// lockedComplete removes a granted (undroppable) request from the queue on
-// Release. The CoDel health check happens at grant (see lockedOnGrant), so
-// this only unlinks the request.
-func (q *CoDelQueue) lockedComplete(r *Request) {
-	q.queue.Remove(r.codelqElem)
-	r.codelqElem = nil
-}
-
 // lockedFirstWaiting returns the first not-yet-granted request in the queue.
 func (q *CoDelQueue) lockedFirstWaiting() *Request {
 	if q.firstWaiting == nil {
@@ -343,7 +335,7 @@ func (q *CoDelQueue) lockedPeek() *Request {
 	for q.queue.Len() > 0 {
 		front := q.queue.Front()
 		req := front.Value.(*Request)
-		if req.signaledValue == nil || req.signaledValue == grantSentinel {
+		if req.signaledValue == nil {
 			return req
 		}
 		q.lockedAdvanceFirstWaiting(front)
@@ -414,13 +406,14 @@ func (q *CoDelQueue) lockedOnGrant(r *Request) {
 	}
 	if r.isDroppable() {
 		q.droppable.remove(r)
-		r.priority = PriorityUndroppable
 		q.droppableLen--
 		if q.droppableLen == 0 {
 			q.dropping = false
 		}
 	}
 	q.lockedAdvanceFirstWaiting(r.codelqElem)
+	q.queue.Remove(r.codelqElem)
+	r.codelqElem = nil
 }
 
 // lockedAdvanceFirstWaiting advances the firstWaiting pointer past elem if
