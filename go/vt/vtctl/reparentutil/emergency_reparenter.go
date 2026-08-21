@@ -19,6 +19,7 @@ package reparentutil
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -898,6 +899,34 @@ func (erp *EmergencyReparenter) findErrantGTIDs(
 	tabletMap map[string]*topo.TabletInfo,
 	waitReplicasTimeout time.Duration,
 ) (map[string]*RelayLogPositions, error) {
+	// A shard whose every reachable candidate reports a zero GTID position (nil or a
+	// typed-but-empty set such as "MySQL56/") has never seen a promotion: it is being
+	// initialized, and every candidate is an equally valid first primary. There is no
+	// GTID history to compare, and such tablets have no _vt sidecar tables yet, so we
+	// skip errant-GTID detection entirely — otherwise gatherReparenJournalInfo below
+	// would read a reparent journal table that does not exist and fail ERS-for-init.
+	//
+	// This fork-local early-return stands in for the upstream mechanism, which handles
+	// the same case inside gatherReparentJournalInfo via the allPositionsZero +
+	// shardNeverInitialized logic. That logic is entangled with an ERS-refactor chain
+	// this fork has NOT backported: #20578 (extraEvidence/starved relay-log-apply),
+	// #20780 (explicit split-brain recovery, which introduced the allPositionsZero
+	// early-return), and #20831 (journal-missing tolerance, e5255c93b4). We deliberately
+	// avoid pulling in that unrelated chain here.
+	//
+	// TODO: retire this early-return in favor of upstream's e5255c93b4 (#20831) logic
+	// once this fork is upgraded to a version that includes PRs #20578, #20780, #20831.
+	allPositionsZero := len(validCandidates) > 0
+	for _, positions := range validCandidates {
+		if positions == nil || !positions.IsZero() {
+			allPositionsZero = false
+			break
+		}
+	}
+	if allPositionsZero {
+		return maps.Clone(validCandidates), nil
+	}
+
 	// First we need to collect the reparent journal length for all the candidates.
 	// This will tell us, which of the tablets are severly lagged, and haven't even seen all the primary promotions.
 	// Such severely lagging tablets cannot be used to find errant GTIDs in other tablets, seeing that they themselves don't have enough information.
