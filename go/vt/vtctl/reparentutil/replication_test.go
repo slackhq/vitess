@@ -331,14 +331,28 @@ func TestFindPositionsOfAllCandidates_FlavorFromPrimaryStatus(t *testing.T) {
 		{
 			// A former primary with an empty executed position is flavor-agnostic and
 			// must not be counted as non-GTID; otherwise it would falsely trip the
-			// mixed-mode guard against the GTID replicas. This pins the IsZero() skip
-			// in the flavor detection.
+			// mixed-mode guard against the GTID replicas.
 			name: "GTID replica with a zero-position former primary stays GTID-based",
 			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
 				"r1": {After: &replicationdatapb.Status{RelayLogPosition: gtid, Position: gtid}},
 			},
 			primaryMap:    map[string]*replicationdatapb.PrimaryStatus{"p1": {Position: ""}},
 			wantGTIDBased: true,
+		},
+		{
+			// A former primary reporting a typed-but-empty MySQL56 position
+			// ("MySQL56/") still identifies the flavor, so combined with a non-GTID
+			// (FilePos) replica it must trip the mixed-mode guard. This pins the
+			// GTIDSet == nil skip: an IsZero() skip would instead drop the former
+			// primary (a typed-empty position is IsZero) and no mix would be detected.
+			// The FilePos replica's RelayLogPosition is non-zero, so the empty-relay-log
+			// recorder does not fire first — the mixed-mode error is what surfaces.
+			name: "typed-empty MySQL56 former primary trips mixed-mode against FilePos replica",
+			statusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"r1": {After: &replicationdatapb.Status{RelayLogPosition: filePos, Position: filePos}},
+			},
+			primaryMap: map[string]*replicationdatapb.PrimaryStatus{"p1": {Position: "MySQL56/"}},
+			wantErr:    "mix of GTID-based and non GTID-based",
 		},
 	}
 
