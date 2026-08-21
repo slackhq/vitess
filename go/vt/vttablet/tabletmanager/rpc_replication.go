@@ -1115,7 +1115,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 
 	if stopReplicationMode == replicationdatapb.StopReplicationMode_IOTHREADONLY {
 		if !rs.IOHealthy() {
-			before.ServerVersion = tm.getMySQLVersionString(ctx)
+			before.ServerVersion = tm.getMySQLVersionStringAfterMutation(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
@@ -1133,7 +1133,7 @@ func (tm *TabletManager) StopReplicationAndGetStatus(ctx context.Context, stopRe
 	} else {
 		if !rs.Healthy() {
 			// no replication is running, just return what we got
-			before.ServerVersion = tm.getMySQLVersionString(ctx)
+			before.ServerVersion = tm.getMySQLVersionStringAfterMutation(ctx)
 			return StopReplicationAndGetStatusResponse{
 				Status: &replicationdatapb.StopReplicationStatus{
 					Before: before,
