@@ -182,6 +182,7 @@ func (fakeGTID) SequenceNumber() any { return int(1) }
 func (fakeGTID) SequenceDomain() any { return int(1) }
 func (f fakeGTID) GTIDSet() GTIDSet  { return nil }
 
+func (fakeGTID) Empty() bool             { return false }
 func (fakeGTID) ContainsGTID(GTID) bool  { return false }
 func (fakeGTID) Contains(GTIDSet) bool   { return false }
 func (f fakeGTID) Union(GTIDSet) GTIDSet { return f }
