@@ -538,8 +538,8 @@ func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 		// off 1 in jump-start. In arm-on-enqueue modes the head-check re-arms at
 		// count==1 as usual.
 		if q.droppableLen > 0 && (q.count > 1 || q.armsOnEnqueue()) {
-			first := q.lockedPeek()
-			if first.codelqEnqueuedAtNs < q.dropNextNs {
+			q.lockedPeek() // cleanup
+			if first := q.lockedFirstWaiting(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
 				q.dropping = true
 			}
 		}
