@@ -569,7 +569,7 @@ func TestStopReplicationAndGetStatus_SlowVersionLookup(t *testing.T) {
 	require.NotNil(t, resp.Status)
 	require.NotNil(t, resp.Status.After, "the post-stop status must still be returned")
 	require.Empty(t, resp.Status.Before.ServerVersion, "version degrades to empty when the lookup is bounded out")
-	// The bounded helper caps the lookup near maxPostMutationVersionLookup (2s), so
+	// The bounded helper caps the lookup near maxVersionLookupBudget (2s), so
 	// the RPC must return promptly rather than run to the full deadline. Without the
 	// bound it would block for the entire 30s. A generous 15s upper bound keeps this
 	// CI-safe while still proving the lookup was bounded, not run to the deadline.
@@ -626,7 +626,7 @@ func TestStopReplicationAndGetStatus_SlowVersionLookupNoOp(t *testing.T) {
 			require.NotNil(t, resp.Status.After, "the no-op path returns before as after")
 			require.Empty(t, resp.Status.Before.ServerVersion, "version degrades to empty when the lookup is bounded out")
 			// Without the bound the lookup would run to the full 30s deadline; the
-			// bounded helper caps it near maxPostMutationVersionLookup (2s). A generous
+			// bounded helper caps it near maxVersionLookupBudget (2s). A generous
 			// 15s upper bound keeps this CI-safe while still proving the bound applies.
 			require.Less(t, elapsed, 15*time.Second, "the bounded lookup must not run to the caller's full deadline")
 		})
@@ -755,7 +755,7 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		got := tm.getMySQLVersionStringAfterMutation(ctx)
+		got := tm.getMySQLVersionStringBounded(ctx)
 		elapsed := time.Since(start)
 
 		require.Empty(t, got, "a lookup that outruns its budget degrades to empty version")
@@ -765,9 +765,9 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		require.NoError(t, ctx.Err(), "caller deadline must not be exhausted by the version lookup")
 	})
 
-	t.Run("caps the lookup at maxPostMutationVersionLookup on a large deadline", func(t *testing.T) {
+	t.Run("caps the lookup at maxVersionLookupBudget on a large deadline", func(t *testing.T) {
 		// With a large remaining deadline, half of it (e.g. 15s) far exceeds the 2s
-		// absolute cap, so the min(..., maxPostMutationVersionLookup) arm must bound
+		// absolute cap, so the min(..., maxVersionLookupBudget) arm must bound
 		// the hung lookup near 2s rather than ~15s.
 		daemon := &countingVersionDaemon{
 			FakeMysqlDaemon: newTestMysqlDaemon(t, 1),
@@ -780,13 +780,13 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		got := tm.getMySQLVersionStringAfterMutation(ctx)
+		got := tm.getMySQLVersionStringBounded(ctx)
 		elapsed := time.Since(start)
 
 		require.Empty(t, got)
 		// Must be bounded by the 2s cap, not remaining/2 (~15s). Generous upper bound
 		// (10s) keeps it CI-safe while still proving the cap — not remaining/2 — applied.
-		require.Less(t, elapsed, 10*time.Second, "lookup must be capped near maxPostMutationVersionLookup, not remaining/2")
+		require.Less(t, elapsed, 10*time.Second, "lookup must be capped near maxVersionLookupBudget, not remaining/2")
 	})
 
 	t.Run("returns the version on a fast lookup", func(t *testing.T) {
@@ -799,7 +799,7 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 
-		require.Equal(t, "Ver 8.0.35", tm.getMySQLVersionStringAfterMutation(ctx))
+		require.Equal(t, "Ver 8.0.35", tm.getMySQLVersionStringBounded(ctx))
 	})
 
 	t.Run("no deadline still returns the version on a fast lookup", func(t *testing.T) {
@@ -809,10 +809,10 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		}
 		tm := &TabletManager{MysqlDaemon: daemon}
 
-		require.Equal(t, "Ver 8.0.35", tm.getMySQLVersionStringAfterMutation(context.Background()))
+		require.Equal(t, "Ver 8.0.35", tm.getMySQLVersionStringBounded(context.Background()))
 	})
 
-	t.Run("no deadline is still capped at maxPostMutationVersionLookup", func(t *testing.T) {
+	t.Run("no deadline is still capped at maxVersionLookupBudget", func(t *testing.T) {
 		// A deadline-less caller (e.g. an in-process DemotePrimary) must not let a hung
 		// cold-cache lookup hold the action lock forever: the absolute cap applies even
 		// without a deadline.
@@ -824,7 +824,7 @@ func TestGetMySQLVersionStringAfterMutation(t *testing.T) {
 		tm := &TabletManager{MysqlDaemon: daemon}
 
 		start := time.Now()
-		got := tm.getMySQLVersionStringAfterMutation(context.Background())
+		got := tm.getMySQLVersionStringBounded(context.Background())
 		elapsed := time.Since(start)
 
 		require.Empty(t, got)
