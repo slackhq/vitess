@@ -361,19 +361,12 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 	cfg := NewDefaultConfig()
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		for i := range 100 {
-			cfg.LoadshedOltpRead.SetGraceCount(i)
+		for range 100 {
 			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for i := range 100 {
-			cfg.LoadshedTx.SetGraceCount(i)
 		}
 	}()
 	go func() {

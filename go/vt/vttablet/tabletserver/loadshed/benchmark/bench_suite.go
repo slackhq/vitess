@@ -20,9 +20,6 @@ import (
 
 var (
 	easingLogBase *float64
-	dropMode      *string
-	triggerMs     *int
-	graceCount    *int
 	mixedPriority *bool
 	workMode      *string
 	maxProcs      *int
@@ -95,17 +92,6 @@ func busySpinCPU(d time.Duration) {
 		}
 	}
 	_ = acc
-}
-
-// parseDropMode maps the -drop-mode flag string to a CoDelDropMode, exiting on
-// an unrecognized value.
-func parseDropMode(s string) loadshed.CoDelDropMode {
-	mode, err := loadshed.ParseDropMode(s)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	return mode
 }
 
 type event struct {
@@ -230,9 +216,6 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			MinDropDelayNs: func() int64 { return 1_000_000 },
 			Exponent:       func() float64 { return 1 },
 			EasingLogBase:  func() float64 { return *easingLogBase },
-			DropMode:       func() loadshed.CoDelDropMode { return parseDropMode(*dropMode) },
-			TriggerNs:      func() int64 { return int64(*triggerMs) * 1_000_000 },
-			GraceCount:     func() int { return *graceCount },
 		},
 		LoadsheddingAllowed: func() bool { return true },
 	})
@@ -401,9 +384,6 @@ func main() {
 	parallel := flag.Int("j", 8, "Max parallel benchmarks")
 	filter := flag.String("filter", "", "Only run tests whose label contains this substring")
 	easingLogBase = flag.Float64("easing-log-base", 3.0, "Log base for CoDel easing count decay")
-	dropMode = flag.String("drop-mode", "slow", "Drop mode: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses trigger), or both")
-	triggerMs = flag.Int("trigger-ms", 0, "Trigger sojourn threshold in ms for jump/both modes (0 = default to interval)")
-	graceCount = flag.Int("grace-count", 1, "Grace count: suppress the head drop while count < this (1 = disabled)")
 	mixedPriority = flag.Bool("mixed-priority", false, "Issue requests with uniform priorities in [0,100] instead of all 0, so the lowest-priority drop lookup does not hit the priority-0 early exit")
 
 	// Custom single-workload flags. When -profile is set, the workload described

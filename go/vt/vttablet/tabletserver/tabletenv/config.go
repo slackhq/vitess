@@ -233,9 +233,6 @@ func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, 
 	fs.BoolVar(&cfg.Enabled, "loadshed-"+pool+"-enabled", defaultCfg.Enabled, "If true, enables CoDel-based load shedding on the "+pool+" pool.")
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
-	fs.StringVar(&cfg.DropMode, "loadshed-"+pool+"-drop-mode", defaultCfg.DropMode, "CoDel drop mode for the "+pool+" load shedder: slow, jump, or both.")
-	fs.DurationVar(&cfg.Trigger, "loadshed-"+pool+"-trigger", defaultCfg.Trigger, "CoDel sojourn threshold for the "+pool+" load shedder. 0 defaults to its CoDel interval.")
-	fs.IntVar(&cfg.GraceCount, "loadshed-"+pool+"-grace-count", defaultCfg.GraceCount, "CoDel grace count for the "+pool+" load shedder.")
 }
 
 var (
@@ -410,9 +407,6 @@ type LoadshedConfig struct {
 	Enabled       bool
 	Target        time.Duration
 	IntervalRatio float64
-	DropMode      string
-	Trigger       time.Duration
-	GraceCount    int
 }
 
 type OltpLoadshedConfig struct {
@@ -455,42 +449,6 @@ func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.IntervalRatio = intervalRatio
-}
-
-func (c *LoadshedConfig) DropModeValue() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.DropMode
-}
-
-func (c *LoadshedConfig) SetDropMode(dropMode string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.DropMode = dropMode
-}
-
-func (c *LoadshedConfig) TriggerValue() time.Duration {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.Trigger
-}
-
-func (c *LoadshedConfig) SetTrigger(trigger time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.Trigger = trigger
-}
-
-func (c *LoadshedConfig) GraceCountValue() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.GraceCount
-}
-
-func (c *LoadshedConfig) SetGraceCount(graceCount int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.GraceCount = graceCount
 }
 
 func (c *OltpLoadshedConfig) UndroppableSchemasValue() []string {
@@ -1030,9 +988,6 @@ func (c *TabletConfig) Clone() *TabletConfig {
 			Enabled:       c.LoadshedOltpRead.Enabled,
 			Target:        c.LoadshedOltpRead.Target,
 			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
-			DropMode:      c.LoadshedOltpRead.DropMode,
-			Trigger:       c.LoadshedOltpRead.Trigger,
-			GraceCount:    c.LoadshedOltpRead.GraceCount,
 		},
 		schemasMu:          schemasMu,
 		UndroppableSchemas: append([]string(nil), c.LoadshedOltpRead.UndroppableSchemas...),
@@ -1046,9 +1001,6 @@ func (c *TabletConfig) Clone() *TabletConfig {
 		Enabled:       c.LoadshedTx.Enabled,
 		Target:        c.LoadshedTx.Target,
 		IntervalRatio: c.LoadshedTx.IntervalRatio,
-		DropMode:      c.LoadshedTx.DropMode,
-		Trigger:       c.LoadshedTx.Trigger,
-		GraceCount:    c.LoadshedTx.GraceCount,
 	}
 	return &tc
 }
@@ -1335,9 +1287,6 @@ func defaultLoadshedConfig() LoadshedConfig {
 		Enabled:       true,
 		Target:        5 * time.Millisecond,
 		IntervalRatio: 20,
-		DropMode:      "slow",
-		Trigger:       0,
-		GraceCount:    1,
 	}
 }
 

@@ -18,7 +18,6 @@ package loadshed
 
 import (
 	"container/list"
-	"fmt"
 	"math"
 )
 
@@ -44,10 +43,8 @@ import (
                               this because that coroutine may not actually run
                               when it's supposed to, e.g. if the server is
                               overloaded. Seeded to now+interval/count^exp when a
-                              dropping episode begins (on enqueue when ungated, or
-                              when the monitor arms an episode when gated) so the
-                              first fire paces drops rather than draining the
-                              backlog.
+                              dropping episode begins so the first fire paces
+                              drops rather than draining the backlog.
         count           int : drop intensity. Determines the timer interval
                               via interval/count^exp. Increases during dropping,
                               decays during easing, until it reaches 1 (idle).
@@ -63,13 +60,8 @@ import (
         *---------------------------*
                       |  ^
     episode armed:    |  |  easing timer fires, healthy,
-    ungated -> on     |  |  count decayed to 1
-    droppable enqueue;|  |
-    gated -> monitor  |  |
-    fire w/ head      |  |
-    sojourn > trigger |  |
-    (count seeded to  |  |
-     log2(droppable)) |  |
+    droppable enqueue  |  |  count decayed to 1
+                      |  |
                       v  |
         *---------------------------*
         | easing                    |       gradually relaxing
@@ -90,23 +82,9 @@ import (
         | * timer: armed            |
         *---------------------------*
 
-    How an episode leaves count==1 depends on DropMode (default DropSlowStart):
-      * DropSlowStart (default): a droppable enqueue arms the timer immediately;
-        the episode leaves count==1 only by the control-law ramp (count++ per
-        drop). The timer re-arms while droppableLen>0 || count>1.
-      * DropJumpStart: enqueue does NOT arm. A monitor timer (lockedRunMonitor)
-        watches the oldest waiting request and arms an episode ONLY when that
-        head's sojourn crosses the trigger threshold (triggerNs(), default
-        interval), jumping count to log2(droppableLen). An episode ends when
-        count eases back to 1 — even if a backlog remains; the monitor then
-        re-checks the head and re-arms when it next crosses the trigger. The
-        monitor (not dequeue/release) drives arming so a stuck queue with no
-        completions can still shed.
-      * DropBoth: arms on enqueue like slow-start, but while count==1 it also
-        watches the head's sojourn (lockedTryJump). The episode leaves count==1
-        by whichever fires first — the ramp, or a trigger crossing that jumps
-        count to max(count, log2(droppableLen)). The timer wakes at the earlier
-        of the two deadlines. Once count>1 the jump window closes.
+    A droppable enqueue arms the timer immediately. The episode leaves count==1
+    only by the control-law ramp (count++ per drop). The timer re-arms while
+    droppableLen>0 || count>1.
 
     Health condition (checked each easing timer fire):
       healthy := dropping=false
@@ -125,9 +103,9 @@ import (
                ^  |
                |  |
  episode       |  | count eases to 1
- triggered in  |  | (fully relaxed, nothing to do)
- dequeue/release|  |
- (sojourn>trig)|  v
+ armed on      |  | (fully relaxed, nothing to do)
+ enqueue       |  |
+               |  v
       *-----------------*
       | timer not armed |
       *-----------------*
@@ -148,10 +126,6 @@ import (
 */
 
 type (
-	// CoDelDropMode selects how a dropping episode leaves the count==1 state —
-	// i.e. how it begins shedding harder than the baseline one-drop-per-interval.
-	CoDelDropMode int
-
 	// DroppedRequestError is returned when a request is dropped by the CoDel
 	// queue due to persistent queue buildup.
 	DroppedRequestError struct{}
@@ -169,24 +143,6 @@ type (
 		// base yields a smaller step (gentler ease-out). Defaults to 3 when
 		// unset or <= 1.
 		EasingLogBase func() float64
-
-		// TriggerNs is the sojourn threshold that arms a jump in jump/both
-		// modes: when the oldest waiting request's sojourn crosses it, the
-		// episode jumps count to log2(droppableLen). Defaults to IntervalNs()
-		// when nil or <= 0.
-		TriggerNs func() int64
-
-		// DropMode selects how a dropping episode leaves the count==1 state.
-		// Nil defaults to DropSlowStart (the original always-arm behavior).
-		DropMode func() CoDelDropMode
-
-		// GraceCount is a count threshold below which the head request is not
-		// actually dropped: the timer, count ramp, and easing all proceed as
-		// usual, but the drop is suppressed while count < GraceCount. Jump-start
-		// can still fire during the grace window, seeding count to
-		// max(count, log2(droppableLen)). Nil or <= 1 disables the grace period
-		// (count >= 1 always, so the head is always eligible to drop).
-		GraceCount func() int
 	}
 
 	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
@@ -211,53 +167,6 @@ type (
 		onPeekCleanup     func(*Request)
 	}
 )
-
-const (
-	// DropSlowStart arms a dropping episode on every droppable enqueue and
-	// leaves count==1 only by the control-law ramp (count++ per drop). This is
-	// the original always-arm CoDel behavior and the default.
-	DropSlowStart CoDelDropMode = iota
-
-	// DropJumpStart does not arm on enqueue. A monitor timer watches the oldest
-	// waiting request and arms an episode only when its sojourn crosses
-	// triggerNs(), jumping count straight to log2(droppableLen). The episode
-	// ends when count eases back to 1, then monitoring resumes.
-	DropJumpStart
-
-	// DropBoth arms on enqueue like DropSlowStart, but while count==1 it also
-	// watches the head's sojourn: the episode leaves count==1 by whichever
-	// fires first — the ramp (count++) or a trigger crossing that jumps count
-	// to max(count, log2(droppableLen)). Once count>1 the jump window closes
-	// and the ordinary ramp/ease machine takes over.
-	DropBoth
-)
-
-// String returns the canonical flag/config name for the drop mode.
-func (m CoDelDropMode) String() string {
-	switch m {
-	case DropJumpStart:
-		return "jump"
-	case DropBoth:
-		return "both"
-	default:
-		return "slow"
-	}
-}
-
-// ParseDropMode maps a drop-mode string (as accepted by the loadshed-drop-mode
-// flag and /debug/env) to a CoDelDropMode.
-func ParseDropMode(s string) (CoDelDropMode, error) {
-	switch s {
-	case "slow", "slow-start":
-		return DropSlowStart, nil
-	case "jump", "jump-start":
-		return DropJumpStart, nil
-	case "both":
-		return DropBoth, nil
-	default:
-		return DropSlowStart, fmt.Errorf("unknown drop mode %q (expected slow|jump|both)", s)
-	}
-}
 
 func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
@@ -304,18 +213,8 @@ func (q *CoDelQueue) lockedEnqueue(req *Request) {
 			if q.dropNextNs > 0 {
 				q.lockedAdvance(now, func() bool { return false })
 			}
-			if q.armsOnEnqueue() {
-				// Slow-start / both: arm on enqueue (original always-arm
-				// behavior). In both mode the head-trigger deadline is folded
-				// into the wake by lockedArmDropTimer while count==1. lockedArmDropTimer
-				// sets dropping (droppableLen just went 0->1, so it becomes true).
-				q.dropNextNs = q.lockedControlLaw(now)
-				q.lockedArmDropTimer()
-			} else {
-				// Jump-start: monitor the head's sojourn so we arm even if
-				// nothing completes. Idempotent while a timer is already pending.
-				q.lockedScheduleMonitor()
-			}
+			q.dropNextNs = q.lockedControlLaw(now)
+			q.lockedArmDropTimer()
 		}
 	}
 }
@@ -445,29 +344,13 @@ func (q *CoDelQueue) lockedFindLowestPriorityDroppable() *list.Element {
 
 // lockedRunTimer runs the CoDel drop logic. It is invoked both by the backstop
 // timer and synchronously from the release/dequeue path, so shedding is driven
-// as slots free rather than waiting for the (possibly late) timer to fire. The
-// jump/monitor trigger logic (a head-sojourn crossing) is time-based and
-// independent of drop pacing, so it runs on every call; the paced drop/ease/
-// re-arm work runs only when a drop is actually due (now >= dropNextNs).
+// as slots free rather than waiting for the (possibly late) timer to fire.
 func (q *CoDelQueue) lockedRunTimer(dropFn func() bool) {
 	q.lockedRunTimerLimited(dropFn, -1)
 }
 
 func (q *CoDelQueue) lockedRunTimerLimited(dropFn func() bool, maxDrops int) {
 	now := q.nowNs()
-
-	// Jump-start: while count==1 the timer is disarmed and only monitors the
-	// head's sojourn. (DropBoth is armed at count==1 and handled inline below.)
-	if q.dropMode() == DropJumpStart && q.count == 1 {
-		q.lockedRunMonitor()
-		return
-	}
-
-	// Both: a trigger crossing can jump at any time while the jump window is
-	// open, independent of the ramp's pacing — so check it every call.
-	if q.dropMode() == DropBoth && (q.count == 1 || q.count < q.graceCount()) && q.lockedTryJump(now) {
-		return
-	}
 
 	// Paced work: only advance the drop/ease control law and re-arm when a drop
 	// is actually due. dropNextNs==0 means no episode is armed and none is due.
@@ -476,15 +359,6 @@ func (q *CoDelQueue) lockedRunTimerLimited(dropFn func() bool, maxDrops int) {
 	}
 
 	q.lockedAdvanceLimited(now, dropFn, maxDrops)
-
-	// Jump-start: after easing back to 1, hand off to the monitor rather than
-	// re-arming. In jump-start the monitor is the sole arming authority (it arms
-	// on a trigger crossing), so the episode must disarm here instead of calling
-	// lockedArmDropTimer, which would re-assert dropping while a backlog remains.
-	if q.dropMode() == DropJumpStart && q.count == 1 {
-		q.lockedRunMonitor()
-		return
-	}
 
 	if q.droppableLen > 0 || q.count > 1 {
 		q.lockedArmDropTimer()
@@ -498,8 +372,7 @@ func (q *CoDelQueue) lockedRunTimerLimited(dropFn func() bool, maxDrops int) {
 // then eases count back down while healthy. Every action is gated on the fresh
 // `now`, so calling it is idempotent and safe outside the timer — the release
 // (dequeue) path invokes it to shed stale requests in real time rather than
-// waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer
-// or run mode-specific jump/monitor logic; those remain the timer's job.
+// waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer.
 func (q *CoDelQueue) lockedAdvance(now int64, dropFn func() bool) {
 	q.lockedAdvanceLimited(now, dropFn, -1)
 }
@@ -513,13 +386,9 @@ func (q *CoDelQueue) lockedAdvanceLimited(now int64, dropFn func() bool, maxDrop
 	// count and end the episode, otherwise the queue never returns to healthy.
 	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) && (maxDrops < 0 || drops < maxDrops) {
 		// Dropping: actively shed load.
-		dropped := q.dropping
+		dropped := false
 		if q.dropping {
-			// Grace period: while count < GraceCount the head is not actually
-			// dropped, but the count ramp and timer pacing proceed as usual.
-			if q.count >= q.graceCount() {
-				dropped = dropFn()
-			}
+			dropped = dropFn()
 			if dropped {
 				drops++
 				q.count++
@@ -535,80 +404,14 @@ func (q *CoDelQueue) lockedAdvanceLimited(now int64, dropFn func() bool, maxDrop
 		q.dropping = false
 
 		// If a request arrived before the end of the interval then it is a
-		// candidate for dropping. While count>1 this is identical in all modes.
-		// But once count has eased to 1, jump-start mode forbids the head-check
-		// from re-arming: only the monitor (on a trigger crossing) may take count
-		// off 1 in jump-start. In arm-on-enqueue modes the head-check re-arms at
-		// count==1 as usual.
-		if q.droppableLen > 0 && (q.count > 1 || q.armsOnEnqueue()) {
+		// candidate for dropping.
+		if q.droppableLen > 0 {
 			q.lockedPeek() // cleanup
 			if first := q.lockedFirstWaiting(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
 				q.dropping = true
 			}
 		}
 	}
-}
-
-// lockedTryJump escalates count when the head's sojourn has crossed the
-// trigger, jumping to max(count, log2(droppableLen)). Returns true if it jumped
-// (and re-armed); the caller should then return, as the jumped drop rate takes
-// effect on the next fire (per the slow-start-style "arm now, drop next fire"
-// semantics). Called at count==1, or anywhere in the grace window (count <
-// graceCount), where count may already have ramped above 1 — hence the max.
-func (q *CoDelQueue) lockedTryJump(now int64) bool {
-	if q.firstWaiting == nil || q.droppableLen == 0 {
-		return false
-	}
-	head := q.firstWaiting.Value.(*Request)
-	if now-head.codelqEnqueuedAtNs < q.triggerNs() {
-		return false
-	}
-	q.count = max(q.count, max(int(math.Log2(float64(q.droppableLen))), 1))
-	// Anchor the first paced drop at the head's trigger-crossing deadline (the
-	// logical moment the jump arms), not the possibly-late fire time.
-	// lockedArmDropTimer sets dropping (droppableLen>0 here).
-	q.dropNextNs = q.lockedControlLaw(head.codelqEnqueuedAtNs + q.triggerNs())
-	q.lockedArmDropTimer()
-	return true
-}
-
-// lockedScheduleMonitor arms the drop timer to fire when the current head
-// (oldest not-yet-granted request) reaches the trigger threshold. No-op when
-// not gated or when there is no waiting head. scheduleDropTimer is idempotent,
-// so this is safe to call when a timer may already be pending.
-func (q *CoDelQueue) lockedScheduleMonitor() {
-	if q.dropMode() != DropJumpStart || q.firstWaiting == nil {
-		return
-	}
-	head := q.firstWaiting.Value.(*Request)
-	q.dropNextNs = head.codelqEnqueuedAtNs + q.triggerNs()
-	delay := q.dropNextNs - q.nowNs()
-	q.scheduleDropTimer(max(delay, q.cfg.MinDropDelayNs()))
-}
-
-// lockedRunMonitor runs on a disarmed (gated) timer fire: if the head's sojourn
-// has reached the trigger, arm a dropping episode seeded from the droppable
-// backlog; otherwise reschedule for the (possibly newer) head's deadline, or
-// stop if nothing droppable remains.
-func (q *CoDelQueue) lockedRunMonitor() {
-	if q.firstWaiting == nil || q.droppableLen == 0 {
-		q.dropNextNs = 0
-		return
-	}
-	now := q.nowNs()
-	head := q.firstWaiting.Value.(*Request)
-	if now-head.codelqEnqueuedAtNs >= q.triggerNs() {
-		q.count = max(int(math.Log2(float64(q.droppableLen))), 1)
-		// Anchor the first paced drop at the head's trigger-crossing deadline
-		// (the logical moment the episode arms), not the possibly-late fire
-		// time. Consistent with lockedTryJump. lockedArmDropTimer sets dropping
-		// (droppableLen>0 here).
-		q.dropNextNs = q.lockedControlLaw(head.codelqEnqueuedAtNs + q.triggerNs())
-		q.lockedArmDropTimer()
-		return
-	}
-	// Head advanced to a younger request that has not yet crossed the trigger.
-	q.lockedScheduleMonitor()
 }
 
 // lockedEaseCount returns the next drop count during easing:
@@ -624,41 +427,6 @@ func (q *CoDelQueue) lockedEaseCount() int {
 	}
 	step := int(math.Log(float64(q.count)) / math.Log(base) / base)
 	return max(q.count-max(step, 1), 1)
-}
-
-// triggerNs is the sojourn threshold that arms a dropping episode. Defaults to
-// the interval when TriggerNs is unset or non-positive.
-func (q *CoDelQueue) triggerNs() int64 {
-	if q.cfg.TriggerNs != nil {
-		if t := q.cfg.TriggerNs(); t > 0 {
-			return t
-		}
-	}
-	return q.cfg.IntervalNs()
-}
-
-// dropMode reports the configured drop mode. Nil-safe; defaults to
-// DropSlowStart (the original arm-on-enqueue behavior).
-func (q *CoDelQueue) dropMode() CoDelDropMode {
-	if q.cfg.DropMode == nil {
-		return DropSlowStart
-	}
-	return q.cfg.DropMode()
-}
-
-// graceCount is the count threshold below which the head drop is suppressed.
-// Nil-safe; defaults to 1, which never suppresses (count is always >= 1).
-func (q *CoDelQueue) graceCount() int {
-	if q.cfg.GraceCount == nil {
-		return 1
-	}
-	return q.cfg.GraceCount()
-}
-
-// armsOnEnqueue reports whether a droppable enqueue arms the timer immediately
-// (slow-start ramp present). True for DropSlowStart and DropBoth.
-func (q *CoDelQueue) armsOnEnqueue() bool {
-	return q.dropMode() != DropJumpStart
 }
 
 // lockedControlLaw computes the next drop time. The interval shrinks in
@@ -686,23 +454,8 @@ func (q *CoDelQueue) lockedCurrentInterval() int64 {
 
 func (q *CoDelQueue) lockedArmDropTimer() {
 	// Mark the episode active for this armed interval; the next timer fire
-	// re-evaluates health. Called when an episode begins (slow-start enqueue, or
-	// the jump-start monitor arming in lockedRunMonitor) and on each mid-episode
-	// re-arm in lockedRunTimer.
+	// re-evaluates health.
 	q.dropping = q.droppableLen > 0
-	wake := q.dropNextNs
-
-	// Both mode while the jump window is open (count==1, or anywhere in the
-	// grace window): the episode can escalate via the ramp (at dropNextNs) OR a
-	// trigger crossing (at the head's deadline). Wake at whichever comes first
-	// so neither escalation is slept through.
-	if q.dropMode() == DropBoth && (q.count == 1 || q.count < q.graceCount()) && q.firstWaiting != nil {
-		head := q.firstWaiting.Value.(*Request)
-		if headDeadline := head.codelqEnqueuedAtNs + q.triggerNs(); headDeadline < wake {
-			wake = headDeadline
-		}
-	}
-
-	delay := max(wake-q.nowNs(), q.cfg.MinDropDelayNs())
+	delay := max(q.dropNextNs-q.nowNs(), q.cfg.MinDropDelayNs())
 	q.scheduleDropTimer(delay)
 }

@@ -30,7 +30,6 @@ import (
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/vt/log"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -193,12 +192,6 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
 		cfg := loadshedConfig(tsv, varname)
 		err = setFloat64Val(cfg.SetIntervalRatio)
-	case "LoadshedOltpReadTrigger", "LoadshedTxTrigger":
-		cfg := loadshedConfig(tsv, varname)
-		err = setDurationVal(cfg.SetTrigger)
-	case "LoadshedOltpReadGraceCount", "LoadshedTxGraceCount":
-		cfg := loadshedConfig(tsv, varname)
-		err = setIntVal(cfg.SetGraceCount)
 	case "LoadshedOltpReadUndroppableSchemas":
 		err = setStringVal(func(v string) error {
 			var schemas []string
@@ -208,15 +201,6 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			tsv.Config().LoadshedOltpRead.SetUndroppableSchemas(schemas)
-			return nil
-		})
-	case "LoadshedOltpReadDropMode", "LoadshedTxDropMode":
-		cfg := loadshedConfig(tsv, varname)
-		err = setStringVal(func(v string) error {
-			if _, perr := loadshed.ParseDropMode(v); perr != nil {
-				return perr
-			}
-			cfg.SetDropMode(v)
 			return nil
 		})
 	case "Consolidator":
@@ -264,9 +248,6 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"Enabled", cfg.IsEnabled)
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
-		vars = addVar(vars, prefix+"DropMode", cfg.DropModeValue)
-		vars = addVar(vars, prefix+"Trigger", cfg.TriggerValue)
-		vars = addVar(vars, prefix+"GraceCount", cfg.GraceCountValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead.LoadshedConfig)
 	vars = append(vars, envValue{
