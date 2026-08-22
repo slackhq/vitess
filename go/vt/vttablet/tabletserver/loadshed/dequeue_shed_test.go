@@ -102,7 +102,7 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 
 	// Seed a due, ramped episode and advance well past the deadline so the pass
 	// sheds the whole backlog in one lockedRunTimer call.
-	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.count = 1
 	sq.codelq.dropNextNs = 1
 	clock.advance(1_000_000_000)
 
@@ -148,7 +148,7 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
-	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.count = 1
 	sq.codelq.dropNextNs = 1
 	clock.advance(1_000_000_000)
 
@@ -173,7 +173,7 @@ func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
-	sq.codelq.count = sq.codelq.graceCount()
+	sq.codelq.count = 1
 	sq.codelq.dropNextNs = 1
 	clock.advance(1_000_000_000)
 

@@ -254,12 +254,6 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 			},
 			Exponent:       func() float64 { return 1 },
 			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-			TriggerNs:      func() int64 { return config.LoadshedOltpRead.TriggerValue().Nanoseconds() },
-			DropMode: func() loadshed.CoDelDropMode {
-				mode, _ := loadshed.ParseDropMode(config.LoadshedOltpRead.DropModeValue())
-				return mode
-			},
-			GraceCount: func() int { return config.LoadshedOltpRead.GraceCountValue() },
 		},
 		// Track live pool capacity so runtime resizes keep the gate in sync.
 		// Capacity() is 0 until the pool opens; fall back to config until then.

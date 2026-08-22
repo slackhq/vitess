@@ -32,7 +32,6 @@ import (
 	"vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/vtenv"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -75,33 +74,6 @@ func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 
 }
 
-func TestDebugEnvLoadshedJumpStartParams(t *testing.T) {
-	tsv := newDebugEnvTabletServer(t)
-
-	postVar(t, tsv, "LoadshedOltpReadDropMode", "both")
-	assert.Equal(t, "both", tsv.Config().LoadshedOltpRead.DropModeValue())
-
-	postVar(t, tsv, "LoadshedOltpReadTrigger", "12ms")
-	assert.Equal(t, 12*time.Millisecond, tsv.Config().LoadshedOltpRead.TriggerValue())
-
-	postVar(t, tsv, "LoadshedTxGraceCount", "4")
-	assert.Equal(t, 4, tsv.Config().LoadshedTx.GraceCountValue())
-}
-
-func TestDebugEnvLoadshedDropModeInvalid(t *testing.T) {
-	tsv := newDebugEnvTabletServer(t)
-	orig := tsv.Config().LoadshedOltpRead.DropModeValue()
-
-	form := url.Values{"varname": {"LoadshedOltpReadDropMode"}, "value": {"bogus"}}
-	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	handlePost(tsv, w, r)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, orig, tsv.Config().LoadshedOltpRead.DropModeValue(), "invalid value must not mutate config")
-}
-
 func TestDebugEnvUnknownVariable(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 	form := url.Values{"varname": {"LoadshedTarget"}, "value": {"7ms"}}
@@ -125,29 +97,14 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 	}
 	for _, want := range []string{
 		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadIntervalRatio",
-		"LoadshedOltpReadDropMode", "LoadshedOltpReadTrigger", "LoadshedOltpReadGraceCount",
 		"LoadshedOltpReadUndroppableSchemas",
 		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxIntervalRatio",
-		"LoadshedTxDropMode", "LoadshedTxTrigger", "LoadshedTxGraceCount",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)
 	}
 	_, ok := names["LoadshedTxUndroppableSchemas"]
 	assert.False(t, ok, "transaction pool must not expose undroppable schemas")
-}
-
-// TestDebugEnvDropModeWiredToGate confirms a drop-mode override flows through to
-// the live OLTP read gate, not just the config struct.
-func TestDebugEnvDropModeWiredToGate(t *testing.T) {
-	tsv := newDebugEnvTabletServer(t)
-	require.NotNil(t, tsv.qe.snake, "loadshed must be enabled for this test")
-
-	postVar(t, tsv, "LoadshedOltpReadDropMode", "jump")
-
-	mode, err := loadshed.ParseDropMode(tsv.Config().LoadshedOltpRead.DropModeValue())
-	require.NoError(t, err)
-	assert.Equal(t, loadshed.DropJumpStart, mode)
 }
 
 func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {

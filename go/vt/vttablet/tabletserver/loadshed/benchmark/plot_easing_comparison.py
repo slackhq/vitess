@@ -78,9 +78,6 @@ WORKLOAD_DEFAULTS = {
     "brown_seed": 1,
     "brown_step": 0.05,
     "brown_sample_ms": 100,
-    "drop_mode": "slow",
-    "trigger_ms": 0,
-    "grace_count": 1,
 }
 
 
@@ -166,8 +163,6 @@ def run_config_benchmarks(bench_go_path, easings, workloads, jobs=0):
                 "-brown-step", str(w["brown_step"]),
                 "-brown-sample-ms", str(w["brown_sample_ms"]),
             ] + easing_flags(spec)
-            cmd += ["-drop-mode", str(w["drop_mode"]), "-trigger-ms", str(w["trigger_ms"]),
-                    "-grace-count", str(w["grace_count"])]
             cmds.append((spec, w["label"], cmd))
 
     limit = jobs if jobs and jobs > 0 else len(cmds)
@@ -436,8 +431,7 @@ args = parse_args()
 def workload_subtitle_suffix(w):
     return (f"capacity={w['capacity']}, peak={w['peak']}x, work={w['work_ms']}ms"
             f"{'±'+str(w['work_stddev_ms']) if w['work_stddev_ms'] else ''}, "
-            f"target={w['target_ms']}ms, interval={w['interval_ms']}ms, "
-            f"drop_mode={w['drop_mode']}, trigger={w['trigger_ms']}ms, grace={w['grace_count']}")
+            f"target={w['target_ms']}ms, interval={w['interval_ms']}ms")
 
 
 args = parse_args()
@@ -476,8 +470,7 @@ if args.config:
             f"CoDel Summary — {g0['profile']}, seed-averaged metrics vs {summary_x}\n"
             f"capacity={g0['capacity']}, work={g0['work_ms']}ms"
             f"{'±'+str(g0['work_stddev_ms']) if g0['work_stddev_ms'] else ''}, "
-            f"interval={g0['interval_ms']}ms, drop_mode={g0['drop_mode']}, "
-            f"trigger={g0['trigger_ms']}ms, grace={g0['grace_count']} "
+            f"interval={g0['interval_ms']}ms "
             f"({len(by_x[x_values[0]])} seeds/point)"
         )
         plot_summary(summary_x, x_values, series, suptitle,
@@ -498,8 +491,7 @@ if args.config:
                 f"(columns vary by workload)\n"
                 f"capacity={g0['capacity']}, work={g0['work_ms']}ms"
                 f"{'±'+str(g0['work_stddev_ms']) if g0['work_stddev_ms'] else ''}, "
-                f"target={g0['target_ms']}ms, interval={g0['interval_ms']}ms, "
-                f"drop_mode={g0['drop_mode']}, trigger={g0['trigger_ms']}ms, grace={g0['grace_count']}"
+                f"target={g0['target_ms']}ms, interval={g0['interval_ms']}ms"
             )
             plot_comparison(
                 columns=columns,

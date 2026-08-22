@@ -63,7 +63,7 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	// are immediately due once the clock advances.
 	s.q.codelq.dropping = true
 	s.q.codelq.dropNextNs = 1
-	s.q.codelq.count = s.q.codelq.graceCount() // past grace so drops actually fire
+	s.q.codelq.count = 1
 	s.mu.Unlock()
 
 	// Advance the clock so every waiter's sojourn is over target.

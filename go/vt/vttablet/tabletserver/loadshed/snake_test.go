@@ -877,7 +877,7 @@ func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
 		s.mu.Lock()
 		s.lockedStopDropTimer()
 		s.q.codelq.dropping = true
-		s.q.codelq.count = s.q.codelq.graceCount()
+		s.q.codelq.count = 1
 		s.q.codelq.dropNextNs = s.clockFunc()
 		pending := s.lockedEnqueueAdvance()
 		s.mu.Unlock()
