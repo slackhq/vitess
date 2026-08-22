@@ -115,32 +115,33 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 	}
 	limiter := txlimiter.New(env)
 	te.txPool = NewTxPool(env, limiter)
-	if config.LoadshedEnabled {
-		te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
-			Name: "dml",
-			CoDel: loadshed.CoDelConfig{
-				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
-				IntervalNs: func() int64 {
-					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
-				},
-				Exponent:       func() float64 { return 1 },
-				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
-				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
-				GraceCount:     func() int { return config.LoadshedGraceCount },
+	te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+		Name: "dml",
+		CoDel: loadshed.CoDelConfig{
+			TargetNs: func() int64 { return config.LoadshedTx.TargetValue().Nanoseconds() },
+			IntervalNs: func() int64 {
+				return int64(float64(config.LoadshedTx.TargetValue().Nanoseconds()) * config.LoadshedTx.IntervalRatioValue())
 			},
-			// Track live pool capacity so runtime resizes keep the gate in sync.
-			// Capacity() is 0 until the pool opens; fall back to config until then.
-			Capacity: func() int {
-				if c := te.txPool.scp.Capacity(); c > 0 {
-					return c
-				}
-				return config.TxPool.Size
+			Exponent:       func() float64 { return 1 },
+			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
+			TriggerNs:      func() int64 { return config.LoadshedTx.TriggerValue().Nanoseconds() },
+			DropMode: func() loadshed.CoDelDropMode {
+				mode, _ := loadshed.ParseDropMode(config.LoadshedTx.DropModeValue())
+				return mode
 			},
-			LoadsheddingAllowed: func() bool { return true },
-		})
-		loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
-	}
+			GraceCount: func() int { return config.LoadshedTx.GraceCountValue() },
+		},
+		// Track live pool capacity so runtime resizes keep the gate in sync.
+		// Capacity() is 0 until the pool opens; fall back to config until then.
+		Capacity: func() int {
+			if c := te.txPool.scp.Capacity(); c > 0 {
+				return c
+			}
+			return config.TxPool.Size
+		},
+		LoadsheddingAllowed: func() bool { return config.LoadshedTx.IsEnabled() },
+	})
+	loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
 	// We initially allow twoPC (handles vttablet restarts).
 	// We will disallow them for a few reasons -
 	//	1. When a new tablet is promoted if semi-sync is turned off.

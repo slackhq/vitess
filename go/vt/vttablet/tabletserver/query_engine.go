@@ -245,32 +245,33 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	}
 	qe.txSerializer = txserializer.New(env)
 
-	if config.LoadshedEnabled {
-		qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
-			Name: "oltp-read",
-			CoDel: loadshed.CoDelConfig{
-				TargetNs: func() int64 { return config.LoadshedTarget.Nanoseconds() },
-				IntervalNs: func() int64 {
-					return int64(float64(config.LoadshedTarget.Nanoseconds()) * config.LoadshedIntervalRatio)
-				},
-				Exponent:       func() float64 { return 1 },
-				MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-				TriggerNs:      func() int64 { return config.LoadshedTrigger.Nanoseconds() },
-				DropMode:       func() loadshed.CoDelDropMode { mode, _ := loadshed.ParseDropMode(config.LoadshedDropMode); return mode },
-				GraceCount:     func() int { return config.LoadshedGraceCount },
+	qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+		Name: "oltp-read",
+		CoDel: loadshed.CoDelConfig{
+			TargetNs: func() int64 { return config.LoadshedOltpRead.TargetValue().Nanoseconds() },
+			IntervalNs: func() int64 {
+				return int64(float64(config.LoadshedOltpRead.TargetValue().Nanoseconds()) * config.LoadshedOltpRead.IntervalRatioValue())
 			},
-			// Track live pool capacity so runtime resizes keep the gate in sync.
-			// Capacity() is 0 until the pool opens; fall back to config until then.
-			Capacity: func() int {
-				if c := int(qe.conns.Capacity()); c > 0 {
-					return c
-				}
-				return config.OltpReadPool.Size
+			Exponent:       func() float64 { return 1 },
+			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
+			TriggerNs:      func() int64 { return config.LoadshedOltpRead.TriggerValue().Nanoseconds() },
+			DropMode: func() loadshed.CoDelDropMode {
+				mode, _ := loadshed.ParseDropMode(config.LoadshedOltpRead.DropModeValue())
+				return mode
 			},
-			LoadsheddingAllowed: func() bool { return true },
-		})
-		loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
-	}
+			GraceCount: func() int { return config.LoadshedOltpRead.GraceCountValue() },
+		},
+		// Track live pool capacity so runtime resizes keep the gate in sync.
+		// Capacity() is 0 until the pool opens; fall back to config until then.
+		Capacity: func() int {
+			if c := int(qe.conns.Capacity()); c > 0 {
+				return c
+			}
+			return config.OltpReadPool.Size
+		},
+		LoadsheddingAllowed: func() bool { return config.LoadshedOltpRead.IsEnabled() },
+	})
+	loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 
 	qe.strictTableACL = config.StrictTableACL
 	qe.enableTableACLDryRun = config.EnableTableACLDryRun

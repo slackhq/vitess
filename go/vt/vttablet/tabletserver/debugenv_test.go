@@ -60,39 +60,58 @@ func postVar(t *testing.T, tsv *TabletServer, name, value string) {
 func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
-	postVar(t, tsv, "LoadshedTarget", "7ms")
-	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedTarget)
+	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
+	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 
-	postVar(t, tsv, "LoadshedIntervalRatio", "15")
-	assert.Equal(t, 15.0, tsv.Config().LoadshedIntervalRatio)
+	postVar(t, tsv, "LoadshedTxEnabled", "false")
+	assert.False(t, tsv.Config().LoadshedTx.IsEnabled())
+
+	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
+	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedOltpRead.TargetValue())
+
+	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
+	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
+	assert.NotEqual(t, tsv.Config().LoadshedOltpRead.IntervalRatioValue(), tsv.Config().LoadshedTx.IntervalRatioValue())
 
 }
 
 func TestDebugEnvLoadshedJumpStartParams(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
-	postVar(t, tsv, "LoadshedDropMode", "both")
-	assert.Equal(t, "both", tsv.Config().LoadshedDropMode)
+	postVar(t, tsv, "LoadshedOltpReadDropMode", "both")
+	assert.Equal(t, "both", tsv.Config().LoadshedOltpRead.DropModeValue())
 
-	postVar(t, tsv, "LoadshedTrigger", "12ms")
-	assert.Equal(t, 12*time.Millisecond, tsv.Config().LoadshedTrigger)
+	postVar(t, tsv, "LoadshedOltpReadTrigger", "12ms")
+	assert.Equal(t, 12*time.Millisecond, tsv.Config().LoadshedOltpRead.TriggerValue())
 
-	postVar(t, tsv, "LoadshedGraceCount", "4")
-	assert.Equal(t, 4, tsv.Config().LoadshedGraceCount)
+	postVar(t, tsv, "LoadshedTxGraceCount", "4")
+	assert.Equal(t, 4, tsv.Config().LoadshedTx.GraceCountValue())
 }
 
 func TestDebugEnvLoadshedDropModeInvalid(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
-	orig := tsv.Config().LoadshedDropMode
+	orig := tsv.Config().LoadshedOltpRead.DropModeValue()
 
-	form := url.Values{"varname": {"LoadshedDropMode"}, "value": {"bogus"}}
+	form := url.Values{"varname": {"LoadshedOltpReadDropMode"}, "value": {"bogus"}}
 	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handlePost(tsv, w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, orig, tsv.Config().LoadshedDropMode, "invalid value must not mutate config")
+	assert.Equal(t, orig, tsv.Config().LoadshedOltpRead.DropModeValue(), "invalid value must not mutate config")
+}
+
+func TestDebugEnvUnknownVariable(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	form := url.Values{"varname": {"LoadshedTarget"}, "value": {"7ms"}}
+	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handlePost(tsv, w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestDebugEnvLoadshedParamsListed ensures every load-shed knob is surfaced in
@@ -105,12 +124,17 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		names[v.Name] = struct{}{}
 	}
 	for _, want := range []string{
-		"LoadshedTarget", "LoadshedIntervalRatio",
-		"LoadshedDropMode", "LoadshedTrigger", "LoadshedGraceCount",
+		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadDropMode", "LoadshedOltpReadTrigger", "LoadshedOltpReadGraceCount",
+		"LoadshedOltpReadUndroppableSchemas",
+		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxIntervalRatio",
+		"LoadshedTxDropMode", "LoadshedTxTrigger", "LoadshedTxGraceCount",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)
 	}
+	_, ok := names["LoadshedTxUndroppableSchemas"]
+	assert.False(t, ok, "transaction pool must not expose undroppable schemas")
 }
 
 // TestDebugEnvDropModeWiredToGate confirms a drop-mode override flows through to
@@ -119,9 +143,20 @@ func TestDebugEnvDropModeWiredToGate(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 	require.NotNil(t, tsv.qe.snake, "loadshed must be enabled for this test")
 
-	postVar(t, tsv, "LoadshedDropMode", "jump")
+	postVar(t, tsv, "LoadshedOltpReadDropMode", "jump")
 
-	mode, err := loadshed.ParseDropMode(tsv.Config().LoadshedDropMode)
+	mode, err := loadshed.ParseDropMode(tsv.Config().LoadshedOltpRead.DropModeValue())
 	require.NoError(t, err)
 	assert.Equal(t, loadshed.DropJumpStart, mode)
+}
+
+func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	require.NotNil(t, tsv.qe.snake)
+
+	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
+	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
+
+	postVar(t, tsv, "LoadshedOltpReadEnabled", "true")
+	assert.True(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 }

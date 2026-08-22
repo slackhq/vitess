@@ -255,16 +255,7 @@ const keepDroppableFloor = 4
 // valve successor.
 func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 	return func() bool {
-		if q.codelq.droppableLen <= keepDroppableFloor {
-			return false
-		}
-		elem := q.codelq.lockedFindLowestPriorityDroppable()
-		if elem == nil {
-			return false
-		}
-		req := elem.Value.(*Request)
-		q.lockedDrop(req)
-		return true
+		return q.lockedDropOne()
 	}
 }
 
@@ -273,7 +264,31 @@ func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 // the backstop timer and synchronously from the release/dequeue path, so
 // shedding tracks target as slots free rather than waiting for the timer.
 func (q *ValvedCoDelQueue) lockedRunTimer() {
-	q.codelq.lockedRunTimer(q.lockedDropFn())
+	q.lockedRunTimerIf(func() bool { return true })
+}
+
+func (q *ValvedCoDelQueue) lockedRunTimerIf(loadsheddingAllowed func() bool) {
+	enabled := loadsheddingAllowed()
+	if enabled {
+		q.codelq.lockedRunTimer(q.lockedDropFn())
+		return
+	}
+	maxDrops := max(q.codelq.droppableLen-keepDroppableFloor, 0)
+	q.codelq.lockedRunTimerLimited(func() bool {
+		return q.codelq.lockedFindLowestPriorityDroppable() != nil
+	}, maxDrops)
+}
+
+func (q *ValvedCoDelQueue) lockedDropOne() bool {
+	if q.codelq.droppableLen <= keepDroppableFloor {
+		return false
+	}
+	elem := q.codelq.lockedFindLowestPriorityDroppable()
+	if elem == nil {
+		return false
+	}
+	q.lockedDrop(elem.Value.(*Request))
+	return true
 }
 
 func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {

@@ -216,13 +216,19 @@ Flags:
       --keep_logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
-      --loadshed-drop-mode string                                        CoDel drop mode for the load shedder: slow (arm on enqueue, ramp), jump (arm only when head sojourn crosses the trigger), or both. (default "slow")
-      --loadshed-enabled                                                 If true, enables CoDel-based load shedding on the OLTP read and transaction pools. (default true)
-      --loadshed-grace-count int                                         CoDel grace count: suppress the head drop while the drop count is below this value. 1 disables the grace period. (default 1)
-      --loadshed-interval-ratio float                                    CoDel observation interval for the load shedder, as a multiple of loadshed-target (interval = target * ratio). Recommended 10-20. (default 20)
-      --loadshed-target duration                                         CoDel target delay for the load shedder. (default 5ms)
-      --loadshed-trigger duration                                        CoDel sojourn threshold that arms a jump in jump/both drop modes. 0 defaults to the CoDel interval (loadshed-target * loadshed-interval-ratio).
-      --loadshed-undroppable-schemas strings                             Schema qualifiers (e.g. performance_schema) whose queries the load shedder marks undroppable, so low-volume health-check traffic against them is never shed. (default [performance_schema,information_schema,sys,mysql])
+      --loadshed-oltp-read-drop-mode string                              CoDel drop mode for the oltp-read load shedder: slow, jump, or both. (default "slow")
+      --loadshed-oltp-read-enabled                                       If true, enables CoDel-based load shedding on the oltp-read pool. (default true)
+      --loadshed-oltp-read-grace-count int                               CoDel grace count for the oltp-read load shedder. (default 1)
+      --loadshed-oltp-read-interval-ratio float                          CoDel observation interval for the oltp-read load shedder, as a multiple of its target. (default 20)
+      --loadshed-oltp-read-target duration                               CoDel target delay for the oltp-read load shedder. (default 5ms)
+      --loadshed-oltp-read-trigger duration                              CoDel sojourn threshold for the oltp-read load shedder. 0 defaults to its CoDel interval.
+      --loadshed-oltp-read-undroppable-schemas strings                   Schema qualifiers whose OLTP read queries are never shed. (default [performance_schema,information_schema,sys,mysql])
+      --loadshed-tx-drop-mode string                                     CoDel drop mode for the tx load shedder: slow, jump, or both. (default "slow")
+      --loadshed-tx-enabled                                              If true, enables CoDel-based load shedding on the tx pool. (default true)
+      --loadshed-tx-grace-count int                                      CoDel grace count for the tx load shedder. (default 1)
+      --loadshed-tx-interval-ratio float                                 CoDel observation interval for the tx load shedder, as a multiple of its target. (default 20)
+      --loadshed-tx-target duration                                      CoDel target delay for the tx load shedder. (default 5ms)
+      --loadshed-tx-trigger duration                                     CoDel sojourn threshold for the tx load shedder. 0 defaults to its CoDel interval.
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_tables_timeout duration                                     How long to keep the table locked before timing out (default 1m0s)
       --log_backtrace_at traceLocations                                  when logging hits line file:N, emit a stack trace

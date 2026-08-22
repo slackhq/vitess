@@ -18,6 +18,7 @@ package tabletserver
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -256,9 +257,19 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 		if tp.snake != nil {
 			valveID := options.GetLoadshedValveId()
 			snakePriority := snakePriorityFromOptions(options, tp.env.Config().TxThrottlerDefaultPriority)
-			unlock, snakeErr := tp.snake.Acquire(ctx, valveID, snakePriority)
+			snakeCtx := ctx
+			cancel := func() {}
+			if timeout := tp.env.Config().TxPool.Timeout; timeout > 0 {
+				snakeCtx, cancel = context.WithTimeout(ctx, timeout)
+			}
+			unlock, snakeErr := tp.snake.Acquire(snakeCtx, valveID, snakePriority)
+			cancel()
 			if snakeErr != nil {
 				tp.limiter.Release(immediateCaller, effectiveCaller)
+				if errors.Is(snakeErr, context.DeadlineExceeded) && ctx.Err() == nil {
+					tp.LogActive()
+					return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "transaction pool connection limit exceeded")
+				}
 				return nil, "", "", errDMLLoadShed
 			}
 			snakeRelease = func() { unlock.Release() }
