@@ -121,12 +121,16 @@ func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[
 }
 
 func (s *Snake[T]) Dequeue() (T, bool, []T) {
-	pending := s.lockedEnqueueAdvance()
-	req := s.q.lockedFirstWaiting()
+	var pending []*Request[T]
+	if s.q.lockedNeedsAdvance() {
+		pending = s.lockedEnqueueAdvance()
+	}
+	req := s.q.lockedPeek()
 	var value T
 	ok := false
 	if req != nil {
 		s.q.lockedDequeue(req)
+		req.signal(grantSentinel)
 		now := s.clockFunc()
 		s.lockedAccrueDropping(now)
 		s.sojourn.Add(now - req.codelqEnqueuedAtNs)
@@ -135,14 +139,13 @@ func (s *Snake[T]) Dequeue() (T, bool, []T) {
 		var zero T
 		req.value = zero
 	}
-	pending = append(pending, s.q.lockedTakePendingDrops()...)
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return value, ok, s.droppedValues(pending)
 }
 
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
-	if !req.queued {
+	if req.signaledValue != nil {
 		return false, nil
 	}
 	s.q.lockedCancel(req)

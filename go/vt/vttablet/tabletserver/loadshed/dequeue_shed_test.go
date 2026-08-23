@@ -105,7 +105,7 @@ func TestValved_DropReturnsPendingRequests(t *testing.T) {
 	pending := sq.lockedTakePendingDrops()
 	require.NotEmpty(t, pending, "the pass should have shed some requests")
 	for _, req := range pending {
-		assert.False(t, req.queued)
+		assert.NotNil(t, req.signaledValue)
 	}
 	assert.Nil(t, sq.lockedTakePendingDrops(), "taking again yields nothing (ownership transferred)")
 }
@@ -131,7 +131,7 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	assert.Greater(t, sq.codelq.count, initialCount)
 	assert.Equal(t, backlog, sq.lockedLen())
 	for _, req := range reqs {
-		assert.True(t, req.queued)
+		assert.Nil(t, req.signaledValue)
 	}
 }
 
@@ -158,6 +158,6 @@ func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
 
 	assert.Equal(t, 1, checks)
 	for _, req := range reqs {
-		assert.True(t, req.queued)
+		assert.Nil(t, req.signaledValue)
 	}
 }

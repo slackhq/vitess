@@ -126,6 +126,10 @@ import (
 */
 
 type (
+	// DroppedRequestError is returned when a request is dropped by the CoDel
+	// queue due to persistent queue buildup.
+	DroppedRequestError struct{}
+
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
@@ -162,6 +166,10 @@ type (
 	}
 )
 
+func (e *DroppedRequestError) Error() string {
+	return "request dropped by CoDel queue"
+}
+
 func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
 		queue:             list.New(),
@@ -188,7 +196,6 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 
 	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
-	req.queued = true
 
 	if req.isDroppable() {
 		q.droppableLen++
@@ -221,7 +228,6 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	}
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
-	r.queued = false
 
 	if r.isDroppable() {
 		q.droppableLen--

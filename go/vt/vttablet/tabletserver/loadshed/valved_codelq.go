@@ -135,13 +135,16 @@ func (q *ValvedCoDelQueue[T]) lockedIsHealthy() bool {
 	return q.codelq.lockedIsHealthy()
 }
 
+func (q *ValvedCoDelQueue[T]) lockedNeedsAdvance() bool {
+	return q.codelq.dropping || q.codelq.dropNextNs != 0 || q.codelq.droppableLen > 0
+}
+
 func (q *ValvedCoDelQueue[T]) lockedEnqueue(valveID string, priority float64) *Request[T] {
 	req := newRequest[T](priority)
 	req.valveID = valveID
 
 	if valveID != "" {
 		if q.droppablePerValve[valveID] != nil {
-			req.queued = true
 			q.valves[valveID] = append(q.valves[valveID], req)
 			return req
 		}
@@ -153,6 +156,7 @@ func (q *ValvedCoDelQueue[T]) lockedEnqueue(valveID string, priority float64) *R
 
 func (q *ValvedCoDelQueue[T]) lockedDrop(req *Request[T]) {
 	q.codelq.lockedRemove(req)
+	req.signal(&DroppedRequestError{})
 	q.pendingDrops = append(q.pendingDrops, req)
 	q.lockedPromoteOnEvict(req)
 }
@@ -172,10 +176,13 @@ func (q *ValvedCoDelQueue[T]) lockedTakePendingDrops() []*Request[T] {
 func (q *ValvedCoDelQueue[T]) lockedCancel(req *Request[T]) {
 	if req.codelqElem != nil {
 		q.codelq.lockedRemove(req)
+		req.signal(&DroppedRequestError{})
 		q.lockedPromoteOnEvict(req)
 		return
 	}
-	req.queued = false
+	if req.signaledValue == nil {
+		req.signal(&DroppedRequestError{})
+	}
 }
 
 // keepDroppableFloor is the number of droppable requests kept as a reserve
@@ -237,7 +244,7 @@ func (q *ValvedCoDelQueue[T]) lockedDequeue(r *Request[T]) {
 	}
 }
 
-func (q *ValvedCoDelQueue[T]) lockedFirstWaiting() *Request[T] {
+func (q *ValvedCoDelQueue[T]) lockedPeek() *Request[T] {
 	return q.codelq.lockedPeek()
 }
 
@@ -291,7 +298,7 @@ func (q *ValvedCoDelQueue[T]) clearDone(valveID string) {
 		return
 	}
 
-	for len(pending) > 0 && !pending[0].queued {
+	for len(pending) > 0 && pending[0].signaledValue != nil {
 		pending[0] = nil
 		pending = pending[1:]
 	}

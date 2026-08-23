@@ -18,18 +18,20 @@ package loadshed
 
 import (
 	"container/list"
+	"errors"
 	"math"
 )
 
 type (
 	// Request represents an entry in the CoDel queue. Named a 'request' since
-	// it may be dropped or dequeued.
+	// it may be dropped or dequeued. signaledValue allows the queue to inspect
+	// terminal state without removing anything from the queue.
 	Request[T any] struct {
 		priority           float64
 		codelqEnqueuedAtNs int64
 		codelqElem         *list.Element
 		valveID            string
-		queued             bool
+		signaledValue      error
 		value              T
 
 		// bucketElem locates this request in the droppableIndex while it is a
@@ -48,6 +50,8 @@ type (
 // schemas).
 var PriorityUndroppable = math.Inf(-1)
 
+var grantSentinel = errors.New("granted") //nolint:staticcheck // sentinel for request state
+
 func newRequest[T any](priority float64) *Request[T] {
 	return &Request[T]{
 		priority: priority,
@@ -56,4 +60,11 @@ func newRequest[T any](priority float64) *Request[T] {
 
 func (r *Request[T]) isDroppable() bool {
 	return r.priority != PriorityUndroppable
+}
+
+func (r *Request[T]) signal(val error) {
+	if r.signaledValue != nil {
+		panic("loadshed: signal called more than once")
+	}
+	r.signaledValue = val
 }

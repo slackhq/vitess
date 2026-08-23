@@ -32,7 +32,7 @@ func newValvedQueue(clock *testClock) (*testValvedCoDelQueue, *testDropTimerReco
 }
 
 func testValvedDequeue(sq *testValvedCoDelQueue) *testRequest {
-	req := sq.lockedFirstWaiting()
+	req := sq.lockedPeek()
 	if req == nil {
 		return nil
 	}
@@ -172,7 +172,7 @@ func TestValved_CancelInValve(t *testing.T) {
 	assert.NotNil(t, r1.codelqElem, "r1 still in CoDel queue")
 	assert.Equal(t, 1, sq.lockedLen())
 	assert.Len(t, sq.valves["id1"], 3)
-	assert.False(t, r3.queued)
+	assert.NotNil(t, r3.signaledValue)
 }
 
 func TestValved_ClearDone_InValve(t *testing.T) {
@@ -376,7 +376,7 @@ func TestValved_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
 	// id2's valve should be completely unaffected
 	assert.Len(t, sq.valves["id2"], 1)
 	assert.Same(t, r2v, sq.valves["id2"][0])
-	assert.True(t, r2v.queued)
+	assert.Nil(t, r2v.signaledValue)
 }
 
 func TestValved_EmptyValve_MapCleanup(t *testing.T) {

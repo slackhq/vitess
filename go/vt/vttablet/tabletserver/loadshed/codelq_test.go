@@ -209,6 +209,18 @@ func TestCoDelQueue_FirstWaiting_Empty(t *testing.T) {
 	assert.Nil(t, req)
 }
 
+func TestCoDelQueue_Peek_ReturnsHead(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock)
+
+	r1 := testEnqueue(q, 0)
+	testEnqueue(q, 0)
+
+	peeked := q.lockedPeek()
+	assert.Same(t, r1, peeked)
+	assert.Equal(t, 2, q.lockedLen())
+}
+
 func TestCoDelQueue_Dequeue_EvictsFromListImmediately(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
@@ -238,7 +250,6 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 	q.lockedRemove(dropped)
 	assert.Equal(t, float64(1), dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
-	assert.False(t, dropped.queued)
 }
 
 func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
@@ -835,7 +846,7 @@ func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 	require.Equal(t, "value", dequeued)
 	require.Empty(t, dropped)
 	require.Equal(t, 0, s.q.lockedLen())
-	require.False(t, req.queued)
+	require.NotNil(t, req.signaledValue)
 }
 
 func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
@@ -871,7 +882,7 @@ func TestSnakeQueue_CancelRemovesValveWaiter(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, dequeued)
 	require.Empty(t, dropped)
-	require.False(t, first.queued)
+	require.NotNil(t, first.signaledValue)
 }
 
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
