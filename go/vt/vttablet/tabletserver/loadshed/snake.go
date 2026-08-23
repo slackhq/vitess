@@ -30,15 +30,15 @@ type (
 	SnakeConfig struct {
 		CoDel               CoDelConfig
 		LoadsheddingAllowed func() bool
+		DropTimerFired      func()
 	}
 
 	// Snake is a CoDel-based load-shedding queue. It decides which waiting
 	// request may proceed; the caller owns execution capacity and handoff.
 	Snake[T any] struct {
-		q                *ValvedCoDelQueue[T]
-		dropTimerArmed   bool
-		dropTimerChanged bool
-		dropTimerDelayNs int64
+		q              *ValvedCoDelQueue[T]
+		dropTimer      *time.Timer
+		dropTimerArmed bool
 		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
 		// fire (arm time + delay), used to measure how late it actually fires.
 		dropTimerExpectedNs int64
@@ -241,21 +241,20 @@ func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 		return
 	}
 	s.dropTimerArmed = true
-	s.dropTimerChanged = true
-	s.dropTimerDelayNs = delayNs
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
+	if s.cfg.DropTimerFired != nil {
+		s.dropTimer = time.AfterFunc(time.Duration(delayNs)*time.Nanosecond, s.cfg.DropTimerFired)
+	}
 }
 
 func (s *Snake[T]) lockedStopDropTimer() {
-	s.dropTimerArmed = false
-}
-
-func (s *Snake[T]) LockedTimerUpdate() (time.Duration, bool) {
-	if !s.dropTimerChanged {
-		return 0, false
+	if !s.dropTimerArmed {
+		return
 	}
-	s.dropTimerChanged = false
-	return time.Duration(s.dropTimerDelayNs) * time.Nanosecond, true
+	s.dropTimerArmed = false
+	if s.dropTimer != nil {
+		s.dropTimer.Stop()
+	}
 }
 
 func (s *Snake[T]) LockedDropTimerFired() []T {
