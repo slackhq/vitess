@@ -139,9 +139,25 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 	}
 }
 
-func TestSnakePriority(t *testing.T) {
-	assert.Equal(t, float64(100), snakePriority(0))
-	assert.Equal(t, float64(70), snakePriority(30))
-	assert.Equal(t, float64(0), snakePriority(100))
-	assert.Equal(t, loadshed.PriorityUndroppable, snakePriority(loadshed.PriorityUndroppable))
+func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(foo, "", loadshed.PriorityUndroppable)
+	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(bar, "", loadshed.PriorityUndroppable)
+	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-bar.conn)
+	assert.Equal(t, uint32(1), foo.age)
+	assert.Equal(t, 0, wl.maybeStarvingCount())
+
+	foo.age = 9
+	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(bar, "", loadshed.PriorityUndroppable)
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-foo.conn)
 }

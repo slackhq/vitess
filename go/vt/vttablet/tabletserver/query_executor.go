@@ -827,6 +827,8 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	}(time.Now())
 
 	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority))
+	// Queries against a configured schema (e.g. performance_schema health
+	// checks) are marked undroppable instead, so they are never shed.
 	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
 		priority = loadshed.PriorityUndroppable
 	}
