@@ -158,16 +158,18 @@ type (
 		cfg               CoDelConfig
 		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
+		stopDropTimer     func()
 	}
 )
 
-func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64)) *CoDelQueue[T] {
+func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
 		queue:             list.New(),
 		count:             1,
 		cfg:               cfg,
 		nowNs:             nowNs,
 		scheduleDropTimer: scheduleDropTimer,
+		stopDropTimer:     stopDropTimer,
 	}
 	q.droppable.init()
 	return q
@@ -203,8 +205,8 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 	}
 }
 
-// lockedFirstWaiting returns the first waiting request in the queue.
-func (q *CoDelQueue[T]) lockedFirstWaiting() *Request[T] {
+// lockedPeek returns the first waiting request in the queue.
+func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
 	first := q.queue.Front()
 	if first == nil {
 		return nil
@@ -315,7 +317,7 @@ func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxD
 		// If a request arrived before the end of the interval then it is a
 		// candidate for dropping.
 		if q.droppableLen > 0 {
-			if first := q.lockedFirstWaiting(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
+			if first := q.lockedPeek(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
 				q.dropping = true
 			}
 		}

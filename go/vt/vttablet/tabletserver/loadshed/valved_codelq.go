@@ -100,12 +100,12 @@ type (
 	}
 )
 
-func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64)) *ValvedCoDelQueue[T] {
+func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *ValvedCoDelQueue[T] {
 	q := &ValvedCoDelQueue[T]{
 		valves:            make(map[string][]*Request[T]),
 		droppablePerValve: make(map[string]*Request[T]),
 	}
-	q.codelq = newCoDelQueue[T](cfg, nowNs, scheduleDropTimer)
+	q.codelq = newCoDelQueue[T](cfg, nowNs, scheduleDropTimer, stopDropTimer)
 	return q
 }
 
@@ -238,7 +238,7 @@ func (q *ValvedCoDelQueue[T]) lockedDequeue(r *Request[T]) {
 }
 
 func (q *ValvedCoDelQueue[T]) lockedFirstWaiting() *Request[T] {
-	return q.codelq.lockedFirstWaiting()
+	return q.codelq.lockedPeek()
 }
 
 // --- private helpers ---

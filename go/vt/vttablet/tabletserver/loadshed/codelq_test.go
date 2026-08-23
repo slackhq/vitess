@@ -70,6 +70,11 @@ func (r *testDropTimerRecorder) schedule(delayNs int64) {
 	r.delayNs = delayNs
 }
 
+func (r *testDropTimerRecorder) stop() {
+	r.armed = false
+	r.scheduled = false
+}
+
 // reset models a timer fire in tests: clears both the armed flag and the
 // scheduled observability flag, so the next schedule() call is detected.
 func (r *testDropTimerRecorder) reset() {
@@ -79,7 +84,7 @@ func (r *testDropTimerRecorder) reset() {
 
 func newTestQueue(cfg CoDelConfig, clock *testClock) (*testCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue[struct{}](cfg, clock.nowFunc, rec.schedule)
+	q := newCoDelQueue[struct{}](cfg, clock.nowFunc, rec.schedule, rec.stop)
 	return q, rec
 }
 
@@ -139,7 +144,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 
 // testDequeue removes the oldest waiting request.
 func testDequeue(q *testCoDelQueue) *testRequest {
-	req := q.lockedFirstWaiting()
+	req := q.lockedPeek()
 	if req == nil {
 		return nil
 	}
@@ -200,7 +205,7 @@ func TestCoDelQueue_FirstWaiting_Empty(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	req := q.lockedFirstWaiting()
+	req := q.lockedPeek()
 	assert.Nil(t, req)
 }
 

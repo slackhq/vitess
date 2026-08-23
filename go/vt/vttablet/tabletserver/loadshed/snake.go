@@ -44,7 +44,6 @@ type (
 		dropTimerExpectedNs int64
 		cfg                 SnakeConfig
 		clockFunc           func() int64
-		length              atomic.Int64
 
 		shedCount atomic.Int64
 		// shedByPriority breaks shedCount down by the shed request's priority label
@@ -92,7 +91,7 @@ func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
 		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 	}
-	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer)
+	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
 	return s
 }
 
@@ -112,7 +111,6 @@ func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[
 
 	req := s.q.lockedEnqueue(valveID, priority)
 	req.value = value
-	s.length.Add(1)
 	if valveID != "" {
 		s.lockedObserveValveDepth(valveID)
 	}
@@ -132,7 +130,6 @@ func (s *Snake[T]) Dequeue() (T, bool, []T) {
 		now := s.clockFunc()
 		s.lockedAccrueDropping(now)
 		s.sojourn.Add(now - req.codelqEnqueuedAtNs)
-		s.length.Add(-1)
 		value = req.value
 		ok = true
 		var zero T
@@ -149,17 +146,12 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 		return false, nil
 	}
 	s.q.lockedCancel(req)
-	s.length.Add(-1)
 	var zero T
 	req.value = zero
 	dropped := s.q.lockedTakePendingDrops()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return true, s.droppedValues(dropped)
-}
-
-func (s *Snake[T]) Len() int {
-	return int(s.length.Load())
 }
 
 // lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
@@ -201,7 +193,6 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	}
 	values := make([]T, len(requests))
 	for i, req := range requests {
-		s.length.Add(-1)
 		s.shedCount.Add(1)
 		if s.shedByPriority != nil {
 			s.shedByPriority.Add([]string{shedPriorityLabel(req.priority)}, 1)
@@ -252,7 +243,11 @@ func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 }
 
-func (s *Snake[T]) TimerUpdate() (time.Duration, bool) {
+func (s *Snake[T]) lockedStopDropTimer() {
+	s.dropTimerArmed = false
+}
+
+func (s *Snake[T]) LockedTimerUpdate() (time.Duration, bool) {
 	if !s.dropTimerChanged {
 		return 0, false
 	}
@@ -260,7 +255,7 @@ func (s *Snake[T]) TimerUpdate() (time.Duration, bool) {
 	return time.Duration(s.dropTimerDelayNs) * time.Nanosecond, true
 }
 
-func (s *Snake[T]) DropTimerFired() []T {
+func (s *Snake[T]) LockedDropTimerFired() []T {
 	if !s.dropTimerArmed {
 		return nil
 	}
