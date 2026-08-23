@@ -28,7 +28,7 @@ import (
 // --- Uncontended acquire/release ---
 
 func BenchmarkSnake_Uncontended(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -42,7 +42,7 @@ func BenchmarkSnake_Uncontended(b *testing.B) {
 }
 
 func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -60,7 +60,7 @@ func BenchmarkSnake_Uncontended_WithValveID(b *testing.B) {
 func BenchmarkSnake_Contended(b *testing.B) {
 	for _, parallelism := range []int{4, 16, 64, 256} {
 		b.Run(fmt.Sprintf("P%d", parallelism), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
+			s := NewSnake[struct{}](defaultSnakeConfig())
 			ctx := context.Background()
 
 			b.SetParallelism(parallelism / runtime.GOMAXPROCS(0))
@@ -82,7 +82,7 @@ func BenchmarkSnake_Contended(b *testing.B) {
 
 func BenchmarkSnake_ValveOverhead(b *testing.B) {
 	b.Run("NoValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
+		s := NewSnake[struct{}](defaultSnakeConfig())
 		ctx := context.Background()
 
 		b.ResetTimer()
@@ -96,7 +96,7 @@ func BenchmarkSnake_ValveOverhead(b *testing.B) {
 	})
 
 	b.Run("WithValve", func(b *testing.B) {
-		s := NewSnake(defaultSnakeConfig())
+		s := NewSnake[struct{}](defaultSnakeConfig())
 		ctx := context.Background()
 
 		b.ResetTimer()
@@ -115,7 +115,7 @@ func BenchmarkSnake_ValveOverhead(b *testing.B) {
 func BenchmarkSnake_ValveIDScaling(b *testing.B) {
 	for _, numIDs := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("IDs%d", numIDs), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
+			s := NewSnake[struct{}](defaultSnakeConfig())
 			ctx := context.Background()
 			ids := make([]string, numIDs)
 			for i := range numIDs {
@@ -142,7 +142,7 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 			prev := runtime.GOMAXPROCS(procs)
 			defer runtime.GOMAXPROCS(prev)
 
-			s := NewSnake(defaultSnakeConfig())
+			s := NewSnake[struct{}](defaultSnakeConfig())
 			ctx := context.Background()
 
 			b.SetParallelism(procs)
@@ -165,11 +165,11 @@ func BenchmarkSnake_GOMAXPROCS(b *testing.B) {
 func BenchmarkCoDelQueue_EnqueueGrant(b *testing.B) {
 	clock := newTestClock()
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
+	q := newCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
 
 	b.ResetTimer()
 	for range b.N {
-		req := newRequest(0)
+		req := newRequest[struct{}](0)
 		q.lockedEnqueue(req)
 		q.lockedOnGrant(req)
 	}
@@ -178,11 +178,11 @@ func BenchmarkCoDelQueue_EnqueueGrant(b *testing.B) {
 func BenchmarkCoDelQueue_Enqueue_Only(b *testing.B) {
 	clock := newTestClock()
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
+	q := newCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
 
 	b.ResetTimer()
 	for range b.N {
-		req := newRequest(0)
+		req := newRequest[struct{}](0)
 		q.lockedEnqueue(req)
 	}
 	b.StopTimer()
@@ -198,12 +198,12 @@ func BenchmarkCoDelQueue_FindLowestPriority(b *testing.B) {
 		b.Run(fmt.Sprintf("Depth%d", depth), func(b *testing.B) {
 			clock := newTestClock()
 			rec := &testDropTimerRecorder{}
-			q := newCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
+			q := newCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, nil)
 
 			// Use varied priorities so the scan must traverse the full queue.
 			// The lowest priority is at position depth-1, forcing a full scan.
 			for i := range depth {
-				req := newRequest(float64(depth - i))
+				req := newRequest[struct{}](float64(depth - i))
 				q.lockedEnqueue(req)
 			}
 
@@ -250,7 +250,7 @@ func BenchmarkValved_ValvePromotion_Chain(b *testing.B) {
 // --- Allocation benchmarks ---
 
 func BenchmarkSnake_Allocs_Uncontended(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 	ctx := context.Background()
 
 	b.ReportAllocs()
@@ -265,7 +265,7 @@ func BenchmarkSnake_Allocs_Uncontended(b *testing.B) {
 }
 
 func BenchmarkSnake_Allocs_WithValve(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 	ctx := context.Background()
 
 	b.ReportAllocs()
@@ -280,7 +280,7 @@ func BenchmarkSnake_Allocs_WithValve(b *testing.B) {
 }
 
 func BenchmarkSnake_Allocs_Contended(b *testing.B) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 	ctx := context.Background()
 	const workers = 8
 
@@ -310,7 +310,7 @@ func BenchmarkSnake_Allocs_Contended(b *testing.B) {
 func BenchmarkSnake_Throughput_SelfContention(b *testing.B) {
 	for _, parallelism := range []int{2, 4, 8} {
 		b.Run(fmt.Sprintf("SameID_P%d", parallelism), func(b *testing.B) {
-			s := NewSnake(defaultSnakeConfig())
+			s := NewSnake[struct{}](defaultSnakeConfig())
 			ctx := context.Background()
 
 			b.SetParallelism(parallelism / runtime.GOMAXPROCS(0))
@@ -335,7 +335,7 @@ func BenchmarkSnake_NHolder_Throughput(b *testing.B) {
 		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 			ctx := context.Background()
 
 			b.SetParallelism(capacity * 2 / runtime.GOMAXPROCS(0))
@@ -360,7 +360,7 @@ func BenchmarkSnake_NHolder_Uncontended(b *testing.B) {
 		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 			ctx := context.Background()
 
 			b.ResetTimer()
@@ -382,7 +382,7 @@ func BenchmarkSnake_NHolder_Saturated(b *testing.B) {
 		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 			ctx := context.Background()
 
 			b.SetParallelism(capacity * 4 / runtime.GOMAXPROCS(0))
@@ -407,7 +407,7 @@ func BenchmarkSnake_NHolder_WithValve(b *testing.B) {
 		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 			ctx := context.Background()
 
 			ids := make([]string, 4)
@@ -440,7 +440,7 @@ func BenchmarkSnake_NHolder_Allocs(b *testing.B) {
 		b.Run(fmt.Sprintf("Cap%d", capacity), func(b *testing.B) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return capacity }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 			ctx := context.Background()
 
 			b.ReportAllocs()
@@ -533,7 +533,7 @@ func BenchmarkSnake_HighContention(b *testing.B) {
 			b.Run(fmt.Sprintf("C%d", level), func(b *testing.B) {
 				cfg := defaultSnakeConfig()
 				cfg.Capacity = hugeCapacity
-				s := NewSnake(cfg)
+				s := NewSnake[struct{}](cfg)
 				runPooledContention(b, level, func() {
 					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {
@@ -550,7 +550,7 @@ func BenchmarkSnake_HighContention(b *testing.B) {
 			b.Run(fmt.Sprintf("C%d", level), func(b *testing.B) {
 				cfg := defaultSnakeConfig()
 				cfg.Capacity = hugeCapacity
-				s := NewSnake(cfg)
+				s := NewSnake[struct{}](cfg)
 				runPooledContention(b, level, func() {
 					u, err := s.Acquire(ctx, "shared-valve", 0)
 					if err != nil {
@@ -568,7 +568,7 @@ func BenchmarkSnake_HighContention(b *testing.B) {
 				// Default config: Capacity == nil => capacity 1. Contenders
 				// beyond the single holder block on signalChan or are shed by
 				// CoDel; either way the mutex is the serialization point.
-				s := NewSnake(defaultSnakeConfig())
+				s := NewSnake[struct{}](defaultSnakeConfig())
 				runPooledContention(b, level, func() {
 					u, err := s.Acquire(ctx, "", 0)
 					if err != nil {

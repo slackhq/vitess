@@ -116,7 +116,7 @@ func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
 	assert.Equal(t, int64(0), shedGauge(), "no sheds before any contention")
 
 	// Hold every slot, then pile on contending acquires so CoDel drops some.
-	var unlocks []*SafeUnlock
+	var unlocks []*testSafeUnlock
 	for range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestPublishStats_DroppableAndIntervalHistogramsRecordUnderLoad(t *testing.T
 
 	// Occupy every slot, then contend so droppable entries queue and the drop
 	// timer fires (recording interval and drop-count observations).
-	var unlocks []*SafeUnlock
+	var unlocks []*testSafeUnlock
 	for range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -420,7 +420,7 @@ func TestPublishStats_DroppingNanosAdvancesDuringEpisode(t *testing.T) {
 	assert.Equal(t, int64(0), droppingNanos(), "no dropping time before contention")
 
 	// Drive a dropping episode: hold every slot and pile on contenders.
-	var unlocks []*SafeUnlock
+	var unlocks []*testSafeUnlock
 	for range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)

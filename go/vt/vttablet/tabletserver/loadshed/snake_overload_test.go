@@ -35,7 +35,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	// Phase 1: overload — hold lock for a long time with waiters
 	unlock, err := s.Acquire(t.Context(), "", 0)
@@ -74,7 +74,7 @@ func TestSnake_Overload_RecoveryToHealthy(t *testing.T) {
 // --- Holder not counted in queue length ---
 
 func TestSnake_Overload_HolderNotCountedInQueueLen(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestSnake_Overload_HolderNotCountedInQueueLen(t *testing.T) {
 }
 
 func TestSnake_Overload_WaiterCountedNotHolder(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestSnake_Overload_WaiterCountedNotHolder(t *testing.T) {
 // --- Mass cancel at Snake layer ---
 
 func TestSnake_Overload_MassCancel(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "mass-cancel", 0)
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 		cfg.CoDel.TargetNs = func() int64 { return 1 }
 		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
 		cfg.LoadsheddingAllowed = func() bool { return true }
-		s := NewSnake(cfg)
+		s := NewSnake[struct{}](cfg)
 
 		unlock, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 		cfg.CoDel.TargetNs = func() int64 { return 1 }
 		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
 		cfg.LoadsheddingAllowed = func() bool { return false }
-		s := NewSnake(cfg)
+		s := NewSnake[struct{}](cfg)
 
 		unlock, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -334,7 +334,7 @@ func TestSnake_Overload_SelfContention_CrossIDDrops(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	// Hold the lock
 	unlock, err := s.Acquire(t.Context(), "holder", 0)
@@ -391,7 +391,7 @@ func TestSnake_Overload_SelfContention_CrossIDDrops(t *testing.T) {
 // --- Memory steady-state: clean baseline after many cycles ---
 
 func TestSnake_Memory_CleanBaseline(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	// Run many acquire/release cycles
 	for range 1000 {
@@ -415,7 +415,7 @@ func TestSnake_Memory_CleanBaseline(t *testing.T) {
 // --- Memory: many distinct valve IDs map cleanup ---
 
 func TestSnake_Memory_ManyDistinctValveIDs_Cleanup(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	// Use many distinct valve IDs
 	for i := range 500 {
@@ -439,7 +439,7 @@ func TestSnake_Memory_CoDelStateTransition(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	// Initially healthy
 	assert.True(t, s.IsHealthy())
@@ -485,7 +485,7 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	// Acquire the only slot (capacity defaults to 1). Once granted, this
 	// holder becomes undroppable and never releases — a stuck in-flight query
@@ -536,7 +536,7 @@ func TestSnake_Overload_GrantStall_ShedsDuringStall(t *testing.T) {
 // --- Double-signal panic invariant ---
 
 func TestSnake_NoPanicOnConcurrentCancel(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "no-panic", 0)
 	require.NoError(t, err)

@@ -80,13 +80,13 @@ type (
 	//
 	// All methods are prefixed locked* and assume the caller holds the parent
 	// mutex.
-	ValvedCoDelQueue struct {
-		codelq *CoDelQueue
+	ValvedCoDelQueue[T any] struct {
+		codelq *CoDelQueue[T]
 
 		// valves is the per-valve-ID queue. Requests here are waiting for the
 		// active request to complete before entering the CoDel queue. There may
 		// be entries with the same valve ID in the CoDel queue.
-		valves map[string][]*Request
+		valves map[string][]*Request[T]
 
 		// outstandingCounts tracks the total number of outstanding requests per
 		// valve ID (in CoDel queue + in valve).
@@ -96,7 +96,7 @@ type (
 		// representative in the CoDel queue for each valve ID. Maintains the
 		// invariant that each nonempty valve always has exactly one droppable
 		// entry in the CoDel queue.
-		droppablePerValve map[string]*Request
+		droppablePerValve map[string]*Request[T]
 
 		// pendingSignals collects requests that lockedDrop marked (signaledValue
 		// set) but whose channel send is deferred until the queue mutex is
@@ -104,15 +104,15 @@ type (
 		// arrivals from serializing behind a large batch drop. The caller takes
 		// this slice before unlocking and sends each afterward (see
 		// lockedTakePendingSignals).
-		pendingSignals []*Request
+		pendingSignals []*Request[T]
 	}
 )
 
-func newValvedCoDelQueue(cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *ValvedCoDelQueue {
-	q := &ValvedCoDelQueue{
-		valves:            make(map[string][]*Request),
+func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *ValvedCoDelQueue[T] {
+	q := &ValvedCoDelQueue[T]{
+		valves:            make(map[string][]*Request[T]),
 		outstandingCounts: make(map[string]int),
-		droppablePerValve: make(map[string]*Request),
+		droppablePerValve: make(map[string]*Request[T]),
 	}
 	q.codelq = newCoDelQueue(cfg, nowNs, scheduleDropTimer, stopDropTimer, q.onPeekCleanup)
 	return q
@@ -121,33 +121,33 @@ func newValvedCoDelQueue(cfg CoDelConfig, nowNs func() int64, scheduleDropTimer 
 // onPeekCleanup is called by the CoDel queue when lockedPeek defensively
 // removes a done-with-error request from the list head. Decrements the
 // outstanding count for the request's valve ID.
-func (q *ValvedCoDelQueue) onPeekCleanup(req *Request) {
+func (q *ValvedCoDelQueue[T]) onPeekCleanup(req *Request[T]) {
 	q.decrementOutstanding(req.valveID)
 }
 
-func (q *ValvedCoDelQueue) lockedCurrentInterval() int64 {
+func (q *ValvedCoDelQueue[T]) lockedCurrentInterval() int64 {
 	return q.codelq.lockedCurrentInterval()
 }
 
-func (q *ValvedCoDelQueue) lockedDroppableLen() int {
+func (q *ValvedCoDelQueue[T]) lockedDroppableLen() int {
 	return q.codelq.droppableLen
 }
 
-func (q *ValvedCoDelQueue) lockedCount() int {
+func (q *ValvedCoDelQueue[T]) lockedCount() int {
 	return q.codelq.count
 }
 
 // lockedLen returns the number of requests in the CoDel queue.
-func (q *ValvedCoDelQueue) lockedLen() int {
+func (q *ValvedCoDelQueue[T]) lockedLen() int {
 	return q.codelq.lockedLen()
 }
 
-func (q *ValvedCoDelQueue) lockedValveDepth(valveID string) int {
+func (q *ValvedCoDelQueue[T]) lockedValveDepth(valveID string) int {
 	return len(q.valves[valveID])
 }
 
 // lockedIsHealthy reports whether the CoDel queue is healthy.
-func (q *ValvedCoDelQueue) lockedIsHealthy() bool {
+func (q *ValvedCoDelQueue[T]) lockedIsHealthy() bool {
 	return q.codelq.lockedIsHealthy()
 }
 
@@ -157,17 +157,17 @@ func (q *ValvedCoDelQueue) lockedIsHealthy() bool {
 // could arm on. When false, lockedDequeue is a guaranteed no-op, so the release
 // path can skip the call — and its clock read — entirely on the healthy fast
 // path.
-func (q *ValvedCoDelQueue) lockedNeedsAdvance() bool {
+func (q *ValvedCoDelQueue[T]) lockedNeedsAdvance() bool {
 	return q.codelq.dropping || q.codelq.dropNextNs != 0 || q.codelq.droppableLen > 0
 }
 
 // lockedPeek returns the head of the CoDel queue without removing it.
-func (q *ValvedCoDelQueue) lockedPeek() *Request {
+func (q *ValvedCoDelQueue[T]) lockedPeek() *Request[T] {
 	return q.codelq.lockedPeek()
 }
 
-func (q *ValvedCoDelQueue) lockedEnqueue(valveID string, priority float64) *Request {
-	req := newRequest(priority)
+func (q *ValvedCoDelQueue[T]) lockedEnqueue(valveID string, priority float64) *Request[T] {
+	req := newRequest[T](priority)
 	req.valveID = valveID
 
 	if valveID != "" {
@@ -184,7 +184,7 @@ func (q *ValvedCoDelQueue) lockedEnqueue(valveID string, priority float64) *Requ
 
 // lockedRelease updates valve accounting for a granted request and promotes a
 // pending request when needed.
-func (q *ValvedCoDelQueue) lockedRelease(req *Request) {
+func (q *ValvedCoDelQueue[T]) lockedRelease(req *Request[T]) {
 	q.decrementOutstanding(req.valveID)
 	if req.valveID != "" {
 		// Promote if no droppable entry exists. This handles the case where
@@ -197,7 +197,7 @@ func (q *ValvedCoDelQueue) lockedRelease(req *Request) {
 	}
 }
 
-func (q *ValvedCoDelQueue) lockedDrop(req *Request) {
+func (q *ValvedCoDelQueue[T]) lockedDrop(req *Request[T]) {
 	q.codelq.lockedRemove(req)
 	// Mark the rejection under the lock (so under-lock readers see signaledValue
 	// immediately) but defer the channel send: it goreadys the parked Acquire
@@ -216,7 +216,7 @@ func (q *ValvedCoDelQueue) lockedDrop(req *Request) {
 // the buffer is set to nil (not truncated in place) so a concurrent drop pass
 // that re-appends under the lock cannot corrupt the slice the caller is draining
 // after unlocking.
-func (q *ValvedCoDelQueue) lockedTakePendingSignals() []*Request {
+func (q *ValvedCoDelQueue[T]) lockedTakePendingSignals() []*Request[T] {
 	pending := q.pendingSignals
 	q.pendingSignals = nil
 	return pending
@@ -226,7 +226,7 @@ func (q *ValvedCoDelQueue) lockedTakePendingSignals() []*Request {
 // and promotes the next from the valve. If it's pending in the valve, it
 // signals it in place and lets clearDone handle removal during the next
 // promotion — this avoids an O(N) scan of the valve.
-func (q *ValvedCoDelQueue) lockedCancel(req *Request) {
+func (q *ValvedCoDelQueue[T]) lockedCancel(req *Request[T]) {
 	if req.codelqElem != nil {
 		q.codelq.lockedRemove(req)
 		q.lockedPromoteOnEvict(req)
@@ -253,7 +253,7 @@ const keepDroppableFloor = 4
 // lockedDropFn builds the drop callback shared by the timer and the synchronous
 // advance path: drop the lowest-priority droppable request and promote its
 // valve successor.
-func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
+func (q *ValvedCoDelQueue[T]) lockedDropFn() func() bool {
 	return func() bool {
 		return q.lockedDropOne()
 	}
@@ -263,11 +263,11 @@ func (q *ValvedCoDelQueue) lockedDropFn() func() bool {
 // lowest-priority request and triggering valve promotion. It is driven both by
 // the backstop timer and synchronously from the release/dequeue path, so
 // shedding tracks target as slots free rather than waiting for the timer.
-func (q *ValvedCoDelQueue) lockedRunTimer() {
+func (q *ValvedCoDelQueue[T]) lockedRunTimer() {
 	q.lockedRunTimerIf(func() bool { return true })
 }
 
-func (q *ValvedCoDelQueue) lockedRunTimerIf(loadsheddingAllowed func() bool) {
+func (q *ValvedCoDelQueue[T]) lockedRunTimerIf(loadsheddingAllowed func() bool) {
 	enabled := loadsheddingAllowed()
 	if enabled {
 		q.codelq.lockedRunTimer(q.lockedDropFn())
@@ -279,7 +279,7 @@ func (q *ValvedCoDelQueue) lockedRunTimerIf(loadsheddingAllowed func() bool) {
 	}, maxDrops)
 }
 
-func (q *ValvedCoDelQueue) lockedDropOne() bool {
+func (q *ValvedCoDelQueue[T]) lockedDropOne() bool {
 	if q.codelq.droppableLen <= keepDroppableFloor {
 		return false
 	}
@@ -287,11 +287,11 @@ func (q *ValvedCoDelQueue) lockedDropOne() bool {
 	if elem == nil {
 		return false
 	}
-	q.lockedDrop(elem.Value.(*Request))
+	q.lockedDrop(elem.Value.(*Request[T]))
 	return true
 }
 
-func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {
+func (q *ValvedCoDelQueue[T]) lockedOnGrant(r *Request[T]) {
 	q.codelq.lockedOnGrant(r)
 	if r.valveID != "" {
 		delete(q.droppablePerValve, r.valveID)
@@ -299,13 +299,13 @@ func (q *ValvedCoDelQueue) lockedOnGrant(r *Request) {
 	}
 }
 
-func (q *ValvedCoDelQueue) lockedFirstWaiting() *Request {
+func (q *ValvedCoDelQueue[T]) lockedFirstWaiting() *Request[T] {
 	return q.codelq.lockedFirstWaiting()
 }
 
 // --- private helpers ---
 
-func (q *ValvedCoDelQueue) lockedEnqueueToCoDel(req *Request, valveID string) {
+func (q *ValvedCoDelQueue[T]) lockedEnqueueToCoDel(req *Request[T], valveID string) {
 	if valveID != "" {
 		q.droppablePerValve[valveID] = req
 	}
@@ -314,7 +314,7 @@ func (q *ValvedCoDelQueue) lockedEnqueueToCoDel(req *Request, valveID string) {
 
 // lockedPromoteOnEvict handles involuntary removal of the active request
 // (drop or cancel). Decrements outstanding, then promotes.
-func (q *ValvedCoDelQueue) lockedPromoteOnEvict(req *Request) {
+func (q *ValvedCoDelQueue[T]) lockedPromoteOnEvict(req *Request[T]) {
 	valveID := req.valveID
 	if valveID == "" {
 		return
@@ -324,7 +324,7 @@ func (q *ValvedCoDelQueue) lockedPromoteOnEvict(req *Request) {
 	q.lockedPromote(valveID)
 }
 
-func (q *ValvedCoDelQueue) lockedPromote(valveID string) {
+func (q *ValvedCoDelQueue[T]) lockedPromote(valveID string) {
 	if valveID == "" {
 		return
 	}
@@ -351,7 +351,7 @@ func (q *ValvedCoDelQueue) lockedPromote(valveID string) {
 // clearDone removes done (cancelled) requests from the head of the valve.
 // Their outstanding counts are decremented since the CoDel queue never learned
 // about them.
-func (q *ValvedCoDelQueue) clearDone(valveID string) {
+func (q *ValvedCoDelQueue[T]) clearDone(valveID string) {
 	pending, ok := q.valves[valveID]
 	if !ok {
 		return
@@ -370,7 +370,7 @@ func (q *ValvedCoDelQueue) clearDone(valveID string) {
 	}
 }
 
-func (q *ValvedCoDelQueue) decrementOutstanding(valveID string) {
+func (q *ValvedCoDelQueue[T]) decrementOutstanding(valveID string) {
 	if valveID == "" {
 		return
 	}

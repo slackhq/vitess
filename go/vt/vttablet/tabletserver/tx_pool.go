@@ -70,7 +70,7 @@ type (
 		scp     *StatefulConnectionPool
 		ticks   *timer.Timer
 		limiter txlimiter.TxLimiter
-		snake   *loadshed.Snake
+		snake   *loadshed.Snake[struct{}]
 
 		logMu   sync.Mutex
 		lastLog time.Time

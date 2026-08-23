@@ -115,7 +115,7 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 	}
 	limiter := txlimiter.New(env)
 	te.txPool = NewTxPool(env, limiter)
-	te.txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+	te.txPool.snake = loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name: "dml",
 		CoDel: loadshed.CoDelConfig{
 			TargetNs: func() int64 { return config.LoadshedTx.TargetValue().Nanoseconds() },

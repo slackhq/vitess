@@ -29,7 +29,7 @@ type (
 	// signaledValue allows non-consuming inspection of signal state (used by
 	// lockedPeek to avoid channel pop/push-back): nil means unsignaled, and any
 	// non-nil value means the request has completed.
-	Request struct {
+	Request[T any] struct {
 		priority           float64
 		codelqEnqueuedAtNs int64
 		signalChan         chan error
@@ -55,14 +55,14 @@ var PriorityUndroppable = math.Inf(-1)
 
 var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
 
-func newRequest(priority float64) *Request {
-	return &Request{
+func newRequest[T any](priority float64) *Request[T] {
+	return &Request[T]{
 		priority:   priority,
 		signalChan: make(chan error, 1),
 	}
 }
 
-func (r *Request) isDroppable() bool {
+func (r *Request[T]) isDroppable() bool {
 	return r.priority != PriorityUndroppable
 }
 
@@ -71,7 +71,7 @@ func (r *Request) isDroppable() bool {
 // where the caller holds no lock across the send, or the send is single-shot
 // (grant, cancel). Batch paths mark under the lock and send after (see
 // markSignaled / sendSignal).
-func (r *Request) signal(val error) {
+func (r *Request[T]) signal(val error) {
 	r.markSignaled(val)
 	r.sendSignal()
 }
@@ -81,7 +81,7 @@ func (r *Request) signal(val error) {
 // under-lock readers key off signaledValue, so it must be set synchronously.
 // Returns true if this call performed the nil->set transition, so the caller can
 // enqueue the deferred send exactly once. Panics on a second distinct signal.
-func (r *Request) markSignaled(val error) bool {
+func (r *Request[T]) markSignaled(val error) bool {
 	if r.signaledValue != nil {
 		panic("loadshed: signal called more than once")
 	}
@@ -93,6 +93,6 @@ func (r *Request) markSignaled(val error) bool {
 // performs the goready of the parked Acquire goroutine, so batch drop paths call
 // it AFTER releasing the queue mutex to keep the wakeup storm out of the critical
 // section. Must be called exactly once, after markSignaled.
-func (r *Request) sendSignal() {
+func (r *Request[T]) sendSignal() {
 	r.signalChan <- r.signaledValue
 }
