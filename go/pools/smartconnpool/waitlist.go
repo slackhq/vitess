@@ -201,14 +201,14 @@ func (wl *waitlist[C]) reject(waiters []*waiter[C]) {
 }
 
 func (wl *waitlist[C]) syncTimer() {
-	if delay, ok := wl.snake.TimerUpdate(); ok {
+	if delay, ok := wl.snake.LockedTimerUpdate(); ok {
 		time.AfterFunc(delay, wl.runDropTimer)
 	}
 }
 
 func (wl *waitlist[C]) runDropTimer() {
 	wl.mu.Lock()
-	dropped := wl.snake.DropTimerFired()
+	dropped := wl.snake.LockedDropTimerFired()
 	wl.syncTimer()
 	wl.mu.Unlock()
 	wl.reject(dropped)
