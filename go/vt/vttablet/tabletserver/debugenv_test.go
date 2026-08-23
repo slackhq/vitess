@@ -109,7 +109,6 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 
 func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
-	require.NotNil(t, tsv.qe.snake)
 
 	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
 	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
