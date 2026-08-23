@@ -2925,3 +2925,87 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 		}},
 	})
 }
+
+func TestPriorityFromOptions(t *testing.T) {
+	const defaultPriority = 100
+
+	tests := []struct {
+		name    string
+		options *querypb.ExecuteOptions
+		want    int
+	}{
+		{
+			name:    "nil options uses default",
+			options: nil,
+			want:    defaultPriority,
+		},
+		{
+			name:    "empty priority string uses default",
+			options: &querypb.ExecuteOptions{Priority: ""},
+			want:    defaultPriority,
+		},
+		{
+			name:    "valid priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "0"},
+			want:    0,
+		},
+		{
+			name:    "valid mid-range priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "30"},
+			want:    30,
+		},
+		{
+			name:    "non-numeric priority falls back to default",
+			options: &querypb.ExecuteOptions{Priority: "not-a-number"},
+			want:    defaultPriority,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, priorityFromOptions(tt.options, defaultPriority))
+		})
+	}
+}
+
+func TestSnakePriorityFromOptions(t *testing.T) {
+	const defaultPriority = 100
+
+	tests := []struct {
+		name    string
+		options *querypb.ExecuteOptions
+		want    float64
+	}{
+		{
+			name:    "most important proto priority inverts to highest snake priority",
+			options: &querypb.ExecuteOptions{Priority: "0"},
+			want:    100,
+		},
+		{
+			name:    "least important proto priority inverts to lowest snake priority",
+			options: &querypb.ExecuteOptions{Priority: "100"},
+			want:    0,
+		},
+		{
+			name:    "mid-range proto priority inverts",
+			options: &querypb.ExecuteOptions{Priority: "30"},
+			want:    70,
+		},
+		{
+			name:    "empty priority uses default then inverts",
+			options: &querypb.ExecuteOptions{Priority: ""},
+			want:    0,
+		},
+		{
+			name:    "nil options uses default then inverts",
+			options: nil,
+			want:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, snakePriorityFromOptions(tt.options, defaultPriority))
+		})
+	}
+}

@@ -223,6 +223,16 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.EnablePerWorkloadTableMetrics, "enable-per-workload-table-metrics", defaultConfig.EnablePerWorkloadTableMetrics, "If true, query counts and query error metrics include a label that identifies the workload")
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
+
+	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead.LoadshedConfig, defaultConfig.LoadshedOltpRead.LoadshedConfig)
+	fs.StringSliceVar(&currentConfig.LoadshedOltpRead.UndroppableSchemas, "loadshed-oltp-read-undroppable-schemas", defaultConfig.LoadshedOltpRead.UndroppableSchemas, "Schema qualifiers whose OLTP read queries are never shed.")
+	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
+}
+
+func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, defaultCfg LoadshedConfig) {
+	fs.BoolVar(&cfg.Enabled, "loadshed-"+pool+"-enabled", defaultCfg.Enabled, "If true, enables CoDel-based load shedding on the "+pool+" pool.")
+	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
+	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
 }
 
 var (
@@ -387,24 +397,95 @@ type TabletConfig struct {
 	EnableViews bool `json:"-"`
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
+
+	LoadshedOltpRead OltpLoadshedConfig `json:"-"`
+	LoadshedTx       LoadshedConfig     `json:"-"`
+}
+
+type LoadshedConfig struct {
+	mu            *sync.RWMutex
+	Enabled       bool
+	Target        time.Duration
+	IntervalRatio float64
+}
+
+type OltpLoadshedConfig struct {
+	LoadshedConfig
+	schemasMu          *sync.RWMutex
+	UndroppableSchemas []string
+}
+
+func (c *LoadshedConfig) IsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Enabled
+}
+
+func (c *LoadshedConfig) SetEnabled(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Enabled = enabled
+}
+
+func (c *LoadshedConfig) TargetValue() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Target
+}
+
+func (c *LoadshedConfig) SetTarget(target time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Target = target
+}
+
+func (c *LoadshedConfig) IntervalRatioValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.IntervalRatio
+}
+
+func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.IntervalRatio = intervalRatio
+}
+
+func (c *OltpLoadshedConfig) UndroppableSchemasValue() []string {
+	if c.schemasMu == nil {
+		return append([]string(nil), c.UndroppableSchemas...)
+	}
+	c.schemasMu.RLock()
+	defer c.schemasMu.RUnlock()
+	return append([]string(nil), c.UndroppableSchemas...)
+}
+
+func (c *OltpLoadshedConfig) SetUndroppableSchemas(schemas []string) {
+	if c.schemasMu == nil {
+		c.schemasMu = &sync.RWMutex{}
+	}
+	c.schemasMu.Lock()
+	defer c.schemasMu.Unlock()
+	c.UndroppableSchemas = append([]string(nil), schemas...)
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
 	type TCProxy TabletConfig
 
+	snapshot := cfg.Clone()
 	tmp := struct {
 		TCProxy
 		SchemaReloadInterval      string `json:"schemaReloadIntervalSeconds,omitempty"`
 		SchemaChangeReloadTimeout string `json:"schemaChangeReloadTimeout,omitempty"`
 	}{
-		TCProxy: TCProxy(*cfg),
+		TCProxy: TCProxy(*snapshot),
 	}
 
-	if d := cfg.SchemaReloadInterval; d != 0 {
+	if d := snapshot.SchemaReloadInterval; d != 0 {
 		tmp.SchemaReloadInterval = d.String()
 	}
 
-	if d := cfg.SchemaChangeReloadTimeout; d != 0 {
+	if d := snapshot.SchemaChangeReloadTimeout; d != 0 {
 		tmp.SchemaChangeReloadTimeout = d.String()
 	}
 
@@ -876,11 +957,64 @@ func NewDefaultConfig() *TabletConfig {
 
 // Clone creates a clone of TabletConfig.
 func (c *TabletConfig) Clone() *TabletConfig {
+	if c.LoadshedOltpRead.mu != nil {
+		c.LoadshedOltpRead.mu.RLock()
+		defer c.LoadshedOltpRead.mu.RUnlock()
+	}
+	if c.LoadshedOltpRead.schemasMu != nil {
+		c.LoadshedOltpRead.schemasMu.RLock()
+		defer c.LoadshedOltpRead.schemasMu.RUnlock()
+	}
+	if c.LoadshedTx.mu != nil {
+		c.LoadshedTx.mu.RLock()
+		defer c.LoadshedTx.mu.RUnlock()
+	}
+
 	tc := *c
 	if tc.DB != nil {
 		tc.DB = c.DB.Clone()
 	}
+	var oltpMu *sync.RWMutex
+	if c.LoadshedOltpRead.mu != nil {
+		oltpMu = &sync.RWMutex{}
+	}
+	var schemasMu *sync.RWMutex
+	if c.LoadshedOltpRead.schemasMu != nil {
+		schemasMu = &sync.RWMutex{}
+	}
+	tc.LoadshedOltpRead = OltpLoadshedConfig{
+		LoadshedConfig: LoadshedConfig{
+			mu:            oltpMu,
+			Enabled:       c.LoadshedOltpRead.Enabled,
+			Target:        c.LoadshedOltpRead.Target,
+			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
+		},
+		schemasMu:          schemasMu,
+		UndroppableSchemas: append([]string(nil), c.LoadshedOltpRead.UndroppableSchemas...),
+	}
+	var txMu *sync.RWMutex
+	if c.LoadshedTx.mu != nil {
+		txMu = &sync.RWMutex{}
+	}
+	tc.LoadshedTx = LoadshedConfig{
+		mu:            txMu,
+		Enabled:       c.LoadshedTx.Enabled,
+		Target:        c.LoadshedTx.Target,
+		IntervalRatio: c.LoadshedTx.IntervalRatio,
+	}
 	return &tc
+}
+
+func (c *TabletConfig) InitLoadshedConfig() {
+	if c.LoadshedOltpRead.mu == nil {
+		c.LoadshedOltpRead.mu = &sync.RWMutex{}
+	}
+	if c.LoadshedOltpRead.schemasMu == nil {
+		c.LoadshedOltpRead.schemasMu = &sync.RWMutex{}
+	}
+	if c.LoadshedTx.mu == nil {
+		c.LoadshedTx.mu = &sync.RWMutex{}
+	}
 }
 
 // SetTxTimeoutForWorkload updates workload transaction timeouts. Used in tests only.
@@ -1138,6 +1272,22 @@ var defaultConfig = TabletConfig{
 	EnablePerWorkloadTableMetrics: false,
 
 	TwoPCAbandonAge: 15 * time.Minute,
+
+	LoadshedOltpRead: OltpLoadshedConfig{
+		LoadshedConfig:     defaultLoadshedConfig(),
+		schemasMu:          &sync.RWMutex{},
+		UndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
+	},
+	LoadshedTx: defaultLoadshedConfig(),
+}
+
+func defaultLoadshedConfig() LoadshedConfig {
+	return LoadshedConfig{
+		mu:            &sync.RWMutex{},
+		Enabled:       true,
+		Target:        5 * time.Millisecond,
+		IntervalRatio: 20,
+	}
 }
 
 // defaultTxThrottlerConfig returns the default TxThrottlerConfigFlag object based on

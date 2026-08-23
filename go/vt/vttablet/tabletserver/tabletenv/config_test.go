@@ -17,6 +17,8 @@ limitations under the License.
 package tabletenv
 
 import (
+	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -337,6 +339,64 @@ func TestFlags(t *testing.T) {
 	Init()
 	want.SanitizeLogMessages = true
 	assert.Equal(t, want, currentConfig)
+}
+
+func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
+	cfg := NewDefaultConfig()
+
+	assert.True(t, cfg.LoadshedOltpRead.Enabled)
+	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.Equal(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+	assert.Equal(t, cfg.LoadshedOltpRead.IntervalRatio, cfg.LoadshedTx.IntervalRatio)
+	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemas)
+
+	cfg.LoadshedOltpRead.Target = time.Second
+	cfg.LoadshedOltpRead.Enabled = false
+
+	assert.False(t, cfg.LoadshedOltpRead.Enabled)
+	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.NotEqual(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+}
+
+func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
+	cfg := NewDefaultConfig()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			cfg.Clone()
+			_, err := json.Marshal(cfg)
+			assert.NoError(t, err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
+	original := currentConfig
+	defer func() { currentConfig = original }()
+
+	currentConfig = *NewDefaultConfig()
+	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
+	registerTabletEnvFlags(fs)
+
+	require.NoError(t, fs.Set("loadshed-oltp-read-enabled", "false"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
+	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
+
+	assert.False(t, currentConfig.LoadshedOltpRead.Enabled)
+	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
+	assert.True(t, currentConfig.LoadshedTx.Enabled)
+	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {
