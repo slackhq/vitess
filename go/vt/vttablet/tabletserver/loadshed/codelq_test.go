@@ -24,6 +24,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testRequest = Request[struct{}]
+type testCoDelQueue = CoDelQueue[struct{}]
+type testValvedCoDelQueue = ValvedCoDelQueue[struct{}]
+type testSnake = Snake[struct{}]
+type testSafeUnlock = SafeUnlock[struct{}]
+
 func defaultTestConfig() CoDelConfig {
 	return CoDelConfig{
 		IntervalNs:     func() int64 { return int64(1e9) },
@@ -79,14 +85,14 @@ func (r *testDropTimerRecorder) reset() {
 	r.scheduled = false
 }
 
-func newTestQueue(cfg CoDelConfig, clock *testClock) (*CoDelQueue, *testDropTimerRecorder) {
+func newTestQueue(cfg CoDelConfig, clock *testClock) (*testCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue(cfg, clock.nowFunc, rec.schedule, rec.stop, nil)
+	q := newCoDelQueue[struct{}](cfg, clock.nowFunc, rec.schedule, rec.stop, nil)
 	return q, rec
 }
 
-func testEnqueue(q *CoDelQueue, priority float64) *Request {
-	req := newRequest(priority)
+func testEnqueue(q *testCoDelQueue, priority float64) *testRequest {
+	req := newRequest[struct{}](priority)
 	q.lockedEnqueue(req)
 	return req
 }
@@ -140,7 +146,7 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 }
 
 // testDequeue grants the oldest waiting request.
-func testDequeue(q *CoDelQueue) *Request {
+func testDequeue(q *testCoDelQueue) *testRequest {
 	req := q.lockedFirstWaiting()
 	if req == nil {
 		return nil
@@ -292,7 +298,7 @@ func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, r2, elem.Value.(*Request))
+	assert.Same(t, r2, elem.Value.(*testRequest))
 }
 
 func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
@@ -304,7 +310,7 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, droppable, elem.Value.(*Request))
+	assert.Same(t, droppable, elem.Value.(*testRequest))
 	q.lockedPopElem(elem, &DroppedRequestError{})
 	assert.Equal(t, 1, q.lockedLen())
 }
@@ -321,7 +327,7 @@ func TestCoDelQueue_DropSkipsDone(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, r2, elem.Value.(*Request))
+	assert.Same(t, r2, elem.Value.(*testRequest))
 }
 
 func TestCoDelQueue_DropAllUndroppable_ReturnsNil(t *testing.T) {
@@ -344,7 +350,7 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, inf, elem.Value.(*Request))
+	assert.Same(t, inf, elem.Value.(*testRequest))
 }
 
 func TestCoDelQueue_DropAllInf_NoPanic(t *testing.T) {

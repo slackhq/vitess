@@ -24,7 +24,7 @@ import (
 )
 
 // dropAll is the standard test dropFn: sheds the lowest-priority droppable head.
-func dropAllFn(q *CoDelQueue) func() bool {
+func dropAllFn(q *testCoDelQueue) func() bool {
 	return func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
@@ -94,7 +94,7 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 	// A backlog of distinct-valve droppable requests (distinct valves so each is
 	// its own droppable representative and all are eligible to shed).
 	const backlog = 5
-	reqs := make([]*Request, backlog)
+	reqs := make([]*testRequest, backlog)
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
@@ -144,7 +144,7 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
 	const backlog = 5
-	reqs := make([]*Request, backlog)
+	reqs := make([]*testRequest, backlog)
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
@@ -169,7 +169,7 @@ func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
 	const backlog = 10
-	reqs := make([]*Request, backlog)
+	reqs := make([]*testRequest, backlog)
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}

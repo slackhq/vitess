@@ -35,9 +35,9 @@ func TestSnake_NHolder_ConcurrentGrants(t *testing.T) {
 		t.Run(fmt.Sprintf("Cap%d", cap), func(t *testing.T) {
 			cfg := defaultSnakeConfig()
 			cfg.Capacity = func() int { return cap }
-			s := NewSnake(cfg)
+			s := NewSnake[struct{}](cfg)
 
-			unlocks := make([]*SafeUnlock, cap)
+			unlocks := make([]*testSafeUnlock, cap)
 			for i := range cap {
 				u, err := s.Acquire(t.Context(), "", 0)
 				require.NoError(t, err, "acquire %d should succeed (capacity=%d)", i, cap)
@@ -59,9 +59,9 @@ func TestSnake_NHolder_ConcurrentGrants(t *testing.T) {
 func TestSnake_NHolder_BlocksAtCapacity(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return 3 }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
-	unlocks := make([]*SafeUnlock, 3)
+	unlocks := make([]*testSafeUnlock, 3)
 	for i := range 3 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestSnake_NHolder_ParallelThroughput(t *testing.T) {
 
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	var maxConcurrent atomic.Int64
 	var ops atomic.Int64
@@ -143,7 +143,7 @@ func TestSnake_NHolder_DynamicCapacityIncrease(t *testing.T) {
 
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return int(cap.Load()) }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	u1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -181,9 +181,9 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return int(cap.Load()) }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
-	unlocks := make([]*SafeUnlock, 4)
+	unlocks := make([]*testSafeUnlock, 4)
 	for i := range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestSnake_NHolder_DynamicCapacityDecrease(t *testing.T) {
 func TestSnake_NHolder_ValveSerialization(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return 3 }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	u1, err := s.Acquire(t.Context(), "valve-a", 0)
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
 	const capacity = 5
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	var wg sync.WaitGroup
 	var violations atomic.Int64
@@ -305,7 +305,7 @@ func TestSnake_NHolder_NGrantedAccuracy(t *testing.T) {
 func TestSnake_NHolder_ContextCancelFreesSlot(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return 2 }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	ctx1, cancel1 := context.WithCancel(t.Context())
 	u1, err := s.Acquire(ctx1, "", 0)
@@ -346,9 +346,9 @@ func TestSnake_NHolder_ReleaseCallbacks(t *testing.T) {
 	cfg.ReleaseCBs = []func(error){
 		func(_ error) { count.Add(1) },
 	}
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
-	unlocks := make([]*SafeUnlock, 3)
+	unlocks := make([]*testSafeUnlock, 3)
 	for i := range 3 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -370,9 +370,9 @@ func TestSnake_NHolder_ValveInvariant_AllGranted(t *testing.T) {
 
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
-	unlocks := make([]*SafeUnlock, M)
+	unlocks := make([]*testSafeUnlock, M)
 	for i := range M {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		u, err := s.Acquire(ctx, "foo", 0)
@@ -396,9 +396,9 @@ func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
 
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return capacity }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
-	unlocks := make([]*SafeUnlock, capacity)
+	unlocks := make([]*testSafeUnlock, capacity)
 	for i := range capacity {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		u, err := s.Acquire(ctx, "foo", 0)
@@ -409,7 +409,7 @@ func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
 	assert.Equal(t, capacity, s.nGranted())
 
 	blocked := make(chan struct{})
-	granted := make(chan *SafeUnlock, 1)
+	granted := make(chan *testSafeUnlock, 1)
 	go func() {
 		close(blocked)
 		u, err := s.Acquire(context.Background(), "foo", 0)
@@ -446,10 +446,10 @@ func TestSnake_NHolder_ValveInvariant_CapacityExhausted(t *testing.T) {
 func TestSnake_NHolder_MemoryCleanup(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Capacity = func() int { return 5 }
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	for range 500 {
-		unlocks := make([]*SafeUnlock, 5)
+		unlocks := make([]*testSafeUnlock, 5)
 		for i := range 5 {
 			u, err := s.Acquire(t.Context(), fmt.Sprintf("id-%d", i), 0)
 			require.NoError(t, err)

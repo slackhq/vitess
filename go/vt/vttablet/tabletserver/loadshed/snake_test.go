@@ -42,17 +42,17 @@ func defaultSnakeConfig() SnakeConfig {
 	}
 }
 
-func newTestSnake(cfg SnakeConfig) *Snake {
-	return NewSnake(cfg)
+func newTestSnake(cfg SnakeConfig) *testSnake {
+	return NewSnake[struct{}](cfg)
 }
 
-func (s *Snake) nGranted() int {
+func (s *Snake[T]) nGranted() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.holders)
 }
 
-func (s *Snake) isIdle() bool {
+func (s *Snake[T]) isIdle() bool {
 	return s.nGranted() == 0
 }
 
@@ -357,7 +357,7 @@ func TestSnake_DroppedRequest(t *testing.T) {
 	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
-	var unlocks []*SafeUnlock
+	var unlocks []*testSafeUnlock
 	for range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -454,7 +454,7 @@ func TestSnake_SafeUnlock_StaleNonce(t *testing.T) {
 	unlock1, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
 
-	acquired := make(chan *SafeUnlock, 1)
+	acquired := make(chan *testSafeUnlock, 1)
 	go func() {
 		u, err := s.Acquire(t.Context(), "", 0)
 		if err == nil {
@@ -465,7 +465,7 @@ func TestSnake_SafeUnlock_StaleNonce(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	unlock1.Release()
 
-	var unlock2 *SafeUnlock
+	var unlock2 *testSafeUnlock
 	select {
 	case unlock2 = <-acquired:
 	case <-time.After(1 * time.Second):
@@ -756,7 +756,7 @@ func TestSnake_AcquireError_Custom(t *testing.T) {
 	cfg.Capacity = func() int { return 4 }
 	s := newTestSnake(cfg)
 
-	var unlocks []*SafeUnlock
+	var unlocks []*testSafeUnlock
 	for range 4 {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoError(t, err)
@@ -834,7 +834,7 @@ func TestSnake_SelfContention_WithExceptions(t *testing.T) {
 // --- NewSnake (default clock) ---
 
 func TestNewSnake_DefaultClock(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -868,12 +868,12 @@ func TestSnake_Priority_DisabledPreservesCallerPriority(t *testing.T) {
 
 func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
 	type result struct {
-		unlock *SafeUnlock
+		unlock *testSafeUnlock
 		err    error
 	}
 	const waiters = 10
 
-	runDueBatch := func(s *Snake) {
+	runDueBatch := func(s *testSnake) {
 		s.mu.Lock()
 		s.lockedStopDropTimer()
 		s.q.codelq.dropping = true
@@ -886,7 +886,7 @@ func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
 		}
 	}
 
-	newLoadedSnake := func(t *testing.T) (*Snake, *SafeUnlock, *atomic.Bool, context.CancelFunc, <-chan result) {
+	newLoadedSnake := func(t *testing.T) (*testSnake, *testSafeUnlock, *atomic.Bool, context.CancelFunc, <-chan result) {
 		t.Helper()
 		allowed := &atomic.Bool{}
 		allowed.Store(true)

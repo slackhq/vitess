@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newValvedQueue(clock *testClock) (*ValvedCoDelQueue, *testDropTimerRecorder) {
+func newValvedQueue(clock *testClock) (*testValvedCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newValvedCoDelQueue(defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
+	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
 	return q, rec
 }
 
@@ -33,7 +33,7 @@ func newValvedQueue(clock *testClock) (*ValvedCoDelQueue, *testDropTimerRecorder
 // ValvedCoDelQueue: gets the first waiting request, marks it not droppable
 // (which triggers eager valve promotion), signals it, and completes it
 // (removing from queue).
-func testValvedDequeue(sq *ValvedCoDelQueue) *Request {
+func testValvedDequeue(sq *testValvedCoDelQueue) *testRequest {
 	req := sq.lockedFirstWaiting()
 	if req == nil {
 		return nil
@@ -355,7 +355,7 @@ func TestValved_MassCancel_OverloadScenario(t *testing.T) {
 	sq.lockedEnqueue("id1", 0) // r0: active in CoDel
 
 	// Simulate overload: 50 requests arrive for same valve ID
-	requests := make([]*Request, 50)
+	requests := make([]*testRequest, 50)
 	for i := range 50 {
 		requests[i] = sq.lockedEnqueue("id1", 0)
 	}

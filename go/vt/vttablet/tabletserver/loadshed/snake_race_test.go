@@ -56,7 +56,7 @@ func TestSnake_CancelVsGrant_Race(t *testing.T) {
 		wg.Add(1)
 
 		var acquireErr error
-		var unlockB *SafeUnlock
+		var unlockB *testSafeUnlock
 
 		go func() {
 			defer wg.Done()

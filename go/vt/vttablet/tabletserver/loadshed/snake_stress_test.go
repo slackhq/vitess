@@ -33,7 +33,7 @@ import (
 // --- High contention ---
 
 func TestSnake_Stress_HighContention(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var completed atomic.Int64
 	var held atomic.Int32
@@ -65,7 +65,7 @@ func TestSnake_Stress_HighContention(t *testing.T) {
 // --- Context cancellation under load ---
 
 func TestSnake_Stress_ContextCancellation(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var acquired, cancelled atomic.Int64
@@ -102,14 +102,14 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	droppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	droppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
 	droppableCfg.LoadsheddingAllowed = func() bool { return true }
-	droppableSnake := NewSnake(droppableCfg)
+	droppableSnake := NewSnake[struct{}](droppableCfg)
 
 	undroppableCfg := defaultSnakeConfig()
 	undroppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }
 	undroppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }
 	undroppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 }
 	undroppableCfg.LoadsheddingAllowed = func() bool { return false }
-	undroppableSnake := NewSnake(undroppableCfg)
+	undroppableSnake := NewSnake[struct{}](undroppableCfg)
 
 	unlock, err := droppableSnake.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 // --- Self-contention ---
 
 func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	var globalHeld atomic.Int32
@@ -224,7 +224,7 @@ func TestSnake_Stress_SelfContention_MutualExclusion(t *testing.T) {
 }
 
 func TestSnake_Stress_SelfContention_ValveSerializationOrder(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "order-test", 0)
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	unlock, err := s.Acquire(t.Context(), "holder", 0)
 	require.NoError(t, err)
@@ -326,7 +326,7 @@ func TestSnake_Stress_SelfContention_DropPromotionChain(t *testing.T) {
 }
 
 func TestSnake_Stress_SelfContention_CancelInValve(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "cancel-test", 0)
 	require.NoError(t, err)
@@ -388,7 +388,7 @@ func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 5_000_000 }   // 5ms
 	cfg.CoDel.TargetNs = func() int64 { return 500_000 }       // 0.5ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	const numIDs = 5
 	const perID = 8
@@ -432,7 +432,7 @@ func TestSnake_Stress_SelfContention_MixedCancelDropGrant(t *testing.T) {
 }
 
 func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	const numIDs = 5
 	const goroutinesPerID = 4
@@ -480,7 +480,7 @@ func TestSnake_Stress_SelfContention_HighConcurrency_Sustained(t *testing.T) {
 // --- Rapid acquire/release ---
 
 func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -504,7 +504,7 @@ func TestSnake_Stress_RapidAcquireRelease(t *testing.T) {
 // --- Cancel and grant race under load ---
 
 func TestSnake_Stress_CancelAndGrant_Race(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 100 {
@@ -536,7 +536,7 @@ func TestSnake_Stress_DropTimerAndCancel_Race(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }     // 1us
 	cfg.CoDel.TargetNs = func() int64 { return 1 }           // 1ns
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 } // 1us
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -570,7 +570,7 @@ func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	cfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 
 	var wg sync.WaitGroup
 
@@ -597,7 +597,7 @@ func TestSnake_Stress_SelfContention_WithDrops(t *testing.T) {
 func TestSnake_Stress_GoroutineLeakDetector(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	for range 50 {
@@ -626,7 +626,7 @@ func TestSnake_Stress_GoroutineLeakDetector(t *testing.T) {
 // --- No starvation ---
 
 func TestSnake_Stress_NoStarvation(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	var wg sync.WaitGroup
 	acquiredFlags := make([]atomic.Bool, 100)
@@ -663,7 +663,7 @@ func TestSnake_Stress_NoStarvation(t *testing.T) {
 // --- Promotion during cancel ---
 
 func TestSnake_Stress_PromotionDuringCancel(t *testing.T) {
-	s := NewSnake(defaultSnakeConfig())
+	s := NewSnake[struct{}](defaultSnakeConfig())
 
 	unlock, err := s.Acquire(t.Context(), "id1", 0)
 	require.NoError(t, err)

@@ -30,9 +30,9 @@ import (
 
 // acquireN acquires count slots from the snake, failing the test if any acquire
 // is shed or blocked. The returned unlocks must be released by the caller.
-func acquireN(t *testing.T, s *loadshed.Snake, count int) []*loadshed.SafeUnlock {
+func acquireN(t *testing.T, s *loadshed.Snake[struct{}], count int) []*loadshed.SafeUnlock[struct{}] {
 	t.Helper()
-	unlocks := make([]*loadshed.SafeUnlock, count)
+	unlocks := make([]*loadshed.SafeUnlock[struct{}], count)
 	for i := range count {
 		u, err := s.Acquire(t.Context(), "", 0)
 		require.NoErrorf(t, err, "acquire %d of %d should be granted", i+1, count)
@@ -43,8 +43,8 @@ func acquireN(t *testing.T, s *loadshed.Snake, count int) []*loadshed.SafeUnlock
 
 // acquireBlocks reports whether a single acquire blocks (rather than being
 // granted) within a short window. A granted slot is released immediately.
-func acquireBlocks(s *loadshed.Snake) bool {
-	granted := make(chan *loadshed.SafeUnlock, 1)
+func acquireBlocks(s *loadshed.Snake[struct{}]) bool {
+	granted := make(chan *loadshed.SafeUnlock[struct{}], 1)
 	go func() {
 		u, err := s.Acquire(context.Background(), "", 0)
 		if err == nil {

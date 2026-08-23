@@ -75,7 +75,7 @@ func durationNanos(ds ...time.Duration) []int64 {
 // label: both the oltp-read and dml snakes register through the same tablet
 // Exporter, whose single label dimension is already the tablet name, so a
 // shared labeled metric would collide on that one key.
-func PublishStats(exporter statsExporter, prefix string, s *Snake) {
+func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})

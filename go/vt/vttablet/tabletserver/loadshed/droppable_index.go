@@ -40,7 +40,7 @@ const (
 // non-empty so min() is a trailing-zeros scan rather than a walk.
 //
 // Not safe for concurrent use; the caller holds the queue mutex.
-type droppableIndex struct {
+type droppableIndex[T any] struct {
 	buckets  [numPriorityBuckets]list.List
 	overflow list.List
 	// occ is the occupancy bitset over buckets: bit i is set iff buckets[i] is
@@ -50,7 +50,7 @@ type droppableIndex struct {
 
 // init prepares the index for use. The zero list.List is a valid empty list, so
 // this only needs to run once (idempotent) and mainly documents intent.
-func (idx *droppableIndex) init() {
+func (idx *droppableIndex[T]) init() {
 	for i := range idx.buckets {
 		idx.buckets[i].Init()
 	}
@@ -73,7 +73,7 @@ func bucketFor(priority float64) int {
 // insert adds a droppable request to its priority bucket (FIFO). Records the
 // bucket and list node on the request for O(1) removal. Must not be called for
 // an undroppable request.
-func (idx *droppableIndex) insert(req *Request) {
+func (idx *droppableIndex[T]) insert(req *Request[T]) {
 	b := bucketFor(req.priority)
 	req.bucketIdx = b
 	if b == overflowBucket {
@@ -86,7 +86,7 @@ func (idx *droppableIndex) insert(req *Request) {
 
 // remove unlinks a request from its bucket in O(1). No-op if the request is not
 // currently indexed. Clears the bucket's occupancy bit if it becomes empty.
-func (idx *droppableIndex) remove(req *Request) {
+func (idx *droppableIndex[T]) remove(req *Request[T]) {
 	if req.bucketElem == nil {
 		return
 	}
@@ -105,12 +105,12 @@ func (idx *droppableIndex) remove(req *Request) {
 // min returns the lowest-priority droppable request — the oldest in the
 // lowest-numbered non-empty bucket — or nil if the index is empty. In-domain
 // buckets always outrank the overflow list.
-func (idx *droppableIndex) min() *Request {
+func (idx *droppableIndex[T]) min() *Request[T] {
 	if b := idx.lowestOccupiedBucket(); b >= 0 {
-		return idx.buckets[b].Front().Value.(*Request)
+		return idx.buckets[b].Front().Value.(*Request[T])
 	}
 	if e := idx.overflow.Front(); e != nil {
-		return e.Value.(*Request)
+		return e.Value.(*Request[T])
 	}
 	return nil
 }
@@ -118,7 +118,7 @@ func (idx *droppableIndex) min() *Request {
 // lowestOccupiedBucket returns the lowest non-empty in-domain bucket index, or
 // -1 if all in-domain buckets are empty. O(1) via trailing-zeros on the
 // occupancy words.
-func (idx *droppableIndex) lowestOccupiedBucket() int {
+func (idx *droppableIndex[T]) lowestOccupiedBucket() int {
 	if idx.occ[0] != 0 {
 		return bits.TrailingZeros64(idx.occ[0])
 	}

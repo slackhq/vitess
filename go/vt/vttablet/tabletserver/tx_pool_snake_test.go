@@ -48,7 +48,7 @@ func setupWithSnake(t *testing.T, capacity int) (*fakesqldb.DB, *TxPool, func())
 
 	limiter := &fakeLimiter{}
 	txPool := NewTxPool(env, limiter)
-	txPool.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+	txPool.snake = loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name: "dml-test",
 		CoDel: loadshed.CoDelConfig{
 			TargetNs:       func() int64 { return (5 * time.Millisecond).Nanoseconds() },

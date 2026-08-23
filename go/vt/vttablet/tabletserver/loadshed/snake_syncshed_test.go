@@ -39,7 +39,7 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	cfg.Capacity = func() int { return 1 }
 
-	s := NewSnake(cfg)
+	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
 	s.q.codelq.nowNs = now.Load // queue uses defaultClock otherwise — keep clocks consistent
 
@@ -53,7 +53,7 @@ func TestSnake_SyncShedOnRelease(t *testing.T) {
 	// The backlog must exceed keepDroppableFloor so the drop pass actually sheds
 	// (it refuses to shed at or below the floor).
 	const backlog = keepDroppableFloor + 4
-	waiters := make([]*Request, backlog)
+	waiters := make([]*testRequest, backlog)
 	s.mu.Lock()
 	for i := range backlog {
 		waiters[i] = s.q.lockedEnqueue("", 1)

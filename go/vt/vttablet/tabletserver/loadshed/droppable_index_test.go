@@ -24,14 +24,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testDroppableIndex = droppableIndex[struct{}]
+
 // idxReq builds a droppable request at the given priority for index tests.
-func idxReq(priority float64) *Request {
-	return newRequest(priority)
+func idxReq(priority float64) *testRequest {
+	return newRequest[struct{}](priority)
 }
 
 // TestDroppableIndex_Empty: min of an empty index returns nil.
 func TestDroppableIndex_Empty(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 	assert.Nil(t, idx.min())
 }
@@ -39,7 +41,7 @@ func TestDroppableIndex_Empty(t *testing.T) {
 // TestDroppableIndex_LowestPriorityWins: min returns the request in the
 // lowest-numbered non-empty bucket.
 func TestDroppableIndex_LowestPriorityWins(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	idx.insert(idxReq(10))
@@ -53,7 +55,7 @@ func TestDroppableIndex_LowestPriorityWins(t *testing.T) {
 // TestDroppableIndex_FIFOWithinBucket: among equal priorities, min returns the
 // oldest (first inserted) — matching the front-most tie-break of the old scan.
 func TestDroppableIndex_FIFOWithinBucket(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	first := idxReq(5)
@@ -69,7 +71,7 @@ func TestDroppableIndex_FIFOWithinBucket(t *testing.T) {
 // TestDroppableIndex_RemoveMiddle: removing a request that is not the min is
 // O(1) and leaves min unchanged.
 func TestDroppableIndex_RemoveMiddle(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	lowest := idxReq(1)
@@ -84,7 +86,7 @@ func TestDroppableIndex_RemoveMiddle(t *testing.T) {
 // TestDroppableIndex_RemoveEmptiesBucket: removing the last entry of a bucket
 // clears its occupancy bit so min advances to the next non-empty bucket.
 func TestDroppableIndex_RemoveEmptiesBucket(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	low := idxReq(1)
@@ -102,7 +104,7 @@ func TestDroppableIndex_RemoveEmptiesBucket(t *testing.T) {
 // TestDroppableIndex_Priority0 and Priority100 are the domain boundaries
 // (production priorities are integers in [0,100]).
 func TestDroppableIndex_DomainBoundaries(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	r100 := idxReq(100)
@@ -119,7 +121,7 @@ func TestDroppableIndex_DomainBoundaries(t *testing.T) {
 // land in the overflow list. They are only picked when no in-domain bucket has
 // entries, and among overflow entries the oldest wins.
 func TestDroppableIndex_Overflow(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	inf := idxReq(math.Inf(1))
@@ -138,7 +140,7 @@ func TestDroppableIndex_Overflow(t *testing.T) {
 // TestDroppableIndex_OverflowFIFO: multiple overflow entries preserve insertion
 // order.
 func TestDroppableIndex_OverflowFIFO(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	first := idxReq(math.Inf(1))
@@ -154,7 +156,7 @@ func TestDroppableIndex_OverflowFIFO(t *testing.T) {
 // TestDroppableIndex_SecondWordBoundary exercises the 64-bit word split in the
 // occupancy bitset: bucket 63 (word 0) vs bucket 64 (word 1).
 func TestDroppableIndex_SecondWordBoundary(t *testing.T) {
-	var idx droppableIndex
+	var idx testDroppableIndex
 	idx.init()
 
 	r64 := idxReq(64)

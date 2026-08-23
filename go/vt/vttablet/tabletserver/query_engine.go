@@ -200,7 +200,7 @@ type QueryEngine struct {
 	redactUIQuery bool
 
 	// snake is the CoDel-based load-shedding gate for the OLTP read pool.
-	snake *loadshed.Snake
+	snake *loadshed.Snake[struct{}]
 }
 
 // NewQueryEngine creates a new QueryEngine.
@@ -245,7 +245,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	}
 	qe.txSerializer = txserializer.New(env)
 
-	qe.snake = loadshed.NewSnake(loadshed.SnakeConfig{
+	qe.snake = loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name: "oltp-read",
 		CoDel: loadshed.CoDelConfig{
 			TargetNs: func() int64 { return config.LoadshedOltpRead.TargetValue().Nanoseconds() },
