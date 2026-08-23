@@ -415,6 +415,28 @@ type OltpLoadshedConfig struct {
 	UndroppableSchemas []string
 }
 
+func (c *TabletConfig) LoadshedConfig(poolName string) (func() bool, func() time.Duration, func() time.Duration) {
+	var config *LoadshedConfig
+	if c != nil {
+		switch poolName {
+		case "ConnPool":
+			config = &c.LoadshedOltpRead.LoadshedConfig
+		case "TransactionPool", "FoundRowsPool":
+			config = &c.LoadshedTx
+		}
+	}
+	if config == nil {
+		return func() bool { return false },
+			func() time.Duration { return time.Second },
+			func() time.Duration { return time.Second }
+	}
+	return config.IsEnabled,
+		config.TargetValue,
+		func() time.Duration {
+			return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue())
+		}
+}
+
 func (c *LoadshedConfig) IsEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
