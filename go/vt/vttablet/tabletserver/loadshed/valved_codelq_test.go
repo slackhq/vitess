@@ -23,24 +23,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testValvedCoDelQueue = ValvedCoDelQueue[struct{}]
+
 func newValvedQueue(clock *testClock) (*testValvedCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
+	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule)
 	return q, rec
 }
 
-// testValvedDequeue simulates the grant+complete lifecycle on the
-// ValvedCoDelQueue: gets the first waiting request, marks it not droppable
-// (which triggers eager valve promotion), signals it, and completes it
-// (removing from queue).
 func testValvedDequeue(sq *testValvedCoDelQueue) *testRequest {
 	req := sq.lockedFirstWaiting()
 	if req == nil {
 		return nil
 	}
-	sq.lockedOnGrant(req)
-	req.signal(grantSentinel)
-	sq.lockedRelease(req)
+	sq.lockedDequeue(req)
 	return req
 }
 
@@ -55,7 +51,6 @@ func TestValved_FirstRequest_DirectEntry(t *testing.T) {
 	assert.NotNil(t, req)
 	assert.Equal(t, 1, sq.lockedLen())
 	assert.NotNil(t, req.codelqElem, "should be in the CoDel queue (has list element)")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_EmptyValveID_AlwaysDirect(t *testing.T) {
@@ -82,7 +77,6 @@ func TestValved_SecondRequest_Valved(t *testing.T) {
 	assert.NotNil(t, r1.codelqElem, "first enters CoDel queue")
 	assert.Nil(t, r2.codelqElem, "second should be in valve (no list element)")
 	assert.Equal(t, 1, sq.lockedLen(), "only 1 in CoDel queue")
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 	require.Len(t, sq.valves["id1"], 1)
 	assert.Same(t, r2, sq.valves["id1"][0])
 }
@@ -115,7 +109,6 @@ func TestValved_FourParallel_SameID(t *testing.T) {
 
 	assert.Equal(t, 1, sq.lockedLen())
 	assert.Len(t, sq.valves["id1"], 3)
-	assert.Equal(t, 4, sq.outstandingCounts["id1"])
 }
 
 // --- Promotion tests ---
@@ -135,7 +128,6 @@ func TestValved_Promotion_OnDequeue(t *testing.T) {
 	assert.NotNil(t, r2.codelqElem, "r2 promoted to CoDel queue after dequeue")
 	assert.Equal(t, 1, sq.lockedLen())
 	assert.Empty(t, sq.valves["id1"])
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_Promotion_OnDrop(t *testing.T) {
@@ -162,7 +154,6 @@ func TestValved_Promotion_OnCancel(t *testing.T) {
 
 	assert.NotNil(t, r2.codelqElem, "r2 promoted after r1 cancelled")
 	assert.Equal(t, 1, sq.lockedLen())
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 // --- Cancel tests ---
@@ -180,11 +171,8 @@ func TestValved_CancelInValve(t *testing.T) {
 
 	assert.NotNil(t, r1.codelqElem, "r1 still in CoDel queue")
 	assert.Equal(t, 1, sq.lockedLen())
-	// r3 is signaled in place but not removed from the slice until promotion
 	assert.Len(t, sq.valves["id1"], 3)
-	// outstanding count is not decremented until clearDone runs during promotion
-	assert.Equal(t, 4, sq.outstandingCounts["id1"])
-	assert.NotNil(t, r3.signaledValue, "r3 should be signaled")
+	assert.False(t, r3.queued)
 }
 
 func TestValved_ClearDone_InValve(t *testing.T) {
@@ -195,8 +183,7 @@ func TestValved_ClearDone_InValve(t *testing.T) {
 	r2 := sq.lockedEnqueue("id1", 0)
 	r3 := sq.lockedEnqueue("id1", 0)
 
-	// mark r2 as done (cancelled while in valve)
-	r2.signal(&DroppedRequestError{})
+	sq.lockedCancel(r2)
 
 	// dequeue r1 → promote should skip r2 (done) and promote r3
 	testValvedDequeue(sq)
@@ -224,7 +211,6 @@ func TestValved_CancelInMiddle_EventualPromotion(t *testing.T) {
 	// Dequeue r2 → clearDone finds r3 (now at head), skips it, promotes r4
 	testValvedDequeue(sq)
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_CancelMultipleConsecutiveAtHead(t *testing.T) {
@@ -246,13 +232,10 @@ func TestValved_CancelMultipleConsecutiveAtHead(t *testing.T) {
 	assert.NotNil(t, r4.codelqElem, "r4 promoted (r2 and r3 skipped)")
 	assert.Nil(t, r2.codelqElem, "r2 never entered CoDel queue")
 	assert.Nil(t, r3.codelqElem, "r3 never entered CoDel queue")
-	// outstanding: started at 5, decremented 1 (r1 dequeue) + 2 (r2, r3 clearDone) = 2 remaining
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
 	// Dequeue r4 → promotes r5
 	testValvedDequeue(sq)
 	assert.NotNil(t, r5.codelqElem, "r5 promoted")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_AllValveEntriesCancelled(t *testing.T) {
@@ -275,25 +258,20 @@ func TestValved_AllValveEntriesCancelled(t *testing.T) {
 	assert.Equal(t, 0, sq.lockedLen(), "CoDel queue empty")
 	_, exists := sq.valves["id1"]
 	assert.False(t, exists, "valve map entry should be cleaned up")
-	_, exists = sq.outstandingCounts["id1"]
-	assert.False(t, exists, "outstanding count should be cleaned up")
 }
 
-func TestValved_InflatedOutstandingGatesNewArrivals(t *testing.T) {
+func TestValved_CancelledWaiterDoesNotBypassValve(t *testing.T) {
 	clock := newTestClock()
 	sq, _ := newValvedQueue(clock)
 
 	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
 	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
 
-	// Cancel r2 — outstanding stays inflated (2) until promotion
 	sq.lockedCancel(r2)
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
 
-	// New arrival for same valve ID should still be valved (conservative)
+	// A new arrival for the same valve ID remains valved behind r1.
 	r3 := sq.lockedEnqueue("id1", 0)
-	assert.Nil(t, r3.codelqElem, "r3 should be valved due to inflated outstanding count")
-	assert.Equal(t, 3, sq.outstandingCounts["id1"])
+	assert.Nil(t, r3.codelqElem, "r3 should be valved")
 	assert.Equal(t, 1, sq.lockedLen(), "still only r1 in CoDel queue")
 }
 
@@ -316,7 +294,6 @@ func TestValved_CancelAllThenNewArrival(t *testing.T) {
 	// Fresh arrival for same valve ID should go directly to CoDel (no stale state)
 	r4 := sq.lockedEnqueue("id1", 0)
 	assert.NotNil(t, r4.codelqElem, "r4 goes directly to CoDel after full cleanup")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_CancelInterleavedWithPromotions(t *testing.T) {
@@ -345,7 +322,6 @@ func TestValved_CancelInterleavedWithPromotions(t *testing.T) {
 	// Dequeue r4 → clearDone hits r5 (cancelled at head), skips it, promotes r6
 	testValvedDequeue(sq)
 	assert.NotNil(t, r6.codelqElem, "r6 promoted (r5 skipped)")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
 }
 
 func TestValved_MassCancel_OverloadScenario(t *testing.T) {
@@ -359,7 +335,6 @@ func TestValved_MassCancel_OverloadScenario(t *testing.T) {
 	for i := range 50 {
 		requests[i] = sq.lockedEnqueue("id1", 0)
 	}
-	assert.Equal(t, 51, sq.outstandingCounts["id1"])
 	assert.Equal(t, 1, sq.lockedLen())
 
 	// Cancel all but the last 5 (simulating context timeouts in overload)
@@ -371,7 +346,6 @@ func TestValved_MassCancel_OverloadScenario(t *testing.T) {
 	// cancelled entries at the head and promote the first live one
 	testValvedDequeue(sq)
 	assert.NotNil(t, requests[45].codelqElem, "first surviving request promoted")
-	assert.Equal(t, 5, sq.outstandingCounts["id1"])
 
 	// Drain remaining 5
 	for i := 45; i < 50; i++ {
@@ -382,9 +356,7 @@ func TestValved_MassCancel_OverloadScenario(t *testing.T) {
 		}
 	}
 
-	_, exists := sq.outstandingCounts["id1"]
-	assert.False(t, exists, "all outstanding cleaned up")
-	_, exists = sq.valves["id1"]
+	_, exists := sq.valves["id1"]
 	assert.False(t, exists, "valve map cleaned up")
 }
 
@@ -402,41 +374,9 @@ func TestValved_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
 	sq.lockedCancel(r1v)
 
 	// id2's valve should be completely unaffected
-	assert.Equal(t, 2, sq.outstandingCounts["id2"])
 	assert.Len(t, sq.valves["id2"], 1)
 	assert.Same(t, r2v, sq.valves["id2"][0])
-	assert.Nil(t, r2v.signaledValue, "id2 valve entry should not be signaled")
-}
-
-// --- Outstanding count tests ---
-
-func TestValved_OutstandingCount_Lifecycle(t *testing.T) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-
-	sq.lockedEnqueue("id1", 0)
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
-
-	sq.lockedEnqueue("id1", 0)
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
-
-	testValvedDequeue(sq) // removes first, promotes second
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
-
-	testValvedDequeue(sq) // removes second
-	assert.Equal(t, 0, sq.outstandingCounts["id1"])
-}
-
-func TestValved_OutstandingCount_SurvivesCancel(t *testing.T) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-
-	r1 := sq.lockedEnqueue("id1", 0)
-	sq.lockedEnqueue("id1", 0)
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
-
-	sq.lockedCancel(r1)
-	assert.Equal(t, 1, sq.outstandingCounts["id1"])
+	assert.True(t, r2v.queued)
 }
 
 func TestValved_EmptyValve_MapCleanup(t *testing.T) {
@@ -451,51 +391,6 @@ func TestValved_EmptyValve_MapCleanup(t *testing.T) {
 
 	_, exists := sq.valves["id1"]
 	assert.False(t, exists, "empty valve should be removed from map")
-}
-
-// --- Peek cleanup tests ---
-
-// TestValved_PeekCleanup_DecrementsOutstandingCount proves that when
-// lockedPeek defensively removes a done-with-error request from the CoDel
-// queue head, outstanding counts are decremented correctly.
-func TestValved_PeekCleanup_DecrementsOutstandingCount(t *testing.T) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-
-	r1 := sq.lockedEnqueue("id1", 0)
-	sq.lockedEnqueue("id1", 0)
-
-	assert.Equal(t, 2, sq.outstandingCounts["id1"])
-
-	// Simulate the "impossible" state: signal r1 with error without calling
-	// lockedRemove. This leaves elem non-nil, so lockedPeek will find it as
-	// isDone() with non-nil outcome and clean it up.
-	r1.signal(&DroppedRequestError{})
-
-	// lockedPeek should remove r1 and decrement outstanding count
-	result := sq.lockedPeek()
-	assert.Nil(t, result, "r2 is in valve not CoDel queue, so peek returns nil after r1 cleanup")
-	assert.Equal(t, 1, sq.outstandingCounts["id1"], "outstanding should be decremented for cleaned-up request")
-}
-
-// TestValved_PeekCleanup_DecrementsDroppableLen proves that when
-// lockedPeek removes a done droppable request, droppableLen is decremented.
-func TestValved_PeekCleanup_DecrementsDroppableLen(t *testing.T) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-
-	r1 := sq.lockedEnqueue("id1", 0)
-	r2 := sq.lockedEnqueue("id2", 0)
-
-	assert.Equal(t, 2, sq.codelq.droppableLen)
-
-	// Signal r1 without removing it from the list
-	r1.signal(&DroppedRequestError{})
-
-	// lockedPeek should clean up r1 and decrement droppableLen
-	result := sq.lockedPeek()
-	assert.Same(t, r2, result)
-	assert.Equal(t, 1, sq.codelq.droppableLen, "droppableLen should be decremented for cleaned-up request")
 }
 
 // --- FIFO within contention ---

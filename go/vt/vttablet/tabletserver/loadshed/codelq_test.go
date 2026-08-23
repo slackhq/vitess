@@ -26,9 +26,6 @@ import (
 
 type testRequest = Request[struct{}]
 type testCoDelQueue = CoDelQueue[struct{}]
-type testValvedCoDelQueue = ValvedCoDelQueue[struct{}]
-type testSnake = Snake[struct{}]
-type testSafeUnlock = SafeUnlock[struct{}]
 
 func defaultTestConfig() CoDelConfig {
 	return CoDelConfig{
@@ -73,11 +70,6 @@ func (r *testDropTimerRecorder) schedule(delayNs int64) {
 	r.delayNs = delayNs
 }
 
-func (r *testDropTimerRecorder) stop() {
-	r.armed = false
-	r.scheduled = false
-}
-
 // reset models a timer fire in tests: clears both the armed flag and the
 // scheduled observability flag, so the next schedule() call is detected.
 func (r *testDropTimerRecorder) reset() {
@@ -87,7 +79,7 @@ func (r *testDropTimerRecorder) reset() {
 
 func newTestQueue(cfg CoDelConfig, clock *testClock) (*testCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newCoDelQueue[struct{}](cfg, clock.nowFunc, rec.schedule, rec.stop, nil)
+	q := newCoDelQueue[struct{}](cfg, clock.nowFunc, rec.schedule)
 	return q, rec
 }
 
@@ -145,14 +137,13 @@ func TestCoDelQueue_Enqueue_UndroppableNoSchedule(t *testing.T) {
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-// testDequeue grants the oldest waiting request.
+// testDequeue removes the oldest waiting request.
 func testDequeue(q *testCoDelQueue) *testRequest {
 	req := q.lockedFirstWaiting()
 	if req == nil {
 		return nil
 	}
-	q.lockedOnGrant(req)
-	req.signal(grantSentinel)
+	q.lockedDequeue(req)
 	return req
 }
 
@@ -175,7 +166,7 @@ func TestCoDelQueue_FirstWaiting_FIFO(t *testing.T) {
 	assert.Same(t, r3, d3)
 }
 
-func TestCoDelQueue_OnGrant_DecrementsDroppableLen(t *testing.T) {
+func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
@@ -187,7 +178,7 @@ func TestCoDelQueue_OnGrant_DecrementsDroppableLen(t *testing.T) {
 	assert.Equal(t, 1, q.droppableLen)
 }
 
-func TestCoDelQueue_Grant_ExitsDroppingOnTarget(t *testing.T) {
+func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
 	cfg.TargetNs = func() int64 { return 1_000_000 }
@@ -213,58 +204,16 @@ func TestCoDelQueue_FirstWaiting_Empty(t *testing.T) {
 	assert.Nil(t, req)
 }
 
-// --- Peek tests ---
-
-func TestCoDelQueue_Peek_Empty(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	q.dropping = true
-	req := q.lockedPeek()
-
-	assert.Nil(t, req)
-	assert.False(t, q.dropping)
-}
-
-func TestCoDelQueue_Peek_ReturnsHead(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	r1 := testEnqueue(q, 0)
-	testEnqueue(q, 0)
-
-	peeked := q.lockedPeek()
-	assert.Same(t, r1, peeked)
-	assert.Equal(t, 2, q.lockedLen())
-}
-
-func TestCoDelQueue_Peek_CleansHeadCancelled(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	r1 := testEnqueue(q, 0)
-	r2 := testEnqueue(q, 0)
-
-	r1.signal(&DroppedRequestError{})
-	q.lockedOnGrant(r1)
-
-	peeked := q.lockedPeek()
-	assert.Same(t, r2, peeked)
-	assert.Equal(t, 1, q.lockedLen())
-}
-
-func TestCoDelQueue_OnGrant_EvictsFromListImmediately(t *testing.T) {
+func TestCoDelQueue_Dequeue_EvictsFromListImmediately(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	r1 := testEnqueue(q, 0)
 	require.NotNil(t, r1.codelqElem)
 
-	r1.signal(grantSentinel)
-	q.lockedOnGrant(r1)
+	q.lockedDequeue(r1)
 
 	assert.Nil(t, r1.codelqElem)
-	assert.Nil(t, q.lockedPeek())
 	assert.Equal(t, 0, q.lockedLen())
 }
 
@@ -280,12 +229,11 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	dropped := q.lockedPopElem(elem, &DroppedRequestError{})
+	dropped := elem.Value.(*testRequest)
+	q.lockedRemove(dropped)
 	assert.Equal(t, float64(1), dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
-
-	err := <-dropped.signalChan
-	assert.IsType(t, &DroppedRequestError{}, err)
+	assert.False(t, dropped.queued)
 }
 
 func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
@@ -311,23 +259,8 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
 	assert.Same(t, droppable, elem.Value.(*testRequest))
-	q.lockedPopElem(elem, &DroppedRequestError{})
+	q.lockedRemove(droppable)
 	assert.Equal(t, 1, q.lockedLen())
-}
-
-func TestCoDelQueue_DropSkipsDone(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	r1 := testEnqueue(q, 0)
-	r2 := testEnqueue(q, 5)
-
-	r1.signal(grantSentinel)
-	q.lockedOnGrant(r1)
-
-	elem := q.lockedFindLowestPriorityDroppable()
-	require.NotNil(t, elem)
-	assert.Same(t, r2, elem.Value.(*testRequest))
 }
 
 func TestCoDelQueue_DropAllUndroppable_ReturnsNil(t *testing.T) {
@@ -421,7 +354,7 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	}
 	rec.reset()
@@ -443,7 +376,7 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	}
 	q.lockedRunTimer(dropFn)
@@ -472,34 +405,33 @@ func TestCoDelQueue_Remove_AlreadyDone(t *testing.T) {
 
 	r1 := testEnqueue(q, 0)
 
-	r1.signal(grantSentinel)
-	q.lockedOnGrant(r1)
+	q.lockedDequeue(r1)
 
 	q.lockedRemove(r1)
 	assert.Equal(t, 0, q.lockedLen())
 }
 
-// --- OnGrant tests ---
+// --- Dequeue tests ---
 
-func TestCoDelQueue_OnGrant(t *testing.T) {
+func TestCoDelQueue_Dequeue(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	r1 := testEnqueue(q, 0)
 	assert.Equal(t, 1, q.droppableLen)
 
-	q.lockedOnGrant(r1)
+	q.lockedDequeue(r1)
 	assert.Equal(t, 0, q.droppableLen)
 }
 
-func TestCoDelQueue_OnGrant_AlreadyNotDroppable(t *testing.T) {
+func TestCoDelQueue_Dequeue_AlreadyNotDroppable(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	r1 := testEnqueue(q, PriorityUndroppable)
 	assert.Equal(t, 0, q.droppableLen)
 
-	q.lockedOnGrant(r1)
+	q.lockedDequeue(r1)
 	assert.Equal(t, 0, q.droppableLen)
 }
 
@@ -532,7 +464,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 	assert.Equal(t, enqueued, dequeued, "fast-moving queue should not drop")
 }
 
-func TestCoDelQueue_Grant_TransitionsToEasing(t *testing.T) {
+func TestCoDelQueue_Dequeue_TransitionsToEasing(t *testing.T) {
 	clock := newTestClock()
 	cfg := CoDelConfig{
 		IntervalNs:     func() int64 { return 1_000_000 },
@@ -552,8 +484,8 @@ func TestCoDelQueue_Grant_TransitionsToEasing(t *testing.T) {
 	q.count = 4
 	q.dropNextNs = clock.now + cfg.IntervalNs()
 
-	// Grant r1 with a fast sojourn.
-	q.lockedOnGrant(r1)
+	// Dequeue r1 with a fast sojourn.
+	q.lockedDequeue(r1)
 
 	assert.False(t, q.dropping, "should exit dropping state")
 	assert.Equal(t, 4, q.count, "count preserved for easing — timer will halve it when it fires")
@@ -561,37 +493,36 @@ func TestCoDelQueue_Grant_TransitionsToEasing(t *testing.T) {
 
 // --- Sojourn measurement tests ---
 //
-// Sojourn is always measured at grant (dispatch): pure queue-wait time, not
-// including resource hold time. Completion (Release) never records sojourn.
+// Sojourn is always measured at dequeue: pure queue-wait time.
 
-func TestCoDelQueue_Sojourn_FastGrantClearsDropping(t *testing.T) {
+func TestCoDelQueue_Sojourn_FastDequeueClearsDropping(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
 
 	clock.now = 0
 	r := testEnqueue(q, 0)
-	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after the grant
+	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after dequeue
 	q.dropping = true
 
-	// Grant after a short queue-wait (< target) clears dropping at grant.
+	// Dequeue after a short queue-wait (< target) clears dropping.
 	// droppableLen stays > 0, so the clear must come from the sojourn check.
 	clock.now = 10 * 1_000_000 // 10ms < 50ms target
-	q.lockedOnGrant(r)
-	assert.False(t, q.dropping, "fast queue-wait clears dropping at grant")
+	q.lockedDequeue(r)
+	assert.False(t, q.dropping, "fast queue-wait clears dropping at dequeue")
 }
 
-func TestCoDelQueue_Sojourn_SlowGrantKeepsDropping(t *testing.T) {
+func TestCoDelQueue_Sojourn_SlowDequeueKeepsDropping(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
 
 	clock.now = 0
 	r := testEnqueue(q, 0)
-	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after the grant
+	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after dequeue
 	q.dropping = true
 
-	// Grant after a long queue-wait (> target) must NOT clear dropping.
+	// Dequeue after a long queue-wait (> target) must NOT clear dropping.
 	clock.now = 100 * 1_000_000 // 100ms > 50ms target
-	q.lockedOnGrant(r)
+	q.lockedDequeue(r)
 	assert.True(t, q.dropping, "slow queue-wait keeps dropping")
 }
 
@@ -739,7 +670,7 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 		if elem == nil {
 			return false
 		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	}
 
@@ -751,7 +682,7 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 	assert.True(t, rec.scheduled, "timer should re-arm for continued dropping")
 }
 
-func TestCoDelQueue_Easing_GrantDoesNotResetCount(t *testing.T) {
+func TestCoDelQueue_Easing_DequeueDoesNotResetCount(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
 	cfg.TargetNs = func() int64 { return 1_000_000 }
@@ -763,8 +694,7 @@ func TestCoDelQueue_Easing_GrantDoesNotResetCount(t *testing.T) {
 
 	clock.now = 0
 	req := testEnqueue(q, 0)
-	q.lockedOnGrant(req)
-	req.signal(grantSentinel)
+	q.lockedDequeue(req)
 
 	assert.False(t, q.dropping, "should exit dropping")
 	assert.Equal(t, 10, q.count, "count should NOT be reset on transition to healthy")
@@ -778,7 +708,7 @@ func TestCoDelQueue_Easing_DroppingToHealthy_TimerStillFires(t *testing.T) {
 	q, rec := newTestQueue(cfg, clock)
 
 	// Easing with a high count and no droppable entries, armed and due. dropping
-	// is false: a prior grant met target (or the queue drained), so this interval
+	// is false: a prior dequeue met target (or the queue drained), so this interval
 	// is presumed healthy and only decays count.
 	clock.now = 1_000_000_000
 	q.dropping = false
@@ -802,7 +732,7 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 	q, rec := newTestQueue(cfg, clock)
 
 	// Easing from count=16, no droppable entries. dropping is false (presumed
-	// healthy: a grant met target or the queue drained), so each fire only
+	// healthy: a dequeue met target or the queue drained), so each fire only
 	// decays count. dropNextNs is seeded to now so the first fire is on time;
 	// each iteration then advances by exactly the scheduled delay.
 	q.dropping = false
@@ -867,7 +797,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	}
 	q.lockedRunTimer(dropFn)
@@ -888,4 +818,69 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 	testEnqueue(q, 0)
 	assert.True(t, rec.scheduled, "slow-start: droppable enqueue arms the timer")
 	assert.Equal(t, int64(6_000_000_000), q.dropNextNs, "slow-start: first enqueue seeds dropNextNs = now + interval")
+}
+
+func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+
+	req, dropped := s.Enqueue("value", "", 0)
+	require.Empty(t, dropped)
+	dequeued, ok, dropped := s.Dequeue()
+	require.True(t, ok)
+	require.Equal(t, "value", dequeued)
+	require.Empty(t, dropped)
+	require.Equal(t, 0, s.q.lockedLen())
+	require.False(t, req.queued)
+}
+
+func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+	req, dropped := s.Enqueue("value", "", 0)
+	require.Empty(t, dropped)
+
+	cancelled, dropped := s.Cancel(req)
+	require.True(t, cancelled)
+	require.Empty(t, dropped)
+	require.Equal(t, 0, s.q.lockedLen())
+	cancelled, dropped = s.Cancel(req)
+	require.False(t, cancelled)
+	require.Empty(t, dropped)
+}
+
+func TestSnakeQueue_CancelRemovesValveWaiter(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+	first, dropped := s.Enqueue("first", "valve", 0)
+	require.Empty(t, dropped)
+	second, dropped := s.Enqueue("second", "valve", 0)
+	require.Empty(t, dropped)
+
+	cancelled, dropped := s.Cancel(second)
+	require.True(t, cancelled)
+	require.Empty(t, dropped)
+
+	dequeued, ok, dropped := s.Dequeue()
+	require.True(t, ok)
+	require.Equal(t, "first", dequeued)
+	require.Empty(t, dropped)
+	dequeued, ok, dropped = s.Dequeue()
+	require.False(t, ok)
+	require.Empty(t, dequeued)
+	require.Empty(t, dropped)
+	require.False(t, first.queued)
+}
+
+func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
+	config := SnakeConfig{
+		CoDel:               defaultTestConfig(),
+		LoadsheddingAllowed: func() bool { return false },
+	}
+	s := NewSnake[struct{}](config)
+	for range 6 {
+		_, dropped := s.Enqueue(struct{}{}, "", 0)
+		require.Empty(t, dropped)
+	}
+	s.q.codelq.dropNextNs = 1
+
+	_, _, dropped := s.Dequeue()
+	require.Empty(t, dropped)
 }

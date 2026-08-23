@@ -70,7 +70,7 @@ import (
         | * timer: armed            |
         *---------------------------*
               |  ^            ^
-    timer     |  |            | dequeue/release w/ sojourn < target
+    timer     |  |            | dequeue w/ sojourn < target
     fires,    |  |            | or queue emptied (sets dropping=false)
     NOT       |  | timer fires,
     healthy   |  | healthy (dropping=false)
@@ -88,9 +88,9 @@ import (
 
     Health condition (checked each easing timer fire):
       healthy := dropping=false
-      dropping is unset by lockedOnGrant() when a granted request's queue-wait
-      sojourn < target, and by lockedPeek/lockedPopElem/lockedRemove/
-      lockedOnGrant when droppableLen reaches 0; reset each timer fire. Note:
+      dropping is unset by lockedDequeue() when a dequeued request's queue-wait
+      sojourn < target, and by lockedRemove/lockedDequeue when
+      droppableLen reaches 0; reset each timer fire. Note:
       while easing, each re-arm transiently re-marks dropping=true; the next
       fire re-evaluates health.
 
@@ -126,10 +126,6 @@ import (
 */
 
 type (
-	// DroppedRequestError is returned when a request is dropped by the CoDel
-	// queue due to persistent queue buildup.
-	DroppedRequestError struct{}
-
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
@@ -150,7 +146,6 @@ type (
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue[T any] struct {
 		queue        *list.List
-		firstWaiting *list.Element
 		dropping     bool
 		dropNextNs   int64
 		count        int
@@ -163,24 +158,16 @@ type (
 		cfg               CoDelConfig
 		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
-		stopDropTimer     func()
-		onPeekCleanup     func(*Request[T])
 	}
 )
 
-func (e *DroppedRequestError) Error() string {
-	return "request dropped by CoDel queue"
-}
-
-func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func(), onPeekCleanup func(*Request[T])) *CoDelQueue[T] {
+func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64)) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
 		queue:             list.New(),
 		count:             1,
 		cfg:               cfg,
 		nowNs:             nowNs,
 		scheduleDropTimer: scheduleDropTimer,
-		stopDropTimer:     stopDropTimer,
-		onPeekCleanup:     onPeekCleanup,
 	}
 	q.droppable.init()
 	return q
@@ -199,10 +186,7 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 
 	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
-
-	if q.firstWaiting == nil {
-		q.firstWaiting = req.codelqElem
-	}
+	req.queued = true
 
 	if req.isDroppable() {
 		q.droppableLen++
@@ -219,73 +203,23 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 	}
 }
 
-// lockedFirstWaiting returns the first not-yet-granted request in the queue.
+// lockedFirstWaiting returns the first waiting request in the queue.
 func (q *CoDelQueue[T]) lockedFirstWaiting() *Request[T] {
-	if q.firstWaiting == nil {
+	first := q.queue.Front()
+	if first == nil {
 		return nil
 	}
-	return q.firstWaiting.Value.(*Request[T])
+	return first.Value.(*Request[T])
 }
 
-// lockedPeek returns the head request without removing it. As a side effect,
-// cleans up done-and-not-granted requests at the head (requests whose result
-// channel has an error). Empty queue transitions to healthy.
-func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
-	for q.queue.Len() > 0 {
-		front := q.queue.Front()
-		req := front.Value.(*Request[T])
-		if req.signaledValue == nil {
-			return req
-		}
-		q.lockedAdvanceFirstWaiting(front)
-		q.queue.Remove(front)
-		req.codelqElem = nil
-		if req.isDroppable() {
-			q.droppableLen--
-			q.droppable.remove(req)
-		}
-		if q.onPeekCleanup != nil {
-			q.onPeekCleanup(req)
-		}
-	}
-	// Empty queue means the underlying resource is available.
-	q.dropping = false
-	return nil
-}
-
-// lockedPopElem removes the given element from the queue, signals the request's
-// result channel, and updates bookkeeping. Use with care: this bypasses the
-// health-state transitions in peek/dequeue, so callers are responsible for
-// updating dropping state if appropriate.
-func (q *CoDelQueue[T]) lockedPopElem(elem *list.Element, err error) *Request[T] {
-	req := elem.Value.(*Request[T])
-	q.lockedAdvanceFirstWaiting(elem)
-	q.queue.Remove(elem)
-	req.codelqElem = nil
-
-	if req.signaledValue == nil {
-		req.signal(err)
-	}
-
-	if req.isDroppable() {
-		q.droppableLen--
-		q.droppable.remove(req)
-		if q.droppableLen == 0 && q.dropping {
-			q.dropping = false
-		}
-	}
-
-	return req
-}
-
-// lockedRemove removes a specific request from the queue without signaling it.
+// lockedRemove removes a specific request from the queue.
 func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	if r.codelqElem == nil {
 		return
 	}
-	q.lockedAdvanceFirstWaiting(r.codelqElem)
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
+	r.queued = false
 
 	if r.isDroppable() {
 		q.droppableLen--
@@ -296,44 +230,19 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	}
 }
 
-func (q *CoDelQueue[T]) lockedOnGrant(r *Request[T]) {
-	// CoDel health check, measured at grant: if this request's queue-wait
+func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
+	// CoDel health check, measured at dequeue: if this request's queue-wait
 	// (now - enqueue) was under target, the system is healthy — leave the
 	// dropping state. Separate from the droppableLen==0 clear below.
 	if q.nowNs()-r.codelqEnqueuedAtNs < q.cfg.TargetNs() {
 		q.dropping = false
 	}
-	if r.isDroppable() {
-		q.droppable.remove(r)
-		q.droppableLen--
-		if q.droppableLen == 0 {
-			q.dropping = false
-		}
-	}
-	q.lockedAdvanceFirstWaiting(r.codelqElem)
-	q.queue.Remove(r.codelqElem)
-	r.codelqElem = nil
-}
-
-// lockedAdvanceFirstWaiting advances the firstWaiting pointer past elem if
-// elem is the current firstWaiting. elem is a queue entry that is no longer
-// waiting — either because it was granted, removed, or dropped.
-func (q *CoDelQueue[T]) lockedAdvanceFirstWaiting(elem *list.Element) {
-	if q.firstWaiting != elem {
-		return
-	}
-	for e := elem.Next(); e != nil; e = e.Next() {
-		if e.Value.(*Request[T]).signaledValue == nil {
-			q.firstWaiting = e
-			return
-		}
-	}
-	q.firstWaiting = nil
+	q.lockedRemove(r)
 }
 
 // lockedFindLowestPriorityDroppable finds the lowest-priority droppable
 // element in the queue — the oldest one at the lowest priority present — or nil
-// if none exists. O(1) via the droppable priority index (see droppableIndex[T]).
+// if none exists. O(1) via the droppable priority index (see droppableIndex).
 func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element {
 	req := q.droppable.min()
 	if req == nil {
@@ -343,7 +252,7 @@ func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element {
 }
 
 // lockedRunTimer runs the CoDel drop logic. It is invoked both by the backstop
-// timer and synchronously from the release/dequeue path, so shedding is driven
+// timer and synchronously from the dequeue path, so shedding is driven
 // as slots free rather than waiting for the (possibly late) timer to fire.
 func (q *CoDelQueue[T]) lockedRunTimer(dropFn func() bool) {
 	q.lockedRunTimerLimited(dropFn, -1)
@@ -370,8 +279,8 @@ func (q *CoDelQueue[T]) lockedRunTimerLimited(dropFn func() bool, maxDrops int) 
 // lockedAdvance runs the clock-driven core of the CoDel control law: it sheds
 // every request that is due (now >= dropNextNs) while dropping, ramping count,
 // then eases count back down while healthy. Every action is gated on the fresh
-// `now`, so calling it is idempotent and safe outside the timer — the release
-// (dequeue) path invokes it to shed stale requests in real time rather than
+// `now`, so calling it is idempotent and safe outside the timer — the dequeue
+// path invokes it to shed stale requests in real time rather than
 // waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer.
 func (q *CoDelQueue[T]) lockedAdvance(now int64, dropFn func() bool) {
 	q.lockedAdvanceLimited(now, dropFn, -1)
@@ -406,7 +315,6 @@ func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxD
 		// If a request arrived before the end of the interval then it is a
 		// candidate for dropping.
 		if q.droppableLen > 0 {
-			q.lockedPeek() // cleanup
 			if first := q.lockedFirstWaiting(); first != nil && first.codelqEnqueuedAtNs < q.dropNextNs {
 				q.dropping = true
 			}

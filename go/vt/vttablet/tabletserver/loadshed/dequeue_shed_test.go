@@ -30,14 +30,14 @@ func dropAllFn(q *testCoDelQueue) func() bool {
 		if elem == nil {
 			return false
 		}
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	}
 }
 
 // TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown reproduces the bug where the
 // dequeue path could not re-establish a dropping episode on its own: once
-// lockedOnGrant cleared `dropping` (a grant whose sojourn was under target), only
+// lockedDequeue cleared `dropping` (a dequeue whose sojourn was under target), only
 // the backstop timer re-armed it. With the timer effectively off (large
 // MinDropDelay), the dequeue path must run the full CoDel logic and shed stale
 // waiters without a timer fire.
@@ -56,8 +56,8 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	}
 	assert.True(t, q.dropping, "first droppable enqueue should arm an episode")
 
-	// Simulate the episode teardown that the release path triggers: a grant whose
-	// sojourn is under target clears `dropping` in lockedOnGrant. We reproduce the
+	// Simulate the episode teardown that dequeue triggers: a request whose
+	// sojourn is under target clears `dropping` in lockedDequeue. We reproduce the
 	// cleared state directly (this is the state the dequeue path must recover from).
 	q.dropping = false
 
@@ -65,7 +65,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	// drops are due. The backstop timer never fires (MinDropDelay=1s).
 	clock.advance(5_000_000_000) // 5s
 
-	// Drive the dequeue path repeatedly (as releases would). It must re-establish
+	// Drive the dequeue path repeatedly. It must re-establish
 	// the episode and shed the stale backlog with no timer fire.
 	before := q.droppableLen
 	for i := 0; i < backlog+2; i++ {
@@ -79,12 +79,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 }
 
 // TestValved_Drop_DefersSignalOutsideLock asserts the deferral contract: a batch
-// drop pass MARKS each dropped request (signaledValue set, so under-lock readers
-// see it) but does NOT send on its channel — the sends are collected in
-// pendingSignals and delivered only when the caller drains them (mirroring the
-// send-after-unlock in Snake). This keeps the goready storm out of the critical
-// section.
-func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
+func TestValved_DropReturnsPendingRequests(t *testing.T) {
 	clock := newTestClock()
 	sq, _ := newValvedQueue(clock)
 	// Fast target/interval so drops are due immediately once armed.
@@ -94,9 +89,8 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 	// A backlog of distinct-valve droppable requests (distinct valves so each is
 	// its own droppable representative and all are eligible to shed).
 	const backlog = 5
-	reqs := make([]*testRequest, backlog)
-	for i := range reqs {
-		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
+	for i := range backlog {
+		sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
 	require.True(t, sq.codelq.dropping, "first droppable enqueue arms an episode")
 
@@ -108,33 +102,12 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 
 	sq.lockedRunTimer()
 
-	// Every shed request is MARKED under the lock...
-	dropped := 0
-	for _, r := range reqs {
-		if r.signaledValue != nil {
-			dropped++
-			// ...but NOT yet sent: its buffered channel is still empty.
-			assert.Empty(t, r.signalChan, "drop must not send on the channel under the lock")
-		}
+	pending := sq.lockedTakePendingDrops()
+	require.NotEmpty(t, pending, "the pass should have shed some requests")
+	for _, req := range pending {
+		assert.False(t, req.queued)
 	}
-	require.Positive(t, dropped, "the pass should have shed some requests")
-
-	// The marked requests are queued for deferred delivery.
-	pending := sq.lockedTakePendingSignals()
-	assert.Len(t, pending, dropped, "every marked drop is queued for deferred send")
-	assert.Nil(t, sq.lockedTakePendingSignals(), "taking again yields nothing (ownership transferred)")
-
-	// Delivering the deferred signals sends exactly the drop error to each waiter.
-	for _, r := range pending {
-		r.sendSignal()
-		select {
-		case v := <-r.signalChan:
-			_, isDrop := v.(*DroppedRequestError)
-			assert.True(t, isDrop, "deferred send delivers the drop rejection")
-		default:
-			t.Fatal("sendSignal did not deliver on the channel")
-		}
-	}
+	assert.Nil(t, sq.lockedTakePendingDrops(), "taking again yields nothing (ownership transferred)")
 }
 
 func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
@@ -158,7 +131,7 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	assert.Greater(t, sq.codelq.count, initialCount)
 	assert.Equal(t, backlog, sq.lockedLen())
 	for _, req := range reqs {
-		assert.Nil(t, req.signaledValue)
+		assert.True(t, req.queued)
 	}
 }
 
@@ -185,6 +158,6 @@ func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
 
 	assert.Equal(t, 1, checks)
 	for _, req := range reqs {
-		assert.Nil(t, req.signaledValue)
+		assert.True(t, req.queued)
 	}
 }
