@@ -78,7 +78,7 @@ type (
 		timerLag     *stats.Histogram
 		valveDepth   *stats.Histogram
 
-		droppingNanos   int64
+		droppingNanos   atomic.Int64
 		droppingSinceNs int64
 	}
 
@@ -353,7 +353,7 @@ func (s *Snake) lockedAccrueDropping(now int64) {
 	case dropping && s.droppingSinceNs == 0:
 		s.droppingSinceNs = now
 	case !dropping && s.droppingSinceNs != 0:
-		s.droppingNanos += now - s.droppingSinceNs
+		s.droppingNanos.Add(now - s.droppingSinceNs)
 		s.droppingSinceNs = 0
 	}
 }
@@ -423,7 +423,7 @@ func (s *Snake) ShedCount() int64 {
 func (s *Snake) DroppingNanos() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	total := s.droppingNanos
+	total := s.droppingNanos.Load()
 	if s.droppingSinceNs != 0 {
 		total += s.clockFunc() - s.droppingSinceNs
 	}
