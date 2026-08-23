@@ -248,6 +248,10 @@ func (q *ValvedCoDelQueue[T]) lockedPeek() *Request[T] {
 	return q.codelq.lockedPeek()
 }
 
+func (q *ValvedCoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
+	return q.codelq.lockedFind(match)
+}
+
 // --- private helpers ---
 
 func (q *ValvedCoDelQueue[T]) lockedEnqueueToCoDel(req *Request[T], valveID string) {

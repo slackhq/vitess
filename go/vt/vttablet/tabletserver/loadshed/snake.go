@@ -121,11 +121,22 @@ func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[
 }
 
 func (s *Snake[T]) Dequeue() (T, bool, []T) {
+	return s.dequeue(nil)
+}
+
+func (s *Snake[T]) DequeueMatching(match func(T) bool) (T, bool, []T) {
+	return s.dequeue(match)
+}
+
+func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	var pending []*Request[T]
 	if s.q.lockedNeedsAdvance() {
 		pending = s.lockedEnqueueAdvance()
 	}
 	req := s.q.lockedPeek()
+	if match != nil {
+		req = s.q.lockedFind(match)
+	}
 	var value T
 	ok := false
 	if req != nil {

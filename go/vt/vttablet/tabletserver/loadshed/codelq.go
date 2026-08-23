@@ -221,6 +221,16 @@ func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
 	return first.Value.(*Request[T])
 }
 
+func (q *CoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
+	for e := q.queue.Front(); e != nil; e = e.Next() {
+		req := e.Value.(*Request[T])
+		if match(req.value) {
+			return req
+		}
+	}
+	return q.lockedPeek()
+}
+
 // lockedRemove removes a specific request from the queue.
 func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	if r.codelqElem == nil {
