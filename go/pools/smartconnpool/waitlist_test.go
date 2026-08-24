@@ -24,11 +24,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
+
+type testPoolConfig struct{}
+
+func (testPoolConfig) LoadshedConfig(string) (func() bool, func() time.Duration, func() time.Duration) {
+	return func() bool { return true },
+		func() time.Duration { return time.Millisecond },
+		func() time.Duration { return time.Millisecond }
+}
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
-	wait.init()
+	wait.init("", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -40,7 +50,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 
 	for i := 0; i < waiterCount; i++ {
 		go func() {
-			_, err := wait.waitForConn(ctx, nil, poolClose, 0)
+			_, err := wait.waitForConn(ctx, nil, poolClose, 0, "", loadshed.PriorityUndroppable)
 
 			if err != nil {
 				expireCount.Add(1)
@@ -71,7 +81,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 
 func TestWaitlistWaiterCap(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init()
+	wl.init("", nil)
 
 	poolClose := make(chan struct{})
 
@@ -80,7 +90,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	errs := make(chan error, maxWaiters)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters)
+			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable)
 			errs <- err
 		}()
 
@@ -89,7 +99,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 		}, time.Second, 5*time.Millisecond)
 	}
 
-	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters)
+	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
 	assert.Equal(t, maxWaiters, wl.waiting())
 
@@ -98,4 +108,56 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	for i := 0; i < maxWaiters; i++ {
 		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
 	}
+}
+
+func TestWaitlistShedsQueuedRequests(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{})
+
+	poolClose := make(chan struct{})
+	errs := make(chan error, 6)
+	var waiting atomic.Int32
+	wl.onWait = func() {
+		waiting.Add(1)
+	}
+
+	for range 6 {
+		go func() {
+			_, err := wl.waitForConn(context.Background(), nil, poolClose, 0, "", 0)
+			errs <- err
+		}()
+	}
+
+	require.Eventually(t, func() bool {
+		return waiting.Load() == 6
+	}, time.Second, time.Millisecond)
+	require.ErrorIs(t, <-errs, ErrPoolLoadShed)
+
+	close(poolClose)
+	for range 5 {
+		<-errs
+	}
+}
+
+func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(foo, "", loadshed.PriorityUndroppable)
+	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(bar, "", loadshed.PriorityUndroppable)
+	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-bar.conn)
+	assert.Equal(t, uint32(1), foo.age)
+	assert.Equal(t, 0, wl.maybeStarvingCount())
+
+	foo.age = 9
+	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(bar, "", loadshed.PriorityUndroppable)
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-foo.conn)
 }

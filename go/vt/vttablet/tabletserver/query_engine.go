@@ -46,7 +46,6 @@ import (
 	tacl "vitess.io/vitess/go/vt/tableacl/acl"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -198,9 +197,6 @@ type QueryEngine struct {
 	accessCheckerLogger *logutil.ThrottledLogger
 
 	redactUIQuery bool
-
-	// snake is the CoDel-based load-shedding gate for the OLTP read pool.
-	snake *loadshed.Snake[struct{}]
 }
 
 // NewQueryEngine creates a new QueryEngine.
@@ -244,28 +240,6 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 		log.Info("Stream consolidator is not enabled.")
 	}
 	qe.txSerializer = txserializer.New(env)
-
-	qe.snake = loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
-		Name: "oltp-read",
-		CoDel: loadshed.CoDelConfig{
-			TargetNs: func() int64 { return config.LoadshedOltpRead.TargetValue().Nanoseconds() },
-			IntervalNs: func() int64 {
-				return int64(float64(config.LoadshedOltpRead.TargetValue().Nanoseconds()) * config.LoadshedOltpRead.IntervalRatioValue())
-			},
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-		},
-		// Track live pool capacity so runtime resizes keep the gate in sync.
-		// Capacity() is 0 until the pool opens; fall back to config until then.
-		Capacity: func() int {
-			if c := int(qe.conns.Capacity()); c > 0 {
-				return c
-			}
-			return config.OltpReadPool.Size
-		},
-		LoadsheddingAllowed: func() bool { return config.LoadshedOltpRead.IsEnabled() },
-	})
-	loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 
 	qe.strictTableACL = config.StrictTableACL
 	qe.enableTableACLDryRun = config.EnableTableACLDryRun

@@ -44,6 +44,7 @@ type (
 		dropTimerExpectedNs int64
 		cfg                 SnakeConfig
 		clockFunc           func() int64
+		length              atomic.Int64
 
 		shedCount atomic.Int64
 		// shedByPriority breaks shedCount down by the shed request's priority label
@@ -111,6 +112,7 @@ func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[
 
 	req := s.q.lockedEnqueue(valveID, priority)
 	req.value = value
+	s.length.Add(1)
 	if valveID != "" {
 		s.lockedObserveValveDepth(valveID)
 	}
@@ -142,6 +144,7 @@ func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	if req != nil {
 		s.q.lockedDequeue(req)
 		req.signal(grantSentinel)
+		s.length.Add(-1)
 		now := s.clockFunc()
 		s.lockedAccrueDropping(now)
 		s.sojourn.Add(now - req.codelqEnqueuedAtNs)
@@ -155,11 +158,16 @@ func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	return value, ok, s.droppedValues(pending)
 }
 
+func (s *Snake[T]) Len() int {
+	return int(s.length.Load())
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.signaledValue != nil {
 		return false, nil
 	}
 	s.q.lockedCancel(req)
+	s.length.Add(-1)
 	var zero T
 	req.value = zero
 	dropped := s.q.lockedTakePendingDrops()
@@ -207,6 +215,7 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	}
 	values := make([]T, len(requests))
 	for i, req := range requests {
+		s.length.Add(-1)
 		s.shedCount.Add(1)
 		if s.shedByPriority != nil {
 			s.shedByPriority.Add([]string{shedPriorityLabel(req.priority)}, 1)

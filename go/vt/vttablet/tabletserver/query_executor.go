@@ -92,8 +92,8 @@ var (
 	// errLoadShed and errDMLLoadShed are pre-built so that a load-shed rejection
 	// — an expected, high-volume outcome under overload — does not call
 	// vterrors.Errorf per shed, which captures a stack trace (runtime.Callers)
-	// and allocates. The underlying snake error is a constant
-	// (*loadshed.DroppedRequestError), so no per-request detail is lost.
+	// and allocates. The underlying pool error is a constant, so no
+	// per-request detail is lost.
 	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
 	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
@@ -727,13 +727,12 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 
 		if original {
 			defer q.Broadcast()
-			conn, release, err := qre.getConn()
+			conn, err := qre.getConn()
 
 			if err != nil {
 				q.SetErr(err)
 			} else {
 				defer conn.Recycle()
-				defer release()
 				res, err := qre.execDBConn(conn.Conn, sql, true)
 				if qre.tsv.config.ConsolidatorCacheProto3Rows && q.HasWaiters() {
 					res.CacheProto3Rows()
@@ -769,12 +768,11 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		}
 		// If waiter cap exceeded, fall through to independent execution
 	}
-	conn, release, err := qre.getConn()
+	conn, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
-	defer release()
 	res, err := qre.execDBConn(conn.Conn, sql, true)
 	if err != nil {
 		return nil, err
@@ -812,16 +810,15 @@ func (qre *QueryExecutor) verifyRowCount(count, maxrows int64) error {
 }
 
 func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
-	conn, release, err := qre.getConn()
+	conn, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
-	defer release()
 	return qre.execDBConn(conn.Conn, qre.query, true)
 }
 
-func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
+func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
@@ -829,34 +826,21 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, func(), error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 
-	snake := qre.tsv.qe.snake
-	if snake != nil {
-		valveID := qre.options.GetLoadshedValveId()
-		// Translate the Vitess proto priority (0 = most important) into Snake's
-		// convention (higher priority shed last). Queries against a configured
-		// schema (e.g. performance_schema health checks) are marked undroppable
-		// instead, so they are never shed.
-		snakePriority := snakePriorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority)
-		if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
-			snakePriority = loadshed.PriorityUndroppable
-		}
-		unlock, err := snake.Acquire(ctx, valveID, snakePriority)
-		if err != nil {
-			return nil, nil, errLoadShed
-		}
-		conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
-		if err != nil {
-			unlock.Release()
-			return nil, nil, err
-		}
-		return conn, func() { unlock.Release() }, nil
+	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority))
+	// Queries against a configured schema (e.g. performance_schema health
+	// checks) are marked undroppable instead, so they are never shed.
+	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
+		priority = loadshed.PriorityUndroppable
 	}
 
-	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority)
 	if err != nil {
-		return nil, nil, err
+		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+			return nil, errLoadShed
+		}
+		return nil, err
 	}
-	return conn, func() {}, nil
+	return conn, nil
 }
 
 // matchesUndroppableSchema reports whether any of the query's schema qualifiers
@@ -989,12 +973,11 @@ func rewriteOUTParamError(err error) error {
 }
 
 func (qre *QueryExecutor) execCallProc() (*sqltypes.Result, error) {
-	conn, release, err := qre.getConn()
+	conn, err := qre.getConn()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Recycle()
-	defer release()
 	sql, _, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err
