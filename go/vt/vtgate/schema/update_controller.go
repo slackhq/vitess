@@ -57,10 +57,12 @@ func (u *updateController) consume() {
 			return
 		}
 
-		// todo: scan queue for multiple update from the same shard, be clever
-		item := u.getItemFromQueueLocked()
+		items := u.queue.items
+		u.queue.items = nil
 		loaded := u.loaded
 		u.mu.Unlock()
+
+		item := mergeItems(items, loaded)
 
 		var success bool
 		if loaded {
@@ -92,15 +94,12 @@ func checkIfWeShouldIgnoreKeyspace(err error) bool {
 	return false
 }
 
-func (u *updateController) getItemFromQueueLocked() *discovery.TabletHealth {
-	item := u.queue.items[0]
-	itemsCount := len(u.queue.items)
-	// Only when we want to update selected tables.
-	if u.loaded {
-		// We are trying to minimize the vttablet calls here by merging all the table/view changes received into a single changed item
-		// with all the table and view names.
-		for i := 1; i < itemsCount; i++ {
-			for _, table := range u.queue.items[i].Stats.TableSchemaChanged {
+func mergeItems(items []*discovery.TabletHealth, loaded bool) *discovery.TabletHealth {
+	item := items[0]
+	if loaded {
+		// Minimize vttablet calls by merging all table/view changes into a single item.
+		for i := 1; i < len(items); i++ {
+			for _, table := range items[i].Stats.TableSchemaChanged {
 				found := false
 				for _, itemTable := range item.Stats.TableSchemaChanged {
 					if itemTable == table {
@@ -112,7 +111,7 @@ func (u *updateController) getItemFromQueueLocked() *discovery.TabletHealth {
 					item.Stats.TableSchemaChanged = append(item.Stats.TableSchemaChanged, table)
 				}
 			}
-			for _, view := range u.queue.items[i].Stats.ViewSchemaChanged {
+			for _, view := range items[i].Stats.ViewSchemaChanged {
 				found := false
 				for _, itemView := range item.Stats.ViewSchemaChanged {
 					if itemView == view {
@@ -126,8 +125,6 @@ func (u *updateController) getItemFromQueueLocked() *discovery.TabletHealth {
 			}
 		}
 	}
-	// emptying queue's items as all items from 0 to i (length of the queue) are merged
-	u.queue.items = u.queue.items[itemsCount:]
 	return item
 }
 
