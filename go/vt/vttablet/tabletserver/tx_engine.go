@@ -118,9 +118,13 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 	te.txPool.snake = loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name: "dml",
 		CoDel: loadshed.CoDelConfig{
-			TargetNs: func() int64 { return config.LoadshedTx.TargetValue().Nanoseconds() },
+			TargetNs:        func() int64 { return config.LoadshedTx.TargetValue().Nanoseconds() },
+			InitialTargetNs: func() int64 { return config.LoadshedTx.EffectiveInitialTargetValue().Nanoseconds() },
 			IntervalNs: func() int64 {
 				return int64(float64(config.LoadshedTx.TargetValue().Nanoseconds()) * config.LoadshedTx.IntervalRatioValue())
+			},
+			InitialIntervalNs: func() int64 {
+				return int64(float64(config.LoadshedTx.EffectiveInitialTargetValue().Nanoseconds()) * config.LoadshedTx.IntervalRatioValue())
 			},
 			Exponent:       func() float64 { return 1 },
 			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },

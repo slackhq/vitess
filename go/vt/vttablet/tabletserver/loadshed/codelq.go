@@ -133,10 +133,12 @@ type (
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
-		IntervalNs     func() int64
-		TargetNs       func() int64
-		Exponent       func() float64
-		MinDropDelayNs func() int64
+		IntervalNs        func() int64
+		InitialIntervalNs func() int64
+		TargetNs          func() int64
+		InitialTargetNs   func() int64
+		Exponent          func() float64
+		MinDropDelayNs    func() int64
 
 		// EasingLogBase controls how the drop count decays each easing timer
 		// fire: count -= floor(log_base(count) / base), floored at 1. A larger
@@ -300,7 +302,7 @@ func (q *CoDelQueue[T]) lockedOnGrant(r *Request[T]) {
 	// CoDel health check, measured at grant: if this request's queue-wait
 	// (now - enqueue) was under target, the system is healthy — leave the
 	// dropping state. Separate from the droppableLen==0 clear below.
-	if q.nowNs()-r.codelqEnqueuedAtNs < q.cfg.TargetNs() {
+	if q.nowNs()-r.codelqEnqueuedAtNs < q.lockedTargetNs() {
 		q.dropping = false
 	}
 	if r.isDroppable() {
@@ -437,6 +439,15 @@ func (q *CoDelQueue[T]) lockedControlLaw(t int64) int64 {
 	return t + q.lockedCurrentInterval()
 }
 
+func (q *CoDelQueue[T]) lockedTargetNs() int64 {
+	if q.count == 1 && q.cfg.InitialTargetNs != nil {
+		if target := q.cfg.InitialTargetNs(); target > 0 {
+			return target
+		}
+	}
+	return q.cfg.TargetNs()
+}
+
 // lockedCurrentInterval returns the current interval for the control law.
 // The interval is compressed whenever count > 1 — both in the dropping state
 // and during easing (!dropping, count > 1), so that the ease-out timer fires
@@ -444,6 +455,11 @@ func (q *CoDelQueue[T]) lockedControlLaw(t int64) int64 {
 func (q *CoDelQueue[T]) lockedCurrentInterval() int64 {
 	interval := q.cfg.IntervalNs()
 	if q.count <= 1 {
+		if q.cfg.InitialIntervalNs != nil {
+			if initialInterval := q.cfg.InitialIntervalNs(); initialInterval > 0 {
+				return initialInterval
+			}
+		}
 		return interval
 	}
 	exp := q.cfg.Exponent()

@@ -232,6 +232,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, defaultCfg LoadshedConfig) {
 	fs.BoolVar(&cfg.Enabled, "loadshed-"+pool+"-enabled", defaultCfg.Enabled, "If true, enables CoDel-based load shedding on the "+pool+" pool.")
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
+	fs.DurationVar(&cfg.InitialTarget, "loadshed-"+pool+"-initial-target", defaultCfg.InitialTarget, "Initial CoDel target delay for the "+pool+" load shedder. 0 uses its normal target.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
 }
 
@@ -406,6 +407,7 @@ type LoadshedConfig struct {
 	mu            *sync.RWMutex
 	Enabled       bool
 	Target        time.Duration
+	InitialTarget time.Duration
 	IntervalRatio float64
 }
 
@@ -437,6 +439,27 @@ func (c *LoadshedConfig) SetTarget(target time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Target = target
+}
+
+func (c *LoadshedConfig) InitialTargetValue() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.InitialTarget
+}
+
+func (c *LoadshedConfig) EffectiveInitialTargetValue() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.InitialTarget <= 0 {
+		return c.Target
+	}
+	return c.InitialTarget
+}
+
+func (c *LoadshedConfig) SetInitialTarget(initialTarget time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.InitialTarget = initialTarget
 }
 
 func (c *LoadshedConfig) IntervalRatioValue() float64 {
@@ -987,6 +1010,7 @@ func (c *TabletConfig) Clone() *TabletConfig {
 			mu:            oltpMu,
 			Enabled:       c.LoadshedOltpRead.Enabled,
 			Target:        c.LoadshedOltpRead.Target,
+			InitialTarget: c.LoadshedOltpRead.InitialTarget,
 			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
 		},
 		schemasMu:          schemasMu,
@@ -1000,6 +1024,7 @@ func (c *TabletConfig) Clone() *TabletConfig {
 		mu:            txMu,
 		Enabled:       c.LoadshedTx.Enabled,
 		Target:        c.LoadshedTx.Target,
+		InitialTarget: c.LoadshedTx.InitialTarget,
 		IntervalRatio: c.LoadshedTx.IntervalRatio,
 	}
 	return &tc
@@ -1286,6 +1311,7 @@ func defaultLoadshedConfig() LoadshedConfig {
 		mu:            &sync.RWMutex{},
 		Enabled:       true,
 		Target:        5 * time.Millisecond,
+		InitialTarget: 0,
 		IntervalRatio: 20,
 	}
 }

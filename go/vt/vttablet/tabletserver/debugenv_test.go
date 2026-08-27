@@ -68,10 +68,41 @@ func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
 	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedOltpRead.TargetValue())
 
+	postVar(t, tsv, "LoadshedOltpReadInitialTarget", "17ms")
+	assert.Equal(t, 17*time.Millisecond, tsv.Config().LoadshedOltpRead.InitialTargetValue())
+
+	postVar(t, tsv, "LoadshedTxInitialTarget", "23ms")
+	assert.Equal(t, 23*time.Millisecond, tsv.Config().LoadshedTx.InitialTargetValue())
+
 	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
 	assert.NotEqual(t, tsv.Config().LoadshedOltpRead.IntervalRatioValue(), tsv.Config().LoadshedTx.IntervalRatioValue())
 
+	assert.Equal(t, (17 * time.Millisecond * 20).Nanoseconds(), tsv.qe.snake.Stats().CurrentInterval)
+	assert.Equal(t, (23 * time.Millisecond * 15).Nanoseconds(), tsv.te.txPool.snake.Stats().CurrentInterval)
+}
+
+func TestDebugEnvLoadshedInitialTargetShowsConfiguredFallback(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	initialTarget := func() string {
+		for _, variable := range getVars(tsv) {
+			if variable.Name == "LoadshedOltpReadInitialTarget" {
+				return variable.Value
+			}
+		}
+		return ""
+	}
+
+	assert.Equal(t, "0s", initialTarget())
+
+	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
+	assert.Equal(t, "0s", initialTarget())
+
+	postVar(t, tsv, "LoadshedOltpReadInitialTarget", "17ms")
+	assert.Equal(t, "17ms", initialTarget())
+
+	postVar(t, tsv, "LoadshedOltpReadInitialTarget", "0s")
+	assert.Equal(t, "0s", initialTarget())
 }
 
 func TestDebugEnvUnknownVariable(t *testing.T) {
@@ -96,9 +127,9 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		names[v.Name] = struct{}{}
 	}
 	for _, want := range []string{
-		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadInitialTarget", "LoadshedOltpReadIntervalRatio",
 		"LoadshedOltpReadUndroppableSchemas",
-		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxIntervalRatio",
+		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxInitialTarget", "LoadshedTxIntervalRatio",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)

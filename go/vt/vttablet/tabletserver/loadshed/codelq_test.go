@@ -395,6 +395,129 @@ func TestCoDelQueue_CurrentInterval_Dropping(t *testing.T) {
 	assert.Equal(t, int64(250_000_000), interval)
 }
 
+func TestCoDelQueue_InitialTargetOnlyAppliesAtCountOne(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		count        int
+		wantDropping bool
+	}{
+		{name: "initial", count: 1, wantDropping: false},
+		{name: "normal", count: 2, wantDropping: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newTestClock()
+			cfg := defaultTestConfig()
+			cfg.TargetNs = func() int64 { return 50_000_000 }
+			cfg.InitialTargetNs = func() int64 { return 200_000_000 }
+			q, _ := newTestQueue(cfg, clock)
+			q.count = tc.count
+
+			r := testEnqueue(q, 0)
+			testEnqueue(q, 0)
+			q.dropping = true
+			clock.now = 100_000_000
+
+			q.lockedOnGrant(r)
+
+			assert.Equal(t, tc.wantDropping, q.dropping)
+		})
+	}
+}
+
+func TestCoDelQueue_InitialIntervalOnlyAppliesAtCountOne(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.IntervalNs = func() int64 { return 1_000_000_000 }
+	cfg.InitialIntervalNs = func() int64 { return 4_000_000_000 }
+	q, _ := newTestQueue(cfg, clock)
+
+	assert.Equal(t, int64(4_000_000_000), q.lockedCurrentInterval())
+
+	q.count = 2
+	assert.Equal(t, int64(500_000_000), q.lockedCurrentInterval())
+
+	q.count = 1
+	assert.Equal(t, int64(4_000_000_000), q.lockedCurrentInterval())
+}
+
+func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.IntervalNs = func() int64 { return 100 }
+	cfg.InitialIntervalNs = func() int64 { return 1_000 }
+	cfg.MinDropDelayNs = func() int64 { return 1 }
+	q, rec := newTestQueue(cfg, clock)
+
+	testEnqueue(q, 0)
+	testEnqueue(q, 0)
+	assert.Equal(t, int64(1_000), q.dropNextNs)
+
+	clock.now = q.dropNextNs
+	rec.reset()
+	q.lockedRunTimer(func() bool {
+		elem := q.lockedFindLowestPriorityDroppable()
+		require.NotNil(t, elem)
+		q.lockedPopElem(elem, &DroppedRequestError{})
+		return true
+	})
+
+	assert.Equal(t, 2, q.count)
+	assert.Equal(t, int64(1_050), q.dropNextNs)
+}
+
+func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.TargetNs = func() int64 { return 10 }
+	cfg.InitialTargetNs = func() int64 { return 100 }
+	cfg.IntervalNs = func() int64 { return 100 }
+	cfg.InitialIntervalNs = func() int64 { return 1_000 }
+	cfg.MinDropDelayNs = func() int64 { return 1 }
+	cfg.EasingLogBase = func() float64 { return 2 }
+	q, rec := newTestQueue(cfg, clock)
+
+	testEnqueue(q, 0)
+	remaining := testEnqueue(q, 0)
+	assert.Equal(t, int64(100), q.lockedTargetNs())
+	assert.Equal(t, int64(1_000), q.dropNextNs)
+
+	clock.now = q.dropNextNs
+	rec.reset()
+	q.lockedRunTimer(func() bool {
+		elem := q.lockedFindLowestPriorityDroppable()
+		require.NotNil(t, elem)
+		q.lockedPopElem(elem, &DroppedRequestError{})
+		return true
+	})
+	assert.Equal(t, 2, q.count)
+	assert.Equal(t, int64(10), q.lockedTargetNs())
+	assert.Equal(t, int64(1_050), q.dropNextNs)
+
+	q.lockedOnGrant(remaining)
+	clock.now = q.dropNextNs
+	rec.reset()
+	q.lockedRunTimer(func() bool { return false })
+	assert.Equal(t, 1, q.count)
+	assert.Equal(t, int64(100), q.lockedTargetNs())
+	assert.Equal(t, int64(1_000), q.lockedCurrentInterval())
+	assert.False(t, rec.scheduled)
+
+	clock.now = 2_000
+	testEnqueue(q, 0)
+	assert.Equal(t, int64(3_000), q.dropNextNs)
+}
+
+func TestCoDelQueue_InitialConfigFallsBackToNormal(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.InitialTargetNs = func() int64 { return 0 }
+	cfg.InitialIntervalNs = func() int64 { return 0 }
+	q, _ := newTestQueue(cfg, clock)
+
+	assert.Equal(t, cfg.TargetNs(), q.lockedTargetNs())
+	assert.Equal(t, cfg.IntervalNs(), q.lockedCurrentInterval())
+}
+
 // --- Scheduled drop tests ---
 
 func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
