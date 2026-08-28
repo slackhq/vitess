@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	consulRetryCount     = 3
+	consulRetryCount     = 5
 	consulRetryBaseDelay = 250 * time.Millisecond
 	consulRetryMaxDelay  = 5 * time.Second
 	consulRetryEnabled   = true
