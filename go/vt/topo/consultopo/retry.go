@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Vitess Authors.
+Copyright 2026 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package consultopo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"net"
 	"net/url"
@@ -134,6 +135,7 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 	}
 
 	var err error
+	start := time.Now()
 	for attempt := 0; attempt < r.count; attempt++ {
 		if attempt > 0 {
 			delay := r.backoff(attempt)
@@ -151,9 +153,9 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 		if !isRetryableError(err) {
 			return err
 		}
-		log.Infof("consultopo: retryable error (attempt %d/%d): %v", attempt+1, r.count, err)
+		log.Infof("consultopo: retryable error (attempt %d/%d, elapsed %v): %v", attempt+1, r.count, time.Since(start).Round(time.Millisecond), err)
 	}
-	return err
+	return fmt.Errorf("%w (retried %d times over %v)", err, r.count, time.Since(start).Round(time.Millisecond))
 }
 
 func (r *retryKV) backoff(attempt int) time.Duration {
