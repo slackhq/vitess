@@ -162,10 +162,10 @@ func (rs *reparentSorter) Less(i, j int) bool {
 
 	// Should not happen
 	// fail-safe code
-	if rs.tablets[i] == nil {
+	if rs.tablets[i] == nil || rs.tablets[i].Alias == nil {
 		return false
 	}
-	if rs.tablets[j] == nil {
+	if rs.tablets[j] == nil || rs.tablets[j].Alias == nil {
 		return true
 	}
 

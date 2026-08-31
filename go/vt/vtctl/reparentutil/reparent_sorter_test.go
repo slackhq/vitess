@@ -197,6 +197,30 @@ func TestReparentSorter(t *testing.T) {
 	}
 }
 
+// TestReparentSorter_NilAlias is a regression test: a non-nil tablet with a nil
+// Alias must not panic the sort. Two such tablets tie through position,
+// promotion rule (policy.PromotionRule returns MustNot for a nil Alias),
+// version, and buffer pool, reaching compareAlias, which dereferences
+// Alias.Cell. The Less guard must reject nil-Alias tablets before that deref.
+func TestReparentSorter_NilAlias(t *testing.T) {
+	durability, err := policy.GetDurabilityPolicy(policy.DurabilityNone)
+	require.NoError(t, err)
+
+	// Two non-nil tablets with nil Alias and identical (zero) positions, so the
+	// sort ties all the way down to compareAlias.
+	tablets := []*topodatapb.Tablet{
+		{Type: topodatapb.TabletType_REPLICA},
+		{Type: topodatapb.TabletType_REPLICA},
+	}
+	positions := []*RelayLogPositions{{}, {}}
+
+	var sortErr error
+	require.NotPanics(t, func() {
+		sortErr = sortTabletsForReparent(tablets, positions, nil, nil, durability, SortByPosition)
+	})
+	require.NoError(t, sortErr)
+}
+
 func TestReparentSorter_MySQLVersion(t *testing.T) {
 	sid1 := replication.SID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	sid2 := replication.SID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16}
