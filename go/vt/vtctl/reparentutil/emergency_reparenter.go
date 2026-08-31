@@ -241,7 +241,10 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 
 	// For GTID based replication, we will run errant GTID detection.
 	if isGTIDBased {
-		validCandidates, err = erp.findErrantGTIDs(ctx, validCandidates, stoppedReplicationSnapshot.statusMap, tabletMap, opts.WaitReplicasTimeout)
+		// A shard the topology has never recorded a primary for is being initialized;
+		// otherwise it has history to protect (see the temporary guard in findErrantGTIDs).
+		shardNeverInitialized := !ev.ShardInfo.HasPrimary() && ev.ShardInfo.PrimaryTermStartTime == nil
+		validCandidates, err = erp.findErrantGTIDs(ctx, validCandidates, stoppedReplicationSnapshot.statusMap, tabletMap, opts.WaitReplicasTimeout, shardNeverInitialized)
 		if err != nil {
 			return err
 		}
@@ -893,13 +896,16 @@ func (erp *EmergencyReparenter) findErrantGTIDs(
 	statusMap map[string]*replicationdatapb.StopReplicationStatus,
 	tabletMap map[string]*topo.TabletInfo,
 	waitReplicasTimeout time.Duration,
+	shardNeverInitialized bool,
 ) (map[string]*RelayLogPositions, error) {
 	// A shard whose every reachable candidate reports a zero GTID position (nil or a
-	// typed-but-empty set such as "MySQL56/") has never seen a promotion: it is being
-	// initialized, and every candidate is an equally valid first primary. There is no
-	// GTID history to compare, and such tablets have no _vt sidecar tables yet, so we
-	// skip errant-GTID detection entirely — otherwise gatherReparenJournalInfo below
+	// typed-but-empty set such as "MySQL56/") has no GTID history to compare. If the
+	// shard was never initialized it is being initialized now, every candidate is an
+	// equally valid first primary, and such tablets have no _vt sidecar tables yet, so
+	// we skip errant-GTID detection entirely — otherwise gatherReparenJournalInfo below
 	// would read a reparent journal table that does not exist and fail ERS-for-init.
+	// (An already-initialized shard whose candidates all report zero positions is
+	// handled at the check below.)
 	//
 	// This fork-local early-return stands in for the upstream mechanism, which handles
 	// the same case inside gatherReparentJournalInfo via the allPositionsZero +
@@ -919,6 +925,13 @@ func (erp *EmergencyReparenter) findErrantGTIDs(
 		}
 	}
 	if allPositionsZero {
+		// Fail closed: an already-initialized shard (topology records a previous primary)
+		// whose candidates all report zero positions has lost its GTID state, so promoting
+		// one would silently discard shard history. Part of the temporary stand-in above;
+		// retire it with the early-return when #20578, #20780, #20831 are backported.
+		if !shardNeverInitialized {
+			return nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "every candidate reports an empty GTID position, but the shard topology records a previous primary: refusing to promote an empty tablet and discard shard history; restore a tablet with the shard's data before retrying")
+		}
 		return maps.Clone(validCandidates), nil
 	}
 

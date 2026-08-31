@@ -5942,7 +5942,7 @@ func TestEmergencyReparenterFindErrantGTIDs(t *testing.T) {
 			validCandidates, isGtid, err := FindPositionsOfAllCandidates(tt.statusMap, tt.primaryStatusMap)
 			require.NoError(t, err)
 			require.True(t, isGtid)
-			candidates, err := erp.findErrantGTIDs(context.Background(), validCandidates, tt.statusMap, tt.tabletMap, 10*time.Second)
+			candidates, err := erp.findErrantGTIDs(context.Background(), validCandidates, tt.statusMap, tt.tabletMap, 10*time.Second, false)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -6045,9 +6045,39 @@ func TestEmergencyReparenterFindErrantGTIDs_NilPosition(t *testing.T) {
 		"zone1-0000000104": nil,
 	}
 
-	candidates, err := erp.findErrantGTIDs(t.Context(), validCandidates, statusMap, tabletMap, 10*time.Second)
+	candidates, err := erp.findErrantGTIDs(t.Context(), validCandidates, statusMap, tabletMap, 10*time.Second, false)
 	require.NoError(t, err)
 	require.Contains(t, candidates, "zone1-0000000102")
+}
+
+// TestEmergencyReparenterFindErrantGTIDs_AllPositionsZero pins the shardNeverInitialized
+// guard: when every candidate reports a zero GTID position, an already-initialized shard
+// (topology records a previous primary) must fail closed rather than promote an empty
+// tablet and silently discard shard history, while a never-initialized shard still skips
+// errant-GTID detection and returns every candidate as an equally valid first primary.
+// Both paths return before gatherReparenJournalInfo, so no reparent journal RPC is needed.
+//
+// This exercises the TEMPORARY fork-local guard in findErrantGTIDs; remove or adapt this
+// test alongside that guard once the upstream chain (#20578, #20780, #20831) is backported.
+func TestEmergencyReparenterFindErrantGTIDs_AllPositionsZero(t *testing.T) {
+	erp := NewEmergencyReparenter(nil, nil, logutil.NewMemoryLogger())
+
+	// Two candidates whose positions are zero (typed-but-empty / never applied).
+	zeroCandidates := map[string]*RelayLogPositions{
+		"zone1-0000000101": {},
+		"zone1-0000000102": {},
+	}
+
+	t.Run("initialized shard fails closed", func(t *testing.T) {
+		_, err := erp.findErrantGTIDs(t.Context(), zeroCandidates, nil, nil, 10*time.Second, false)
+		require.ErrorContains(t, err, "refusing to promote an empty tablet")
+	})
+
+	t.Run("never-initialized shard skips detection", func(t *testing.T) {
+		candidates, err := erp.findErrantGTIDs(t.Context(), zeroCandidates, nil, nil, 10*time.Second, true)
+		require.NoError(t, err)
+		require.Len(t, candidates, 2)
+	})
 }
 
 // TestEmergencyReparenter_waitForAllRelayLogsToApply_reconcilesPositions verifies
