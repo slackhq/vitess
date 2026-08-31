@@ -163,11 +163,18 @@ func TestPositionStringNil(t *testing.T) {
 }
 
 func TestPositionIsZero(t *testing.T) {
-	input := Position{}
-	want := true
-
-	if got := input.IsZero(); got != want {
-		t.Errorf("%#v.IsZero() = %#v, want %#v", input, got, want)
+	// A nil GTIDSet is the zero value, and a typed-but-empty GTIDSet
+	// (e.g. "MySQL56/" with no transactions) is folded in via GTIDSet.Empty().
+	zeroPositions := []Position{
+		{},
+		{GTIDSet: Mysql56GTIDSet{}},
+		{GTIDSet: MariadbGTIDSet{}},
+		{GTIDSet: FilePosGTID{}},
+	}
+	for _, input := range zeroPositions {
+		if got := input.IsZero(); got != true {
+			t.Errorf("%#v.IsZero() = %#v, want %#v", input, got, true)
+		}
 	}
 }
 

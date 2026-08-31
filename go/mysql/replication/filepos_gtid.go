@@ -89,6 +89,11 @@ func (gtid FilePosGTID) GTIDSet() GTIDSet {
 	return gtid
 }
 
+// Empty implements GTIDSet.
+func (gtid FilePosGTID) Empty() bool {
+	return gtid.File == ""
+}
+
 // ContainsGTID implements GTIDSet.ContainsGTID().
 func (gtid FilePosGTID) ContainsGTID(other GTID) bool {
 	if other == nil {
