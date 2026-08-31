@@ -2800,7 +2800,7 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply(t *testing.T) {
 			t.Parallel()
 
 			erp := NewEmergencyReparenter(nil, tt.tmc, logger)
-			err := erp.waitForAllRelayLogsToApply(ctx, tt.candidates, tt.tabletMap, tt.statusMap, waitReplicasTimeout)
+			err := erp.waitForAllRelayLogsToApply(ctx, tt.candidates, tt.tabletMap, tt.statusMap, waitReplicasTimeout, false /* isGTIDBased */)
 			if tt.shouldErr {
 				assert.Error(t, err)
 				return
@@ -6052,47 +6052,80 @@ func TestEmergencyReparenterFindErrantGTIDs_NilPosition(t *testing.T) {
 
 // TestEmergencyReparenter_waitForAllRelayLogsToApply_reconcilesPositions verifies
 // that waitForAllRelayLogsToApply advances a candidate's in-memory Executed
-// position to its Combined position only when that candidate's SQL thread
-// actually caught up. A candidate whose wait succeeds is advanced; a candidate
-// absent from the status map (e.g. the former primary) is never waited on and is
-// left untouched; and when a candidate's wait fails, its position is left at its
-// real (behind) value so a tablet that never caught up cannot look advanced.
+// position to its Combined position only for a GTID-based candidate whose SQL
+// thread actually caught up. A GTID-based candidate whose wait succeeds is
+// advanced; a candidate absent from the status map (e.g. the former primary) is
+// never waited on and is left untouched; a candidate whose wait fails is left at
+// its real (behind) value so a tablet that never caught up cannot look advanced;
+// and a non-GTID candidate is left untouched even on success, since its executed
+// position lives in Combined with Executed intentionally zero.
 func TestEmergencyReparenter_waitForAllRelayLogsToApply_reconcilesPositions(t *testing.T) {
 	sid := replication.SID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	combined := replication.Position{GTIDSet: replication.Mysql56GTIDSet{}}
 	combined.GTIDSet = combined.GTIDSet.AddGTID(replication.Mysql56GTID{Server: sid, Sequence: 10})
 	executedBehind := replication.Position{GTIDSet: replication.Mysql56GTIDSet{}}
 	executedBehind.GTIDSet = executedBehind.GTIDSet.AddGTID(replication.Mysql56GTID{Server: sid, Sequence: 5})
+	// Non-GTID candidates store their executed position in Combined and leave
+	// Executed zero, as FindPositionsOfAllCandidates produces for file-position
+	// replication.
+	filePos, err := replication.DecodePosition("FilePos/binlog.000001:1000")
+	require.NoError(t, err)
 
 	tests := []struct {
 		name string
+		// isGTIDBased selects the reconcile branch: only GTID-based candidates have
+		// their Executed position bumped to Combined after a successful wait.
+		isGTIDBased bool
 		// waitErr controls whether the waited replica's WaitForPosition succeeds.
 		waitErr bool
 		// wantReplicaAdvanced is the expected Executed position for the replica we
-		// waited on after the call: Combined on success, behind on failure.
+		// waited on after the call: Combined only for a GTID-based candidate whose
+		// wait succeeds; its pre-wait (behind) value otherwise.
 		wantReplicaAdvanced bool
 		wantErr             bool
 	}{
 		{
-			name:                "wait succeeds advances waited candidate",
+			name:                "GTID wait succeeds advances waited candidate",
+			isGTIDBased:         true,
 			waitErr:             false,
 			wantReplicaAdvanced: true,
 			wantErr:             false,
 		},
 		{
-			name:                "wait fails leaves candidate untouched",
+			name:                "GTID wait fails leaves candidate untouched",
+			isGTIDBased:         true,
 			waitErr:             true,
 			wantReplicaAdvanced: false,
 			wantErr:             true,
+		},
+		{
+			// Non-GTID candidates store their executed position in Combined and
+			// leave Executed zero; the reconcile must not touch them even when the
+			// wait succeeds, or they would sort incorrectly against an unwaited
+			// former primary. This case guards the isGTIDBased branch.
+			name:                "non-GTID wait succeeds leaves positions untouched",
+			isGTIDBased:         false,
+			waitErr:             false,
+			wantReplicaAdvanced: false,
+			wantErr:             false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Replica with SQL thread behind its relay log; it will be waited on.
+			// Build candidate positions matching the flavor under test. GTID-based
+			// candidates carry a Combined ahead of a behind Executed; non-GTID
+			// candidates store their executed position in Combined with Executed
+			// zero. The replica is waited on; the former primary is absent from the
+			// status map and must be left untouched.
 			replica := &RelayLogPositions{Combined: combined, Executed: executedBehind}
-			// Former primary, absent from the status map, must be left untouched.
 			formerPrimary := &RelayLogPositions{Combined: combined, Executed: executedBehind}
+			waitPos := replication.EncodePosition(combined)
+			if !tt.isGTIDBased {
+				replica = &RelayLogPositions{Combined: filePos}
+				formerPrimary = &RelayLogPositions{Combined: filePos}
+				waitPos = replication.EncodePosition(filePos)
+			}
 
 			validCandidates := map[string]*RelayLogPositions{
 				"zone1-0000000100": replica,
@@ -6102,12 +6135,11 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply_reconcilesPositions(t *t
 				"zone1-0000000100": {Tablet: &topodatapb.Tablet{Alias: &topodatapb.TabletAlias{Cell: "zone1", Uid: 100}}},
 				"zone1-0000000101": {Tablet: &topodatapb.Tablet{Alias: &topodatapb.TabletAlias{Cell: "zone1", Uid: 101}}},
 			}
-			combinedStr := replication.EncodePosition(combined)
 			statusMap := map[string]*replicationdatapb.StopReplicationStatus{
-				"zone1-0000000100": {After: &replicationdatapb.Status{RelayLogPosition: combinedStr}},
+				"zone1-0000000100": {After: &replicationdatapb.Status{RelayLogPosition: waitPos}},
 			}
 			// An empty inner map (no entry for the position) makes WaitForPosition error.
-			waitResult := map[string]error{combinedStr: nil}
+			waitResult := map[string]error{waitPos: nil}
 			if tt.waitErr {
 				waitResult = map[string]error{}
 			}
@@ -6118,21 +6150,28 @@ func TestEmergencyReparenter_waitForAllRelayLogsToApply_reconcilesPositions(t *t
 			}
 
 			erp := NewEmergencyReparenter(nil, tmc, logutil.NewMemoryLogger())
-			err := erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second)
+			err := erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second, tt.isGTIDBased)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
 
-			if tt.wantReplicaAdvanced {
-				require.True(t, replica.Executed.Equal(combined), "waited candidate's Executed should advance to Combined")
-			} else {
-				require.True(t, replica.Executed.Equal(executedBehind), "failed candidate's Executed should stay behind")
+			switch {
+			case tt.wantReplicaAdvanced:
+				require.True(t, replica.Executed.Equal(combined), "GTID candidate whose wait succeeds should advance Executed to Combined")
+			case tt.isGTIDBased:
+				require.True(t, replica.Executed.Equal(executedBehind), "GTID candidate whose wait failed should keep its pre-wait Executed")
+			default:
+				require.True(t, replica.Executed.IsZero(), "non-GTID candidate's Executed should stay zero")
 			}
 			// A candidate absent from the status map is never waited on, so its
 			// position must be untouched regardless of the wait outcome.
-			require.True(t, formerPrimary.Executed.Equal(executedBehind), "candidate absent from status map should be untouched")
+			if tt.isGTIDBased {
+				require.True(t, formerPrimary.Executed.Equal(executedBehind), "candidate absent from status map should be untouched")
+			} else {
+				require.True(t, formerPrimary.Executed.IsZero(), "candidate absent from status map should be untouched")
+			}
 		})
 	}
 }
@@ -6199,74 +6238,7 @@ func TestEmergencyReparenter_findMostAdvanced_versionTiebreakerAfterCatchUp(t *t
 		},
 	}
 	erp := NewEmergencyReparenter(nil, tmc, logutil.NewMemoryLogger())
-	require.NoError(t, erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second))
-
-	intermediateSource, _, err = erp.findMostAdvanced(validCandidates, tabletMap, versionMap, nil, EmergencyReparentOptions{durability: durability})
-	require.NoError(t, err)
-	require.True(t, topoproto.TabletAliasEqual(intermediateSource.Alias, &topodatapb.TabletAlias{Cell: "zone1", Uid: 100}))
-}
-
-// TestEmergencyReparenter_findMostAdvanced_versionTiebreakerAfterCatchUp_FilePos
-// is the file-position (non-GTID) analogue of the test above. For file-position
-// replication the candidate positions are stored in Combined as the pre-wait
-// executed position, while the wait catches up to the relay-log-equivalent
-// position. The reconcile must therefore advance Combined to the actually-waited-for
-// position; otherwise two candidates that both caught up would still be compared
-// on their stale pre-wait positions and the newer-version tablet would win.
-func TestEmergencyReparenter_findMostAdvanced_versionTiebreakerAfterCatchUp_FilePos(t *testing.T) {
-	// Pre-wait executed file positions: the newer tablet is slightly ahead.
-	// Both relay logs have downloaded up to offset 100 (the equivalent position
-	// the wait catches up to).
-	olderExecutedStr := "FilePos/mysql-bin.0001:80"
-	newerExecutedStr := "FilePos/mysql-bin.0001:90"
-	appliedStr := "FilePos/mysql-bin.0001:100"
-
-	olderExecuted, err := replication.DecodePosition(olderExecutedStr)
-	require.NoError(t, err)
-	newerExecuted, err := replication.DecodePosition(newerExecutedStr)
-	require.NoError(t, err)
-
-	// For non-GTID replication FindPositionsOfAllCandidates stores the executed
-	// position in Combined and leaves Executed zero.
-	validCandidates := map[string]*RelayLogPositions{
-		"zone1-0000000100": {Combined: olderExecuted}, // older version, behind pre-wait
-		"zone1-0000000101": {Combined: newerExecuted}, // newer version, ahead pre-wait
-	}
-	tabletMap := map[string]*topo.TabletInfo{
-		"zone1-0000000100": {Tablet: &topodatapb.Tablet{Alias: &topodatapb.TabletAlias{Cell: "zone1", Uid: 100}, Type: topodatapb.TabletType_REPLICA}},
-		"zone1-0000000101": {Tablet: &topodatapb.Tablet{Alias: &topodatapb.TabletAlias{Cell: "zone1", Uid: 101}, Type: topodatapb.TabletType_REPLICA}},
-	}
-	versionMap := map[string]mysqlctl.ServerVersion{
-		"zone1-0000000100": {Major: 8, Minor: 0, Patch: 35},
-		"zone1-0000000101": {Major: 8, Minor: 4, Patch: 0},
-	}
-
-	durability, err := policy.GetDurabilityPolicy(policy.DurabilityNone)
-	require.NoError(t, err)
-
-	// Before the wait, the newer tablet is ahead on the (stale) executed position
-	// and would be chosen as the intermediate source.
-	erpBefore := NewEmergencyReparenter(nil, nil, logutil.NewMemoryLogger())
-	intermediateSource, _, err := erpBefore.findMostAdvanced(validCandidates, tabletMap, versionMap, nil, EmergencyReparentOptions{durability: durability})
-	require.NoError(t, err)
-	require.True(t, topoproto.TabletAliasEqual(intermediateSource.Alias, &topodatapb.TabletAlias{Cell: "zone1", Uid: 101}))
-
-	// Both catch up to the relay-log-equivalent position during the wait. For
-	// file-position replication that position comes from RelayLogSourceBinlogEquivalentPosition
-	// (RelayLogPosition is empty). The reconcile advances Combined to it, so both
-	// compare equal and the version tiebreaker selects the lower-version tablet.
-	statusMap := map[string]*replicationdatapb.StopReplicationStatus{
-		"zone1-0000000100": {After: &replicationdatapb.Status{RelayLogSourceBinlogEquivalentPosition: appliedStr}},
-		"zone1-0000000101": {After: &replicationdatapb.Status{RelayLogSourceBinlogEquivalentPosition: appliedStr}},
-	}
-	tmc := &testutil.TabletManagerClient{
-		WaitForPositionResults: map[string]map[string]error{
-			"zone1-0000000100": {appliedStr: nil},
-			"zone1-0000000101": {appliedStr: nil},
-		},
-	}
-	erp := NewEmergencyReparenter(nil, tmc, logutil.NewMemoryLogger())
-	require.NoError(t, erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second))
+	require.NoError(t, erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second, true /* isGTIDBased */))
 
 	intermediateSource, _, err = erp.findMostAdvanced(validCandidates, tabletMap, versionMap, nil, EmergencyReparentOptions{durability: durability})
 	require.NoError(t, err)
@@ -6315,7 +6287,7 @@ func TestEmergencyReparenter_findMostAdvanced_splitBrainSurvivesReconcile(t *tes
 	require.NoError(t, err)
 
 	erp := NewEmergencyReparenter(nil, tmc, logutil.NewMemoryLogger())
-	require.NoError(t, erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second))
+	require.NoError(t, erp.waitForAllRelayLogsToApply(t.Context(), validCandidates, tabletMap, statusMap, 30*time.Second, true /* isGTIDBased */))
 
 	// After the reconcile, the divergent positions remain divergent, so ERS must
 	// still detect the split brain.

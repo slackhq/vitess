@@ -235,7 +235,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	// thread catches up, waitForAllRelayLogsToApply advances that candidate's
 	// in-memory Executed position to its Combined position so equally-advanced
 	// candidates compare equal during election (see the function for details).
-	if err = erp.waitForAllRelayLogsToApply(ctx, validCandidates, tabletMap, stoppedReplicationSnapshot.statusMap, opts.WaitReplicasTimeout); err != nil {
+	if err = erp.waitForAllRelayLogsToApply(ctx, validCandidates, tabletMap, stoppedReplicationSnapshot.statusMap, opts.WaitReplicasTimeout, isGTIDBased); err != nil {
 		return err
 	}
 
@@ -253,10 +253,23 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	// Here we also check for split brain scenarios and check that the selected replica must be more advanced than all the other valid candidates.
 	// We fail in case there is a split brain detected.
 	// The validCandidateTablets list is sorted by the replication positions with ties broken by promotion rules.
+	// Version-aware election is restricted to GTID-based (MySQL/Percona) shards. For non-GTID
+	// flavors (MariaDB, file-position), candidate positions are compared on their executed
+	// position and are not reconciled to a common applied position after the relay-log wait, so
+	// two equally-advanced candidates need not compare equal — falling through to a version
+	// tiebreak there would change long-standing election behavior. Passing nil version/flavor
+	// maps disables version-aware ordering for those shards.
+	versionMap := stoppedReplicationSnapshot.mysqlVersions
+	flavorMap := stoppedReplicationSnapshot.mysqlFlavors
+	if !isGTIDBased {
+		versionMap = nil
+		flavorMap = nil
+	}
+
 	// Version-aware election is scoped per candidate set: each step below applies the flavor-family guard
 	// to the tablets it actually chooses among, so a non-candidate tablet elsewhere in the shard does not
 	// disable version comparison for the real candidates.
-	intermediateSource, validCandidateTablets, err = erp.findMostAdvanced(validCandidates, tabletMap, stoppedReplicationSnapshot.mysqlVersions, stoppedReplicationSnapshot.mysqlFlavors, opts)
+	intermediateSource, validCandidateTablets, err = erp.findMostAdvanced(validCandidates, tabletMap, versionMap, flavorMap, opts)
 	if err != nil {
 		return err
 	}
@@ -274,7 +287,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 
 	// Check whether the intermediate source candidate selected is ideal or if it can be improved later.
 	// If the intermediateSource is ideal, then we can be certain that it is part of the valid candidates list.
-	isIdeal, err = erp.isIntermediateSourceIdeal(intermediateSource, validCandidateTablets, tabletMap, stoppedReplicationSnapshot.mysqlVersions, stoppedReplicationSnapshot.mysqlFlavors, opts)
+	isIdeal, err = erp.isIntermediateSourceIdeal(intermediateSource, validCandidateTablets, tabletMap, versionMap, flavorMap, opts)
 	if err != nil {
 		return err
 	}
@@ -300,7 +313,7 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 		// try to find a better candidate using the list we got back
 		// We prefer to choose a candidate which is in the same cell as our previous primary and of the best possible durability rule.
 		// However, if there is an explicit request from the user to promote a specific tablet, then we choose that tablet.
-		betterCandidate, err = erp.identifyPrimaryCandidate(intermediateSource, validReplacementCandidates, tabletMap, stoppedReplicationSnapshot.mysqlVersions, stoppedReplicationSnapshot.mysqlFlavors, opts)
+		betterCandidate, err = erp.identifyPrimaryCandidate(intermediateSource, validReplacementCandidates, tabletMap, versionMap, flavorMap, opts)
 		if err != nil {
 			return err
 		}
@@ -342,6 +355,7 @@ func (erp *EmergencyReparenter) waitForAllRelayLogsToApply(
 	tabletMap map[string]*topo.TabletInfo,
 	statusMap map[string]*replicationdatapb.StopReplicationStatus,
 	waitReplicasTimeout time.Duration,
+	isGTIDBased bool,
 ) error {
 	errCh := make(chan concurrency.Error)
 	defer close(errCh)
@@ -393,39 +407,20 @@ func (erp *EmergencyReparenter) waitForAllRelayLogsToApply(
 				return
 			}
 			// This candidate's SQL thread has now applied its relay log up to the
-			// position WaitForRelayLogsToApply waited for, and ERS has already
-			// stopped the IO thread so no new events can arrive past it. Reconcile
-			// the in-memory positions to that applied position so this candidate
-			// compares equal to other equally-advanced candidates in
+			// position WaitForRelayLogsToApply waited for. Bump its Executed position
+			// to Combined so it sorts equal to other equally-advanced candidates in
 			// RelayLogPositions.AtLeast, letting the MySQL version tiebreaker decide
-			// the election. The positions were captured before the wait, so without
-			// this a candidate whose SQL thread was merely behind pre-wait would
-			// still look behind.
-			//
-			// We reconcile to the actually-waited-for position rather than simply
-			// setting Executed = Combined: for file-position (non-GTID) replication
-			// Combined holds the pre-wait executed position, which differs from the
-			// relay-log-equivalent position the wait catches up to. For GTID-based
-			// replication the waited-for position equals Combined, so this is a
-			// no-op on Combined and only advances Executed.
+			// the election. The bump only applies to GTID-based candidates; non-GTID
+			// candidates store their executed position in Combined and intentionally
+			// leave Executed zero, so rewriting it would change how they sort against
+			// an unwaited former primary.
 			//
 			// This is deliberately tied to this candidate's own apply success — we
 			// only advance the position of a tablet we confirmed caught up — so it
 			// remains correct even if this wait ever tolerates partial success.
-			// We do not re-issue a ReplicationStatus RPC: the successful wait is
-			// sufficient proof, and avoiding the extra call keeps ERS fast.
-			appliedPos, decodeErr := replication.DecodePosition(appliedPositionAfterWait(status))
-			if decodeErr != nil {
-				// Leave the pre-wait positions in place. This is safe: the candidate
-				// keeps its real (possibly-behind) position rather than being
-				// overstated, so it can never be elected as more advanced than it is.
-				erp.logger.Warningf("could not decode applied position for %v after relay-log wait, leaving pre-wait position: %v", alias, decodeErr)
-				return
-			}
 			mu.Lock()
-			if pos := validCandidates[alias]; pos != nil {
-				pos.Combined = appliedPos
-				pos.Executed = appliedPos
+			if pos := validCandidates[alias]; pos != nil && isGTIDBased {
+				pos.Executed = pos.Combined
 			}
 			mu.Unlock()
 		}(candidate, status)
