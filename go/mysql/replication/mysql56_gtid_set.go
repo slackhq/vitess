@@ -206,6 +206,11 @@ func (set Mysql56GTIDSet) Last() string {
 // Flavor implements GTIDSet.
 func (Mysql56GTIDSet) Flavor() string { return Mysql56FlavorID }
 
+// Empty implements GTIDSet.
+func (set Mysql56GTIDSet) Empty() bool {
+	return len(set) == 0
+}
+
 // ContainsGTID implements GTIDSet.
 func (set Mysql56GTIDSet) ContainsGTID(gtid GTID) bool {
 	gtid56, ok := gtid.(Mysql56GTID)

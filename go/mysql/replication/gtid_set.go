@@ -34,6 +34,9 @@ type GTIDSet interface {
 	// registered in the transactionSetParsers map.
 	Flavor() string
 
+	// Empty returns true when the GTID has no entries
+	Empty() bool
+
 	// ContainsGTID returns true if the set contains the specified transaction.
 	ContainsGTID(GTID) bool
 
