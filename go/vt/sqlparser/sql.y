@@ -437,7 +437,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> GTID_SUBSET GTID_SUBTRACT WAIT_FOR_EXECUTED_GTID_SET WAIT_UNTIL_SQL_THREAD_AFTER_GTIDS
 
 // Explain tokens
-%token <str> FORMAT TREE VITESS TRADITIONAL VTEXPLAIN VEXPLAIN PLAN
+%token <str> FORMAT TREE VITESS TRADITIONAL VTEXPLAIN VEXPLAIN PLAN MYSQLPLAN
 
 // Lock type tokens
 %token <str> LOCAL LOW_PRIORITY
@@ -4892,6 +4892,10 @@ vexplain_type_opt:
   {
     $$ = KeysVExplainType
   }
+| MYSQLPLAN
+  {
+    $$ = MySQLVExplainType
+  }
 
 explain_synonyms:
   EXPLAIN
@@ -8969,6 +8973,7 @@ non_reserved_keyword:
 | MULTILINESTRING %prec FUNCTION_CALL_NON_KEYWORD
 | MULTIPOINT %prec FUNCTION_CALL_NON_KEYWORD
 | MULTIPOLYGON %prec FUNCTION_CALL_NON_KEYWORD
+| MYSQLPLAN
 | MYSQL_ERRNO
 | NAME
 | NAMES
