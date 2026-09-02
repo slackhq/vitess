@@ -484,10 +484,10 @@ func (d *discardDrainer) Read([]byte) (int, error) {
 }
 
 func (d *discardDrainer) Close() error {
+	<-d.done
 	if d.cancel != nil {
 		d.cancel()
 	}
-	<-d.done
 	return nil
 }
 
