@@ -309,7 +309,11 @@ func (bh *S3BackupHandle) ReadFile(ctx context.Context, filename string) (io.Rea
 	// no ranged GETs, no transfer manager overhead. Users opt into parallel
 	// downloads by setting --s3-backup-download-concurrency > 1.
 	if downloadConcurrency <= 1 {
-		out, err := bh.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		getCtx := ctx
+		if downloadBenchmarkDiscard && !strings.HasSuffix(object, "/MANIFEST") {
+			getCtx = context.WithoutCancel(ctx)
+		}
+		out, err := bh.s3Client.GetObject(getCtx, &s3.GetObjectInput{
 			Bucket:               &bucket,
 			Key:                  &object,
 			SSECustomerAlgorithm: bh.bs.s3SSE.customerAlg,
@@ -357,7 +361,11 @@ func (bh *S3BackupHandle) ReadFile(ctx context.Context, filename string) (io.Rea
 		o.GetObjectBufferSize = bufferSize
 	})
 
-	readCtx, cancel := context.WithCancel(ctx)
+	tmCtx := ctx
+	if downloadBenchmarkDiscard && !strings.HasSuffix(object, "/MANIFEST") {
+		tmCtx = context.WithoutCancel(ctx)
+	}
+	readCtx, cancel := context.WithCancel(tmCtx)
 	out, err := tmClient.GetObject(readCtx, &transfermanager.GetObjectInput{
 		Bucket:               &bucket,
 		Key:                  &object,
