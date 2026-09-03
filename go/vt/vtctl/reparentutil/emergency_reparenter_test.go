@@ -2935,7 +2935,7 @@ func TestEmergencyReparenterStats(t *testing.T) {
 
 	// check the counter values
 	require.EqualValues(t, map[string]int64{"testkeyspace.-.success": 1}, ersCounter.Counts())
-	require.EqualValues(t, map[string]int64{"All": 1, "EmergencyReparentShard": 1}, reparentShardOpTimings.Counts())
+	require.EqualValues(t, map[string]int64{"All": 1, "EmergencyReparentShard.success": 1}, reparentShardOpTimings.Counts())
 
 	// set emergencyReparentOps to request a non existent tablet
 	emergencyReparentOps.NewPrimaryAlias = &topodatapb.TabletAlias{
@@ -2949,7 +2949,7 @@ func TestEmergencyReparenterStats(t *testing.T) {
 
 	// check the counter values
 	require.EqualValues(t, map[string]int64{"testkeyspace.-.success": 1, "testkeyspace.-.failure": 1}, ersCounter.Counts())
-	require.EqualValues(t, map[string]int64{"All": 2, "EmergencyReparentShard": 2}, reparentShardOpTimings.Counts())
+	require.EqualValues(t, map[string]int64{"All": 2, "EmergencyReparentShard.success": 1, "EmergencyReparentShard.failure": 1}, reparentShardOpTimings.Counts())
 }
 
 func TestEmergencyReparenter_findMostAdvanced(t *testing.T) {
