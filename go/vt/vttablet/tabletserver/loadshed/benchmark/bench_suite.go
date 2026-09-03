@@ -207,7 +207,7 @@ func buildProfile(name string, o profileOpts) loadProfile {
 }
 
 func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workMs, workStddevMs, targetMs, intervalMs int, profile loadProfile) ([]event, []statsSnapshot) {
-	snake := loadshed.NewSnake(loadshed.SnakeConfig{
+	snake := loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name:     "bench",
 		Capacity: func() int { return capacity },
 		CoDel: loadshed.CoDelConfig{
@@ -217,7 +217,7 @@ func runBench(capacity int, peakArrivalRateMultiplier float64, durationMs, workM
 			Exponent:       func() float64 { return 1 },
 			EasingLogBase:  func() float64 { return *easingLogBase },
 		},
-		LoadsheddingAllowed: func() bool { return true },
+		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
 	})
 
 	totalDuration := time.Duration(durationMs) * time.Millisecond

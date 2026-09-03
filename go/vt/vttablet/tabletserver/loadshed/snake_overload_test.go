@@ -207,15 +207,15 @@ func TestCoDelQueue_DropDelay_Decreasing(t *testing.T) {
 // --- Drop ONLY droppable, leaving undroppable untouched ---
 
 func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
-	// Verify that CoDel drops only affect droppable requests (LoadsheddingAllowed=true)
-	// and never undroppable requests (LoadsheddingAllowed=false). Uses two separate
+	// Verify that CoDel drops requests in enabled mode and preserves them in off
+	// mode. Uses two separate
 	// Snakes to avoid a shared-atomic race that can flip all requests to one category.
 	t.Run("droppable", func(t *testing.T) {
 		cfg := defaultSnakeConfig()
 		cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 		cfg.CoDel.TargetNs = func() int64 { return 1 }
 		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
-		cfg.LoadsheddingAllowed = func() bool { return true }
+		cfg.Mode = func() Mode { return ModeEnabled }
 		s := NewSnake[struct{}](cfg)
 
 		unlock, err := s.Acquire(t.Context(), "", 0)
@@ -248,7 +248,7 @@ func TestSnake_Overload_DropOnlyDroppable(t *testing.T) {
 		cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 		cfg.CoDel.TargetNs = func() int64 { return 1 }
 		cfg.CoDel.MinDropDelayNs = func() int64 { return 1_000 }
-		cfg.LoadsheddingAllowed = func() bool { return false }
+		cfg.Mode = func() Mode { return ModeOff }
 		s := NewSnake[struct{}](cfg)
 
 		unlock, err := s.Acquire(t.Context(), "", 0)

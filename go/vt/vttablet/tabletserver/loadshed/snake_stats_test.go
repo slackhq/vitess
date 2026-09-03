@@ -71,7 +71,8 @@ func TestPublishStats_RegistersCountersAndHistograms(t *testing.T) {
 	for _, name := range []string{"ShedCount", "DroppingNanosTotal"} {
 		assert.Contains(t, exp.counters, "SnakeOltpRead"+name)
 	}
-	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved", "DropTimerLagNs", "ValveDepthObserved"} {
+	assert.Contains(t, exp.counters, "SnakeOltpReadInitialTargetShadow20xCensoredCount")
+	for _, name := range []string{"SojournNs", "QueueLenObserved", "DroppableLenObserved", "HolderCountObserved", "IntervalObservedNs", "DropCountObserved", "DropTimerLagNs", "ValveDepthObserved", "InitialTargetShadow20xNs"} {
 		assert.Contains(t, exp.histograms, "SnakeOltpRead"+name)
 	}
 }
@@ -87,13 +88,15 @@ func TestPublishStats_PrefixIsolation(t *testing.T) {
 	assert.Contains(t, exp.counters, "SnakeDmlShedCount")
 	assert.Contains(t, exp.counters, "SnakeOltpReadDroppingNanosTotal")
 	assert.Contains(t, exp.counters, "SnakeDmlDroppingNanosTotal")
-	assert.Len(t, exp.counters, 4, "expected shed + dropping counters per snake, two snakes")
+	assert.Contains(t, exp.counters, "SnakeOltpReadInitialTargetShadow20xCensoredCount")
+	assert.Contains(t, exp.counters, "SnakeDmlInitialTargetShadow20xCensoredCount")
+	assert.Len(t, exp.counters, 6, "expected shed + dropping + shadow-censored counters per snake, two snakes")
 
 	assert.Contains(t, exp.histograms, "SnakeOltpReadQueueLenObserved")
 	assert.Contains(t, exp.histograms, "SnakeDmlQueueLenObserved")
 	// sojourn + queueLen + droppableLen + holderCount + interval + dropCount +
-	// timerLag + valveDepth, per snake.
-	assert.Len(t, exp.histograms, 16, "expected 8 histograms per snake, two snakes")
+	// timerLag + valveDepth + initialTargetShadow, per snake.
+	assert.Len(t, exp.histograms, 18, "expected 9 histograms per snake, two snakes")
 }
 
 func TestPublishStats_ShedCountTracksDrops(t *testing.T) {
@@ -222,6 +225,7 @@ func TestNewSnake_DistributionMetricsInitializedBeforePublish(t *testing.T) {
 	require.NotNil(t, s.holderCount)
 	require.NotNil(t, s.interval)
 	require.NotNil(t, s.dropCount)
+	require.NotNil(t, s.initialTargetShadowRequired)
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
 	require.NoError(t, err)
@@ -393,9 +397,10 @@ func TestPublishStats_DropTimerLagRecordsLateness(t *testing.T) {
 	// delay is used verbatim), then fire at t=14ms: 4ms late.
 	s.mu.Lock()
 	s.lockedScheduleDropTimer(int64(10 * time.Millisecond))
+	generation := s.dropTimer.generation
 	s.mu.Unlock()
 	now.Store(int64(14 * time.Millisecond))
-	s.runDropTimer()
+	s.runDropTimer(generation)
 
 	require.Equal(t, int64(1), lag.Count(), "one timer fire should record one lag sample")
 	assert.Equal(t, int64(4*time.Millisecond), lag.Total(), "recorded lag should be actual minus scheduled fire time")

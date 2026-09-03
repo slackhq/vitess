@@ -28,15 +28,24 @@ import (
 )
 
 type (
+	// Mode selects which load-shedding mechanism is active.
+	Mode string
+
 	// SnakeConfig configures a Snake. Functions are used to allow dynamic runtime
 	// tuning.
 	SnakeConfig struct {
-		Name                string
-		CoDel               CoDelConfig
-		Capacity            func() int
-		LoadsheddingAllowed func() bool
-		AcquireError        func() error
-		ReleaseCBs          []func(error)
+		Name         string
+		CoDel        CoDelConfig
+		Capacity     func() int
+		Mode         func() Mode
+		AcquireError func() error
+		ReleaseCBs   []func(error)
+	}
+
+	lockedTimer struct {
+		timer      *time.Timer
+		armed      bool
+		generation uint64
 	}
 
 	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
@@ -45,10 +54,9 @@ type (
 	Snake[T any] struct {
 		mu sync.Mutex
 
-		q              *ValvedCoDelQueue[T]
-		holders        map[*Request[T]]struct{}
-		dropTimer      *time.Timer
-		dropTimerArmed bool
+		q         *ValvedCoDelQueue[T]
+		holders   map[*Request[T]]struct{}
+		dropTimer lockedTimer
 		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
 		// fire (arm time + delay), used to measure how late it actually fires.
 		dropTimerExpectedNs int64
@@ -78,6 +86,11 @@ type (
 		timerLag     *stats.Histogram
 		valveDepth   *stats.Histogram
 
+		initialTargetShadow         initialTargetShadowTracker
+		initialTargetShadowRequired *stats.Histogram
+		initialTargetShadowCensored atomic.Int64
+		initialTargetShadowTimer    lockedTimer
+
 		droppingNanos   atomic.Int64
 		droppingSinceNs int64
 	}
@@ -92,6 +105,39 @@ type (
 	}
 )
 
+const (
+	ModeOff     Mode = "off"
+	ModeShadow  Mode = "shadow"
+	ModeEnabled Mode = "enabled"
+)
+
+func (t *lockedTimer) arm(delay time.Duration, callback func(uint64)) {
+	if t.armed {
+		return
+	}
+	t.generation++
+	generation := t.generation
+	t.armed = true
+	t.timer = time.AfterFunc(delay, func() { callback(generation) })
+}
+
+func (t *lockedTimer) stop() {
+	if !t.armed {
+		return
+	}
+	t.armed = false
+	t.generation++
+	t.timer.Stop()
+}
+
+func (t *lockedTimer) consume(generation uint64) bool {
+	if !t.armed || generation != t.generation {
+		return false
+	}
+	t.armed = false
+	return true
+}
+
 var epoch = time.Now()
 
 func defaultClock() int64 {
@@ -101,19 +147,20 @@ func defaultClock() int64 {
 // NewSnake creates a new CoDel-based load-shedding gate.
 func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 	s := &Snake[T]{
-		cfg:          cfg,
-		clockFunc:    defaultClock,
-		holders:      make(map[*Request[T]]struct{}),
-		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
-		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
-		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
-		holderCount:  stats.NewHistogram("", "", holderBucketCutoffs),
-		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
-		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
-		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
-		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
+		cfg:                         cfg,
+		clockFunc:                   defaultClock,
+		holders:                     make(map[*Request[T]]struct{}),
+		sojourn:                     stats.NewHistogram("", "", loadshedBucketCutoffs),
+		queueLen:                    stats.NewHistogram("", "", lengthBucketCutoffs),
+		droppableLen:                stats.NewHistogram("", "", lengthBucketCutoffs),
+		holderCount:                 stats.NewHistogram("", "", holderBucketCutoffs),
+		interval:                    stats.NewHistogram("", "", intervalBucketCutoffs),
+		dropCount:                   stats.NewHistogram("", "", lengthBucketCutoffs),
+		timerLag:                    stats.NewHistogram("", "", loadshedBucketCutoffs),
+		valveDepth:                  stats.NewHistogram("", "", lengthBucketCutoffs),
+		initialTargetShadowRequired: stats.NewHistogram("", "", initialTargetShadowCandidates),
 	}
-	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
+	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer, s.mode)
 	return s
 }
 
@@ -168,6 +215,9 @@ func (s *Snake[T]) Acquire(ctx context.Context, valveID string, priority float64
 		return &SafeUnlock[T]{s: s, req: req}, nil
 	}
 
+	s.lockedObserveInitialTargetShadow(nil)
+	s.lockedStartInitialTargetShadow(req)
+
 	// Enqueue-advance: a non-granted arrival drives the CoDel control law itself,
 	// so shedding tracks load even when releases are sparse or the backstop timer
 	// fires late. lockedRunTimer only MARKS drops; take the pending rejections and
@@ -209,6 +259,7 @@ func (s *Snake[T]) Acquire(ctx context.Context, valveID string, priority float64
 				s.releaseOnCancel(req)
 			} else {
 				s.q.lockedCancel(req)
+				s.lockedObserveInitialTargetShadow(nil)
 				s.lockedObserveLengths()
 				s.lockedObserveDropping()
 				s.mu.Unlock()
@@ -274,6 +325,7 @@ func (s *Snake[T]) release(req *Request[T], excValue error) error {
 	s.lockedObserveHolderCount()
 	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
+	s.lockedObserveInitialTargetShadow(nil)
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()
@@ -294,6 +346,7 @@ func (s *Snake[T]) releaseOnCancel(req *Request[T]) {
 	s.lockedObserveHolderCount()
 	s.lockedReleaseAndShed(req)
 	s.lockedTryGrantOne()
+	s.lockedObserveInitialTargetShadow(nil)
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()
@@ -308,7 +361,7 @@ func (s *Snake[T]) releaseOnCancel(req *Request[T]) {
 func (s *Snake[T]) lockedReleaseAndShed(req *Request[T]) {
 	s.q.lockedRelease(req)
 	if s.q.lockedNeedsAdvance() {
-		s.q.lockedRunTimerIf(s.loadsheddingAllowed)
+		s.lockedRunCoDelTimer()
 	}
 }
 
@@ -319,20 +372,116 @@ func (s *Snake[T]) lockedReleaseAndShed(req *Request[T]) {
 // drops; the pending rejections are returned so the caller sends them AFTER
 // releasing s.mu (draining the goready storm off the lock).
 func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
-	s.q.lockedRunTimerIf(s.loadsheddingAllowed)
-	s.interval.Add(s.q.lockedCurrentInterval())
-	s.dropCount.Add(int64(s.q.lockedCount()))
+	if s.lockedRunCoDelTimer() {
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
+	}
 	return s.q.lockedTakePendingSignals()
 }
 
 func (s *Snake[T]) lockedGrant(req *Request[T]) {
 	s.holders[req] = struct{}{}
 	s.lockedObserveHolderCount()
-	s.q.lockedOnGrant(req)
 	now := s.clockFunc()
+	sojournNs := now - req.codelqEnqueuedAtNs
+	s.q.lockedOnGrant(req)
+	s.lockedObserveInitialTargetShadowAt(now, &sojournNs)
 	s.lockedAccrueDropping(now)
-	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
+	s.sojourn.Add(sojournNs)
 	req.signal(grantSentinel)
+}
+
+func (s *Snake[T]) lockedStartInitialTargetShadow(req *Request[T]) {
+	if !req.isDroppable() ||
+		req.codelqElem == nil ||
+		s.q.lockedDroppableLen() != 1 ||
+		s.initialTargetShadow.active ||
+		s.initialTargetShadow.waitingForDrain ||
+		s.mode() != ModeShadow {
+		return
+	}
+	startedAtNs := req.codelqEnqueuedAtNs
+	nowNs := s.clockFunc()
+	if s.initialTargetShadow.start(startedAtNs) {
+		s.lockedScheduleInitialTargetShadowTimer(
+			max(startedAtNs+initialTargetShadowMaxIntervalNs-nowNs, 0),
+		)
+	}
+}
+
+func (s *Snake[T]) lockedObserveInitialTargetShadow(sojournNs *int64) {
+	if !s.initialTargetShadow.active && !s.initialTargetShadow.waitingForDrain {
+		return
+	}
+	if s.mode() != ModeShadow {
+		s.lockedLeaveInitialTargetShadow(s.clockFunc())
+		return
+	}
+	s.lockedObserveInitialTargetShadowAt(s.clockFunc(), sojournNs)
+}
+
+func (s *Snake[T]) lockedObserveInitialTargetShadowAt(nowNs int64, sojournNs *int64) {
+	if !s.initialTargetShadow.active && !s.initialTargetShadow.waitingForDrain {
+		return
+	}
+	outcome := s.initialTargetShadow.observe(
+		nowNs,
+		sojournNs,
+		s.q.lockedDroppableLen() == 0,
+	)
+	if outcome.completed {
+		s.initialTargetShadowRequired.Add(outcome.requiredTargetNs)
+	}
+	if outcome.completed {
+		s.lockedStopInitialTargetShadowTimer()
+	}
+}
+
+func (s *Snake[T]) lockedLeaveInitialTargetShadow(nowNs int64) {
+	if !s.initialTargetShadow.active && !s.initialTargetShadow.waitingForDrain {
+		return
+	}
+
+	if s.initialTargetShadow.active &&
+		(s.q.lockedDroppableLen() == 0 ||
+			nowNs >= s.initialTargetShadow.startedAtNs+initialTargetShadowMaxIntervalNs) {
+		s.lockedObserveInitialTargetShadowAt(nowNs, nil)
+		s.initialTargetShadow.reset(false)
+		return
+	}
+
+	if s.initialTargetShadow.active {
+		s.initialTargetShadowCensored.Add(1)
+	}
+	s.initialTargetShadow.reset(false)
+	s.lockedStopInitialTargetShadowTimer()
+}
+
+func (s *Snake[T]) lockedRunCoDelTimer() bool {
+	mode := s.mode()
+	if s.initialTargetShadow.active || s.initialTargetShadow.waitingForDrain {
+		if mode != ModeShadow {
+			s.lockedLeaveInitialTargetShadow(s.clockFunc())
+		} else {
+			s.lockedObserveInitialTargetShadowAt(s.clockFunc(), nil)
+		}
+	}
+	enabled := mode == ModeEnabled
+	s.q.lockedRunTimerIf(enabled)
+	return enabled
+}
+
+// RefreshMode applies a runtime mode change to existing queue state.
+func (s *Snake[T]) RefreshMode() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	mode := s.mode()
+	if mode != ModeShadow {
+		s.lockedLeaveInitialTargetShadow(s.clockFunc())
+	}
+	s.q.lockedRefreshMode(mode == ModeEnabled)
+	s.lockedObserveDropping()
 }
 
 func (s *Snake[T]) lockedObserveHolderCount() {
@@ -386,8 +535,11 @@ func (s *Snake[T]) priority(priority float64) float64 {
 	return priority
 }
 
-func (s *Snake[T]) loadsheddingAllowed() bool {
-	return s.cfg.LoadsheddingAllowed == nil || s.cfg.LoadsheddingAllowed()
+func (s *Snake[T]) mode() Mode {
+	if s.cfg.Mode == nil {
+		return ModeEnabled
+	}
+	return s.cfg.Mode()
 }
 
 func (s *Snake[T]) acquireError(priority float64) error {
@@ -433,41 +585,52 @@ func (s *Snake[T]) DroppingNanos() int64 {
 // --- timer management (must be called with s.mu held) ---
 
 func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
-	if s.dropTimerArmed {
+	if s.dropTimer.armed {
 		return
 	}
-	s.dropTimerArmed = true
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
-	delay := time.Duration(delayNs) * time.Nanosecond
-	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)
+	s.dropTimer.arm(time.Duration(delayNs)*time.Nanosecond, s.runDropTimer)
 }
 
 func (s *Snake[T]) lockedStopDropTimer() {
-	if !s.dropTimerArmed {
-		return
-	}
-	s.dropTimerArmed = false
-	s.dropTimer.Stop()
+	s.dropTimer.stop()
 }
 
-func (s *Snake[T]) runDropTimer() {
+func (s *Snake[T]) lockedScheduleInitialTargetShadowTimer(delayNs int64) {
+	s.initialTargetShadowTimer.arm(time.Duration(delayNs), s.runInitialTargetShadowTimer)
+}
+
+func (s *Snake[T]) lockedStopInitialTargetShadowTimer() {
+	s.initialTargetShadowTimer.stop()
+}
+
+func (s *Snake[T]) runInitialTargetShadowTimer(generation uint64) {
 	s.mu.Lock()
-	if !s.dropTimerArmed {
+	defer s.mu.Unlock()
+	if !s.initialTargetShadowTimer.consume(generation) {
+		return
+	}
+	s.lockedObserveInitialTargetShadow(nil)
+}
+
+func (s *Snake[T]) runDropTimer(generation uint64) {
+	s.mu.Lock()
+	if !s.dropTimer.consume(generation) {
 		s.mu.Unlock()
 		return
 	}
-	s.dropTimerArmed = false
-	// Record how late this fire is versus when it was scheduled. Under CPU
-	// contention the normal-priority timer goroutine can fire well past its
-	// deadline, which delays shedding; this surfaces that lag.
-	if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
-		s.timerLag.Add(lag)
-	} else {
-		s.timerLag.Add(0)
+	if s.lockedRunCoDelTimer() {
+		// Record how late this fire is versus when it was scheduled. Under CPU
+		// contention the normal-priority timer goroutine can fire well past its
+		// deadline, which delays shedding; this surfaces that lag.
+		if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
+			s.timerLag.Add(lag)
+		} else {
+			s.timerLag.Add(0)
+		}
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
 	}
-	s.q.lockedRunTimerIf(s.loadsheddingAllowed)
-	s.interval.Add(s.q.lockedCurrentInterval())
-	s.dropCount.Add(int64(s.q.lockedCount()))
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	pending := s.q.lockedTakePendingSignals()

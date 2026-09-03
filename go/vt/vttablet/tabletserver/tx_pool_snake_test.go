@@ -56,8 +56,8 @@ func setupWithSnake(t *testing.T, capacity int) (*fakesqldb.DB, *TxPool, func())
 			Exponent:       func() float64 { return 0.5 },
 			MinDropDelayNs: func() int64 { return int64(time.Millisecond) },
 		},
-		Capacity:            func() int { return capacity },
-		LoadsheddingAllowed: func() bool { return true },
+		Capacity: func() int { return capacity },
+		Mode:     func() loadshed.Mode { return loadshed.ModeEnabled },
 	})
 
 	db := fakesqldb.New(t)
@@ -278,17 +278,17 @@ func TestTxPoolSnake_NilSnakePassesThrough(t *testing.T) {
 	c.Release(tx.TxCommit)
 }
 
-func TestTxPoolSnake_RuntimeEnablement(t *testing.T) {
+func TestTxPoolSnake_RuntimeMode(t *testing.T) {
 	_, txPool, closer := setupWithSnake(t, 2)
 	defer closer()
 
-	txPool.env.Config().LoadshedTx.SetEnabled(false)
+	require.NoError(t, txPool.env.Config().LoadshedTx.SetMode("off"))
 	conn, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, conn.TxProperties().SnakeRelease)
 	conn.Release(tx.ConnRelease)
 
-	txPool.env.Config().LoadshedTx.SetEnabled(true)
+	require.NoError(t, txPool.env.Config().LoadshedTx.SetMode("enabled"))
 	conn, _, _, err = txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, conn.TxProperties().SnakeRelease)

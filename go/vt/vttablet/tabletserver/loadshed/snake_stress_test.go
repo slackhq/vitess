@@ -101,14 +101,14 @@ func TestSnake_Stress_MixedPriorities(t *testing.T) {
 	droppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }  // 10ms
 	droppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }     // 1ms
 	droppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 } // 0.1ms
-	droppableCfg.LoadsheddingAllowed = func() bool { return true }
+	droppableCfg.Mode = func() Mode { return ModeEnabled }
 	droppableSnake := NewSnake[struct{}](droppableCfg)
 
 	undroppableCfg := defaultSnakeConfig()
 	undroppableCfg.CoDel.IntervalNs = func() int64 { return 10_000_000 }
 	undroppableCfg.CoDel.TargetNs = func() int64 { return 1_000_000 }
 	undroppableCfg.CoDel.MinDropDelayNs = func() int64 { return 100_000 }
-	undroppableCfg.LoadsheddingAllowed = func() bool { return false }
+	undroppableCfg.Mode = func() Mode { return ModeOff }
 	undroppableSnake := NewSnake[struct{}](undroppableCfg)
 
 	unlock, err := droppableSnake.Acquire(t.Context(), "", 0)

@@ -38,7 +38,7 @@ func defaultSnakeConfig() SnakeConfig {
 			MinDropDelayNs: func() int64 { return 100 },
 			EasingLogBase:  func() float64 { return 2.0 },
 		},
-		LoadsheddingAllowed: func() bool { return true },
+		Mode: func() Mode { return ModeEnabled },
 	}
 }
 
@@ -710,7 +710,7 @@ func TestSnake_Undroppable_NeverDropped(t *testing.T) {
 	cfg.CoDel.IntervalNs = func() int64 { return 1_000 }
 	cfg.CoDel.TargetNs = func() int64 { return 1 }
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
-	cfg.LoadsheddingAllowed = func() bool { return false }
+	cfg.Mode = func() Mode { return ModeOff }
 	s := newTestSnake(cfg)
 
 	unlock, err := s.Acquire(t.Context(), "", 0)
@@ -846,7 +846,7 @@ func TestNewSnake_DefaultClock(t *testing.T) {
 
 // TestSnake_Priority_HonorsCallerPriority confirms Snake enqueues the caller's
 // priority unchanged when shedding is allowed. Snake is agnostic to the
-// caller's priority scheme; it only applies the LoadsheddingAllowed gate.
+// caller's priority scheme; it only applies the configured mode.
 func TestSnake_Priority_HonorsCallerPriority(t *testing.T) {
 	s := newTestSnake(defaultSnakeConfig())
 
@@ -858,12 +858,65 @@ func TestSnake_Priority_HonorsCallerPriority(t *testing.T) {
 
 func TestSnake_Priority_DisabledPreservesCallerPriority(t *testing.T) {
 	cfg := defaultSnakeConfig()
-	cfg.LoadsheddingAllowed = func() bool { return false }
+	cfg.Mode = func() Mode { return ModeOff }
 	s := newTestSnake(cfg)
 
 	for _, priority := range []float64{0, 50, 100} {
 		assert.Equal(t, priority, s.priority(priority))
 	}
+}
+
+func TestSnake_EnablingRearmsExistingBacklog(t *testing.T) {
+	var enabled atomic.Bool
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode {
+		if enabled.Load() {
+			return ModeEnabled
+		}
+		return ModeOff
+	}
+	s := newTestSnake(cfg)
+	t.Cleanup(func() {
+		s.mu.Lock()
+		s.lockedStopDropTimer()
+		s.mu.Unlock()
+	})
+
+	s.mu.Lock()
+	for range keepDroppableFloor + 1 {
+		s.q.lockedEnqueue("", 0)
+	}
+	assert.Zero(t, s.q.codelq.dropNextNs)
+	assert.False(t, s.dropTimer.armed)
+	s.mu.Unlock()
+
+	enabled.Store(true)
+	s.RefreshMode()
+
+	s.mu.Lock()
+	assert.Positive(t, s.q.codelq.dropNextNs)
+	assert.True(t, s.dropTimer.armed)
+	s.mu.Unlock()
+}
+
+func TestSnake_StaleDropTimerDoesNotConsumeReplacement(t *testing.T) {
+	s := newTestSnake(defaultSnakeConfig())
+
+	s.mu.Lock()
+	s.lockedScheduleDropTimer(int64(time.Hour))
+	staleGeneration := s.dropTimer.generation
+	s.lockedStopDropTimer()
+	s.lockedScheduleDropTimer(int64(time.Hour))
+	currentGeneration := s.dropTimer.generation
+	s.mu.Unlock()
+
+	s.runDropTimer(staleGeneration)
+
+	s.mu.Lock()
+	assert.True(t, s.dropTimer.armed)
+	assert.Equal(t, currentGeneration, s.dropTimer.generation)
+	s.lockedStopDropTimer()
+	s.mu.Unlock()
 }
 
 func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
@@ -892,7 +945,12 @@ func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
 		allowed.Store(true)
 		cfg := defaultSnakeConfig()
 		cfg.Capacity = func() int { return 1 }
-		cfg.LoadsheddingAllowed = allowed.Load
+		cfg.Mode = func() Mode {
+			if allowed.Load() {
+				return ModeEnabled
+			}
+			return ModeOff
+		}
 		cfg.CoDel.TargetNs = func() int64 { return time.Millisecond.Nanoseconds() }
 		cfg.CoDel.IntervalNs = func() int64 { return (10 * time.Millisecond).Nanoseconds() }
 		cfg.CoDel.MinDropDelayNs = func() int64 { return (10 * time.Millisecond).Nanoseconds() }
@@ -950,7 +1008,7 @@ func TestSnake_DisablePreventsQueuedRequestFromBeingShed(t *testing.T) {
 		assert.Never(t, func() bool {
 			return len(resultCh) > 0
 		}, 150*time.Millisecond, time.Millisecond)
-		assert.False(t, s.IsHealthy(), "disabled shedding must still observe queue health")
+		assert.True(t, s.IsHealthy(), "disabled shedding must not run the CoDel controller")
 
 		require.NoError(t, holder.Release())
 		for range waiters {
