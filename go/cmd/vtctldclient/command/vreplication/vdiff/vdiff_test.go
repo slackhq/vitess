@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/sqltypes"
@@ -757,4 +758,17 @@ func TestGetStructNames(t *testing.T) {
 	got := getStructFieldNames(s{})
 	want := []string{"A", "B"}
 	require.EqualValues(t, want, got)
+}
+
+func TestShowNoSamplesFlag(t *testing.T) {
+	root := &cobra.Command{Use: "test"}
+	registerCommands(root)
+
+	showCmd, _, err := root.Find([]string{"VDiff", "show"})
+	require.NoError(t, err)
+
+	flag := showCmd.Flags().Lookup("no-samples")
+	require.NotNil(t, flag, "vdiff show must expose the --no-samples flag")
+	require.Equal(t, "false", flag.DefValue, "--no-samples must default to false")
+	require.Contains(t, flag.Usage, "gRPC message limits")
 }
