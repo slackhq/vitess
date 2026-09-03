@@ -5163,7 +5163,7 @@ func TestPlannedReparenterStats(t *testing.T) {
 
 	// check the counter values
 	require.EqualValues(t, map[string]int64{"testkeyspace.-.success": 1}, prsCounter.Counts())
-	require.EqualValues(t, map[string]int64{"All": 1, "PlannedReparentShard": 1}, reparentShardOpTimings.Counts())
+	require.EqualValues(t, map[string]int64{"All": 1, "PlannedReparentShard.success": 1}, reparentShardOpTimings.Counts())
 
 	// set plannedReparentOps to request a non existent tablet
 	plannedReparentOps.NewPrimaryAlias = &topodatapb.TabletAlias{
@@ -5177,5 +5177,5 @@ func TestPlannedReparenterStats(t *testing.T) {
 
 	// check the counter values
 	require.EqualValues(t, map[string]int64{"testkeyspace.-.success": 1, "testkeyspace.-.failure": 1}, prsCounter.Counts())
-	require.EqualValues(t, map[string]int64{"All": 2, "PlannedReparentShard": 2}, reparentShardOpTimings.Counts())
+	require.EqualValues(t, map[string]int64{"All": 2, "PlannedReparentShard.success": 1, "PlannedReparentShard.failure": 1}, reparentShardOpTimings.Counts())
 }

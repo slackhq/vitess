@@ -119,14 +119,16 @@ func (erp *EmergencyReparenter) ReparentShard(ctx context.Context, keyspace stri
 	startTime := time.Now()
 	ev := &events.Reparent{}
 	defer func() {
-		reparentShardOpTimings.Add("EmergencyReparentShard", time.Since(startTime))
+		duration := time.Since(startTime)
 		switch err {
 		case nil:
+			reparentShardOpTimings.Add([]string{"EmergencyReparentShard", successResult}, duration)
 			ersCounter.Add(append(statsLabels, successResult), 1)
-			event.DispatchUpdate(ev, "finished EmergencyReparentShard")
+			event.DispatchUpdate(ev, fmt.Sprintf("finished EmergencyReparentShard in %v", duration))
 		default:
+			reparentShardOpTimings.Add([]string{"EmergencyReparentShard", failureResult}, duration)
 			ersCounter.Add(append(statsLabels, failureResult), 1)
-			event.DispatchUpdate(ev, "failed EmergencyReparentShard: "+err.Error())
+			event.DispatchUpdate(ev, fmt.Sprintf("failed EmergencyReparentShard after %v: %v", duration, err))
 		}
 	}()
 
