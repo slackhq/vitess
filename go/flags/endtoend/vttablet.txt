@@ -216,14 +216,14 @@ Flags:
       --keep_logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
-      --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, or enabled. (default enabled)
       --loadshed-oltp-read-initial-target duration                       Initial CoDel target delay for the oltp-read load shedder. 0 uses its normal target.
       --loadshed-oltp-read-interval-ratio float                          CoDel observation interval for the oltp-read load shedder, as a multiple of its target. (default 20)
+      --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, or enabled. (default enabled)
       --loadshed-oltp-read-target duration                               CoDel target delay for the oltp-read load shedder. (default 5ms)
       --loadshed-oltp-read-undroppable-schemas strings                   Schema qualifiers whose OLTP read queries are never shed. (default [performance_schema,information_schema,sys,mysql])
-      --loadshed-tx-mode loadshed-mode                                   Load shedding mode for the tx pool: off, shadow, or enabled. (default enabled)
       --loadshed-tx-initial-target duration                              Initial CoDel target delay for the tx load shedder. 0 uses its normal target.
       --loadshed-tx-interval-ratio float                                 CoDel observation interval for the tx load shedder, as a multiple of its target. (default 20)
+      --loadshed-tx-mode loadshed-mode                                   Load shedding mode for the tx pool: off, shadow, or enabled. (default enabled)
       --loadshed-tx-target duration                                      CoDel target delay for the tx load shedder. (default 5ms)
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_tables_timeout duration                                     How long to keep the table locked before timing out (default 1m0s)
