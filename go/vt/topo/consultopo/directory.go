@@ -17,10 +17,11 @@ limitations under the License.
 package consultopo
 
 import (
+	"context"
 	"path"
 	"strings"
 
-	"context"
+	"github.com/hashicorp/consul/api"
 
 	"vitess.io/vitess/go/vt/topo"
 )
@@ -36,7 +37,7 @@ func (s *Server) ListDir(ctx context.Context, dirPath string, full bool) ([]topo
 
 	isRoot := dirPath == "" || dirPath == "/"
 
-	keys, _, err := s.kv.Keys(nodePath, "", nil)
+	keys, _, err := s.kv.Keys(nodePath, "", (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
