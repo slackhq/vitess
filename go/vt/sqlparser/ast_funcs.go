@@ -2147,6 +2147,8 @@ func (ty VExplainType) ToString() string {
 		return TraceStr
 	case KeysVExplainType:
 		return KeysStr
+	case MySQLVExplainType:
+		return MySQLStr
 	default:
 		return "Unknown VExplainType"
 	}

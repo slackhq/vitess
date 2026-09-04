@@ -98,6 +98,7 @@ type (
 	iExecute interface {
 		Execute(ctx context.Context, mysqlCtx vtgateservice.MySQLConnection, method string, session *SafeSession, s string, vars map[string]*querypb.BindVariable, prepared bool) (*sqltypes.Result, error)
 		ExecuteMultiShard(ctx context.Context, primitive engine.Primitive, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery, session *SafeSession, autocommit bool, ignoreMaxMemoryRows bool, resultsObserver ResultsObserver, fetchLastInsertID bool) (qr *sqltypes.Result, errs []error)
+		ExecuteMultiShardPerShard(ctx context.Context, primitive engine.Primitive, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery, session *SafeSession, autocommit bool, resultsObserver ResultsObserver, fetchLastInsertID bool) (results []*sqltypes.Result, errs []error)
 		StreamExecuteMulti(ctx context.Context, primitive engine.Primitive, query string, rss []*srvtopo.ResolvedShard, vars []map[string]*querypb.BindVariable, session *SafeSession, autocommit bool, callback func(reply *sqltypes.Result) error, observer ResultsObserver, fetchLastInsertID bool) []error
 		ExecuteLock(ctx context.Context, rs *srvtopo.ResolvedShard, query *querypb.BoundQuery, session *SafeSession, lockFuncType sqlparser.LockingFuncType) (*sqltypes.Result, error)
 		Commit(ctx context.Context, safeSession *SafeSession) error
@@ -850,6 +851,20 @@ func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.P
 	return qr, errs
 }
 
+// ExecuteMultiShardPerShard runs one read query per shard and returns each
+// shard's result separately, aligned by index to rss. It is used by VEXPLAIN
+// MYSQLPLAN to run EXPLAIN FORMAT=JSON against every resolved shard and attribute
+// each plan to its shard. The queries run in a fresh autocommit session so the
+// EXPLAINs never join the caller's transaction, and FetchLastInsertId is never
+// requested, so - unlike ExecuteMultiShard - it does not write SafeSession.LastInsertId.
+func (vc *VCursorImpl) ExecuteMultiShardPerShard(ctx context.Context, primitive engine.Primitive, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery) ([]*sqltypes.Result, []error) {
+	atomic.AddUint64(&vc.logStats.ShardQueries, uint64(len(rss)))
+	standaloneSession := NewAutocommitSession(vc.SafeSession.Session)
+	results, errs := vc.executor.ExecuteMultiShardPerShard(ctx, primitive, rss, commentedShardQueries(queries, vc.marginComments), standaloneSession, false /* autocommit */, vc.observer, false /* fetchLastInsertID */)
+	vc.logShardsQueried(primitive, len(rss))
+	return results, errs
+}
+
 // StreamExecuteMulti is the streaming version of ExecuteMultiShard.
 func (vc *VCursorImpl) StreamExecuteMulti(ctx context.Context, primitive engine.Primitive, query string, rss []*srvtopo.ResolvedShard, bindVars []map[string]*querypb.BindVariable, rollbackOnError, autocommit, fetchLastInsertID bool, callback func(reply *sqltypes.Result) error) []error {
 	callback = vc.wrapCallback(callback, primitive)
@@ -1042,6 +1057,13 @@ func (vc *VCursorImpl) SetSysVar(name string, expr string) {
 func (vc *VCursorImpl) CheckForReservedConnection(setVarComment string, stmt sqlparser.Statement) {
 	if setVarComment == "" {
 		return
+	}
+	// A VEXPLAIN wraps an inner statement that carries the SET_VAR hint; decide
+	// against that inner statement so, for example, VEXPLAIN of a SELECT is treated
+	// like the SELECT and does not spuriously pin the session to a reserved
+	// connection.
+	if vexplain, ok := stmt.(*sqlparser.VExplainStmt); ok {
+		stmt = vexplain.Statement
 	}
 	switch stmt.(type) {
 	// If the statement supports optimizer hints or a transaction statement or a SET statement
