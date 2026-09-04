@@ -267,7 +267,9 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 			}
 			return config.OltpReadPool.Size
 		},
-		LoadsheddingAllowed: func() bool { return config.LoadshedOltpRead.IsEnabled() },
+		Mode: func() loadshed.Mode {
+			return loadshed.Mode(config.LoadshedOltpRead.ModeValue())
+		},
 	})
 	loadshed.PublishStats(env.Exporter(), "SnakeOltpRead", qe.snake)
 

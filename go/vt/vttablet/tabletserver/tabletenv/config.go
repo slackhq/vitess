@@ -230,7 +230,10 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 }
 
 func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, defaultCfg LoadshedConfig) {
-	fs.BoolVar(&cfg.Enabled, "loadshed-"+pool+"-enabled", defaultCfg.Enabled, "If true, enables CoDel-based load shedding on the "+pool+" pool.")
+	if cfg.Mode == "" {
+		cfg.Mode = defaultCfg.Mode
+	}
+	fs.Var(&cfg.Mode, "loadshed-"+pool+"-mode", "Load shedding mode for the "+pool+" pool: off, shadow, or enabled.")
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
 	fs.DurationVar(&cfg.InitialTarget, "loadshed-"+pool+"-initial-target", defaultCfg.InitialTarget, "Initial CoDel target delay for the "+pool+" load shedder. 0 uses its normal target.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
@@ -403,9 +406,44 @@ type TabletConfig struct {
 	LoadshedTx       LoadshedConfig     `json:"-"`
 }
 
+type LoadshedMode string
+
+const (
+	LoadshedModeOff     LoadshedMode = "off"
+	LoadshedModeShadow  LoadshedMode = "shadow"
+	LoadshedModeEnabled LoadshedMode = "enabled"
+)
+
+func parseLoadshedMode(value string) (LoadshedMode, error) {
+	mode := LoadshedMode(value)
+	switch mode {
+	case LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("load shedding mode must be one of %q, %q, or %q", LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled)
+	}
+}
+
+func (m *LoadshedMode) Set(value string) error {
+	mode, err := parseLoadshedMode(value)
+	if err != nil {
+		return err
+	}
+	*m = mode
+	return nil
+}
+
+func (m LoadshedMode) String() string {
+	return string(m)
+}
+
+func (m LoadshedMode) Type() string {
+	return "loadshed-mode"
+}
+
 type LoadshedConfig struct {
 	mu            *sync.RWMutex
-	Enabled       bool
+	Mode          LoadshedMode
 	Target        time.Duration
 	InitialTarget time.Duration
 	IntervalRatio float64
@@ -420,13 +458,30 @@ type OltpLoadshedConfig struct {
 func (c *LoadshedConfig) IsEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.Enabled
+	return c.Mode == LoadshedModeEnabled
 }
 
-func (c *LoadshedConfig) SetEnabled(enabled bool) {
+func (c *LoadshedConfig) IsShadow() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Mode == LoadshedModeShadow
+}
+
+func (c *LoadshedConfig) ModeValue() LoadshedMode {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Mode
+}
+
+func (c *LoadshedConfig) SetMode(value string) error {
+	mode, err := parseLoadshedMode(value)
+	if err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Enabled = enabled
+	c.Mode = mode
+	return nil
 }
 
 func (c *LoadshedConfig) TargetValue() time.Duration {
@@ -1008,7 +1063,7 @@ func (c *TabletConfig) Clone() *TabletConfig {
 	tc.LoadshedOltpRead = OltpLoadshedConfig{
 		LoadshedConfig: LoadshedConfig{
 			mu:            oltpMu,
-			Enabled:       c.LoadshedOltpRead.Enabled,
+			Mode:          c.LoadshedOltpRead.Mode,
 			Target:        c.LoadshedOltpRead.Target,
 			InitialTarget: c.LoadshedOltpRead.InitialTarget,
 			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
@@ -1022,7 +1077,7 @@ func (c *TabletConfig) Clone() *TabletConfig {
 	}
 	tc.LoadshedTx = LoadshedConfig{
 		mu:            txMu,
-		Enabled:       c.LoadshedTx.Enabled,
+		Mode:          c.LoadshedTx.Mode,
 		Target:        c.LoadshedTx.Target,
 		InitialTarget: c.LoadshedTx.InitialTarget,
 		IntervalRatio: c.LoadshedTx.IntervalRatio,
@@ -1309,7 +1364,7 @@ var defaultConfig = TabletConfig{
 func defaultLoadshedConfig() LoadshedConfig {
 	return LoadshedConfig{
 		mu:            &sync.RWMutex{},
-		Enabled:       true,
+		Mode:          LoadshedModeEnabled,
 		Target:        5 * time.Millisecond,
 		InitialTarget: 0,
 		IntervalRatio: 20,

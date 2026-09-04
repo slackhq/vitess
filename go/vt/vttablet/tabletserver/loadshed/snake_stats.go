@@ -84,6 +84,9 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
 		return s.DroppingNanos()
 	})
+	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative fixed-20x initial-target shadow bursts censored because shadow mode ended before an outcome was known", func() int64 {
+		return s.initialTargetShadowCensored.Load()
+	})
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake sojourn (time-to-grant: queue wait before slot grant), in nanoseconds", loadshedBucketCutoffs)
 	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
 	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)
@@ -92,4 +95,33 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop count (control-law state), sampled at each timer fire", lengthBucketCutoffs)
 	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of how late the Snake CoDel drop timer fired versus its scheduled time, in nanoseconds; high values mean shedding decisions are delayed under CPU contention", loadshedBucketCutoffs)
 	s.valveDepth = exporter.NewHistogram(prefix+"ValveDepthObserved", "Distribution of Snake self-contention valve depth (requests stacked behind one valve's droppable representative), sampled at each valve-keyed enqueue", lengthBucketCutoffs)
+
+	// InitialTargetShadow20xNs is populated only in shadow mode. A burst starts
+	// when the waiting droppable backlog transitions
+	// from 0 to 1 and ends only after it drains. This is independent of the live
+	// CoDel target, interval, and count: every fresh burst is modeled as starting
+	// fully relaxed.
+	//
+	// Each candidate target is evaluated over a fixed interval of target * 20.
+	// A candidate hits if, strictly before that interval ends, a granted request
+	// has sojourn < target or the droppable backlog drains. The histogram records
+	// the smallest candidate that hit; +Inf means all candidates missed. The
+	// candidates are 5, 10, 20, 40, 80, 160, 320, and 640ms, with corresponding
+	// intervals of 100, 200, 400, 800, 1600, 3200, 6400, and 12800ms.
+	//
+	// Prometheus exports stats.Histogram buckets cumulatively. For the OLTP-read
+	// pool, these queries backtest the 20ms target over one hour. Replace
+	// "20000000" with another candidate in nanoseconds, or snake_oltp_read with
+	// snake_dml:
+	//
+	//   completed = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_ns_count[1h]))
+	//   hits      = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_ns_bucket{le="20000000"}[1h]))
+	//   misses    = completed - hits
+	//   hit_ratio = hits / clamp_min(completed, 1)
+	//   censored  = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_censored_count[1h]))
+	//
+	// Censored bursts are excluded from completed. A valid no-drop shadow run
+	// has censored == 0. This histogram encodes binary candidate
+	// outcomes, not sampled latency: do not use _sum or histogram_quantile().
+	s.initialTargetShadowRequired = exporter.NewHistogram(prefix+"InitialTargetShadow20xNs", "Smallest candidate initial target that hit during a completed no-drop shadow burst using fixed target*20 intervals, in nanoseconds; +Inf means every candidate missed", initialTargetShadowCandidates)
 }

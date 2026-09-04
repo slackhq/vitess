@@ -137,9 +137,9 @@ func TestValved_Drop_DefersSignalOutsideLock(t *testing.T) {
 	}
 }
 
-func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
+func TestValved_DisabledDropResetsCoDelWithoutAdvancing(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
+	sq, rec := newValvedQueue(clock)
 	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
@@ -153,37 +153,13 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	clock.advance(1_000_000_000)
 
 	initialCount := sq.codelq.count
-	sq.lockedRunTimerIf(func() bool { return false })
+	sq.lockedRunTimerIf(false)
 
-	assert.Greater(t, sq.codelq.count, initialCount)
+	assert.Equal(t, initialCount, sq.codelq.count)
+	assert.Zero(t, sq.codelq.dropNextNs)
+	assert.False(t, sq.codelq.dropping)
+	assert.False(t, rec.armed)
 	assert.Equal(t, backlog, sq.lockedLen())
-	for _, req := range reqs {
-		assert.Nil(t, req.signaledValue)
-	}
-}
-
-func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
-	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
-	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
-	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
-
-	const backlog = 10
-	reqs := make([]*testRequest, backlog)
-	for i := range reqs {
-		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
-	}
-	sq.codelq.count = 1
-	sq.codelq.dropNextNs = 1
-	clock.advance(1_000_000_000)
-
-	checks := 0
-	sq.lockedRunTimerIf(func() bool {
-		checks++
-		return false
-	})
-
-	assert.Equal(t, 1, checks)
 	for _, req := range reqs {
 		assert.Nil(t, req.signaledValue)
 	}

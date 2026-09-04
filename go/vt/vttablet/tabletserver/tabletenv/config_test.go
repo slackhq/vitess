@@ -344,8 +344,8 @@ func TestFlags(t *testing.T) {
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg := NewDefaultConfig()
 
-	assert.True(t, cfg.LoadshedOltpRead.Enabled)
-	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
 	assert.Equal(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
 	assert.Equal(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
 	assert.Equal(t, cfg.LoadshedOltpRead.IntervalRatio, cfg.LoadshedTx.IntervalRatio)
@@ -353,10 +353,10 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 
 	cfg.LoadshedOltpRead.Target = time.Second
 	cfg.LoadshedOltpRead.InitialTarget = 2 * time.Second
-	cfg.LoadshedOltpRead.Enabled = false
+	cfg.LoadshedOltpRead.Mode = LoadshedModeShadow
 
-	assert.False(t, cfg.LoadshedOltpRead.Enabled)
-	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeShadow, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
 	assert.NotEqual(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
 	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
 }
@@ -393,18 +393,34 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
 	registerTabletEnvFlags(fs)
 
-	require.NoError(t, fs.Set("loadshed-oltp-read-enabled", "false"))
+	assert.Nil(t, fs.Lookup("loadshed-oltp-read-enabled"))
+	assert.Nil(t, fs.Lookup("loadshed-tx-enabled"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "shadow"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
-	assert.False(t, currentConfig.LoadshedOltpRead.Enabled)
+	assert.Equal(t, LoadshedModeShadow, currentConfig.LoadshedOltpRead.Mode)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
-	assert.True(t, currentConfig.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeEnabled, currentConfig.LoadshedTx.Mode)
 	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
 	assert.Equal(t, 23*time.Millisecond, currentConfig.LoadshedTx.InitialTarget)
+}
+
+func TestLoadshedModeRejectsInvalidValue(t *testing.T) {
+	original := currentConfig
+	defer func() { currentConfig = original }()
+
+	currentConfig = *NewDefaultConfig()
+	fs := pflag.NewFlagSet("TestLoadshedModeRejectsInvalidValue", pflag.ContinueOnError)
+	registerTabletEnvFlags(fs)
+
+	err := fs.Set("loadshed-oltp-read-mode", "dry-run")
+
+	require.ErrorContains(t, err, `must be one of "off", "shadow", or "enabled"`)
+	assert.Equal(t, LoadshedModeEnabled, currentConfig.LoadshedOltpRead.Mode)
 }
 
 func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {

@@ -137,7 +137,9 @@ func NewTxEngine(env tabletenv.Env, dxNotifier func()) *TxEngine {
 			}
 			return config.TxPool.Size
 		},
-		LoadsheddingAllowed: func() bool { return config.LoadshedTx.IsEnabled() },
+		Mode: func() loadshed.Mode {
+			return loadshed.Mode(config.LoadshedTx.ModeValue())
+		},
 	})
 	loadshed.PublishStats(env.Exporter(), "SnakeDml", te.txPool.snake)
 	// We initially allow twoPC (handles vttablet restarts).

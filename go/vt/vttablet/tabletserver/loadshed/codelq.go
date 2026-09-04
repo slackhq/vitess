@@ -197,6 +197,10 @@ func (q *CoDelQueue[T]) lockedIsHealthy() bool {
 }
 
 func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
+	q.lockedEnqueueIf(req, true)
+}
+
+func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 	now := q.nowNs()
 
 	req.codelqEnqueuedAtNs = now
@@ -209,6 +213,10 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 	if req.isDroppable() {
 		q.droppableLen++
 		q.droppable.insert(req)
+		if !enabled {
+			q.lockedDisable()
+			return
+		}
 		// droppableLen == 1 implies easing, so restart the interval
 		if q.dropNextNs == 0 || q.droppableLen == 1 {
 			// make sure we're all caught up
@@ -219,6 +227,22 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 			q.lockedArmDropTimer()
 		}
 	}
+}
+
+func (q *CoDelQueue[T]) lockedDisable() {
+	q.dropping = false
+	q.dropNextNs = 0
+	q.count = 1
+	q.stopDropTimer()
+}
+
+func (q *CoDelQueue[T]) lockedEnable() {
+	if q.dropNextNs != 0 || q.droppableLen == 0 {
+		return
+	}
+	now := q.nowNs()
+	q.dropNextNs = q.lockedControlLaw(now)
+	q.lockedArmDropTimer()
 }
 
 // lockedFirstWaiting returns the first not-yet-granted request in the queue.

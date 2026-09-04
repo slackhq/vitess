@@ -1658,7 +1658,7 @@ func TestGetConnSnakeEmptyValveID(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.OltpReadPool.Size = 2
 	cfg.TxPool.Size = 100
-	cfg.LoadshedOltpRead.Enabled = true
+	cfg.LoadshedOltpRead.Mode = tabletenv.LoadshedModeEnabled
 	cfg.LoadshedOltpRead.Target = 5 * time.Millisecond
 	cfg.LoadshedOltpRead.IntervalRatio = 20
 	cfg.DB = newDBConfigs(db)
@@ -1700,7 +1700,7 @@ func TestGetConnWithSnake(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.OltpReadPool.Size = 2
 	cfg.TxPool.Size = 100
-	cfg.LoadshedOltpRead.Enabled = true
+	cfg.LoadshedOltpRead.Mode = tabletenv.LoadshedModeEnabled
 	cfg.LoadshedOltpRead.Target = 5 * time.Millisecond
 	cfg.LoadshedOltpRead.IntervalRatio = 20
 	cfg.DB = newDBConfigs(db)
@@ -1726,7 +1726,7 @@ func TestGetConnWithSnake(t *testing.T) {
 	release()
 }
 
-func TestGetConnSnakeDisabled(t *testing.T) {
+func TestGetConnSnakeOff(t *testing.T) {
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()
 
@@ -1734,7 +1734,7 @@ func TestGetConnSnakeDisabled(t *testing.T) {
 	tsv := newTestTabletServer(ctx, noFlags, db)
 	defer tsv.StopService()
 
-	require.NotNil(t, tsv.qe.snake, "snake must exist so it can be enabled at runtime")
+	require.NotNil(t, tsv.qe.snake, "snake must exist so its mode can change at runtime")
 
 	input := "select * from test_table limit 1"
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
@@ -1746,7 +1746,7 @@ func TestGetConnSnakeDisabled(t *testing.T) {
 	release()
 	assert.Equal(t, 0, tsv.qe.snake.Stats().HolderCount)
 
-	tsv.Config().LoadshedOltpRead.SetEnabled(true)
+	require.NoError(t, tsv.Config().LoadshedOltpRead.SetMode("enabled"))
 	conn, release, err = qre.getConn()
 	require.NoError(t, err)
 	assert.Equal(t, 1, tsv.qe.snake.Stats().HolderCount)
@@ -1804,8 +1804,8 @@ func newTestTabletServer(ctx context.Context, flags executorFlags, db *fakesqldb
 	}
 	// Loadshed defaults to on, but the shared test tablet should leave Snake
 	// disabled unless a test opts in (TestGetConnWithSnake builds its own config).
-	cfg.LoadshedOltpRead.Enabled = false
-	cfg.LoadshedTx.Enabled = false
+	cfg.LoadshedOltpRead.Mode = tabletenv.LoadshedModeOff
+	cfg.LoadshedTx.Mode = tabletenv.LoadshedModeOff
 	dbconfigs := newDBConfigs(db)
 	cfg.DB = dbconfigs
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")

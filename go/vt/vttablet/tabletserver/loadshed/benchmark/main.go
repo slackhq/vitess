@@ -62,7 +62,7 @@ func main() {
 
 	logPath = *logFileFlag
 
-	snake := loadshed.NewSnake(loadshed.SnakeConfig{
+	snake := loadshed.NewSnake[struct{}](loadshed.SnakeConfig{
 		Name:     "bench",
 		Capacity: func() int { return *capacity },
 		CoDel: loadshed.CoDelConfig{
@@ -71,7 +71,7 @@ func main() {
 			MinDropDelayNs: func() int64 { return 1_000_000 },
 			Exponent:       func() float64 { return 0.5 },
 		},
-		LoadsheddingAllowed: func() bool { return true },
+		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
 	})
 
 	if logPath != "" {

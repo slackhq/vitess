@@ -59,11 +59,11 @@ func postVar(t *testing.T, tsv *TabletServer, name, value string) {
 func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
-	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
+	postVar(t, tsv, "LoadshedOltpReadMode", "shadow")
+	assert.True(t, tsv.Config().LoadshedOltpRead.IsShadow())
 
-	postVar(t, tsv, "LoadshedTxEnabled", "false")
-	assert.False(t, tsv.Config().LoadshedTx.IsEnabled())
+	postVar(t, tsv, "LoadshedTxMode", "off")
+	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedTx.ModeValue())
 
 	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
 	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedOltpRead.TargetValue())
@@ -127,24 +127,96 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		names[v.Name] = struct{}{}
 	}
 	for _, want := range []string{
-		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadInitialTarget", "LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadMode", "LoadshedOltpReadTarget", "LoadshedOltpReadInitialTarget", "LoadshedOltpReadIntervalRatio",
 		"LoadshedOltpReadUndroppableSchemas",
-		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxInitialTarget", "LoadshedTxIntervalRatio",
+		"LoadshedTxMode", "LoadshedTxTarget", "LoadshedTxInitialTarget", "LoadshedTxIntervalRatio",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)
 	}
-	_, ok := names["LoadshedTxUndroppableSchemas"]
+	_, ok := names["LoadshedOltpReadEnabled"]
+	assert.False(t, ok)
+	_, ok = names["LoadshedTxEnabled"]
+	assert.False(t, ok)
+	_, ok = names["LoadshedTxUndroppableSchemas"]
 	assert.False(t, ok, "transaction pool must not expose undroppable schemas")
 }
 
-func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {
+func TestDebugEnvModeWiredToOltpGate(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 	require.NotNil(t, tsv.qe.snake)
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
 	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
+	assert.False(t, tsv.Config().LoadshedOltpRead.IsShadow())
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "true")
+	postVar(t, tsv, "LoadshedOltpReadMode", "shadow")
+	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
+	assert.True(t, tsv.Config().LoadshedOltpRead.IsShadow())
+
+	postVar(t, tsv, "LoadshedOltpReadMode", "enabled")
 	assert.True(t, tsv.Config().LoadshedOltpRead.IsEnabled())
+	assert.False(t, tsv.Config().LoadshedOltpRead.IsShadow())
+}
+
+func TestDebugEnvEnablingRearmsExistingBacklog(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
+	postVar(t, tsv, "LoadshedOltpReadTarget", "1ms")
+	postVar(t, tsv, "LoadshedOltpReadIntervalRatio", "1")
+
+	var holders []func()
+	for range tsv.Config().OltpReadPool.Size {
+		unlock, err := tsv.qe.snake.Acquire(t.Context(), "", 0)
+		require.NoError(t, err)
+		holders = append(holders, func() { require.NoError(t, unlock.Release()) })
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	const waiters = 6
+	resultCh := make(chan error, waiters)
+	for range waiters {
+		go func() {
+			unlock, err := tsv.qe.snake.Acquire(ctx, "", 0)
+			if unlock != nil {
+				_ = unlock.Release()
+			}
+			resultCh <- err
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return tsv.qe.snake.Stats().DroppableLen == waiters
+	}, time.Second, time.Millisecond)
+
+	postVar(t, tsv, "LoadshedOltpReadMode", "enabled")
+
+	require.Eventually(t, func() bool {
+		return tsv.qe.snake.ShedCount() > 0
+	}, 2*time.Second, time.Millisecond)
+
+	cancel()
+	for _, release := range holders {
+		release()
+	}
+	for range waiters {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("queued acquire did not return")
+		}
+	}
+}
+
+func TestDebugEnvRejectsInvalidLoadshedMode(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	form := url.Values{"varname": {"LoadshedOltpReadMode"}, "value": {"dry-run"}}
+	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handlePost(tsv, w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, tabletenv.LoadshedModeEnabled, tsv.Config().LoadshedOltpRead.ModeValue())
 }
