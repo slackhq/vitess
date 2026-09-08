@@ -34007,6 +34007,9 @@ export namespace tabletmanagerdata {
 
         /** VDiffReportOptions row_diff_column_truncate_at */
         row_diff_column_truncate_at?: (number|Long|null);
+
+        /** VDiffReportOptions no_samples */
+        no_samples?: (boolean|null);
     }
 
     /** Represents a VDiffReportOptions. */
@@ -34032,6 +34035,9 @@ export namespace tabletmanagerdata {
 
         /** VDiffReportOptions row_diff_column_truncate_at. */
         public row_diff_column_truncate_at: (number|Long);
+
+        /** VDiffReportOptions no_samples. */
+        public no_samples: boolean;
 
         /**
          * Creates a new VDiffReportOptions instance using the specified properties.
@@ -78699,6 +78705,9 @@ export namespace vtctldata {
 
         /** VDiffShowRequest arg */
         arg?: (string|null);
+
+        /** VDiffShowRequest no_samples */
+        no_samples?: (boolean|null);
     }
 
     /** Represents a VDiffShowRequest. */
@@ -78718,6 +78727,9 @@ export namespace vtctldata {
 
         /** VDiffShowRequest arg. */
         public arg: string;
+
+        /** VDiffShowRequest no_samples. */
+        public no_samples: boolean;
 
         /**
          * Creates a new VDiffShowRequest instance using the specified properties.
