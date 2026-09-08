@@ -110,9 +110,13 @@ func TestValved_DropReturnsPendingRequests(t *testing.T) {
 	assert.Nil(t, sq.lockedTakePendingDrops(), "taking again yields nothing (ownership transferred)")
 }
 
-func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
+// TestValved_DisabledTearsDownEpisodeWithoutDropping verifies that running the
+// timer while disabled tears the active CoDel episode down to idle instead of
+// warming it: no drops, no count ramp, no armed timer. This is the "standard
+// queue" contract for shadow/off modes.
+func TestValved_DisabledTearsDownEpisodeWithoutDropping(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
+	sq, rec := newValvedQueue(clock)
 	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
@@ -121,23 +125,30 @@ func TestValved_DisabledDropAdvancesCoDelWithoutDropping(t *testing.T) {
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
-	sq.codelq.count = 1
+	require.True(t, sq.codelq.dropping, "enabled enqueue arms an episode")
+	sq.codelq.count = 5
 	sq.codelq.dropNextNs = 1
 	clock.advance(1_000_000_000)
 
-	initialCount := sq.codelq.count
-	sq.lockedRunTimerIf(func() bool { return false })
+	sq.lockedRunTimerIf(false)
 
-	assert.Greater(t, sq.codelq.count, initialCount)
-	assert.Equal(t, backlog, sq.lockedLen())
+	assert.False(t, sq.codelq.dropping, "disabled run leaves the dropping state")
+	assert.Equal(t, 1, sq.codelq.count, "disabled run does not warm the count")
+	assert.Zero(t, sq.codelq.dropNextNs, "disabled run clears the drop deadline")
+	assert.False(t, rec.armed, "disabled run stops the drop timer")
+	assert.Equal(t, backlog, sq.lockedLen(), "disabled run drops nothing")
 	for _, req := range reqs {
 		assert.Nil(t, req.signaledValue)
 	}
 }
 
-func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
+// TestValved_ShadowModeEnqueueDoesNotArm verifies that when the queue is not in
+// ModeEnabled, enqueuing a droppable backlog never arms a CoDel episode: the
+// queue stays idle (count 1, no drop deadline, no timer) so it behaves as a
+// plain FIFO.
+func TestValved_ShadowModeEnqueueDoesNotArm(t *testing.T) {
 	clock := newTestClock()
-	sq, _ := newValvedQueue(clock)
+	sq, rec := newValvedQueueMode(clock, func() Mode { return ModeShadow })
 	sq.codelq.cfg.TargetNs = func() int64 { return 1_000_000 }
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
@@ -146,17 +157,12 @@ func TestValved_EnablementSnapshottedOncePerBatch(t *testing.T) {
 	for i := range reqs {
 		reqs[i] = sq.lockedEnqueue(string(rune('a'+i)), 0)
 	}
-	sq.codelq.count = 1
-	sq.codelq.dropNextNs = 1
-	clock.advance(1_000_000_000)
 
-	checks := 0
-	sq.lockedRunTimerIf(func() bool {
-		checks++
-		return false
-	})
-
-	assert.Equal(t, 1, checks)
+	assert.False(t, sq.codelq.dropping, "shadow enqueue never enters dropping")
+	assert.Equal(t, 1, sq.codelq.count, "shadow enqueue never warms the count")
+	assert.Zero(t, sq.codelq.dropNextNs, "shadow enqueue never seeds a drop deadline")
+	assert.False(t, rec.armed, "shadow enqueue never arms the drop timer")
+	assert.Equal(t, backlog, sq.lockedLen(), "all requests remain queued")
 	for _, req := range reqs {
 		assert.Nil(t, req.signaledValue)
 	}

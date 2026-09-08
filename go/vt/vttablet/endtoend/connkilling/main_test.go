@@ -83,8 +83,8 @@ func TestMain(m *testing.M) {
 		connAppDebugParams = cluster.MySQLAppDebugConnParams()
 		config := tabletenv.NewDefaultConfig()
 		config.Oltp.TxTimeout = 3 * time.Second
-		config.LoadshedOltpRead.Enabled = false
-		config.LoadshedTx.Enabled = false
+		config.LoadshedOltpRead.Mode = tabletenv.LoadshedModeOff
+		config.LoadshedTx.Mode = tabletenv.LoadshedModeOff
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		err := framework.StartCustomServer(ctx, connParams, connAppDebugParams, cluster.DbName(), config)

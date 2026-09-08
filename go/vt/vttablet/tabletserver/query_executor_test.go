@@ -1773,8 +1773,8 @@ func newTestTabletServer(ctx context.Context, flags executorFlags, db *fakesqldb
 	}
 	// Loadshed defaults to on, but the shared test tablet should leave Snake
 	// disabled unless a test opts in (TestGetConnWithSnake builds its own config).
-	cfg.LoadshedOltpRead.Enabled = false
-	cfg.LoadshedTx.Enabled = false
+	cfg.LoadshedOltpRead.Mode = tabletenv.LoadshedModeOff
+	cfg.LoadshedTx.Mode = tabletenv.LoadshedModeOff
 	dbconfigs := newDBConfigs(db)
 	cfg.DB = dbconfigs
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")

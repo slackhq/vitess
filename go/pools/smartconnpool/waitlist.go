@@ -28,7 +28,7 @@ import (
 )
 
 type PoolConfig interface {
-	LoadshedConfig(string) (func() bool, func() time.Duration, func() time.Duration)
+	LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration)
 }
 
 // waiter represents a client waiting for a connection in the waitlist
@@ -225,21 +225,28 @@ func (wl *waitlist[C]) runDropTimer() {
 	wl.reject(dropped)
 }
 
+func (wl *waitlist[C]) runShadowTimer() {
+	wl.mu.Lock()
+	wl.snake.LockedShadowTimerFired()
+	wl.mu.Unlock()
+}
+
 func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	wl.nodes.New = func() any {
 		return &waiter[C]{conn: make(chan *Pooled[C], 1)}
 	}
 
-	enabled := func() bool { return false }
+	mode := func() loadshed.Mode { return loadshed.ModeOff }
 	target := func() time.Duration { return time.Second }
 	interval := func() time.Duration { return time.Second }
 	if config != nil {
-		enabled, target, interval = config.LoadshedConfig(poolName)
+		mode, target, interval = config.LoadshedConfig(poolName)
 	}
 
 	wl.snake = loadshed.NewSnake[*waiter[C]](loadshed.SnakeConfig{
-		LoadsheddingAllowed: enabled,
-		DropTimerFired:      wl.runDropTimer,
+		Mode:             mode,
+		DropTimerFired:   wl.runDropTimer,
+		ShadowTimerFired: wl.runShadowTimer,
 		CoDel: loadshed.CoDelConfig{
 			IntervalNs:     func() int64 { return interval().Nanoseconds() },
 			TargetNs:       func() int64 { return target().Nanoseconds() },

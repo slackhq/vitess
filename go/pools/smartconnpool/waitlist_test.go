@@ -30,8 +30,8 @@ import (
 
 type testPoolConfig struct{}
 
-func (testPoolConfig) LoadshedConfig(string) (func() bool, func() time.Duration, func() time.Duration) {
-	return func() bool { return true },
+func (testPoolConfig) LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
+	return func() loadshed.Mode { return loadshed.ModeEnabled },
 		func() time.Duration { return time.Millisecond },
 		func() time.Duration { return time.Millisecond }
 }

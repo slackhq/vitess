@@ -97,13 +97,19 @@ type (
 		// pendingDrops collects requests removed by the drop path. The caller
 		// takes this slice before unlocking and signals each waiter afterward.
 		pendingDrops []*Request[T]
+
+		// mode reports the current load-shed mode. When it is not ModeEnabled the
+		// CoDel queue runs as a plain FIFO (no control law, timer, or drops) so
+		// shadow/off observe without shedding. Nil is treated as ModeEnabled.
+		mode func() Mode
 	}
 )
 
-func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *ValvedCoDelQueue[T] {
+func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func(), mode func() Mode) *ValvedCoDelQueue[T] {
 	q := &ValvedCoDelQueue[T]{
 		valves:            make(map[string][]*Request[T]),
 		droppablePerValve: make(map[string]*Request[T]),
+		mode:              mode,
 	}
 	q.codelq = newCoDelQueue[T](cfg, nowNs, scheduleDropTimer, stopDropTimer)
 	return q
@@ -209,19 +215,19 @@ func (q *ValvedCoDelQueue[T]) lockedDropFn() func() bool {
 // the backstop timer and synchronously from the dequeue path, so
 // shedding tracks target as slots free rather than waiting for the timer.
 func (q *ValvedCoDelQueue[T]) lockedRunTimer() {
-	q.lockedRunTimerIf(func() bool { return true })
+	q.lockedRunTimerIf(true)
 }
 
-func (q *ValvedCoDelQueue[T]) lockedRunTimerIf(loadsheddingAllowed func() bool) {
-	enabled := loadsheddingAllowed()
+// lockedRunTimerIf drives the CoDel control law when enabled. When disabled it
+// tears any active episode down so the queue behaves as a plain FIFO — shadow
+// and off modes never warm the control law or drop.
+func (q *ValvedCoDelQueue[T]) lockedRunTimerIf(enabled bool) {
 	if enabled {
+		q.codelq.lockedEnable()
 		q.codelq.lockedRunTimer(q.lockedDropFn())
 		return
 	}
-	maxDrops := max(q.codelq.droppableLen-keepDroppableFloor, 0)
-	q.codelq.lockedRunTimerLimited(func() bool {
-		return q.codelq.lockedFindLowestPriorityDroppable() != nil
-	}, maxDrops)
+	q.codelq.lockedDisable()
 }
 
 func (q *ValvedCoDelQueue[T]) lockedDropOne() bool {
@@ -258,7 +264,8 @@ func (q *ValvedCoDelQueue[T]) lockedEnqueueToCoDel(req *Request[T], valveID stri
 	if valveID != "" {
 		q.droppablePerValve[valveID] = req
 	}
-	q.codelq.lockedEnqueue(req)
+	enabled := q.mode == nil || q.mode() == ModeEnabled
+	q.codelq.lockedEnqueueIf(req, enabled)
 }
 
 // lockedPromoteOnEvict handles involuntary removal of the active request.
