@@ -95,6 +95,42 @@ func TestEngineOpen(t *testing.T) {
 	}
 }
 
+func TestEngineOpenNoVReplicationStreams(t *testing.T) {
+	vdenv := newTestVDiffEnv(t)
+	defer vdenv.close()
+	UUID := uuid.New().String()
+
+	vdenv.dbClient = binlogplayer.NewMockDBClient(t)
+	vdenv.vde.Close()
+	vdenv.vde = nil
+	vdenv.vde = NewTestEngine(tstenv.TopoServ, vdenv.tablets[100].tablet, vdiffDBName, vdenv.dbClientFactory, vdenv.tmClientFactory)
+	require.False(t, vdenv.vde.IsOpen())
+
+	controllerQR := sqltypes.MakeTestResult(sqltypes.MakeTestFields(
+		vdiffTestCols,
+		vdiffTestColTypes,
+	),
+		fmt.Sprintf("1|%s|%s|%s|%s|%s|pending|%s|", UUID, vdenv.workflow, tstenv.KeyspaceName, tstenv.ShardName, vdiffDBName, optionsJS),
+	)
+
+	// Engine open: find a pending vdiff
+	vdenv.dbClient.ExpectRequest("select * from _vt.vdiff where state in ('started','pending') and db_name = "+encodeString(vdiffDBName), controllerQR, nil)
+	// Controller init: re-read the vdiff row
+	vdenv.dbClient.ExpectRequest("select * from _vt.vdiff where id = 1 and db_name = "+encodeString(vdiffDBName), controllerQR, nil)
+	// Controller start: query vreplication streams — return no rows
+	vdenv.dbClient.ExpectRequest(fmt.Sprintf("select * from _vt.vreplication where workflow = '%s' and db_name = '%s'", vdenv.workflow, vdiffDBName), noResults, nil)
+	// The error should be saved to the database
+	vdenv.dbClient.ExpectRequestRE("update _vt.vdiff set state = 'error', last_error = left\\('no vreplication streams found.*", singleRowAffected, nil)
+	vdenv.dbClient.ExpectRequestRE("insert into _vt.vdiff_log.*State changed to: error.*", singleRowAffected, nil)
+	vdenv.dbClient.ExpectRequestRE("insert into _vt.vdiff_log.*Error:.*no vreplication streams found.*", singleRowAffected, nil)
+
+	vdenv.vde.Open(context.Background(), vdiffenv.vre)
+	defer vdenv.vde.Close()
+	assert.True(t, vdenv.vde.IsOpen())
+	assert.Equal(t, 1, len(vdenv.vde.controllers))
+	vdenv.dbClient.Wait()
+}
+
 // Test the full set of VDiff queries on a tablet.
 func TestVDiff(t *testing.T) {
 	vdenv := newTestVDiffEnv(t)

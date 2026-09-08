@@ -244,6 +244,10 @@ func (ct *controller) start(ctx context.Context, dbClient binlogplayer.DBClient)
 		ct.workflowType = binlogdatapb.VReplicationWorkflowType(workflowType)
 	}
 
+	if len(ct.sources) == 0 {
+		return fmt.Errorf("no vreplication streams found for workflow %s in database %s", ct.workflow, ct.vde.dbName)
+	}
+
 	if err := ct.validate(); err != nil {
 		return err
 	}
