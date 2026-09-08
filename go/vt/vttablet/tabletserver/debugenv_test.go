@@ -59,10 +59,10 @@ func postVar(t *testing.T, tsv *TabletServer, name, value string) {
 func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
 	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 
-	postVar(t, tsv, "LoadshedTxEnabled", "false")
+	postVar(t, tsv, "LoadshedTxMode", "off")
 	assert.False(t, tsv.Config().LoadshedTx.IsEnabled())
 
 	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
@@ -96,9 +96,9 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		names[v.Name] = struct{}{}
 	}
 	for _, want := range []string{
-		"LoadshedOltpReadEnabled", "LoadshedOltpReadTarget", "LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadMode", "LoadshedOltpReadTarget", "LoadshedOltpReadIntervalRatio",
 		"LoadshedOltpReadUndroppableSchemas",
-		"LoadshedTxEnabled", "LoadshedTxTarget", "LoadshedTxIntervalRatio",
+		"LoadshedTxMode", "LoadshedTxTarget", "LoadshedTxIntervalRatio",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)
@@ -110,9 +110,9 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "false")
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
 	assert.False(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 
-	postVar(t, tsv, "LoadshedOltpReadEnabled", "true")
+	postVar(t, tsv, "LoadshedOltpReadMode", "enabled")
 	assert.True(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 }

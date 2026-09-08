@@ -145,16 +145,6 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	setBoolVal := func(f func(bool)) error {
-		bval, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("invalid bool value for %v: %v", varname, err)
-		}
-		f(bval)
-		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
-		return nil
-	}
-
 	setStringVal := func(f func(string) error) error {
 		if err := f(value); err != nil {
 			return fmt.Errorf("invalid value for %v: %v", varname, err)
@@ -183,9 +173,9 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
-	case "LoadshedOltpReadEnabled", "LoadshedTxEnabled":
+	case "LoadshedOltpReadMode", "LoadshedTxMode":
 		cfg := loadshedConfig(tsv, varname)
-		err = setBoolVal(cfg.SetEnabled)
+		err = setStringVal(cfg.SetMode)
 	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
 		cfg := loadshedConfig(tsv, varname)
 		err = setDurationVal(cfg.SetTarget)
@@ -245,7 +235,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
 	addLoadshedVars := func(prefix string, cfg *tabletenv.LoadshedConfig) {
-		vars = addVar(vars, prefix+"Enabled", cfg.IsEnabled)
+		vars = addVar(vars, prefix+"Mode", cfg.ModeValue)
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
 	}

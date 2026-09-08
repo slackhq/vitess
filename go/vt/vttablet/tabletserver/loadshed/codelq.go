@@ -192,6 +192,14 @@ func (q *CoDelQueue[T]) lockedIsHealthy() bool {
 }
 
 func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
+	q.lockedEnqueueIf(req, true)
+}
+
+// lockedEnqueueIf enqueues req. When enabled is false the queue acts as a plain
+// FIFO: the request is still tracked as droppable, but no CoDel episode is armed
+// and any in-flight episode is torn down (lockedDisable). This is how shadow/off
+// modes run as a standard queue with no control law, timer, or drops.
+func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 	now := q.nowNs()
 
 	req.codelqEnqueuedAtNs = now
@@ -200,6 +208,10 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 	if req.isDroppable() {
 		q.droppableLen++
 		q.droppable.insert(req)
+		if !enabled {
+			q.lockedDisable()
+			return
+		}
 		// droppableLen == 1 implies easing, so restart the interval
 		if q.dropNextNs == 0 || q.droppableLen == 1 {
 			// make sure we're all caught up
@@ -210,6 +222,26 @@ func (q *CoDelQueue[T]) lockedEnqueue(req *Request[T]) {
 			q.lockedArmDropTimer()
 		}
 	}
+}
+
+// lockedDisable tears down any active CoDel episode and returns the queue to
+// idle so it behaves as a plain FIFO. Idempotent.
+func (q *CoDelQueue[T]) lockedDisable() {
+	q.dropping = false
+	q.dropNextNs = 0
+	q.count = 1
+	q.stopDropTimer()
+}
+
+// lockedEnable re-seeds the control law and arms the drop timer if there is a
+// droppable backlog and no episode is already armed. Idempotent.
+func (q *CoDelQueue[T]) lockedEnable() {
+	if q.dropNextNs != 0 || q.droppableLen == 0 {
+		return
+	}
+	now := q.nowNs()
+	q.dropNextNs = q.lockedControlLaw(now)
+	q.lockedArmDropTimer()
 }
 
 // lockedPeek returns the first waiting request in the queue.

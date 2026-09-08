@@ -344,17 +344,17 @@ func TestFlags(t *testing.T) {
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg := NewDefaultConfig()
 
-	assert.True(t, cfg.LoadshedOltpRead.Enabled)
-	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
 	assert.Equal(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
 	assert.Equal(t, cfg.LoadshedOltpRead.IntervalRatio, cfg.LoadshedTx.IntervalRatio)
 	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemas)
 
 	cfg.LoadshedOltpRead.Target = time.Second
-	cfg.LoadshedOltpRead.Enabled = false
+	cfg.LoadshedOltpRead.Mode = LoadshedModeOff
 
-	assert.False(t, cfg.LoadshedOltpRead.Enabled)
-	assert.True(t, cfg.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
 	assert.NotEqual(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
 }
 
@@ -389,13 +389,13 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
 	registerTabletEnvFlags(fs)
 
-	require.NoError(t, fs.Set("loadshed-oltp-read-enabled", "false"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "off"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 
-	assert.False(t, currentConfig.LoadshedOltpRead.Enabled)
+	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedOltpRead.Mode)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
-	assert.True(t, currentConfig.LoadshedTx.Enabled)
+	assert.Equal(t, LoadshedModeEnabled, currentConfig.LoadshedTx.Mode)
 	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
 }
 

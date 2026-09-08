@@ -26,8 +26,12 @@ import (
 type testValvedCoDelQueue = ValvedCoDelQueue[struct{}]
 
 func newValvedQueue(clock *testClock) (*testValvedCoDelQueue, *testDropTimerRecorder) {
+	return newValvedQueueMode(clock, nil)
+}
+
+func newValvedQueueMode(clock *testClock, mode func() Mode) (*testValvedCoDelQueue, *testDropTimerRecorder) {
 	rec := &testDropTimerRecorder{}
-	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop)
+	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, mode)
 	return q, rec
 }
 

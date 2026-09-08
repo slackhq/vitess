@@ -887,8 +887,8 @@ func TestSnakeQueue_CancelRemovesValveWaiter(t *testing.T) {
 
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	config := SnakeConfig{
-		CoDel:               defaultTestConfig(),
-		LoadsheddingAllowed: func() bool { return false },
+		CoDel: defaultTestConfig(),
+		Mode:  func() Mode { return ModeOff },
 	}
 	s := NewSnake[struct{}](config)
 	for range 6 {
