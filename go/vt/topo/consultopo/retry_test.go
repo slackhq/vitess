@@ -155,13 +155,21 @@ func (m *mockKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnRes
 	return false, nil, nil, nil
 }
 
+type mockIdleCloser struct {
+	closeCalls int
+}
+
+func (m *mockIdleCloser) CloseIdleConnections() {
+	m.closeCalls++
+}
+
 func TestRetryKV_Get_SucceedsFirstAttempt(t *testing.T) {
 	mock := &mockKV{
 		getFunc: func(call int) (*api.KVPair, *api.QueryMeta, error) {
 			return &api.KVPair{Key: "test", Value: []byte("value")}, nil, nil
 		},
 	}
-	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true)
+	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true, nil)
 
 	pair, _, err := r.Get("test", nil)
 	require.NoError(t, err)
@@ -178,7 +186,7 @@ func TestRetryKV_Get_SucceedsOnRetry(t *testing.T) {
 			return &api.KVPair{Key: "test", Value: []byte("value")}, nil, nil
 		},
 	}
-	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true)
+	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true, nil)
 
 	pair, _, err := r.Get("test", nil)
 	require.NoError(t, err)
@@ -192,7 +200,7 @@ func TestRetryKV_Get_NonRetryableReturnsImmediately(t *testing.T) {
 			return nil, nil, context.Canceled
 		},
 	}
-	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true)
+	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true, nil)
 
 	_, _, err := r.Get("test", nil)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -205,7 +213,7 @@ func TestRetryKV_Get_AllAttemptsExhausted(t *testing.T) {
 			return nil, nil, errors.New("Unexpected response code: 503")
 		},
 	}
-	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true)
+	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, true, nil)
 
 	_, _, err := r.Get("test", nil)
 	assert.Error(t, err)
@@ -219,7 +227,7 @@ func TestRetryKV_Get_DisabledSkipsRetry(t *testing.T) {
 			return nil, nil, errors.New("Unexpected response code: 500")
 		},
 	}
-	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, false)
+	r := newRetryKV(mock, 3, 1*time.Millisecond, 10*time.Millisecond, false, nil)
 
 	_, _, err := r.Get("test", nil)
 	assert.Error(t, err)
@@ -256,7 +264,7 @@ func TestRetryKV_Get_ContextCanceledDuringBackoff(t *testing.T) {
 			return nil, nil, errors.New("Unexpected response code: 500")
 		},
 	}
-	r := newRetryKV(mock, 3, 500*time.Millisecond, 5*time.Second, true)
+	r := newRetryKV(mock, 3, 500*time.Millisecond, 5*time.Second, true, nil)
 
 	opts := (&api.QueryOptions{}).WithContext(ctx)
 	start := time.Now()
@@ -278,4 +286,39 @@ func TestRetryKV_Backoff_ZeroBaseDelay(t *testing.T) {
 		d := r.backoff(1)
 		assert.Equal(t, time.Duration(0), d)
 	})
+}
+
+func TestRetryKV_ClosesIdleConnsEveryTwoFailures(t *testing.T) {
+	mock := &mockKV{
+		getFunc: func(call int) (*api.KVPair, *api.QueryMeta, error) {
+			return nil, nil, errors.New("Unexpected response code: 500")
+		},
+	}
+	closer := &mockIdleCloser{}
+	r := newRetryKV(mock, 5, 1*time.Millisecond, 10*time.Millisecond, true, closer)
+
+	_, _, err := r.Get("test", nil)
+	require.Error(t, err)
+	assert.Equal(t, 5, mock.getCalls)
+	// Five consecutive failures: idle conns are closed after the 2nd and 4th.
+	assert.Equal(t, 2, closer.closeCalls)
+}
+
+func TestRetryKV_NoIdleCloseBeforeTwoFailures(t *testing.T) {
+	mock := &mockKV{
+		getFunc: func(call int) (*api.KVPair, *api.QueryMeta, error) {
+			if call < 2 {
+				return nil, nil, errors.New("Unexpected response code: 500")
+			}
+			return &api.KVPair{Key: "test", Value: []byte("value")}, nil, nil
+		},
+	}
+	closer := &mockIdleCloser{}
+	r := newRetryKV(mock, 5, 1*time.Millisecond, 10*time.Millisecond, true, closer)
+
+	_, _, err := r.Get("test", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, mock.getCalls)
+	// Only one failure before success: never reached the two-failure threshold.
+	assert.Equal(t, 0, closer.closeCalls)
 }

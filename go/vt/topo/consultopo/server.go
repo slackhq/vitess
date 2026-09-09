@@ -155,7 +155,7 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 
 	return &Server{
 		client:     client,
-		kv:         newRetryKV(client.KV(), consulRetryCount, consulRetryBaseDelay, consulRetryMaxDelay, consulRetryEnabled),
+		kv:         newRetryKV(client.KV(), consulRetryCount, consulRetryBaseDelay, consulRetryMaxDelay, consulRetryEnabled, cfg.Transport),
 		root:       root,
 		locks:      make(map[string]*lockInstance),
 		lockChecks: parseConsulLockSessionChecks(consulLockSessionChecks),

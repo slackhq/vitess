@@ -47,22 +47,37 @@ type kvClient interface {
 	Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnResponse, *api.QueryMeta, error)
 }
 
-// retryKV wraps a kvClient with configurable retry logic for transient errors.
-type retryKV struct {
-	inner     kvClient
-	count     int
-	baseDelay time.Duration
-	maxDelay  time.Duration
-	enabled   bool
+// idleConnCloser closes idle HTTP connections, forcing the next request to dial
+// a fresh connection and re-resolve DNS. This lets us fail over to a different
+// consul node when the current one becomes unreachable. *http.Transport
+// implements it.
+type idleConnCloser interface {
+	CloseIdleConnections()
 }
 
-func newRetryKV(inner kvClient, count int, baseDelay, maxDelay time.Duration, enabled bool) *retryKV {
+// closeIdleConnsEvery is the number of consecutive failed attempts after which
+// retryKV closes idle connections, so the next attempt reconnects and can reach
+// a different consul node.
+const closeIdleConnsEvery = 2
+
+// retryKV wraps a kvClient with configurable retry logic for transient errors.
+type retryKV struct {
+	inner      kvClient
+	count      int
+	baseDelay  time.Duration
+	maxDelay   time.Duration
+	enabled    bool
+	idleCloser idleConnCloser
+}
+
+func newRetryKV(inner kvClient, count int, baseDelay, maxDelay time.Duration, enabled bool, idleCloser idleConnCloser) *retryKV {
 	return &retryKV{
-		inner:     inner,
-		count:     count,
-		baseDelay: baseDelay,
-		maxDelay:  maxDelay,
-		enabled:   enabled,
+		inner:      inner,
+		count:      count,
+		baseDelay:  baseDelay,
+		maxDelay:   maxDelay,
+		enabled:    enabled,
+		idleCloser: idleCloser,
 	}
 }
 
@@ -154,6 +169,14 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 			return err
 		}
 		log.Infof("consultopo: retryable error (attempt %d/%d, elapsed %v): %v", attempt+1, r.count, time.Since(start).Round(time.Millisecond), err)
+
+		// After every closeIdleConnsEvery consecutive failures, drop idle
+		// connections so the next attempt reconnects and re-resolves DNS,
+		// letting us fail over to a different consul node.
+		if failures := attempt + 1; r.idleCloser != nil && failures%closeIdleConnsEvery == 0 {
+			log.Infof("consultopo: closing idle connections after %d consecutive failures to force reconnection", failures)
+			r.idleCloser.CloseIdleConnections()
+		}
 	}
 	return fmt.Errorf("%w (retried %d times over %v)", err, r.count, time.Since(start).Round(time.Millisecond))
 }
