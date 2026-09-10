@@ -118,6 +118,8 @@ Flags:
       --s3_backup_aws_min_partsize int                                   Minimum part size to use, defaults to 5MiB but can be increased due to the dataset size. (default 5242880)
       --s3_backup_aws_region string                                      AWS region to use. (default "us-east-1")
       --s3_backup_aws_retries int                                        AWS request retries. (default -1)
+      --s3_backup_download_concurrency int                               Number of parallel goroutines for S3 downloads. Set > 1 to enable parallel byte-range GETs via the transfer manager (recommended: 2-10). (default 1)
+      --s3_backup_download_part_size int                                 Part size in bytes for parallel S3 downloads via transfer manager. (default 8388608)
       --s3_backup_force_path_style                                       force the s3 path style.
       --s3_backup_log_level string                                       determine the S3 loglevel to use from LogOff, LogDebug, LogDebugWithSigning, LogDebugWithHTTPBody, LogDebugWithRequestRetries, LogDebugWithRequestErrors. (default "LogOff")
       --s3_backup_server_side_encryption string                          server-side encryption algorithm (e.g., AES256, aws:kms, sse_c:/path/to/key/file).
