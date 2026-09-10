@@ -3737,7 +3737,7 @@ func (cached *QueryHints) CachedSize(alloc bool) int64 {
 	}
 	size := int64(0)
 	if alloc {
-		size += int64(64)
+		size += int64(80)
 	}
 	// field Workload string
 	size += hack.RuntimeAllocSize(int64(len(cached.Workload)))
@@ -3745,6 +3745,8 @@ func (cached *QueryHints) CachedSize(alloc bool) int64 {
 	size += hack.RuntimeAllocSize(int64(1))
 	// field Priority string
 	size += hack.RuntimeAllocSize(int64(len(cached.Priority)))
+	// field LoadshedValveId string
+	size += hack.RuntimeAllocSize(int64(len(cached.LoadshedValveId)))
 	// field Timeout *int
 	size += hack.RuntimeAllocSize(int64(8))
 	return size
