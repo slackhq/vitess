@@ -45,7 +45,7 @@ type limiterFakeQueryService struct {
 	inUse    atomic.Int64 // net reserved bytes; must return to 0 (no leak)
 }
 
-func (f *limiterFakeQueryService) Execute(ctx context.Context, session queryservice.Session, target *querypb.Target, sql string, bindVariables map[string]*querypb.BindVariable, transactionID, reservedID int64, options *querypb.ExecuteOptions) (*sqltypes.Result, error) {
+func (f *limiterFakeQueryService) Execute(ctx context.Context, target *querypb.Target, sql string, bindVariables map[string]*querypb.BindVariable, transactionID, reservedID int64, options *querypb.ExecuteOptions) (*sqltypes.Result, error) {
 	return f.result, nil
 }
 
