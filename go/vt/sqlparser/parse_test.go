@@ -2673,6 +2673,8 @@ var (
 	}, {
 		input: "vexplain keys select * from t",
 	}, {
+		input: "vexplain mysqlplan select * from t",
+	}, {
 		input: "explain analyze select * from t",
 	}, {
 		input: "explain format = tree select * from t",
