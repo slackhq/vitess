@@ -1634,7 +1634,7 @@ func TestQueryExecutorConsolidatorResponseMemoryFlag(t *testing.T) {
 			tsv := newTestTabletServer(ctx, enableConsolidator, db)
 			defer tsv.StopService()
 
-			tsv.config.ConsolidatorQueryTotalSize = tcase.totalSize
+			require.NoError(t, tsv.SetConsolidatorResponseMemoryLimit(tcase.totalSize))
 
 			fakeConsolidator := sync2.NewFakeConsolidator()
 			tsv.qe.consolidator = fakeConsolidator

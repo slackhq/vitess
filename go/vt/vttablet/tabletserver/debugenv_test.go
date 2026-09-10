@@ -116,3 +116,35 @@ func TestDebugEnvEnablementWiredToOltpGate(t *testing.T) {
 	postVar(t, tsv, "LoadshedOltpReadMode", "enabled")
 	assert.True(t, tsv.Config().LoadshedOltpRead.IsEnabled())
 }
+
+func TestDebugEnvConsolidatorResponseMemoryLimit(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+
+	postVar(t, tsv, "ConsolidatorQueryTotalSize", "1024")
+	assert.Equal(t, int64(1024), tsv.Config().ConsolidatorQueryTotalSize)
+	assert.Equal(t, int64(1024), tsv.qe.ConsolidatorResponseMemoryLimit())
+
+	postVar(t, tsv, "ConsolidatorQueryTotalSize", "0")
+	assert.Equal(t, int64(0), tsv.Config().ConsolidatorQueryTotalSize)
+	assert.Equal(t, int64(0), tsv.qe.ConsolidatorResponseMemoryLimit())
+
+	vars := getVars(tsv)
+	names := make(map[string]struct{}, len(vars))
+	for _, v := range vars {
+		names[v.Name] = struct{}{}
+	}
+	_, ok := names["ConsolidatorQueryTotalSize"]
+	assert.True(t, ok, "getVars should list ConsolidatorQueryTotalSize")
+}
+
+func TestDebugEnvConsolidatorResponseMemoryLimitRejectsNegative(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	form := url.Values{"varname": {"ConsolidatorQueryTotalSize"}, "value": {"-1"}}
+	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handlePost(tsv, w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

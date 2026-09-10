@@ -125,6 +125,18 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setInt64ValWithError := func(f func(int64) error) error {
+		ival, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid int64 value for %v: %v", varname, err)
+		}
+		if err := f(ival); err != nil {
+			return err
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	setDurationVal := func(f func(time.Duration)) error {
 		durationVal, err := time.ParseDuration(value)
 		if err != nil {
@@ -196,6 +208,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+	case "ConsolidatorQueryTotalSize":
+		err = setInt64ValWithError(tsv.SetConsolidatorResponseMemoryLimit)
 	default:
 		err = fmt.Errorf("unknown variable %q", varname)
 	}
@@ -248,6 +262,10 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),
+	})
+	vars = append(vars, envValue{
+		Name:  "ConsolidatorQueryTotalSize",
+		Value: strconv.FormatInt(tsv.qe.ConsolidatorResponseMemoryLimit(), 10),
 	})
 
 	return vars

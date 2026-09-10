@@ -167,6 +167,7 @@ type QueryEngine struct {
 	// consolidatorResponseMem is a global soft byte budget that paces the
 	// serialization of consolidated (non-streaming) query responses. It is nil
 	// when consolidator-query-total-size is 0 (unlimited).
+	consolidatorResponseMemMu    sync.RWMutex
 	consolidatorResponseMem      *semaphore.Weighted
 	consolidatorResponseMemLimit int64
 	consolidatorResponseMemInUse atomic.Int64
@@ -283,9 +284,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	env.Exporter().NewGaugeFunc("MaxResultSize", "Query engine max result size", qe.maxResultSize.Load)
 	env.Exporter().NewGaugeFunc("WarnResultSize", "Query engine warn result size", qe.warnResultSize.Load)
 	env.Exporter().NewGaugeFunc("StreamBufferSize", "Query engine stream buffer size", qe.streamBufferSize.Load)
-	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryLimit", "Soft byte limit on in-flight consolidated query responses (0 = unlimited)", func() int64 {
-		return qe.consolidatorResponseMemLimit
-	})
+	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryLimit", "Soft byte limit on in-flight consolidated query responses (0 = unlimited)", qe.ConsolidatorResponseMemoryLimit)
 	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryInUse", "Bytes currently reserved for in-flight consolidated query responses", qe.consolidatorResponseMemInUse.Load)
 	qe.consolidatorResponseMemWaits = env.Exporter().NewCounter("ConsolidatorQueryResponseMemoryWaits", "Number of consolidated query responses that blocked on the response memory budget")
 	env.Exporter().NewCounterFunc("TableACLExemptCount", "Query engine table ACL exempt count", qe.tableaclExemptCount.Load)
@@ -338,6 +337,33 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	return qe
 }
 
+// SetConsolidatorResponseMemoryLimit changes the soft global response-memory
+// limit. A limit of 0 disables the gate and fails open.
+func (qe *QueryEngine) SetConsolidatorResponseMemoryLimit(limit int64) error {
+	if limit < 0 {
+		return fmt.Errorf("consolidator response memory limit cannot be negative")
+	}
+
+	var mem *semaphore.Weighted
+	if limit > 0 {
+		mem = semaphore.NewWeighted(limit)
+	}
+
+	qe.consolidatorResponseMemMu.Lock()
+	qe.consolidatorResponseMem = mem
+	qe.consolidatorResponseMemLimit = limit
+	qe.consolidatorResponseMemMu.Unlock()
+	return nil
+}
+
+// ConsolidatorResponseMemoryLimit returns the configured soft response-memory
+// limit. Zero means the gate is disabled.
+func (qe *QueryEngine) ConsolidatorResponseMemoryLimit() int64 {
+	qe.consolidatorResponseMemMu.RLock()
+	defer qe.consolidatorResponseMemMu.RUnlock()
+	return qe.consolidatorResponseMemLimit
+}
+
 // AcquireConsolidatedResponseMemory blocks until size bytes are available in the
 // consolidated-response budget, pacing the fan-out of large shared results, and
 // returns a release func to call once serialization completes. The weight is
@@ -345,16 +371,21 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 // of deadlocking. It is a soft limit: acquire and release are no-ops when the
 // limit is disabled or the context is cancelled, and it never fails a query.
 func (qe *QueryEngine) AcquireConsolidatedResponseMemory(ctx context.Context, size int64) func() {
-	if qe.consolidatorResponseMem == nil {
+	qe.consolidatorResponseMemMu.RLock()
+	mem := qe.consolidatorResponseMem
+	limit := qe.consolidatorResponseMemLimit
+	qe.consolidatorResponseMemMu.RUnlock()
+
+	if mem == nil {
 		return func() {}
 	}
-	w := min(size, qe.consolidatorResponseMemLimit)
+	w := min(size, limit)
 	if w <= 0 {
 		return func() {}
 	}
-	if !qe.consolidatorResponseMem.TryAcquire(w) {
+	if !mem.TryAcquire(w) {
 		qe.consolidatorResponseMemWaits.Add(1)
-		if err := qe.consolidatorResponseMem.Acquire(ctx, w); err != nil {
+		if err := mem.Acquire(ctx, w); err != nil {
 			// Context cancelled before we could acquire; proceed without
 			// throttling rather than failing the query.
 			return func() {}
@@ -366,7 +397,7 @@ func (qe *QueryEngine) AcquireConsolidatedResponseMemory(ctx context.Context, si
 	return func() {
 		once.Do(func() {
 			qe.consolidatorResponseMemInUse.Add(-w)
-			qe.consolidatorResponseMem.Release(w)
+			mem.Release(w)
 		})
 	}
 }

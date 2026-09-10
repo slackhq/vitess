@@ -740,7 +740,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 					}
 					// When a global response-memory budget is configured, mark
 					// the shared result so its fan-out serialization is paced.
-					if qre.tsv.config.ConsolidatorQueryTotalSize > 0 && res != nil {
+					if qre.tsv.qe.ConsolidatorResponseMemoryLimit() > 0 && res != nil {
 						res.SetFromConsolidator()
 					}
 				}

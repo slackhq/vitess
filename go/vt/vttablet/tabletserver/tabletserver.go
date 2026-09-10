@@ -2115,6 +2115,16 @@ func (tsv *TabletServer) SetConsolidatorMode(mode string) {
 	}
 }
 
+// SetConsolidatorResponseMemoryLimit changes the soft global response-memory
+// limit. A limit of 0 disables the gate and fails open.
+func (tsv *TabletServer) SetConsolidatorResponseMemoryLimit(limit int64) error {
+	if err := tsv.qe.SetConsolidatorResponseMemoryLimit(limit); err != nil {
+		return err
+	}
+	tsv.config.ConsolidatorQueryTotalSize = limit
+	return nil
+}
+
 // ConsolidatorMode returns the consolidator mode.
 func (tsv *TabletServer) ConsolidatorMode() string {
 	return tsv.qe.consolidatorMode.Load().(string)

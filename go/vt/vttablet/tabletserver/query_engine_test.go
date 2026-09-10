@@ -928,6 +928,23 @@ func TestAcquireConsolidatedResponseMemoryDisabled(t *testing.T) {
 	release()
 }
 
+func TestSetConsolidatedResponseMemoryLimit(t *testing.T) {
+	qe := &QueryEngine{}
+
+	require.NoError(t, qe.SetConsolidatorResponseMemoryLimit(100))
+	assert.Equal(t, int64(100), qe.ConsolidatorResponseMemoryLimit())
+
+	release := qe.AcquireConsolidatedResponseMemory(context.Background(), 100)
+	require.NoError(t, qe.SetConsolidatorResponseMemoryLimit(0))
+	assert.Equal(t, int64(0), qe.ConsolidatorResponseMemoryLimit())
+
+	// Disabling the limit makes new acquisitions fail open, even while an
+	// acquisition from the previous semaphore is still in flight.
+	release2 := qe.AcquireConsolidatedResponseMemory(context.Background(), 1<<30)
+	release2()
+	release()
+}
+
 func TestAcquireConsolidatedResponseMemoryBlocks(t *testing.T) {
 	const limit = 100
 	qe := &QueryEngine{
