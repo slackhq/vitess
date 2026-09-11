@@ -189,6 +189,9 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
 		cfg := loadshedConfig(tsv, varname)
 		err = setDurationVal(cfg.SetTarget)
+	case "LoadshedOltpReadInitialTarget", "LoadshedTxInitialTarget":
+		cfg := loadshedConfig(tsv, varname)
+		err = setDurationVal(cfg.SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
 		cfg := loadshedConfig(tsv, varname)
 		err = setFloat64Val(cfg.SetIntervalRatio)
@@ -247,6 +250,7 @@ func getVars(tsv *TabletServer) []envValue {
 	addLoadshedVars := func(prefix string, cfg *tabletenv.LoadshedConfig) {
 		vars = addVar(vars, prefix+"Enabled", cfg.IsEnabled)
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
+		vars = addVar(vars, prefix+"InitialTarget", cfg.InitialTargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead.LoadshedConfig)

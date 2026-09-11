@@ -347,15 +347,18 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.True(t, cfg.LoadshedOltpRead.Enabled)
 	assert.True(t, cfg.LoadshedTx.Enabled)
 	assert.Equal(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+	assert.Equal(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
 	assert.Equal(t, cfg.LoadshedOltpRead.IntervalRatio, cfg.LoadshedTx.IntervalRatio)
 	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemas)
 
 	cfg.LoadshedOltpRead.Target = time.Second
+	cfg.LoadshedOltpRead.InitialTarget = 2 * time.Second
 	cfg.LoadshedOltpRead.Enabled = false
 
 	assert.False(t, cfg.LoadshedOltpRead.Enabled)
 	assert.True(t, cfg.LoadshedTx.Enabled)
 	assert.NotEqual(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
 }
 
 func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
@@ -365,7 +368,8 @@ func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for range 100 {
+		for i := range 100 {
+			cfg.LoadshedOltpRead.SetInitialTarget(time.Duration(i))
 			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 		}
 	}()
@@ -391,12 +395,31 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 
 	require.NoError(t, fs.Set("loadshed-oltp-read-enabled", "false"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
+	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
 	assert.False(t, currentConfig.LoadshedOltpRead.Enabled)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
+	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
 	assert.True(t, currentConfig.LoadshedTx.Enabled)
 	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
+	assert.Equal(t, 23*time.Millisecond, currentConfig.LoadshedTx.InitialTarget)
+}
+
+func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
+	cfg := NewDefaultConfig()
+
+	assert.Zero(t, cfg.LoadshedOltpRead.InitialTarget)
+	assert.Zero(t, cfg.LoadshedOltpRead.InitialTargetValue())
+	assert.Equal(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
+
+	cfg.LoadshedOltpRead.SetTarget(7 * time.Millisecond)
+	assert.Equal(t, 7*time.Millisecond, cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
+
+	cfg.LoadshedOltpRead.SetInitialTarget(17 * time.Millisecond)
+	assert.Equal(t, 17*time.Millisecond, cfg.LoadshedOltpRead.InitialTargetValue())
+	assert.Equal(t, 17*time.Millisecond, cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {
