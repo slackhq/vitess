@@ -148,6 +148,11 @@ func (gtidSet MariadbGTIDSet) Flavor() string {
 	return MariadbFlavorID
 }
 
+// Empty implements GTIDSet.
+func (gtidSet MariadbGTIDSet) Empty() bool {
+	return len(gtidSet) == 0
+}
+
 // ContainsGTID implements GTIDSet.ContainsGTID().
 func (gtidSet MariadbGTIDSet) ContainsGTID(other GTID) bool {
 	if other == nil {

@@ -24,6 +24,7 @@ limitations under the License.
 package s3backupstorage
 
 import (
+	"bufio"
 	"context"
 	"crypto/md5"
 	"crypto/tls"
@@ -42,7 +43,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	manager "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	transport "github.com/aws/smithy-go/endpoints"
@@ -61,6 +64,11 @@ import (
 const (
 	sseCustomerPrefix = "sse_c:"
 	MaxPartSize       = 1024 * 1024 * 1024 * 5 // 5GiB - limited by AWS https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
+
+	// maxPerFileMemory is a misconfiguration guard that caps the transfer-manager
+	// buffer per open file. Actual concurrency depends on the engine and stripe
+	// count, so total memory usage can exceed this × 4.
+	maxPerFileMemory int64 = 1024 * 1024 * 1024 // 1 GiB
 )
 
 var (
@@ -96,6 +104,13 @@ var (
 	// minimum part size
 	minPartSize int64
 
+	// minimum download part size — separate from upload so the two can be configured independently
+	minDownloadPartSize int64 = 5 * 1024 * 1024 // 5MiB - S3 minimum for byte-range requests
+
+	// download part size and concurrency for parallel downloads via transfer manager
+	downloadPartSize    int64 = 8 * 1024 * 1024 // 8MiB - transfer manager default
+	downloadConcurrency int   = 1               // default preserves old single-stream GetObject path
+
 	ErrPartSize = errors.New("minimum S3 part size must be between 5MiB and 5GiB")
 )
 
@@ -110,6 +125,8 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&requiredLogLevel, "s3_backup_log_level", "LogOff", "determine the S3 loglevel to use from LogOff, LogDebug, LogDebugWithSigning, LogDebugWithHTTPBody, LogDebugWithRequestRetries, LogDebugWithRequestErrors.")
 	fs.StringVar(&sse, "s3_backup_server_side_encryption", "", "server-side encryption algorithm (e.g., AES256, aws:kms, sse_c:/path/to/key/file).")
 	fs.Int64Var(&minPartSize, "s3_backup_aws_min_partsize", manager.MinUploadPartSize, "Minimum part size to use, defaults to 5MiB but can be increased due to the dataset size.")
+	fs.Int64Var(&downloadPartSize, "s3_backup_download_part_size", 8*1024*1024, "Part size in bytes for parallel S3 downloads via transfer manager.")
+	fs.IntVar(&downloadConcurrency, "s3_backup_download_concurrency", 1, "Number of parallel goroutines for S3 downloads. Set > 1 to enable parallel byte-range GETs via the transfer manager (recommended: 2-10).")
 }
 
 func init() {
@@ -140,16 +157,74 @@ func newEndpointResolver() *endpointResolver {
 	}
 }
 
+type timedS3Client struct {
+	client    transfermanager.S3APIClient
+	sendStats stats.Stats
+}
+
+func (c *timedS3Client) appendTimingOption(optFns []func(*s3.Options)) []func(*s3.Options) {
+	timedOptions := make([]func(*s3.Options), 0, len(optFns)+1)
+	timedOptions = append(timedOptions, optFns...)
+	timedOptions = append(timedOptions, withRequestTiming(c.sendStats))
+	return timedOptions
+}
+
+func (c *timedS3Client) PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	return c.client.PutObject(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) UploadPart(ctx context.Context, input *s3.UploadPartInput, optFns ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
+	return c.client.UploadPart(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) CreateMultipartUpload(ctx context.Context, input *s3.CreateMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
+	return c.client.CreateMultipartUpload(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) CompleteMultipartUpload(ctx context.Context, input *s3.CompleteMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
+	return c.client.CompleteMultipartUpload(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) AbortMultipartUpload(ctx context.Context, input *s3.AbortMultipartUploadInput, optFns ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
+	return c.client.AbortMultipartUpload(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	return c.client.GetObject(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) HeadObject(ctx context.Context, input *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	return c.client.HeadObject(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func (c *timedS3Client) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	return c.client.ListObjectsV2(ctx, input, c.appendTimingOption(optFns)...)
+}
+
+func withRequestTiming(sendStats stats.Stats) func(*s3.Options) {
+	return func(o *s3.Options) {
+		o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+			return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("CompleteAttemptMiddleware", func(ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler) (middleware.FinalizeOutput, middleware.Metadata, error) {
+				start := time.Now()
+				output, metadata, err := next.HandleFinalize(ctx, input)
+				sendStats.TimedIncrement(time.Since(start))
+				return output, metadata, err
+			}), middleware.Before)
+		})
+	}
+}
+
+// S3BackupHandle implements the backupstorage.BackupHandle interface.
 type iClient interface {
 	manager.UploadAPIClient
 	manager.DownloadAPIClient
+	transfermanager.S3APIClient
 }
 
 type clientWrapper struct {
 	*s3.Client
 }
 
-// S3BackupHandle implements the backupstorage.BackupHandle interface.
 type S3BackupHandle struct {
 	client    iClient
 	bs        *S3BackupStorage
@@ -173,7 +248,7 @@ func (bh *S3BackupHandle) Name() string {
 // AddFile is part of the backupstorage.BackupHandle interface.
 func (bh *S3BackupHandle) AddFile(ctx context.Context, filename string, filesize int64) (io.WriteCloser, error) {
 	if bh.readOnly {
-		return nil, fmt.Errorf("AddFile cannot be called on read-only backup")
+		return nil, errors.New("AddFile cannot be called on read-only backup")
 	}
 
 	partSizeBytes, err := calculateUploadPartSize(filesize)
@@ -231,10 +306,16 @@ func (bh *S3BackupHandle) handleAddFile(ctx context.Context, filename string, pa
 // calculateUploadPartSize is a helper to calculate the part size, taking into consideration the minimum part size
 // passed in by an operator.
 func calculateUploadPartSize(filesize int64) (partSizeBytes int64, err error) {
+	const (
+		defaultUploadPartSize = 5 * 1024 * 1024 // 5MiB
+		minUploadPartSize     = 5 * 1024 * 1024 // 5MiB - S3 requirement
+		maxUploadParts        = 10000           // S3 limit
+	)
+
 	// Calculate s3 upload part size using the source filesize
-	partSizeBytes = manager.DefaultUploadPartSize
+	partSizeBytes = defaultUploadPartSize
 	if filesize > 0 {
-		minimumPartSize := float64(filesize) / float64(manager.MaxUploadParts)
+		minimumPartSize := float64(filesize) / float64(maxUploadParts)
 		// Round up to ensure large enough partsize
 		calculatedPartSizeBytes := int64(math.Ceil(minimumPartSize))
 		if calculatedPartSizeBytes > partSizeBytes {
@@ -243,8 +324,9 @@ func calculateUploadPartSize(filesize int64) (partSizeBytes int64, err error) {
 	}
 
 	if minPartSize != 0 && partSizeBytes < minPartSize {
-		if minPartSize > MaxPartSize || minPartSize < manager.MinUploadPartSize { // 5GiB and 5MiB respectively
-			return 0, fmt.Errorf("%w, currently set to %s",
+		if minPartSize > MaxPartSize || minPartSize < minUploadPartSize { // 5GiB and 5MiB respectively
+			return 0, fmt.Errorf(
+				"%w, currently set to %s",
 				ErrPartSize, humanize.IBytes(uint64(minPartSize)),
 			)
 		}
@@ -254,19 +336,24 @@ func calculateUploadPartSize(filesize int64) (partSizeBytes int64, err error) {
 	return
 }
 
+// Wait is part of the backupstorage.BackupHandle interface.
+func (bh *S3BackupHandle) Wait() {
+	bh.waitGroup.Wait()
+}
+
 // EndBackup is part of the backupstorage.BackupHandle interface.
 func (bh *S3BackupHandle) EndBackup(ctx context.Context) error {
 	if bh.readOnly {
-		return fmt.Errorf("EndBackup cannot be called on read-only backup")
+		return errors.New("EndBackup cannot be called on read-only backup")
 	}
-	bh.waitGroup.Wait()
+	bh.Wait()
 	return bh.Error()
 }
 
 // AbortBackup is part of the backupstorage.BackupHandle interface.
 func (bh *S3BackupHandle) AbortBackup(ctx context.Context) error {
 	if bh.readOnly {
-		return fmt.Errorf("AbortBackup cannot be called on read-only backup")
+		return errors.New("AbortBackup cannot be called on read-only backup")
 	}
 	return bh.bs.RemoveBackup(ctx, bh.dir, bh.name)
 }
@@ -274,30 +361,148 @@ func (bh *S3BackupHandle) AbortBackup(ctx context.Context) error {
 // ReadFile is part of the backupstorage.BackupHandle interface.
 func (bh *S3BackupHandle) ReadFile(ctx context.Context, filename string) (io.ReadCloser, error) {
 	if !bh.readOnly {
-		return nil, fmt.Errorf("ReadFile cannot be called on read-write backup")
+		return nil, errors.New("ReadFile cannot be called on read-write backup")
 	}
 	object := objName(bh.dir, bh.name, filename)
 	sendStats := bh.bs.params.Stats.Scope(stats.Operation("AWS:Request:Send"))
-	out, err := bh.client.GetObject(ctx, &s3.GetObjectInput{
+	timedClient := &timedS3Client{client: bh.client, sendStats: sendStats}
+
+	// When concurrency <= 1 (the default), use a plain GetObject — no HeadObject,
+	// no ranged GETs, no transfer manager overhead. Users opt into parallel
+	// downloads by setting --s3_backup_download_concurrency > 1.
+	if downloadConcurrency < 2 {
+		out, err := timedClient.GetObject(ctx, &s3.GetObjectInput{
+			Bucket:               &bucket,
+			Key:                  &object,
+			SSECustomerAlgorithm: bh.bs.s3SSE.customerAlg,
+			SSECustomerKey:       bh.bs.s3SSE.customerKey,
+			SSECustomerKeyMD5:    bh.bs.s3SSE.customerMd5,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return out.Body, nil
+	}
+
+	if downloadPartSize < minDownloadPartSize {
+		return nil, fmt.Errorf("--s3_backup_download_part_size must be >= %d (5 MiB), got %d", minDownloadPartSize, downloadPartSize)
+	}
+
+	bufferSize, err := downloadBufferSize(downloadPartSize, downloadConcurrency)
+	if err != nil {
+		return nil, err
+	}
+
+	tmClient := transfermanager.New(&rangeGuardClient{timedClient}, func(o *transfermanager.Options) {
+		// GetObjectRanges uses byte-range GETs sized by PartSizeBytes.
+		// The default (GetObjectParts) reuses original multipart part numbers
+		// and ignores PartSizeBytes entirely.
+		o.GetObjectType = tmtypes.GetObjectRanges
+		o.PartSizeBytes = downloadPartSize
+		o.Concurrency = downloadConcurrency
+		o.GetObjectBufferSize = bufferSize
+	})
+
+	readCtx, cancel := context.WithCancel(ctx)
+	out, err := tmClient.GetObject(readCtx, &transfermanager.GetObjectInput{
 		Bucket:               &bucket,
 		Key:                  &object,
 		SSECustomerAlgorithm: bh.bs.s3SSE.customerAlg,
 		SSECustomerKey:       bh.bs.s3SSE.customerKey,
 		SSECustomerKeyMD5:    bh.bs.s3SSE.customerMd5,
-	}, func(o *s3.Options) {
-		o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
-			return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("CompleteAttemptMiddleware", func(ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler) (middleware.FinalizeOutput, middleware.Metadata, error) {
-				start := time.Now()
-				output, metadata, err := next.HandleFinalize(ctx, input)
-				sendStats.TimedIncrement(time.Since(start))
-				return output, metadata, err
-			}), middleware.Before)
-		})
 	})
 	if err != nil {
+		cancel()
 		return nil, err
 	}
-	return out.Body, nil
+
+	var contentLength int64 = -1
+	if out.ContentLength != nil {
+		contentLength = *out.ContentLength
+	}
+	return newDownloadReader(out.Body, cancel, contentLength), nil
+}
+
+// newDownloadReader wraps body with a bufio.Reader sized to
+// min(downloadPartSize, contentLength) and a context cancel func for cleanup.
+// The bufio layer coalesces small downstream reads (e.g. 4 KiB from pgzip)
+// into part-sized reads, avoiding per-Read worker pool creation in the SDK's
+// concurrentReader (~1.3M goroutine lifecycles per GiB without it). Close
+// cancels the download context and, if the body implements io.Closer, closes
+// it (needed for the zero-length object path where the SDK returns the raw S3
+// response body).
+func newDownloadReader(body io.Reader, cancel context.CancelFunc, contentLength int64) *downloadReader {
+	bufSize := downloadPartSize
+	if contentLength >= 0 && contentLength < bufSize {
+		bufSize = contentLength
+	}
+	if bufSize < 1 {
+		bufSize = 1
+	}
+	buffered := bufio.NewReaderSize(body, int(bufSize))
+	return &downloadReader{Reader: buffered, body: body, cancel: cancel}
+}
+
+// downloadBufferSize computes the GetObjectBufferSize and validates that the
+// resulting per-file memory usage stays within maxPerFileMemory. The total
+// per-file allocation is the SDK's GetObjectBufferSize (partSize × concurrency)
+// plus one part for the bufio.Reader that coalesces small reads.
+func downloadBufferSize(partSize int64, concurrency int) (int64, error) {
+	if partSize > math.MaxInt64/int64(concurrency) {
+		return 0, fmt.Errorf("--s3_backup_download_part_size (%d) * --s3_backup_download_concurrency (%d) overflows int64", partSize, concurrency)
+	}
+	size := partSize * int64(concurrency)
+	if size > math.MaxInt64-partSize {
+		return 0, fmt.Errorf("--s3_backup_download_part_size (%d) * --s3_backup_download_concurrency (%d) + part size overflows int64", partSize, concurrency)
+	}
+	totalPerFile := size + partSize
+	if totalPerFile > maxPerFileMemory {
+		return 0, fmt.Errorf(
+			"per-file memory (SDK buffer %s + read buffer %s = %s) exceeds limit of %s; reduce --s3_backup_download_part_size or --s3_backup_download_concurrency",
+			humanize.IBytes(uint64(size)), humanize.IBytes(uint64(partSize)),
+			humanize.IBytes(uint64(totalPerFile)), humanize.IBytes(uint64(maxPerFileMemory)),
+		)
+	}
+	return size, nil
+}
+
+// downloadReader wraps a transfer-manager reader with read coalescing, context
+// cancellation, and proper resource cleanup.
+type downloadReader struct {
+	io.Reader
+	body   io.Reader
+	cancel context.CancelFunc
+}
+
+func (r *downloadReader) Close() error {
+	r.cancel()
+	if c, ok := r.body.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// rangeGuardClient wraps an S3APIClient to detect non-compliant S3 endpoints
+// that ignore Range headers and return the full object as a 200 instead of a
+// 206 with Content-Range. Without this guard, the SDK's downloadChunk silently
+// accepts the response, rangeRead never completes, and Read returns (0, nil)
+// forever — spinning the restore with no error.
+type rangeGuardClient struct {
+	transfermanager.S3APIClient
+}
+
+func (c *rangeGuardClient) GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	out, err := c.S3APIClient.GetObject(ctx, input, optFns...)
+	if err != nil {
+		return out, err
+	}
+	if input.Range != nil && out.ContentRange == nil {
+		if cl, ok := out.Body.(io.Closer); ok {
+			cl.Close()
+		}
+		return nil, fmt.Errorf("S3 endpoint returned full object (no Content-Range) for ranged GET %q; the endpoint may not support byte-range requests", *input.Key)
+	}
+	return out, nil
 }
 
 var _ backupstorage.BackupHandle = (*S3BackupHandle)(nil)
@@ -312,11 +517,11 @@ type S3ServerSideEncryption struct {
 func (s3ServerSideEncryption *S3ServerSideEncryption) init() error {
 	s3ServerSideEncryption.reset()
 
-	if strings.HasPrefix(sse, sseCustomerPrefix) {
-		sseCustomerKeyFile := strings.TrimPrefix(sse, sseCustomerPrefix)
+	if after, ok := strings.CutPrefix(sse, sseCustomerPrefix); ok {
+		sseCustomerKeyFile := after
 		base64CodedKey, err := os.ReadFile(sseCustomerKeyFile)
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Error(err.Error())
 			return err
 		}
 
@@ -363,7 +568,7 @@ func newS3BackupStorage() *S3BackupStorage {
 
 // ListBackups is part of the backupstorage.BackupStorage interface.
 func (bs *S3BackupStorage) ListBackups(ctx context.Context, dir string) ([]backupstorage.BackupHandle, error) {
-	log.Infof("ListBackups: [s3] dir: %v, bucket: %v", dir, bucket)
+	log.Info(fmt.Sprintf("ListBackups: [s3] dir: %v, bucket: %v", dir, bucket))
 	c, err := bs.client()
 	if err != nil {
 		return nil, err
@@ -375,7 +580,7 @@ func (bs *S3BackupStorage) ListBackups(ctx context.Context, dir string) ([]backu
 	} else {
 		searchPrefix = objName(dir, "")
 	}
-	log.Infof("objName: %s", searchPrefix)
+	log.Info("objName: " + searchPrefix)
 
 	query := &s3.ListObjectsV2Input{
 		Bucket:    &bucket,
@@ -419,7 +624,7 @@ func (bs *S3BackupStorage) ListBackups(ctx context.Context, dir string) ([]backu
 
 // StartBackup is part of the backupstorage.BackupStorage interface.
 func (bs *S3BackupStorage) StartBackup(ctx context.Context, dir, name string) (backupstorage.BackupHandle, error) {
-	log.Infof("StartBackup: [s3] dir: %v, name: %v, bucket: %v", dir, name, bucket)
+	log.Info(fmt.Sprintf("StartBackup: [s3] dir: %v, name: %v, bucket: %v", dir, name, bucket))
 	c, err := bs.client()
 	if err != nil {
 		return nil, err
@@ -436,7 +641,7 @@ func (bs *S3BackupStorage) StartBackup(ctx context.Context, dir, name string) (b
 
 // RemoveBackup is part of the backupstorage.BackupStorage interface.
 func (bs *S3BackupStorage) RemoveBackup(ctx context.Context, dir, name string) error {
-	log.Infof("RemoveBackup: [s3] dir: %v, name: %v, bucket: %v", dir, name, bucket)
+	log.Info(fmt.Sprintf("RemoveBackup: [s3] dir: %v, name: %v, bucket: %v", dir, name, bucket))
 
 	c, err := bs.client()
 	if err != nil {
@@ -470,7 +675,6 @@ func (bs *S3BackupStorage) RemoveBackup(ctx context.Context, dir, name string) e
 				Quiet:   &quiet,
 			},
 		})
-
 		if err != nil {
 			return err
 		}
@@ -521,7 +725,8 @@ func (bs *S3BackupStorage) client() (*s3.Client, error) {
 
 		httpClient := &http.Client{Transport: bs.transport}
 
-		cfg, err := config.LoadDefaultConfig(context.Background(),
+		cfg, err := config.LoadDefaultConfig(
+			context.Background(),
 			config.WithRegion(region),
 			config.WithClientLogMode(logLevel),
 			config.WithHTTPClient(httpClient),
@@ -550,7 +755,7 @@ func (bs *S3BackupStorage) client() (*s3.Client, error) {
 		bs._client = s3.NewFromConfig(cfg, options...)
 
 		if len(bucket) == 0 {
-			return nil, fmt.Errorf("--s3_backup_storage_bucket required")
+			return nil, errors.New("--s3_backup_storage_bucket required")
 		}
 
 		if _, err := bs._client.HeadBucket(context.Background(), &s3.HeadBucketInput{Bucket: &bucket}); err != nil {
@@ -559,6 +764,18 @@ func (bs *S3BackupStorage) client() (*s3.Client, error) {
 
 		if err := bs.s3SSE.init(); err != nil {
 			return nil, err
+		}
+
+		if downloadConcurrency < 1 {
+			return nil, fmt.Errorf("--s3_backup_download_concurrency must be >= 1, got %d", downloadConcurrency)
+		}
+		if downloadConcurrency > 1 {
+			if downloadPartSize < minDownloadPartSize {
+				return nil, fmt.Errorf("--s3_backup_download_part_size must be >= %d (5 MiB), got %d", minDownloadPartSize, downloadPartSize)
+			}
+			if _, err := downloadBufferSize(downloadPartSize, downloadConcurrency); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return bs._client, nil

@@ -92,9 +92,11 @@ func (rp Position) String() string {
 	return rp.GTIDSet.String()
 }
 
-// IsZero returns true if this is the zero value, Position{}.
+// IsZero returns true if this is the zero value, Position{}, or if the
+// underlying GTIDSet has no entries (e.g. a typed-but-empty set such as
+// "MySQL56/"). A position that identifies no transactions is treated as zero.
 func (rp Position) IsZero() bool {
-	return rp.GTIDSet == nil
+	return rp.GTIDSet == nil || rp.GTIDSet.Empty()
 }
 
 // AppendGTID returns a new Position that represents the position

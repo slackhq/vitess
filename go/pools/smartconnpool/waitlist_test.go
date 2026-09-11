@@ -50,7 +50,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 
 	for i := 0; i < waiterCount; i++ {
 		go func() {
-			_, err := wait.waitForConn(ctx, nil, poolClose, 0, "", loadshed.PriorityUndroppable)
+			_, err := wait.waitForConn(ctx, nil, poolClose, 0, "", loadshed.PriorityUndroppable, false)
 
 			if err != nil {
 				expireCount.Add(1)
@@ -90,7 +90,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	errs := make(chan error, maxWaiters)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable)
+			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable, false)
 			errs <- err
 		}()
 
@@ -99,7 +99,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 		}, time.Second, 5*time.Millisecond)
 	}
 
-	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable)
+	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "valve", loadshed.PriorityUndroppable, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
 	assert.Equal(t, maxWaiters, wl.waiting())
 
@@ -123,7 +123,7 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 
 	for range 6 {
 		go func() {
-			_, err := wl.waitForConn(context.Background(), nil, poolClose, 0, "", 0)
+			_, err := wl.waitForConn(context.Background(), nil, poolClose, 0, "", 0, false)
 			errs <- err
 		}()
 	}
@@ -160,4 +160,48 @@ func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
 
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-foo.conn)
+}
+
+func TestWaitlistWaiterCapDryRun(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	capReachedCount := atomic.Int32{}
+	wl.onWaiterCapReached = func() {
+		capReachedCount.Add(1)
+	}
+
+	poolClose := make(chan struct{})
+
+	const maxWaiters = 3
+
+	errs := make(chan error, maxWaiters)
+	for i := 1; i <= maxWaiters; i++ {
+		go func() {
+			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "", loadshed.PriorityUndroppable, true)
+			errs <- err
+		}()
+
+		assert.Eventually(t, func() bool {
+			return wl.waiting() == i
+		}, time.Second, 5*time.Millisecond)
+	}
+
+	// In dryrun mode, exceeding the cap fires the callback but still lets the waiter through
+	go func() {
+		_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, "", loadshed.PriorityUndroppable, true)
+		errs <- err
+	}()
+
+	assert.Eventually(t, func() bool {
+		return wl.waiting() == maxWaiters+1
+	}, time.Second, 5*time.Millisecond)
+
+	assert.Equal(t, int32(1), capReachedCount.Load())
+
+	close(poolClose)
+
+	for i := 0; i < maxWaiters+1; i++ {
+		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
+	}
 }

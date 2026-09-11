@@ -180,6 +180,16 @@ type FakeMysqlDaemon struct {
 	// queries we expect.
 	ExpectedExecuteSuperQueryCurrent int
 
+	// ExecuteSuperQueryListCallback is called at the start of ExecuteSuperQueryList
+	// before any queries are executed, if set.
+	ExecuteSuperQueryListCallback func()
+
+	// ExecuteSuperQueryErrorMap maps query strings to errors. When a query
+	// matches a key in this map, the corresponding error is returned immediately,
+	// bypassing the normal ExpectedExecuteSuperQueryList validation. Useful for
+	// simulating errors on specific queries without consuming from the expected list.
+	ExecuteSuperQueryErrorMap map[string]error
+
 	// FetchSuperQueryResults is used by FetchSuperQuery.
 	FetchSuperQueryMap map[string]*sqltypes.Result
 
@@ -582,7 +592,18 @@ func (fmd *FakeMysqlDaemon) ExecuteSuperQuery(ctx context.Context, query string)
 
 // ExecuteSuperQueryList is part of the MysqlDaemon interface
 func (fmd *FakeMysqlDaemon) ExecuteSuperQueryList(ctx context.Context, queryList []string) error {
+	if fmd.ExecuteSuperQueryListCallback != nil {
+		fmd.ExecuteSuperQueryListCallback()
+	}
 	for _, query := range queryList {
+		// Return a specific error for this query if one is configured, bypassing
+		// the normal expected-query validation.
+		if fmd.ExecuteSuperQueryErrorMap != nil {
+			if err, ok := fmd.ExecuteSuperQueryErrorMap[query]; ok {
+				return err
+			}
+		}
+
 		// test we still have a query to compare
 		if fmd.ExpectedExecuteSuperQueryCurrent >= len(fmd.ExpectedExecuteSuperQueryList) {
 			return fmt.Errorf("unexpected extra query in ExecuteSuperQueryList: %v", query)

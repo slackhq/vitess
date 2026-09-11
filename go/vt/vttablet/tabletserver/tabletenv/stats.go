@@ -55,6 +55,8 @@ type Stats struct {
 	// fast-failing shed requests.
 	QueryTimingsByErrorCode *servenv.TimingsWrapper
 
+	ConsolidatorWaiterCapRejectCount *stats.Counter
+
 	// Atomic Transactions
 	Unresolved         *stats.GaugesWithSingleLabel
 	CommitPreparedFail *stats.CountersWithSingleLabel
@@ -109,6 +111,8 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 		QueryTimingsByTabletType: exporter.NewTimings("QueryTimingsByTabletType", "Query timings broken down by active tablet type", "TabletType"),
 
 		QueryTimingsByErrorCode: exporter.NewTimings("QueryTimingsByErrorCode", "Query timings broken down by result error code (OK for successful queries)", "ErrorCode"),
+
+		ConsolidatorWaiterCapRejectCount: exporter.NewCounter("ConsolidatorWaiterCapRejectCount", "Number of queries that hit the consolidator waiter cap with reject method"),
 
 		Unresolved:         exporter.NewGaugesWithSingleLabel("UnresolvedTransaction", "Current unresolved transactions", "ManagerType"),
 		CommitPreparedFail: exporter.NewCountersWithSingleLabel("CommitPreparedFail", "failed prepared transactions commit", "FailureType"),

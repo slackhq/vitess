@@ -299,6 +299,7 @@ const (
 	PlanStr        = "plan"
 	TraceStr       = "trace"
 	KeysStr        = "keys"
+	MySQLStr       = "mysqlplan"
 
 	// Lock Types
 	ReadStr             = "read"
@@ -859,6 +860,7 @@ const (
 	AllVExplainType
 	TraceVExplainType
 	KeysVExplainType
+	MySQLVExplainType
 )
 
 // Constant for Enum Type - SelectIntoType
