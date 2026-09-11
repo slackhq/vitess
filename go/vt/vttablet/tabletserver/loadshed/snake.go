@@ -17,10 +17,7 @@ limitations under the License.
 package loadshed
 
 import (
-	"context"
-	"log"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,22 +28,15 @@ type (
 	// SnakeConfig configures a Snake. Functions are used to allow dynamic runtime
 	// tuning.
 	SnakeConfig struct {
-		Name                string
 		CoDel               CoDelConfig
-		Capacity            func() int
 		LoadsheddingAllowed func() bool
-		AcquireError        func() error
-		ReleaseCBs          []func(error)
+		DropTimerFired      func()
 	}
 
-	// Snake is a CoDel-based load-shedding gate with dynamic capacity. Up to
-	// Capacity() concurrent holders are allowed. Acquire requests are either
-	// granted or dropped, each within a timely manner.
+	// Snake is a CoDel-based load-shedding queue. It decides which waiting
+	// request may proceed; the caller owns execution capacity and handoff.
 	Snake[T any] struct {
-		mu sync.Mutex
-
 		q              *ValvedCoDelQueue[T]
-		holders        map[*Request[T]]struct{}
 		dropTimer      *time.Timer
 		dropTimerArmed bool
 		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
@@ -58,12 +48,12 @@ type (
 		shedCount atomic.Int64
 		// shedByPriority breaks shedCount down by the shed request's priority label
 		// (the caller's original query priority: "0" most important .. "100" least,
-		// "overflow"), so operators can see whether the gate is correctly shedding
+		// "overflow"), so operators can see whether the queue is correctly shedding
 		// low-priority traffic first rather than eating high-priority requests. Nil
 		// until PublishStats registers it (tests and the benchmark build a Snake
 		// without it); the shed path nil-checks. Its sum equals shedCount.
 		shedByPriority *stats.CountersWithMultiLabels
-		// acquireByPriority counts every Acquire, labeled by the same caller
+		// acquireByPriority counts every enqueue, labeled by the same caller
 		// priority as shedByPriority, so shed rate per priority class can be
 		// computed exactly (shedByPriority / acquireByPriority) rather than from
 		// assumed offered-load weights. Nil until PublishStats registers it.
@@ -72,23 +62,13 @@ type (
 		sojourn      *stats.Histogram
 		queueLen     *stats.Histogram
 		droppableLen *stats.Histogram
-		holderCount  *stats.Histogram
 		interval     *stats.Histogram
 		dropCount    *stats.Histogram
 		timerLag     *stats.Histogram
 		valveDepth   *stats.Histogram
 
 		droppingNanos   atomic.Int64
-		droppingSinceNs int64
-	}
-
-	// SafeUnlock is a handle for releasing a slot. Only the goroutine that
-	// acquired the slot should call Release. Release is idempotent.
-	SafeUnlock[T any] struct {
-		s    *Snake[T]
-		req  *Request[T]
-		once sync.Once
-		err  error
+		droppingSinceNs atomic.Int64
 	}
 )
 
@@ -98,16 +78,14 @@ func defaultClock() int64 {
 	return time.Since(epoch).Nanoseconds()
 }
 
-// NewSnake creates a new CoDel-based load-shedding gate.
+// NewSnake creates a new CoDel-based load-shedding queue.
 func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 	s := &Snake[T]{
 		cfg:          cfg,
 		clockFunc:    defaultClock,
-		holders:      make(map[*Request[T]]struct{}),
 		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
 		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
 		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
-		holderCount:  stats.NewHistogram("", "", holderBucketCutoffs),
 		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
 		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
@@ -126,222 +104,84 @@ func (s *Snake[T]) lockedObserveValveDepth(valveID string) {
 	s.valveDepth.Add(int64(s.q.lockedValveDepth(valveID)))
 }
 
-func (s *Snake[T]) capacity() int {
-	if s.cfg.Capacity == nil {
-		return 1
-	}
-	return max(s.cfg.Capacity(), 1)
-}
-
-func (s *Snake[T]) hasCapacity() bool {
-	return len(s.holders) < s.capacity()
-}
-
-// Acquire acquires a slot. It blocks until a slot is granted, the request
-// is dropped by CoDel, or the context is cancelled. The returned SafeUnlock
-// must be released via defer unlock.Release().
-//
-// An empty valveID is valid: such requests bypass the per-valve fairness
-// layer but still pass through the CoDel gate. Callers should pass the valve
-// ID through unconditionally rather than gating Acquire on a non-empty ID,
-// which would silently exclude all unkeyed traffic from load shedding.
-//
-// The priority ordering convention is that lower-valued priorities indicate
-// less important requests. Lower values are shed first.
-func (s *Snake[T]) Acquire(ctx context.Context, valveID string, priority float64) (*SafeUnlock[T], error) {
-	priority = s.priority(priority)
-
+func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[T], []T) {
 	if s.acquireByPriority != nil {
 		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
 	}
 
-	s.mu.Lock()
 	req := s.q.lockedEnqueue(valveID, priority)
+	req.value = value
 	if valveID != "" {
 		s.lockedObserveValveDepth(valveID)
 	}
-
-	if s.hasCapacity() && req.codelqElem != nil {
-		s.lockedGrant(req)
-		s.lockedObserveLengths()
-		s.mu.Unlock()
-		return &SafeUnlock[T]{s: s, req: req}, nil
-	}
-
-	// Enqueue-advance: a non-granted arrival drives the CoDel control law itself,
-	// so shedding tracks load even when releases are sparse or the backstop timer
-	// fires late. lockedRunTimer only MARKS drops; take the pending rejections and
-	// send them after unlocking s.mu so the goready storm stays off the lock.
-	pending := s.lockedEnqueueAdvance()
+	dropped := s.lockedEnqueueAdvance()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
-	s.mu.Unlock()
-	for _, p := range pending {
-		p.sendSignal()
-	}
-
-	select {
-	case val := <-req.signalChan:
-		if val != grantSentinel {
-			return nil, s.acquireError(req.priority)
-		}
-		return &SafeUnlock[T]{s: s, req: req}, nil
-
-	case <-ctx.Done():
-		// Race: Go's select picks randomly when both signalChan and
-		// ctx.Done() are ready simultaneously. The grant may have already
-		// been sent (or be in-flight) by the time we land here. The inner
-		// select resolves this:
-		//   - If signalChan has a grant: we own the slot, release it.
-		//   - If signalChan is empty: the grant might still be in-flight
-		//     (releaser unlocked the mutex but hasn't sent the signal yet).
-		//     We re-acquire the mutex and check holders — if we're already
-		//     granted, release; otherwise cancel from the queue.
-		select {
-		case val := <-req.signalChan:
-			if val == grantSentinel {
-				s.releaseOnCancel(req)
-			}
-		default:
-			s.mu.Lock()
-			if _, granted := s.holders[req]; granted {
-				s.mu.Unlock()
-				s.releaseOnCancel(req)
-			} else {
-				s.q.lockedCancel(req)
-				s.lockedObserveLengths()
-				s.lockedObserveDropping()
-				s.mu.Unlock()
-			}
-		}
-		return nil, ctx.Err()
-	}
+	return req, s.droppedValues(dropped)
 }
 
-// IsHealthy reports whether the CoDel queue is healthy.
-func (s *Snake[T]) IsHealthy() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.q.lockedIsHealthy()
+func (s *Snake[T]) Dequeue() (T, bool, []T) {
+	return s.dequeue(nil)
 }
 
-// SnakeStats is a point-in-time snapshot of Snake's internal state.
-type SnakeStats struct {
-	QueueLen        int
-	DroppableLen    int
-	HolderCount     int
-	Dropping        bool
-	DropCount       int
-	CurrentInterval int64 // ns
+func (s *Snake[T]) DequeueMatching(match func(T) bool) (T, bool, []T) {
+	return s.dequeue(match)
 }
 
-// Stats returns a point-in-time snapshot of Snake's internal state.
-func (s *Snake[T]) Stats() SnakeStats {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return SnakeStats{
-		QueueLen:        s.q.codelq.lockedLen(),
-		DroppableLen:    s.q.codelq.droppableLen,
-		HolderCount:     len(s.holders),
-		Dropping:        s.q.codelq.dropping,
-		DropCount:       s.q.codelq.count,
-		CurrentInterval: s.q.codelq.lockedCurrentInterval(),
-	}
-}
-
-// Release releases the slot. exc is an optional error that caused the release
-// (passed to release callbacks). Release is idempotent.
-func (u *SafeUnlock[T]) Release(exc ...error) error {
-	u.once.Do(func() {
-		var excValue error
-		if len(exc) > 0 {
-			excValue = exc[0]
-		}
-		u.err = u.s.release(u.req, excValue)
-	})
-	return u.err
-}
-
-func (s *Snake[T]) release(req *Request[T], excValue error) error {
-	s.mu.Lock()
-	// Release is idempotent and can race a context-cancel release for the same
-	// req. The loser sees the req already gone from holders and no-ops.
-	if _, ok := s.holders[req]; !ok {
-		s.mu.Unlock()
-		return nil
-	}
-	delete(s.holders, req)
-	s.lockedObserveHolderCount()
-	s.lockedReleaseAndShed(req)
-	s.lockedTryGrantOne()
-	s.lockedObserveLengths()
-	s.lockedObserveDropping()
-	pending := s.q.lockedTakePendingSignals()
-	s.mu.Unlock()
-
-	// Deliver drop rejections after releasing s.mu so the goready storm does not
-	// serialize grants/arrivals behind the batch.
-	for _, r := range pending {
-		r.sendSignal()
-	}
-	s.runReleaseCBs(excValue)
-	return nil
-}
-
-func (s *Snake[T]) releaseOnCancel(req *Request[T]) {
-	s.mu.Lock()
-	delete(s.holders, req)
-	s.lockedObserveHolderCount()
-	s.lockedReleaseAndShed(req)
-	s.lockedTryGrantOne()
-	s.lockedObserveLengths()
-	s.lockedObserveDropping()
-	pending := s.q.lockedTakePendingSignals()
-	s.mu.Unlock()
-	for _, r := range pending {
-		r.sendSignal()
-	}
-}
-
-// lockedReleaseAndShed releases the request and advances CoDel before granting
-// the next waiter when there is active shedding work.
-func (s *Snake[T]) lockedReleaseAndShed(req *Request[T]) {
-	s.q.lockedRelease(req)
+func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
+	var pending []*Request[T]
 	if s.q.lockedNeedsAdvance() {
-		s.q.lockedRunTimerIf(s.loadsheddingAllowed)
+		pending = s.lockedEnqueueAdvance()
 	}
+	req := s.q.lockedPeek()
+	if match != nil {
+		req = s.q.lockedFind(match)
+	}
+	var value T
+	ok := false
+	if req != nil {
+		s.q.lockedDequeue(req)
+		req.signal(grantSentinel)
+		now := s.clockFunc()
+		s.lockedAccrueDropping(now)
+		s.sojourn.Add(now - req.codelqEnqueuedAtNs)
+		value = req.value
+		ok = true
+		var zero T
+		req.value = zero
+	}
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	return value, ok, s.droppedValues(pending)
 }
 
-// lockedEnqueueAdvance runs the CoDel control-law advance on every non-granted
-// enqueue so an arrival can drive shedding, not just the release path and the
-// backstop timer — the drop cadence then tracks load even when releases are
-// sparse or the timer fires late. Must hold s.mu. lockedRunTimer only MARKS
-// drops; the pending rejections are returned so the caller sends them AFTER
-// releasing s.mu (draining the goready storm off the lock).
+func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
+	if req.signaledValue != nil {
+		return false, nil
+	}
+	s.q.lockedCancel(req)
+	var zero T
+	req.value = zero
+	dropped := s.q.lockedTakePendingDrops()
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	return true, s.droppedValues(dropped)
+}
+
+// lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
+// an arrival can drive shedding, not just the dequeue path and the backstop
+// timer. The pending drops are returned so the caller can signal them after
+// releasing the parent mutex.
 func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.q.lockedRunTimerIf(s.loadsheddingAllowed)
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.lockedCount()))
-	return s.q.lockedTakePendingSignals()
-}
-
-func (s *Snake[T]) lockedGrant(req *Request[T]) {
-	s.holders[req] = struct{}{}
-	s.lockedObserveHolderCount()
-	s.q.lockedOnGrant(req)
-	now := s.clockFunc()
-	s.lockedAccrueDropping(now)
-	s.sojourn.Add(now - req.codelqEnqueuedAtNs)
-	req.signal(grantSentinel)
-}
-
-func (s *Snake[T]) lockedObserveHolderCount() {
-	s.holderCount.Add(int64(len(s.holders)))
+	return s.q.lockedTakePendingDrops()
 }
 
 func (s *Snake[T]) lockedObserveDropping() {
 	dropping := !s.q.lockedIsHealthy()
-	if dropping == (s.droppingSinceNs != 0) {
+	if dropping == (s.droppingSinceNs.Load() != 0) {
 		return
 	}
 	s.lockedAccrueDropping(s.clockFunc())
@@ -350,55 +190,32 @@ func (s *Snake[T]) lockedObserveDropping() {
 func (s *Snake[T]) lockedAccrueDropping(now int64) {
 	dropping := !s.q.lockedIsHealthy()
 	switch {
-	case dropping && s.droppingSinceNs == 0:
-		s.droppingSinceNs = now
-	case !dropping && s.droppingSinceNs != 0:
-		s.droppingNanos.Add(now - s.droppingSinceNs)
-		s.droppingSinceNs = 0
+	case dropping && s.droppingSinceNs.Load() == 0:
+		s.droppingSinceNs.Store(now)
+	case !dropping && s.droppingSinceNs.Load() != 0:
+		s.droppingNanos.Add(now - s.droppingSinceNs.Swap(0))
 	}
-}
-
-func (s *Snake[T]) lockedTryGrantOne() {
-	if !s.hasCapacity() {
-		return
-	}
-	next := s.q.lockedFirstWaiting()
-	if next != nil {
-		s.lockedGrant(next)
-	}
-}
-
-// runReleaseCBs executes release callbacks outside the mutex.
-func (s *Snake[T]) runReleaseCBs(excValue error) {
-	for _, cb := range s.cfg.ReleaseCBs {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("loadshed: panic in release callback for %s: %v", s.cfg.Name, r)
-				}
-			}()
-			cb(excValue)
-		}()
-	}
-}
-
-func (s *Snake[T]) priority(priority float64) float64 {
-	return priority
 }
 
 func (s *Snake[T]) loadsheddingAllowed() bool {
 	return s.cfg.LoadsheddingAllowed == nil || s.cfg.LoadsheddingAllowed()
 }
 
-func (s *Snake[T]) acquireError(priority float64) error {
-	s.shedCount.Add(1)
-	if s.shedByPriority != nil {
-		s.shedByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
+	if len(requests) == 0 {
+		return nil
 	}
-	if s.cfg.AcquireError != nil {
-		return s.cfg.AcquireError()
+	values := make([]T, len(requests))
+	for i, req := range requests {
+		s.shedCount.Add(1)
+		if s.shedByPriority != nil {
+			s.shedByPriority.Add([]string{shedPriorityLabel(req.priority)}, 1)
+		}
+		values[i] = req.value
+		var zero T
+		req.value = zero
 	}
-	return &DroppedRequestError{}
+	return values
 }
 
 // shedPriorityLabel maps a request's internal Snake priority to its shed-metric
@@ -415,22 +232,20 @@ func shedPriorityLabel(priority float64) string {
 }
 
 // ShedCount returns the cumulative number of requests this Snake has shed.
-// Context cancellations are not counted — only gate-driven drops.
+// Context cancellations are not counted — only queue-driven drops.
 func (s *Snake[T]) ShedCount() int64 {
 	return s.shedCount.Load()
 }
 
 func (s *Snake[T]) DroppingNanos() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	total := s.droppingNanos.Load()
-	if s.droppingSinceNs != 0 {
-		total += s.clockFunc() - s.droppingSinceNs
+	if since := s.droppingSinceNs.Load(); since != 0 {
+		total += s.clockFunc() - since
 	}
 	return total
 }
 
-// --- timer management (must be called with s.mu held) ---
+// --- timer management (must be called with the parent mutex held) ---
 
 func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
@@ -438,8 +253,9 @@ func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	}
 	s.dropTimerArmed = true
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
-	delay := time.Duration(delayNs) * time.Nanosecond
-	s.dropTimer = time.AfterFunc(delay, s.runDropTimer)
+	if s.cfg.DropTimerFired != nil {
+		s.dropTimer = time.AfterFunc(time.Duration(delayNs)*time.Nanosecond, s.cfg.DropTimerFired)
+	}
 }
 
 func (s *Snake[T]) lockedStopDropTimer() {
@@ -447,14 +263,14 @@ func (s *Snake[T]) lockedStopDropTimer() {
 		return
 	}
 	s.dropTimerArmed = false
-	s.dropTimer.Stop()
+	if s.dropTimer != nil {
+		s.dropTimer.Stop()
+	}
 }
 
-func (s *Snake[T]) runDropTimer() {
-	s.mu.Lock()
+func (s *Snake[T]) LockedDropTimerFired() []T {
 	if !s.dropTimerArmed {
-		s.mu.Unlock()
-		return
+		return nil
 	}
 	s.dropTimerArmed = false
 	// Record how late this fire is versus when it was scheduled. Under CPU
@@ -470,11 +286,6 @@ func (s *Snake[T]) runDropTimer() {
 	s.dropCount.Add(int64(s.q.lockedCount()))
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
-	pending := s.q.lockedTakePendingSignals()
-	s.mu.Unlock()
-	// Deliver drop rejections after releasing s.mu so the goready storm does not
-	// serialize grants/arrivals behind the batch.
-	for _, r := range pending {
-		r.sendSignal()
-	}
+	dropped := s.q.lockedTakePendingDrops()
+	return s.droppedValues(dropped)
 }

@@ -24,24 +24,21 @@ import (
 
 type (
 	// Request represents an entry in the CoDel queue. Named a 'request' since
-	// it may be rejected(dropped) or granted. Each request owns a signalChan
-	// that receives nil on grant or a *DroppedRequestError on drop. The
-	// signaledValue allows non-consuming inspection of signal state (used by
-	// lockedPeek to avoid channel pop/push-back): nil means unsignaled, and any
-	// non-nil value means the request has completed.
+	// it may be dropped or dequeued. signaledValue allows the queue to inspect
+	// terminal state without removing anything from the queue.
 	Request[T any] struct {
 		priority           float64
 		codelqEnqueuedAtNs int64
-		signalChan         chan error
-		signaledValue      error
 		codelqElem         *list.Element
 		valveID            string
+		signaledValue      error
+		value              T
 
 		// bucketElem locates this request in the droppableIndex while it is a
 		// droppable queue entry: it is the request's node in its priority
 		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
 		// node lives in (0..maxPriorityBucket, or overflowBucket). bucketElem is
-		// nil when the request is not indexed (undroppable, granted, or removed).
+		// nil when the request is not indexed (undroppable, dequeued, or removed).
 		bucketElem *list.Element
 		bucketIdx  int
 	}
@@ -49,16 +46,15 @@ type (
 
 // PriorityUndroppable is a sentinel priority indicating a request that must
 // never be dropped by CoDel. We use negative infinity so it's distinguishable
-// from any real priority value. Callers may pass it to Acquire to force a
-// request undroppable (e.g. health-check queries against system schemas).
+// from any real priority value (e.g. health-check queries against system
+// schemas).
 var PriorityUndroppable = math.Inf(-1)
 
-var grantSentinel = errors.New("granted") //nolint:staticcheck // not an error; sentinel for non-consuming signal state inspection
+var grantSentinel = errors.New("granted") //nolint:staticcheck // sentinel for request state
 
 func newRequest[T any](priority float64) *Request[T] {
 	return &Request[T]{
-		priority:   priority,
-		signalChan: make(chan error, 1),
+		priority: priority,
 	}
 }
 
@@ -66,33 +62,9 @@ func (r *Request[T]) isDroppable() bool {
 	return r.priority != PriorityUndroppable
 }
 
-// Pass grantSentinel on grant and *DroppedRequestError on drop. Must be called
-// exactly once per request. signal marks and sends in one step; use it only
-// where the caller holds no lock across the send, or the send is single-shot
-// (grant, cancel). Batch paths mark under the lock and send after (see
-// markSignaled / sendSignal).
 func (r *Request[T]) signal(val error) {
-	r.markSignaled(val)
-	r.sendSignal()
-}
-
-// markSignaled records the request's terminal outcome without touching the
-// channel. It is safe (and intended) to call under the queue mutex: all
-// under-lock readers key off signaledValue, so it must be set synchronously.
-// Returns true if this call performed the nil->set transition, so the caller can
-// enqueue the deferred send exactly once. Panics on a second distinct signal.
-func (r *Request[T]) markSignaled(val error) bool {
 	if r.signaledValue != nil {
 		panic("loadshed: signal called more than once")
 	}
 	r.signaledValue = val
-	return true
-}
-
-// sendSignal delivers the previously-marked value on the request's channel. It
-// performs the goready of the parked Acquire goroutine, so batch drop paths call
-// it AFTER releasing the queue mutex to keep the wakeup storm out of the critical
-// section. Must be called exactly once, after markSignaled.
-func (r *Request[T]) sendSignal() {
-	r.signalChan <- r.signaledValue
 }
