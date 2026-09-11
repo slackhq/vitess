@@ -43,6 +43,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -87,6 +88,14 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+
+	// errLoadShed and errDMLLoadShed are pre-built so that a load-shed rejection
+	// — an expected, high-volume outcome under overload — does not call
+	// vterrors.Errorf per shed, which captures a stack trace (runtime.Callers)
+	// and allocates. The underlying pool error is a constant, so no
+	// per-request detail is lost.
+	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
+	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -138,6 +147,10 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		var errCode string
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
+
+		// Split timings by result code so successful-request latency (errCode "OK")
+		// can be measured apart from fast-failing shed rejections (RESOURCE_EXHAUSTED).
+		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {
 			qre.tsv.qe.AddStats(qre.plan, tableName, qre.options.GetWorkloadName(), qre.targetTabletType, 1, duration, mysqlTime, 0, 0, 1, errCode)
@@ -816,7 +829,40 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+
+	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority))
+	// Queries against a configured schema (e.g. performance_schema health
+	// checks) are marked undroppable instead, so they are never shed.
+	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
+		priority = loadshed.PriorityUndroppable
+	}
+
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority)
+	if err != nil {
+		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+			return nil, errLoadShed
+		}
+		return nil, err
+	}
+	return conn, nil
+}
+
+// matchesUndroppableSchema reports whether any of the query's schema qualifiers
+// is in the configured undroppable-schema allowlist (case-insensitive). The
+// common case is queryQualifiers empty (unqualified tables), which returns
+// immediately without scanning the allowlist.
+func matchesUndroppableSchema(queryQualifiers, allowlist []string) bool {
+	if len(queryQualifiers) == 0 || len(allowlist) == 0 {
+		return false
+	}
+	for _, q := range queryQualifiers {
+		for _, a := range allowlist {
+			if strings.EqualFold(q, a) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {

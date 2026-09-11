@@ -178,6 +178,8 @@ func (m *ExecuteOptions) CloneVT() *ExecuteOptions {
 	r.Priority = m.Priority
 	r.FetchLastInsertId = m.FetchLastInsertId
 	r.InDmlExecution = m.InDmlExecution
+	r.NoResult = m.NoResult
+	r.LoadshedValveId = m.LoadshedValveId
 	if rhs := m.TransactionAccessMode; rhs != nil {
 		tmpContainer := make([]ExecuteOptions_TransactionAccessMode, len(rhs))
 		copy(tmpContainer, rhs)
@@ -187,6 +189,10 @@ func (m *ExecuteOptions) CloneVT() *ExecuteOptions {
 		r.Timeout = m.Timeout.(interface {
 			CloneVT() isExecuteOptions_Timeout
 		}).CloneVT()
+	}
+	if rhs := m.TransactionTimeout; rhs != nil {
+		tmpVal := *rhs
+		r.TransactionTimeout = &tmpVal
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -1895,6 +1901,34 @@ func (m *ExecuteOptions) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 			return 0, err
 		}
 		i -= size
+	}
+	if len(m.LoadshedValveId) > 0 {
+		i -= len(m.LoadshedValveId)
+		copy(dAtA[i:], m.LoadshedValveId)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.LoadshedValveId)))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xb2
+	}
+	if m.NoResult {
+		i--
+		if m.NoResult {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa8
+	}
+	if m.TransactionTimeout != nil {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(*m.TransactionTimeout))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xa0
 	}
 	if m.InDmlExecution {
 		i--
@@ -6212,6 +6246,16 @@ func (m *ExecuteOptions) SizeVT() (n int) {
 	if m.InDmlExecution {
 		n += 3
 	}
+	if m.TransactionTimeout != nil {
+		n += 2 + protohelpers.SizeOfVarint(uint64(*m.TransactionTimeout))
+	}
+	if m.NoResult {
+		n += 3
+	}
+	l = len(m.LoadshedValveId)
+	if l > 0 {
+		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -9000,6 +9044,78 @@ func (m *ExecuteOptions) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.InDmlExecution = bool(v != 0)
+		case 20:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransactionTimeout", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.TransactionTimeout = &v
+		case 21:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NoResult", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.NoResult = bool(v != 0)
+		case 22:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LoadshedValveId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LoadshedValveId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

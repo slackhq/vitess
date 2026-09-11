@@ -135,7 +135,7 @@ func TestStress(t *testing.T) {
 		wg.Go(func() error {
 			ctx := context.Background()
 			for !stop.Load() {
-				conn, err := pool.get(ctx)
+				conn, err := pool.get(ctx, "", 0)
 				if err != nil {
 					return err
 				}

@@ -178,6 +178,12 @@ type Plan struct {
 
 	// NeedsReservedConn indicates at a reserved connection is needed to execute this plan
 	NeedsReservedConn bool
+
+	// SchemaQualifiers holds the distinct, lower-cased schema qualifiers of the
+	// tables referenced by the query (e.g. "performance_schema"). Empty for the
+	// common case of unqualified tables. Computed once at plan-build time and
+	// cached on the plan, so the per-request load-shedding path only reads it.
+	SchemaQualifiers []string
 }
 
 // TableName returns the table name for the plan.
@@ -261,7 +267,32 @@ func Build(env *vtenv.Environment, statement sqlparser.Statement, tables map[str
 	}
 	plan.AllTables = lookupAllTables(statement, tables)
 	plan.Permissions = BuildPermissions(statement)
+	plan.SchemaQualifiers = extractSchemaQualifiers(statement)
 	return plan, nil
+}
+
+// extractSchemaQualifiers returns the distinct schema qualifiers of the tables
+// referenced by the statement (e.g. "performance_schema"). Tables without an
+// explicit schema qualifier — the common case — contribute nothing, so this
+// returns nil for typical data-plane queries. Used to let the load shedder mark
+// queries against configured schemas (e.g. monitoring against performance_schema)
+// as undroppable. Dedup is case-insensitive; the stored form preserves the
+// original case and is compared case-insensitively by the caller.
+func extractSchemaQualifiers(statement sqlparser.Statement) []string {
+	var qualifiers []string
+	seen := make(map[string]struct{})
+	_ = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+		if tn, ok := node.(sqlparser.TableName); ok && tn.Qualifier.NotEmpty() {
+			q := tn.Qualifier.String()
+			key := strings.ToLower(q)
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				qualifiers = append(qualifiers, q)
+			}
+		}
+		return true, nil
+	}, statement)
+	return qualifiers
 }
 
 // BuildStreaming builds a streaming plan based on the schema.

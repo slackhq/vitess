@@ -17,6 +17,8 @@ limitations under the License.
 package tabletenv
 
 import (
+	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -337,6 +339,87 @@ func TestFlags(t *testing.T) {
 	Init()
 	want.SanitizeLogMessages = true
 	assert.Equal(t, want, currentConfig)
+}
+
+func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
+	cfg := NewDefaultConfig()
+
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
+	assert.Equal(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+	assert.Equal(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
+	assert.Equal(t, cfg.LoadshedOltpRead.IntervalRatio, cfg.LoadshedTx.IntervalRatio)
+	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemas)
+
+	cfg.LoadshedOltpRead.Target = time.Second
+	cfg.LoadshedOltpRead.InitialTarget = 2 * time.Second
+	cfg.LoadshedOltpRead.Mode = LoadshedModeOff
+
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabled, cfg.LoadshedTx.Mode)
+	assert.NotEqual(t, cfg.LoadshedOltpRead.Target, cfg.LoadshedTx.Target)
+	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTarget, cfg.LoadshedTx.InitialTarget)
+}
+
+func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
+	cfg := NewDefaultConfig()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := range 100 {
+			cfg.LoadshedOltpRead.SetInitialTarget(time.Duration(i))
+			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			cfg.Clone()
+			_, err := json.Marshal(cfg)
+			assert.NoError(t, err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
+	original := currentConfig
+	defer func() { currentConfig = original }()
+
+	currentConfig = *NewDefaultConfig()
+	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
+	registerTabletEnvFlags(fs)
+
+	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "off"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
+	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
+	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
+
+	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedOltpRead.Mode)
+	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
+	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
+	assert.Equal(t, LoadshedModeEnabled, currentConfig.LoadshedTx.Mode)
+	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
+	assert.Equal(t, 23*time.Millisecond, currentConfig.LoadshedTx.InitialTarget)
+}
+
+func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
+	cfg := NewDefaultConfig()
+
+	assert.Zero(t, cfg.LoadshedOltpRead.InitialTarget)
+	assert.Zero(t, cfg.LoadshedOltpRead.InitialTargetValue())
+	assert.Equal(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
+
+	cfg.LoadshedOltpRead.SetTarget(7 * time.Millisecond)
+	assert.Equal(t, 7*time.Millisecond, cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
+
+	cfg.LoadshedOltpRead.SetInitialTarget(17 * time.Millisecond)
+	assert.Equal(t, 17*time.Millisecond, cfg.LoadshedOltpRead.InitialTargetValue())
+	assert.Equal(t, 17*time.Millisecond, cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {
