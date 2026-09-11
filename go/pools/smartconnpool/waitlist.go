@@ -156,8 +156,7 @@ func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {
 }
 
 func (wl *waitlist[C]) maybeStarvingCount() int {
-	// TODO: Remove the age/starvation code since Snake guarantees prompt grant-or-shed.
-	return 0
+	return wl.snake.Len()
 }
 
 // tryReturnConn tries handing over a connection to one of the waiters in the pool.

@@ -152,7 +152,7 @@ func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-bar.conn)
 	assert.Equal(t, uint32(1), foo.age)
-	assert.Equal(t, 0, wl.maybeStarvingCount())
+	assert.Equal(t, 1, wl.maybeStarvingCount(), "foo is still waiting")
 
 	foo.age = 9
 	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
