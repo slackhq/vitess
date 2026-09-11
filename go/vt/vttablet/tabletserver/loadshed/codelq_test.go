@@ -366,7 +366,7 @@ func TestCoDelQueue_InitialTargetOnlyAppliesAtCountOne(t *testing.T) {
 			q.dropping = true
 			clock.now = 100_000_000
 
-			q.lockedOnGrant(r)
+			q.lockedDequeue(r)
 
 			assert.Equal(t, tc.wantDropping, q.dropping)
 		})
@@ -406,7 +406,7 @@ func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	})
 
@@ -435,14 +435,14 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
-		q.lockedPopElem(elem, &DroppedRequestError{})
+		q.lockedRemove(elem.Value.(*testRequest))
 		return true
 	})
 	assert.Equal(t, 2, q.count)
 	assert.Equal(t, int64(10), q.lockedTargetNs())
 	assert.Equal(t, int64(1_050), q.dropNextNs)
 
-	q.lockedOnGrant(remaining)
+	q.lockedDequeue(remaining)
 	clock.now = q.dropNextNs
 	rec.reset()
 	q.lockedRunTimer(func() bool { return false })

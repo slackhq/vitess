@@ -28,6 +28,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -42,6 +43,9 @@ var (
 
 	// ErrPoolWaiterCapReached is returned when the waiter cap has been reached
 	ErrPoolWaiterCapReached = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool waiter cap reached")
+
+	// ErrPoolLoadShed is returned when the connection pool sheds a waiter.
+	ErrPoolLoadShed = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool load shed")
 
 	// PoolCloseTimeout is how long to wait for all connections to be returned to the pool during close
 	PoolCloseTimeout = 10 * time.Second
@@ -106,6 +110,8 @@ type Config[C Connection] struct {
 	RefreshInterval time.Duration
 	MaxWaiters      uint
 	LogWait         func(time.Time)
+	PoolName        string
+	PoolConfig      PoolConfig
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -179,7 +185,7 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters = config.MaxWaiters
-	pool.wait.init()
+	pool.wait.init(config.PoolName, config.PoolConfig)
 	pool.wait.onWait = func() {
 		pool.Metrics.waitCount.Add(1)
 	}
@@ -406,6 +412,10 @@ func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle
 func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C], error) {
+	return pool.GetWithPriority(ctx, setting, "", loadshed.PriorityUndroppable)
+}
+
+func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, valveID string, priority float64) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
@@ -413,9 +423,9 @@ func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C],
 		return nil, ErrConnPoolClosed
 	}
 	if setting == nil {
-		return pool.get(ctx)
+		return pool.get(ctx, valveID, priority)
 	}
-	return pool.getWithSetting(ctx, setting)
+	return pool.getWithSetting(ctx, setting, valveID, priority)
 }
 
 // put returns a connection to the pool. This is a private API.
@@ -603,7 +613,7 @@ func (pool *ConnPool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 }
 
 // get returns a pooled connection with no Setting applied
-func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
+func (pool *ConnPool[C]) get(ctx context.Context, valveID string, priority float64) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// best case: if there's a connection in the clean stack, return it right away
@@ -631,9 +641,9 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, pool.config.maxWaiters)
+		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, pool.config.maxWaiters, valveID, priority)
 		if err != nil {
-			if errors.Is(err, ErrPoolWaiterCapReached) {
+			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
 			}
 			return nil, ErrTimeout
@@ -665,7 +675,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 }
 
 // getWithSetting returns a connection from the pool with the given Setting applied
-func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (*Pooled[C], error) {
+func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, valveID string, priority float64) (*Pooled[C], error) {
 	pool.Metrics.getWithSettingsCount.Add(1)
 
 	var err error
@@ -697,9 +707,9 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, pool.config.maxWaiters)
+		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, pool.config.maxWaiters, valveID, priority)
 		if err != nil {
-			if errors.Is(err, ErrPoolWaiterCapReached) {
+			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
 			}
 			return nil, ErrTimeout
@@ -904,6 +914,7 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	}
 
 	pool.Name = name
+	pool.wait.registerStats(stats, name)
 
 	stats.NewGaugeFunc(name+"Capacity", "Tablet server conn pool capacity", func() int64 {
 		return pool.Capacity()

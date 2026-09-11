@@ -77,9 +77,6 @@ func TestDebugEnvLoadshedCoDelParams(t *testing.T) {
 	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
 	assert.NotEqual(t, tsv.Config().LoadshedOltpRead.IntervalRatioValue(), tsv.Config().LoadshedTx.IntervalRatioValue())
-
-	assert.Equal(t, (17 * time.Millisecond * 20).Nanoseconds(), tsv.qe.snake.Stats().CurrentInterval)
-	assert.Equal(t, (23 * time.Millisecond * 15).Nanoseconds(), tsv.te.txPool.snake.Stats().CurrentInterval)
 }
 
 func TestDebugEnvLoadshedInitialTargetShowsConfiguredFallback(t *testing.T) {
