@@ -1,0 +1,16 @@
+{
+  "compare": "easing",
+  "easings": [2, 2.5, 3],
+  "workloads": [
+    {
+      "label": "linear_ramp__0_to_80x",
+      "profile": "linear_ramp",
+      "capacity": 10,
+      "peak": 80,
+      "duration_ms": 20000,
+      "work_ms": 2,
+      "target_ms": 20,
+      "interval_ms": 400
+    }
+  ]
+}

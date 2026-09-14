@@ -1,0 +1,118 @@
+/*
+Copyright 2026 The Vitess Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package loadshed
+
+import (
+	"time"
+
+	"vitess.io/vitess/go/stats"
+)
+
+// statsExporter is the subset of servenv.Exporter that PublishStats needs.
+// Declaring it here (rather than importing the concrete Exporter) keeps the
+// loadshed package free of a servenv dependency and lets tests pass a
+// throwaway exporter.
+type statsExporter interface {
+	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
+	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
+	NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels
+}
+
+var loadshedBucketCutoffs = durationNanos(
+	500*time.Nanosecond,
+	time.Microsecond,
+	10*time.Microsecond,
+	50*time.Microsecond,
+	200*time.Microsecond,
+	time.Millisecond,
+	5*time.Millisecond,
+	20*time.Millisecond,
+	100*time.Millisecond,
+	500*time.Millisecond,
+)
+
+var intervalBucketCutoffs = loadshedBucketCutoffs
+
+var lengthBucketCutoffs = []int64{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
+
+func durationNanos(ds ...time.Duration) []int64 {
+	out := make([]int64, len(ds))
+	for i, d := range ds {
+		out[i] = d.Nanoseconds()
+	}
+	return out
+}
+
+// PublishStats registers Snake's counters and distribution histograms, each
+// name prefixed with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once
+// per Snake instance from engine init — never from NewSnake, which is also
+// exercised by tests and the benchmark harness where duplicate registration
+// would panic.
+//
+// Each Snake gets its own prefixed metric names rather than a shared "pool"
+// label: both the oltp-read and dml snakes register through the same tablet
+// Exporter, whose single label dimension is already the tablet name, so a
+// shared labeled metric would collide on that one key.
+func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
+	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
+		return s.ShedCount()
+	})
+	s.shedByPriority = exporter.NewCountersWithMultiLabels(prefix+"ShedByPriority", "Cumulative requests shed by the Snake load shedder, labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); sum equals ShedCount", []string{"priority"})
+	s.acquireByPriority = exporter.NewCountersWithMultiLabels(prefix+"AcquireByPriority", "Cumulative Acquire attempts (offered load) labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); ShedByPriority/AcquireByPriority is the per-priority shed rate", []string{"priority"})
+	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
+		return s.DroppingNanos()
+	})
+	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative fixed-20x initial-target shadow bursts censored because shadow mode ended before an outcome was known", func() int64 {
+		return s.initialTargetShadowCensored.Load()
+	})
+	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake queue wait before dequeue, in nanoseconds", loadshedBucketCutoffs)
+	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
+	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)
+	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control interval in nanoseconds, sampled at each timer fire", intervalBucketCutoffs)
+	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop count (control-law state), sampled at each timer fire", lengthBucketCutoffs)
+	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of how late the Snake CoDel drop timer fired versus its scheduled time, in nanoseconds; high values mean shedding decisions are delayed under CPU contention", loadshedBucketCutoffs)
+	s.valveDepth = exporter.NewHistogram(prefix+"ValveDepthObserved", "Distribution of Snake self-contention valve depth (requests stacked behind one valve's droppable representative), sampled at each valve-keyed enqueue", lengthBucketCutoffs)
+
+	// InitialTargetShadow20xNs is populated only in shadow mode. A burst starts
+	// when the waiting droppable backlog transitions
+	// from 0 to 1 and ends only after it drains. This is independent of the live
+	// CoDel target, interval, and count: every fresh burst is modeled as starting
+	// fully relaxed.
+	//
+	// Each candidate target is evaluated over a fixed interval of target * 20.
+	// A candidate hits if, strictly before that interval ends, a granted request
+	// has sojourn < target or the droppable backlog drains. The histogram records
+	// the smallest candidate that hit; +Inf means all candidates missed. The
+	// candidates are 5, 10, 20, 40, 80, 160, 320, and 640ms, with corresponding
+	// intervals of 100, 200, 400, 800, 1600, 3200, 6400, and 12800ms.
+	//
+	// Prometheus exports stats.Histogram buckets cumulatively. For the OLTP-read
+	// pool, these queries backtest the 20ms target over one hour. Replace
+	// "20000000" with another candidate in nanoseconds, or snake_oltp_read with
+	// snake_dml:
+	//
+	//   completed = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_ns_count[1h]))
+	//   hits      = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_ns_bucket{le="20000000"}[1h]))
+	//   misses    = completed - hits
+	//   hit_ratio = hits / clamp_min(completed, 1)
+	//   censored  = sum(increase(vttablet_snake_oltp_read_initial_target_shadow20x_censored_count[1h]))
+	//
+	// Censored bursts are excluded from completed. A valid no-drop shadow run
+	// has censored == 0. This histogram encodes binary candidate
+	// outcomes, not sampled latency: do not use _sum or histogram_quantile().
+	s.initialTargetShadowRequired = exporter.NewHistogram(prefix+"InitialTargetShadow20xNs", "Smallest candidate initial target that hit during a completed no-drop shadow burst using fixed target*20 intervals, in nanoseconds; +Inf means every candidate missed", initialTargetShadowCandidates)
+}

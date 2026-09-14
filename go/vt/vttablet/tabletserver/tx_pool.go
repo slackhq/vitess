@@ -68,7 +68,6 @@ type (
 		scp     *StatefulConnectionPool
 		ticks   *timer.Timer
 		limiter txlimiter.TxLimiter
-
 		logMu   sync.Mutex
 		lastLog time.Time
 		txStats *servenv.TimingsWrapper
@@ -249,6 +248,7 @@ func (tp *TxPool) Begin(ctx context.Context, options *querypb.ExecuteOptions, re
 		if !tp.limiter.Get(immediateCaller, effectiveCaller) {
 			return nil, "", "", vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "per-user transaction pool connection limit exceeded")
 		}
+
 		conn, err = tp.createConn(ctx, options, setting)
 		defer func() {
 			if err != nil {
