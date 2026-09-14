@@ -184,6 +184,26 @@ func (s *Snake[T]) Len() int {
 	return int(s.length.Load())
 }
 
+// CountMatching counts active requests matching the predicate. The caller must
+// hold the mutex protecting the Snake.
+func (s *Snake[T]) CountMatching(match func(T) bool) int {
+	count := 0
+	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
+		req := elem.Value.(*Request[T])
+		if req.signaledValue == nil && match(req.value) {
+			count++
+		}
+	}
+	for _, pending := range s.q.valves {
+		for _, req := range pending {
+			if req != nil && req.signaledValue == nil && match(req.value) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.signaledValue != nil {
 		return false, nil

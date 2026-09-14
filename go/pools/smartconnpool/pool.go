@@ -235,6 +235,10 @@ func (pool *ConnPool[C]) open() {
 	// The expire worker takes care of removing from the waiter list any clients whose
 	// context has been cancelled.
 	pool.runWorker(closeChan, 100*time.Millisecond, func(_ time.Time) bool {
+		if !pool.hasIdleConnection() {
+			return true
+		}
+
 		maybeStarving := pool.wait.maybeStarvingCount()
 
 		// Do not allow connections to starve; if there's waiters in the queue
@@ -534,6 +538,18 @@ func (pool *ConnPool[C]) tryReturnAnyConn() bool {
 		if conn := pool.pop(&pool.settings[u]); conn != nil {
 			conn.timeUsed.update()
 			return pool.tryReturnConn(conn)
+		}
+	}
+	return false
+}
+
+func (pool *ConnPool[C]) hasIdleConnection() bool {
+	if pool.clean.Peek() != nil {
+		return true
+	}
+	for i := range pool.settings {
+		if pool.settings[i].Peek() != nil {
+			return true
 		}
 	}
 	return false

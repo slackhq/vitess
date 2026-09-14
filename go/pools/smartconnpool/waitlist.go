@@ -160,7 +160,15 @@ func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {
 }
 
 func (wl *waitlist[C]) maybeStarvingCount() int {
-	return wl.snake.Len()
+	if wl.snake.Len() == 0 {
+		return 0
+	}
+
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+	return wl.snake.CountMatching(func(waiter *waiter[C]) bool {
+		return waiter.age == 0
+	})
 }
 
 // tryReturnConn tries handing over a connection to one of the waiters in the pool.

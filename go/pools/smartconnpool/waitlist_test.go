@@ -152,7 +152,7 @@ func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-bar.conn)
 	assert.Equal(t, uint32(1), foo.age)
-	assert.Equal(t, 1, wl.maybeStarvingCount(), "foo is still waiting")
+	assert.Zero(t, wl.maybeStarvingCount(), "foo has already aged")
 
 	foo.age = 9
 	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
@@ -160,6 +160,18 @@ func TestWaitlistPreservesSettingAffinityAndAging(t *testing.T) {
 
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-foo.conn)
+}
+
+func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{})
+
+	aged := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1}
+	wl.snake.Enqueue(aged, "", loadshed.PriorityUndroppable)
+	newWaiter := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)}
+	wl.snake.Enqueue(newWaiter, "", loadshed.PriorityUndroppable)
+
+	assert.Equal(t, 1, wl.maybeStarvingCount())
 }
 
 func TestWaitlistWaiterCapDryRun(t *testing.T) {
