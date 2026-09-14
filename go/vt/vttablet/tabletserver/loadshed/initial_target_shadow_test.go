@@ -139,8 +139,9 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
-	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xNs"]
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
+	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
 
 	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
@@ -152,7 +153,8 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	require.Empty(t, dropped)
 
 	assert.Equal(t, int64(1), histogram.Count())
-	assert.Equal(t, int64(1), histogram.Counts()["10000000"])
+	assert.Equal(t, int64(1), histogram.Counts()["10"])
+	assert.Equal(t, int64(10), histogram.Total())
 	assert.Equal(t, int64(0), s.ShedCount())
 }
 
@@ -341,7 +343,7 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
-	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xNs"]
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
 	_, dropped := s.Enqueue(struct{}{}, "", 0)
@@ -369,7 +371,7 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
-	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xNs"]
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
 	req, dropped := s.Enqueue(struct{}{}, "", 0)
@@ -382,5 +384,6 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	require.Empty(t, dropped)
 
 	assert.Equal(t, int64(1), histogram.Count())
-	assert.Equal(t, int64(1), histogram.Counts()["5000000"])
+	assert.Equal(t, int64(1), histogram.Counts()["5"])
+	assert.Equal(t, int64(5), histogram.Total())
 }

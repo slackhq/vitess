@@ -108,7 +108,7 @@ func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
 		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 
-		initialTargetShadowRequired: stats.NewHistogram("", "", initialTargetShadowCandidates),
+		initialTargetShadowRequired: stats.NewHistogram("", "", initialTargetShadowMetricCutoffsMs),
 	}
 	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer, s.mode)
 	return s
@@ -398,7 +398,7 @@ func (s *Snake[T]) lockedObserveInitialTargetShadowAt(nowNs int64, sojournNs *in
 		s.q.lockedDroppableLen() == 0,
 	)
 	if outcome.completed {
-		s.initialTargetShadowRequired.Add(outcome.requiredTargetNs)
+		s.initialTargetShadowRequired.Add(initialTargetShadowMetricValueMs(outcome.requiredTargetNs))
 		s.lockedStopShadowTimer()
 	}
 }

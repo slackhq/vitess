@@ -32,10 +32,22 @@ var initialTargetShadowCandidates = durationNanos(
 	640*time.Millisecond,
 )
 
+var initialTargetShadowMetricCutoffsMs = func() []int64 {
+	cutoffs := make([]int64, len(initialTargetShadowCandidates))
+	for i, candidateNs := range initialTargetShadowCandidates {
+		cutoffs[i] = candidateNs / int64(time.Millisecond)
+	}
+	return cutoffs
+}()
+
 const initialTargetShadowIntervalRatio = int64(20)
 
 var initialTargetShadowMissNs = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] + 1
 var initialTargetShadowMaxIntervalNs = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] * initialTargetShadowIntervalRatio
+
+func initialTargetShadowMetricValueMs(requiredTargetNs int64) int64 {
+	return (requiredTargetNs + int64(time.Millisecond) - 1) / int64(time.Millisecond)
+}
 
 type (
 	initialTargetShadowOutcome struct {
