@@ -169,7 +169,7 @@ var (
 		"vreplication_vtctldclient_vdiff2_movetables_tz",
 		"vtgate_transaction",
 	}
-	clusterRequiringMinio = []string{
+	clusterRequiringMicroCeph = []string{
 		"21",
 	}
 )
@@ -192,7 +192,7 @@ type clusterTest struct {
 	EnableBinlogTransactionCompression bool
 	EnablePartialJSON                  bool
 	PartialKeyspace                    bool
-	NeedsMinio                         bool
+	NeedsMicroCeph                     bool
 }
 
 type vitessTesterTest struct {
@@ -311,10 +311,10 @@ func generateClusterWorkflows(list []string, tpl string) {
 					break
 				}
 			}
-			minioClusters := canonnizeList(clusterRequiringMinio)
-			for _, minioCluster := range minioClusters {
-				if minioCluster == cluster {
-					test.NeedsMinio = true
+			microCephClusters := canonnizeList(clusterRequiringMicroCeph)
+			for _, microCephCluster := range microCephClusters {
+				if microCephCluster == cluster {
+					test.NeedsMicroCeph = true
 					break
 				}
 			}

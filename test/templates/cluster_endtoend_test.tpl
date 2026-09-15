@@ -148,12 +148,11 @@ jobs:
 
         go mod download
 
-    {{if .NeedsMinio }}
-    - name: Install Minio
-      run: |
-        wget https://dl.min.io/server/minio/release/linux-amd64/minio
-        chmod +x minio
-        mv minio /usr/local/bin
+    {{if .NeedsMicroCeph }}
+    - name: Install MicroCeph
+      if: steps.changes.outputs.end_to_end == 'true'
+      timeout-minutes: 10
+      uses: ./.github/actions/setup-microceph
     {{end}}
 
     {{if .MakeTools}}
