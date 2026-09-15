@@ -17,9 +17,8 @@ limitations under the License.
 package consultopo
 
 import (
-	"path"
-
 	"context"
+	"path"
 
 	"github.com/hashicorp/consul/api"
 
@@ -41,7 +40,7 @@ func (s *Server) Create(ctx context.Context, filePath string, contents []byte) (
 			Index: 0,
 		},
 	}
-	ok, resp, _, err := s.kv.Txn(ops, nil)
+	ok, resp, _, err := s.kv.Txn(ops, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		// Communication error.
 		return nil, err
@@ -70,7 +69,7 @@ func (s *Server) Update(ctx context.Context, filePath string, contents []byte, v
 		ops[0].Verb = api.KVCAS
 		ops[0].Index = uint64(version.(ConsulVersion))
 	}
-	ok, resp, _, err := s.kv.Txn(ops, nil)
+	ok, resp, _, err := s.kv.Txn(ops, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		// Communication error.
 		return nil, err
@@ -87,7 +86,7 @@ func (s *Server) Update(ctx context.Context, filePath string, contents []byte, v
 func (s *Server) Get(ctx context.Context, filePath string) ([]byte, topo.Version, error) {
 	nodePath := path.Join(s.root, filePath)
 
-	pair, _, err := s.kv.Get(nodePath, nil)
+	pair, _, err := s.kv.Get(nodePath, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,7 +106,7 @@ func (s *Server) GetVersion(ctx context.Context, filePath string, version int64)
 func (s *Server) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, error) {
 	nodePathPrefix := path.Join(s.root, filePathPrefix)
 
-	pairs, _, err := s.kv.List(nodePathPrefix, nil)
+	pairs, _, err := s.kv.List(nodePathPrefix, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		return []topo.KVInfo{}, err
 	}
@@ -150,7 +149,7 @@ func (s *Server) Delete(ctx context.Context, filePath string, version topo.Versi
 		ops[1].Verb = api.KVDeleteCAS
 		ops[1].Index = uint64(version.(ConsulVersion))
 	}
-	ok, resp, _, err := s.kv.Txn(ops, nil)
+	ok, resp, _, err := s.kv.Txn(ops, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		// Communication error.
 		return err
