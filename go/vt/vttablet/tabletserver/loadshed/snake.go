@@ -204,6 +204,31 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
+// Drain removes and returns every queued value without shedding it. The caller
+// must hold the mutex protecting the Snake.
+func (s *Snake[T]) Drain() []T {
+	s.lockedObserveInitialTargetShadow(nil)
+	s.q.lockedRunTimerIf(false)
+
+	values := make([]T, 0, s.Len())
+	for {
+		req := s.q.lockedPeek()
+		if req == nil {
+			break
+		}
+		s.q.lockedDequeue(req)
+		req.signal(grantSentinel)
+		s.length.Add(-1)
+		values = append(values, req.value)
+		var zero T
+		req.value = zero
+	}
+
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	return values
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.signaledValue != nil {
 		return false, nil
