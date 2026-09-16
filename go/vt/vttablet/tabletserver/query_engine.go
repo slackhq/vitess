@@ -171,6 +171,7 @@ type QueryEngine struct {
 	consolidatorResponseMem      *semaphore.Weighted
 	consolidatorResponseMemLimit int64
 	consolidatorResponseMemInUse atomic.Int64
+	consolidatorResponseMemMax   atomic.Int64
 	// txSerializer protects vttablet from applications which try to concurrently
 	// UPDATE (or DELETE) a "hot" row (or range of rows).
 	// Such queries would be serialized by MySQL anyway. This serializer prevents
@@ -290,6 +291,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	env.Exporter().NewGaugeFunc("StreamBufferSize", "Query engine stream buffer size", qe.streamBufferSize.Load)
 	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryLimit", "Soft byte limit on in-flight consolidated query responses (0 = unlimited)", qe.ConsolidatorResponseMemoryLimit)
 	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryInUse", "Bytes currently reserved for in-flight consolidated query responses", qe.consolidatorResponseMemInUse.Load)
+	env.Exporter().NewGaugeFunc("ConsolidatorQueryResponseMemoryMax", "Maximum bytes reserved for in-flight consolidated query responses during the sample period", qe.sampleConsolidatorResponseMemoryMax)
 	qe.consolidatorResponseMemWaits = env.Exporter().NewCounter("ConsolidatorQueryResponseMemoryWaits", "Number of consolidated query responses that blocked on the response memory budget")
 	env.Exporter().NewCounterFunc("TableACLExemptCount", "Query engine table ACL exempt count", qe.tableaclExemptCount.Load)
 
@@ -368,6 +370,21 @@ func (qe *QueryEngine) ConsolidatorResponseMemoryLimit() int64 {
 	return qe.consolidatorResponseMemLimit
 }
 
+func (qe *QueryEngine) sampleConsolidatorResponseMemoryMax() int64 {
+	maxInUse := qe.consolidatorResponseMemMax.Swap(0)
+	qe.recordConsolidatorResponseMemoryMax(qe.consolidatorResponseMemInUse.Load())
+	return maxInUse
+}
+
+func (qe *QueryEngine) recordConsolidatorResponseMemoryMax(inUse int64) {
+	for {
+		maxInUse := qe.consolidatorResponseMemMax.Load()
+		if inUse <= maxInUse || qe.consolidatorResponseMemMax.CompareAndSwap(maxInUse, inUse) {
+			return
+		}
+	}
+}
+
 // AcquireConsolidatedResponseMemory blocks until size bytes are available in the
 // consolidated-response budget, pacing the fan-out of large shared results, and
 // returns a release func to call once serialization completes. The weight is
@@ -395,7 +412,8 @@ func (qe *QueryEngine) AcquireConsolidatedResponseMemory(ctx context.Context, si
 			return func() {}
 		}
 	}
-	qe.consolidatorResponseMemInUse.Add(w)
+	inUse := qe.consolidatorResponseMemInUse.Add(w)
+	qe.recordConsolidatorResponseMemoryMax(inUse)
 	// Guard against a double-release over-releasing the semaphore.
 	var once sync.Once
 	return func() {

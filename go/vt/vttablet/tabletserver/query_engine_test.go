@@ -1045,6 +1045,26 @@ func TestAcquireConsolidatedResponseMemoryNoLeak(t *testing.T) {
 	assert.Equal(t, int64(0), qe.consolidatorResponseMemInUse.Load(), "in-use gauge leaked")
 }
 
+func TestConsolidatorResponseMemoryMax(t *testing.T) {
+	const limit = 100
+	qe := &QueryEngine{
+		consolidatorResponseMemLimit: limit,
+		consolidatorResponseMem:      semaphore.NewWeighted(limit),
+		consolidatorResponseMemWaits: stats.NewCounter("", ""),
+	}
+
+	release30 := qe.AcquireConsolidatedResponseMemory(context.Background(), 30)
+	release40 := qe.AcquireConsolidatedResponseMemory(context.Background(), 40)
+	release40()
+
+	assert.Equal(t, int64(70), qe.sampleConsolidatorResponseMemoryMax())
+	assert.Equal(t, int64(30), qe.sampleConsolidatorResponseMemoryMax())
+
+	release30()
+	assert.Equal(t, int64(30), qe.sampleConsolidatorResponseMemoryMax())
+	assert.Equal(t, int64(0), qe.sampleConsolidatorResponseMemoryMax())
+}
+
 func TestAcquireConsolidatedResponseMemoryReleaseIdempotent(t *testing.T) {
 	const limit = 100
 	qe := &QueryEngine{
