@@ -41,7 +41,7 @@ func (cached *Plan) CachedSize(alloc bool) int64 {
 	}
 	size := int64(0)
 	if alloc {
-		size += int64(128)
+		size += int64(144)
 	}
 	// field Table *vitess.io/vitess/go/vt/vttablet/tabletserver/schema.Table
 	size += cached.Table.CachedSize(true)
@@ -70,6 +70,13 @@ func (cached *Plan) CachedSize(alloc bool) int64 {
 	// field FullStmt vitess.io/vitess/go/vt/sqlparser.Statement
 	if cc, ok := cached.FullStmt.(cachedObject); ok {
 		size += cc.CachedSize(true)
+	}
+	// field SchemaQualifiers []string
+	{
+		size += hack.RuntimeAllocSize(int64(cap(cached.SchemaQualifiers)) * int64(16))
+		for _, elem := range cached.SchemaQualifiers {
+			size += hack.RuntimeAllocSize(int64(len(elem)))
+		}
 	}
 	return size
 }
