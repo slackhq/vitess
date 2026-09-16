@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM --platform=linux/amd64 golang:1.24.13-bookworm@sha256:98d673f18a1aac43da744209873cb79323e11706f909251bcfb131828b95559d
 
 # Install Vitess build dependencies
@@ -37,11 +38,14 @@ RUN groupadd -r vitess && useradd -r -g vitess vitess && \
     mkdir -p /vt/vtdataroot /home/vitess && \
     chown -R vitess:vitess /vt /home/vitess
 
-# Setup private repo access
-ARG VITESS_ADDONS_DEPLOY_KEY
+# Setup private repo access.
+# The deploy key is provided as a BuildKit secret (not a build ARG) so it is
+# never recorded in the image config / layer history / provenance -- otherwise
+# docker bake echoes it (base64-encoded) into CI logs, defeating secret masking.
 ENV GOPRIVATE=github.com/slackhq/vitess-addons
-RUN mkdir -p /root/.ssh /home/vitess/.ssh && \
-    echo "$VITESS_ADDONS_DEPLOY_KEY" > /root/.ssh/id_ed25519 && \
+RUN --mount=type=secret,id=vitess_addons_deploy_key \
+    mkdir -p /root/.ssh /home/vitess/.ssh && \
+    cp /run/secrets/vitess_addons_deploy_key /root/.ssh/id_ed25519 && \
     cp /root/.ssh/id_ed25519 /home/vitess/.ssh/id_ed25519 && \
     chmod 600 /root/.ssh/id_ed25519 /home/vitess/.ssh/id_ed25519 && \
     chown vitess:vitess /home/vitess/.ssh/id_ed25519 && \

@@ -30,9 +30,9 @@ target "common" {
   context    = "."
   dockerfile = "docker/bootstrap/Dockerfile.common"
   tags       = ["vitess/bootstrap:${BOOTSTRAP_VERSION}-common"]
-  args = {
-    VITESS_ADDONS_DEPLOY_KEY = VITESS_ADDONS_DEPLOY_KEY
-  }
+  # Pass the deploy key as a BuildKit secret rather than a build ARG so it is
+  # not baked into the image config / history (which bake echoes into CI logs).
+  secret = ["id=vitess_addons_deploy_key,env=VITESS_ADDONS_DEPLOY_KEY"]
 }
 
 target "flavor" {
