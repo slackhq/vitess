@@ -43,22 +43,20 @@ type waiter[C Connection] struct {
 	err  error
 	// age is the amount of cycles this client has been on the waitlist
 	age uint32
-
-	valveID      string
-	priority     float64
-	legacyElem   *list.Element[waiter[C]]
-	snakeRequest *loadshed.Request[*waiter[C]]
-	queued       bool
 }
 
-type waitlist[C Connection] struct {
-	nodes         sync.Pool
-	mu            sync.Mutex
+type waitlistQueues[C Connection] struct {
 	list          list.List[waiter[C]]
-	snake         *loadshed.Snake[*waiter[C]]
+	snake         *loadshed.Snake[*list.Element[waiter[C]]]
 	mode          func() loadshed.Mode
 	activeMode    loadshed.Mode
 	transitioning atomic.Bool
+}
+
+type waitlist[C Connection] struct {
+	nodes  sync.Pool
+	mu     sync.Mutex
+	queues *waitlistQueues[C]
 
 	// onWait is called when a client gets to the point in which it is waiting for a connection - or the mutex that it needs to grab to wait for a connection.
 	onWait func()
@@ -77,19 +75,12 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
-	if priority != loadshed.PriorityUndroppable {
-		// Translate the Vitess proto priority (0 = most important) into Snake's
-		// convention (higher priority shed last).
-		priority = float64(sqlparser.MaxPriorityValue) - priority
-	}
 	conn := elem.Value.conn
 	elem.Value = waiter[C]{
-		conn:       conn,
-		setting:    setting,
-		valveID:    valveID,
-		priority:   priority,
-		legacyElem: elem,
+		conn:    conn,
+		setting: setting,
 	}
+	var request *loadshed.Request[*list.Element[waiter[C]]]
 
 	// Fast path: reject early using an atomic read of the list length to avoid
 	// contending on the mutex under high query rates. This is racy — the count
@@ -132,13 +123,17 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 			return nil, ErrPoolWaiterCapReached
 		}
 	}
-	elem.Value.queued = true
-	if wl.activeMode == loadshed.ModeOff {
-		wl.list.PushBackValue(elem)
+	if wl.queues.activeMode == loadshed.ModeOff {
+		wl.queues.list.PushBackValue(elem)
 	} else {
-		request, newlyDropped := wl.snake.Enqueue(&elem.Value, valveID, priority)
-		elem.Value.snakeRequest = request
-		dropped = append(dropped, wl.markDroppedLocked(newlyDropped)...)
+		if priority != loadshed.PriorityUndroppable {
+			// Translate the Vitess proto priority (0 = most important) into Snake's
+			// convention (higher priority shed last).
+			priority = float64(sqlparser.MaxPriorityValue) - priority
+		}
+		var newlyDropped []*list.Element[waiter[C]]
+		request, newlyDropped = wl.queues.snake.Enqueue(elem, valveID, priority)
+		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
@@ -149,7 +144,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
 		// Try to find and remove ourselves from the list.
-		removed, newlyDropped := wl.cancelLocked(&elem.Value)
+		removed, newlyDropped := wl.cancelLocked(elem, request)
 		dropped = append(dropped, newlyDropped...)
 		wl.mu.Unlock()
 		wl.reject(dropped)
@@ -168,7 +163,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
 		// Try to find and remove ourselves from the list.
-		removed, newlyDropped := wl.cancelLocked(&elem.Value)
+		removed, newlyDropped := wl.cancelLocked(elem, request)
 		dropped = append(dropped, newlyDropped...)
 		wl.mu.Unlock()
 		wl.reject(dropped)
@@ -198,15 +193,15 @@ func (wl *waitlist[C]) maybeStarvingCount() int {
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
 	count := 0
-	if wl.activeMode == loadshed.ModeOff {
-		for elem := wl.list.Front(); elem != nil; elem = elem.Next() {
+	if wl.queues.activeMode == loadshed.ModeOff {
+		for elem := wl.queues.list.Front(); elem != nil; elem = elem.Next() {
 			if elem.Value.age == 0 {
 				count++
 			}
 		}
 	} else {
-		count = wl.snake.CountMatching(func(waiter *waiter[C]) bool {
-			return waiter.age == 0
+		count = wl.queues.snake.CountMatching(func(elem *list.Element[waiter[C]]) bool {
+			return elem.Value.age == 0
 		})
 	}
 	wl.mu.Unlock()
@@ -228,7 +223,7 @@ func (wl *waitlist[C]) shouldTryReturnConn() bool {
 	if wl.waiting() != 0 {
 		return true
 	}
-	if wl.transitioning.Load() {
+	if wl.queues.transitioning.Load() {
 		return true
 	}
 	return wl.waiting() != 0
@@ -244,11 +239,11 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	// here too long, or a waiter that is looking exactly for the same Setting
 	// as the one we have in our connection.
 	var (
-		selected *waiter[D]
+		selected *list.Element[waiter[D]]
 		ok       bool
 	)
-	if wl.activeMode == loadshed.ModeOff {
-		target := wl.list.Front()
+	if wl.queues.activeMode == loadshed.ModeOff {
+		target := wl.queues.list.Front()
 		for elem := target; elem != nil; elem = elem.Next() {
 			if elem.Value.age > maxAge || elem.Value.setting == connSetting {
 				target = elem
@@ -257,15 +252,14 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 			elem.Value.age++
 		}
 		if target != nil {
-			wl.list.Remove(target)
-			target.Value.queued = false
-			selected = &target.Value
+			wl.queues.list.Remove(target)
+			selected = target
 			ok = true
 		}
 	} else {
-		var newlyDropped []*waiter[D]
-		selected, ok, newlyDropped = wl.snake.DequeueMatching(func(waiter *waiter[D]) bool {
-			if waiter.age > maxAge || waiter.setting == connSetting {
+		var newlyDropped []*list.Element[waiter[D]]
+		selected, ok, newlyDropped = wl.queues.snake.DequeueMatching(func(elem *list.Element[waiter[D]]) bool {
+			if elem.Value.age > maxAge || elem.Value.setting == connSetting {
 				return true
 			}
 			// this only ages the waiters that are being skipped over: we'll start
@@ -273,14 +267,10 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 			// the maxAge of 8 has been set empirically: smaller values cause clients
 			// with a specific setting to slightly starve, and aging all the clients
 			// in the list every time leads to unfairness when the system is at capacity
-			waiter.age++
+			elem.Value.age++
 			return false
 		})
-		dropped = append(dropped, wl.markDroppedLocked(newlyDropped)...)
-		if ok {
-			selected.snakeRequest = nil
-			selected.queued = false
-		}
+		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
@@ -293,50 +283,46 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 
 	// if we have a target to return the connection to, simply write the connection
 	// into the waiter's channel.
-	selected.conn <- conn
+	selected.Value.conn <- conn
 	// Allow the goroutine waiting on the channel to start running _now_.
 	runtime.Gosched()
 
 	return true
 }
 
-func (wl *waitlist[C]) cancelLocked(waiter *waiter[C]) (bool, []*waiter[C]) {
-	if !waiter.queued {
+func (wl *waitlist[C]) cancelLocked(elem *list.Element[waiter[C]], request *loadshed.Request[*list.Element[waiter[C]]]) (bool, []*list.Element[waiter[C]]) {
+	if wl.queues.activeMode == loadshed.ModeOff {
+		for current := wl.queues.list.Front(); current != nil; current = current.Next() {
+			if current == elem {
+				wl.queues.list.Remove(elem)
+				return true, nil
+			}
+		}
 		return false, nil
 	}
-	if wl.activeMode == loadshed.ModeOff {
-		wl.list.Remove(waiter.legacyElem)
-		waiter.queued = false
-		return true, nil
+	if request != nil {
+		removed, dropped := wl.queues.snake.Cancel(request)
+		if removed {
+			return true, dropped
+		}
 	}
-	removed, dropped := wl.snake.Cancel(waiter.snakeRequest)
-	if removed {
-		waiter.snakeRequest = nil
-		waiter.queued = false
-	}
-	return removed, wl.markDroppedLocked(dropped)
+	return wl.queues.snake.CancelMatching(func(candidate *list.Element[waiter[C]]) bool {
+		return candidate == elem
+	})
 }
 
-func (wl *waitlist[C]) markDroppedLocked(dropped []*waiter[C]) []*waiter[C] {
-	for _, waiter := range dropped {
-		waiter.snakeRequest = nil
-		waiter.queued = false
-	}
-	return dropped
-}
-
-func (wl *waitlist[C]) reject(waiters []*waiter[C]) {
-	for _, waiter := range waiters {
-		waiter.err = ErrPoolLoadShed
-		waiter.conn <- nil
+func (wl *waitlist[C]) reject(waiters []*list.Element[waiter[C]]) {
+	for _, elem := range waiters {
+		elem.Value.err = ErrPoolLoadShed
+		elem.Value.conn <- nil
 	}
 }
 
 func (wl *waitlist[C]) runDropTimer() {
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	if wl.activeMode != loadshed.ModeOff {
-		dropped = append(dropped, wl.markDroppedLocked(wl.snake.LockedDropTimerFired())...)
+	if wl.queues.activeMode != loadshed.ModeOff {
+		dropped = append(dropped, wl.queues.snake.LockedDropTimerFired()...)
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
@@ -345,44 +331,41 @@ func (wl *waitlist[C]) runDropTimer() {
 func (wl *waitlist[C]) runShadowTimer() {
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	if wl.activeMode != loadshed.ModeOff {
-		wl.snake.LockedShadowTimerFired()
+	if wl.queues.activeMode != loadshed.ModeOff {
+		wl.queues.snake.LockedShadowTimerFired()
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
 }
 
-func (wl *waitlist[C]) transitionLocked() []*waiter[C] {
-	mode := wl.mode()
-	if mode == wl.activeMode {
+func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
+	mode := wl.queues.mode()
+	if mode == wl.queues.activeMode {
 		return nil
 	}
 
-	movesQueues := (wl.activeMode == loadshed.ModeOff) != (mode == loadshed.ModeOff)
+	movesQueues := (wl.queues.activeMode == loadshed.ModeOff) != (mode == loadshed.ModeOff)
 	if movesQueues {
-		wl.transitioning.Store(true)
-		defer wl.transitioning.Store(false)
+		wl.queues.transitioning.Store(true)
+		defer wl.queues.transitioning.Store(false)
 	}
 
-	var dropped []*waiter[C]
+	var dropped []*list.Element[waiter[C]]
 	switch {
-	case wl.activeMode == loadshed.ModeOff && mode != loadshed.ModeOff:
-		for elem := wl.list.Front(); elem != nil; {
+	case wl.queues.activeMode == loadshed.ModeOff && mode != loadshed.ModeOff:
+		for elem := wl.queues.list.Front(); elem != nil; {
 			next := elem.Next()
-			wl.list.Remove(elem)
-			request, newlyDropped := wl.snake.Enqueue(&elem.Value, elem.Value.valveID, elem.Value.priority)
-			elem.Value.snakeRequest = request
+			wl.queues.list.Remove(elem)
+			_, newlyDropped := wl.queues.snake.EnqueueExisting(elem, "", loadshed.PriorityUndroppable)
 			dropped = append(dropped, newlyDropped...)
 			elem = next
 		}
-		dropped = wl.markDroppedLocked(dropped)
-	case wl.activeMode != loadshed.ModeOff && mode == loadshed.ModeOff:
-		for _, waiter := range wl.snake.Drain() {
-			waiter.snakeRequest = nil
-			wl.list.PushBackValue(waiter.legacyElem)
+	case wl.queues.activeMode != loadshed.ModeOff && mode == loadshed.ModeOff:
+		for _, elem := range wl.queues.snake.Drain() {
+			wl.queues.list.PushBackValue(elem)
 		}
 	}
-	wl.activeMode = mode
+	wl.queues.activeMode = mode
 	return dropped
 }
 
@@ -400,10 +383,12 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 		mode, target, interval = config.LoadshedConfig(poolName)
 	}
 
-	wl.list.Init()
-	wl.mode = mode
-	wl.activeMode = mode()
-	wl.snake = loadshed.NewSnake[*waiter[C]](loadshed.SnakeConfig{
+	wl.queues = &waitlistQueues[C]{
+		mode:       mode,
+		activeMode: mode(),
+	}
+	wl.queues.list.Init()
+	wl.queues.snake = loadshed.NewSnake[*list.Element[waiter[C]]](loadshed.SnakeConfig{
 		Mode:             mode,
 		DropTimerFired:   wl.runDropTimer,
 		ShadowTimerFired: wl.runShadowTimer,
@@ -427,10 +412,10 @@ func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string
 		statsName = "SnakeDmlFoundRows"
 	}
 	if statsName != "" {
-		loadshed.PublishStats(exporter, statsName, wl.snake)
+		loadshed.PublishStats(exporter, statsName, wl.queues.snake)
 	}
 }
 
 func (wl *waitlist[C]) waiting() int {
-	return wl.list.Len() + wl.snake.Len()
+	return wl.queues.list.Len() + wl.queues.snake.Len()
 }

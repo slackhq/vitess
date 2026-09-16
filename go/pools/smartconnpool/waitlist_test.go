@@ -59,10 +59,7 @@ func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
 
 func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
 	elem := &list.Element[waiter[*TestConn]]{Value: value}
-	elem.Value.legacyElem = elem
-	elem.Value.queued = true
-	request, _ := wl.snake.Enqueue(&elem.Value, elem.Value.valveID, elem.Value.priority)
-	elem.Value.snakeRequest = request
+	wl.queues.snake.Enqueue(elem, "", loadshed.PriorityUndroppable)
 	return elem
 }
 
@@ -174,13 +171,13 @@ func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 	wl.init("", nil)
 
 	foo := &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1), queued: true},
+		Value: waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.list.PushBackValue(foo)
+	wl.queues.list.PushBackValue(foo)
 	bar := &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1), queued: true},
+		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.list.PushBackValue(bar)
+	wl.queues.list.PushBackValue(bar)
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
 	require.True(t, wl.tryReturnConn(conn))
@@ -190,9 +187,9 @@ func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 
 	foo.Value.age = 9
 	bar = &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1), queued: true},
+		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.list.PushBackValue(bar)
+	wl.queues.list.PushBackValue(bar)
 
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-foo.Value.conn)
@@ -202,8 +199,8 @@ func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("ConnPool", testPoolConfig{})
 
-	foo := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1), priority: loadshed.PriorityUndroppable})
-	bar := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1), priority: loadshed.PriorityUndroppable})
+	foo := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)})
+	bar := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
 	require.True(t, wl.tryReturnConn(conn))
@@ -212,7 +209,7 @@ func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
 	assert.Zero(t, wl.maybeStarvingCount(), "foo has already aged")
 
 	foo.Value.age = 9
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1), priority: loadshed.PriorityUndroppable})
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
 
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-foo.Value.conn)
@@ -222,8 +219,8 @@ func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("ConnPool", testPoolConfig{})
 
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1, priority: loadshed.PriorityUndroppable})
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), priority: loadshed.PriorityUndroppable})
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1})
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)})
 
 	assert.Equal(t, 1, wl.maybeStarvingCount())
 }
@@ -245,28 +242,28 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return wl.waiting() == 3
 	}, time.Second, time.Millisecond)
-	assert.Equal(t, 3, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
+	assert.Equal(t, 3, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
 
 	config.setMode(loadshed.ModeShadow)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Zero(t, wl.list.Len())
-	assert.Equal(t, 3, wl.snake.Len())
+	assert.Zero(t, wl.queues.list.Len())
+	assert.Equal(t, 3, wl.queues.snake.Len())
 
 	config.setMode(loadshed.ModeOff)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Equal(t, 3, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
+	assert.Equal(t, 3, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
 
 	config.setMode(loadshed.ModeEnabled)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Zero(t, wl.list.Len())
-	assert.Equal(t, 3, wl.snake.Len())
+	assert.Zero(t, wl.queues.list.Len())
+	assert.Equal(t, 3, wl.queues.snake.Len())
 
 	config.setMode(loadshed.ModeOff)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Equal(t, 3, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
+	assert.Equal(t, 3, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
 
 	close(poolClose)
 	for range 3 {
@@ -280,10 +277,10 @@ func TestWaitlistTransitionDoesNotHideWaitersFromConnectionHandoff(t *testing.T)
 
 	assert.False(t, wl.shouldTryReturnConn())
 
-	wl.transitioning.Store(true)
+	wl.queues.transitioning.Store(true)
 	assert.True(t, wl.shouldTryReturnConn())
 
-	wl.transitioning.Store(false)
+	wl.queues.transitioning.Store(false)
 	assert.False(t, wl.shouldTryReturnConn())
 }
 
@@ -318,8 +315,8 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 			cancel()
 			assert.ErrorIs(t, <-errs, context.Canceled)
 			assert.Zero(t, wl.waiting())
-			assert.Zero(t, wl.list.Len())
-			assert.Zero(t, wl.snake.Len())
+			assert.Zero(t, wl.queues.list.Len())
+			assert.Zero(t, wl.queues.snake.Len())
 		})
 	}
 }
