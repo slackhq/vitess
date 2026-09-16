@@ -48,7 +48,7 @@ import (
 )
 
 var (
-	reparentShardOpTimings = stats.NewMultiTimings("ReparentShardOperationTimings", "Timings of reparent shard operations", []string{"Operation", "Result"})
+	reparentShardOpTimings = stats.NewMultiTimings("ReparentShardOperationTimings", "Timings of reparent shard operations", []string{"Operation", "Keyspace", "Shard", "Result"})
 	failureResult          = "failure"
 	successResult          = "success"
 )

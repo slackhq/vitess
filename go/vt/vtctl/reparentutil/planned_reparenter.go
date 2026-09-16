@@ -131,11 +131,11 @@ func (pr *PlannedReparenter) ReparentShard(ctx context.Context, keyspace string,
 		duration := time.Since(startTime)
 		switch err {
 		case nil:
-			reparentShardOpTimings.Add([]string{"PlannedReparentShard", successResult}, duration)
+			reparentShardOpTimings.Add([]string{"PlannedReparentShard", keyspace, shard, successResult}, duration)
 			prsCounter.Add(append(statsLabels, successResult), 1)
 			event.DispatchUpdate(ev, fmt.Sprintf("finished PlannedReparentShard in %v", duration))
 		default:
-			reparentShardOpTimings.Add([]string{"PlannedReparentShard", failureResult}, duration)
+			reparentShardOpTimings.Add([]string{"PlannedReparentShard", keyspace, shard, failureResult}, duration)
 			prsCounter.Add(append(statsLabels, failureResult), 1)
 			event.DispatchUpdate(ev, fmt.Sprintf("failed PlannedReparentShard after %v: %v", duration, err))
 		}
