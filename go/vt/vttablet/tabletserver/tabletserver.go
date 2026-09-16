@@ -1831,6 +1831,14 @@ func (tsv *TabletServer) HandlePanic(err *error) {
 	}
 }
 
+// AcquireConsolidatedResponseMemory reserves response-serialization memory for a
+// consolidated query response under the global soft byte budget, returning a
+// release func that must be called once serialization completes. It is a no-op
+// when the budget is disabled. See QueryEngine.AcquireConsolidatedResponseMemory.
+func (tsv *TabletServer) AcquireConsolidatedResponseMemory(ctx context.Context, size int64) func() {
+	return tsv.qe.AcquireConsolidatedResponseMemory(ctx, size)
+}
+
 // Close shuts down any remaining go routines
 func (tsv *TabletServer) Close(ctx context.Context) error {
 	tsv.sm.closeAll()
@@ -2115,6 +2123,16 @@ func (tsv *TabletServer) SetConsolidatorMode(mode string) {
 	case tabletenv.NotOnPrimary, tabletenv.Enable, tabletenv.Disable:
 		tsv.qe.consolidatorMode.Store(mode)
 	}
+}
+
+// SetConsolidatorResponseMemoryLimit changes the soft global response-memory
+// limit. A limit of 0 disables the gate and fails open.
+func (tsv *TabletServer) SetConsolidatorResponseMemoryLimit(limit int64) error {
+	if err := tsv.qe.SetConsolidatorResponseMemoryLimit(limit); err != nil {
+		return err
+	}
+	tsv.config.ConsolidatorQueryTotalSize = limit
+	return nil
 }
 
 // ConsolidatorMode returns the consolidator mode.
