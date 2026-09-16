@@ -124,7 +124,15 @@ func (s *Snake[T]) lockedObserveValveDepth(valveID string) {
 }
 
 func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[T], []T) {
-	if s.acquireByPriority != nil {
+	return s.enqueue(value, valveID, priority, true)
+}
+
+func (s *Snake[T]) EnqueueExisting(value T, valveID string, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, valveID, priority, false)
+}
+
+func (s *Snake[T]) enqueue(value T, valveID string, priority float64, recordAcquire bool) (*Request[T], []T) {
+	if recordAcquire && s.acquireByPriority != nil {
 		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
 	}
 
@@ -204,6 +212,31 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
+// Drain removes and returns every queued value without shedding it. The caller
+// must hold the mutex protecting the Snake.
+func (s *Snake[T]) Drain() []T {
+	s.lockedObserveInitialTargetShadow(nil)
+	s.q.lockedRunTimerIf(false)
+
+	values := make([]T, 0, s.Len())
+	for {
+		req := s.q.lockedPeek()
+		if req == nil {
+			break
+		}
+		s.q.lockedDequeue(req)
+		req.signal(grantSentinel)
+		s.length.Add(-1)
+		values = append(values, req.value)
+		var zero T
+		req.value = zero
+	}
+
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	return values
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.signaledValue != nil {
 		return false, nil
@@ -217,6 +250,34 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return true, s.droppedValues(dropped)
+}
+
+func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+	var matched *Request[T]
+	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
+		req := elem.Value.(*Request[T])
+		if req.signaledValue == nil && match(req.value) {
+			matched = req
+			break
+		}
+	}
+	if matched == nil {
+		for _, pending := range s.q.valves {
+			for _, req := range pending {
+				if req != nil && req.signaledValue == nil && match(req.value) {
+					matched = req
+					break
+				}
+			}
+			if matched != nil {
+				break
+			}
+		}
+	}
+	if matched == nil {
+		return false, nil
+	}
+	return s.Cancel(matched)
 }
 
 // lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
