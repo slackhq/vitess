@@ -47,6 +47,9 @@ type testEnv struct {
 // without an actual TabletServer.
 func NewEnv(env *vtenv.Environment, config *TabletConfig, exporterName string) Env {
 	exporter := servenv.NewExporter(exporterName, "Tablet")
+	if config != nil {
+		config.InitLoadshedConfig()
+	}
 	return &testEnv{
 		config:   config,
 		exporter: exporter,

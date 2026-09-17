@@ -28,7 +28,7 @@ import (
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
-	wait.init()
+	wait.init("", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -71,7 +71,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 
 func TestWaitlistWaiterCap(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init()
+	wl.init("", nil)
 
 	poolClose := make(chan struct{})
 
@@ -100,9 +100,49 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	}
 }
 
+func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped := wl.snake.Enqueue(foo, "", 0)
+	require.Empty(t, dropped)
+	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(bar, "", 0)
+	require.Empty(t, dropped)
+	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-bar.conn)
+	assert.Equal(t, uint32(1), foo.age)
+	assert.Zero(t, wl.maybeStarvingCount())
+
+	foo.age = 9
+	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(bar, "", 0)
+	require.Empty(t, dropped)
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-foo.conn)
+}
+
+func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	aged := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1}
+	_, dropped := wl.snake.Enqueue(aged, "", 0)
+	require.Empty(t, dropped)
+	newWaiter := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(newWaiter, "", 0)
+	require.Empty(t, dropped)
+
+	assert.Equal(t, 1, wl.maybeStarvingCount())
+}
+
 func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init()
+	wl.init("", nil)
 
 	capReachedCount := atomic.Int32{}
 	wl.onWaiterCapReached = func() {
