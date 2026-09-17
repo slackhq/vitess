@@ -24,7 +24,25 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
+
+type testPoolConfig struct{}
+
+func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs:        func() int64 { return time.Millisecond.Nanoseconds() },
+			InitialIntervalNs: func() int64 { return time.Millisecond.Nanoseconds() },
+			TargetNs:          func() int64 { return time.Millisecond.Nanoseconds() },
+			InitialTargetNs:   func() int64 { return time.Millisecond.Nanoseconds() },
+			Exponent:          func() float64 { return 1 },
+			MinDropDelayNs:    func() int64 { return time.Millisecond.Nanoseconds() },
+		},
+	}
+}
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
@@ -41,7 +59,6 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	for i := 0; i < waiterCount; i++ {
 		go func() {
 			_, err := wait.waitForConn(ctx, nil, poolClose, 0, false)
-
 			if err != nil {
 				expireCount.Add(1)
 			}
@@ -105,10 +122,10 @@ func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
 	wl.init("", nil)
 
 	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped := wl.snake.Enqueue(foo, "", 0)
+	_, dropped := wl.snake.Enqueue(foo, 0)
 	require.Empty(t, dropped)
 	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(bar, "", 0)
+	_, dropped = wl.snake.Enqueue(bar, 0)
 	require.Empty(t, dropped)
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
@@ -119,7 +136,7 @@ func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
 
 	foo.age = 9
 	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(bar, "", 0)
+	_, dropped = wl.snake.Enqueue(bar, 0)
 	require.Empty(t, dropped)
 
 	require.True(t, wl.tryReturnConn(conn))
@@ -131,13 +148,45 @@ func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
 	wl.init("", nil)
 
 	aged := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1}
-	_, dropped := wl.snake.Enqueue(aged, "", 0)
+	_, dropped := wl.snake.Enqueue(aged, 0)
 	require.Empty(t, dropped)
 	newWaiter := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(newWaiter, "", 0)
+	_, dropped = wl.snake.Enqueue(newWaiter, 0)
 	require.Empty(t, dropped)
 
 	assert.Equal(t, 1, wl.maybeStarvingCount())
+}
+
+func TestWaitlistShedsQueuedRequests(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{})
+
+	poolClose := make(chan struct{})
+	t.Cleanup(func() {
+		close(poolClose)
+	})
+
+	errs := make(chan error, 6)
+	var waiting atomic.Int32
+	wl.onWait = func() {
+		waiting.Add(1)
+	}
+	for range 6 {
+		go func() {
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
+			errs <- err
+		}()
+	}
+
+	require.Eventually(t, func() bool {
+		return waiting.Load() == 6
+	}, 30*time.Second, time.Millisecond)
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, ErrPoolLoadShed)
+	case <-time.After(30 * time.Second):
+		require.Fail(t, "timed out waiting for Snake to shed a waiter")
+	}
 }
 
 func TestWaitlistWaiterCapDryRun(t *testing.T) {

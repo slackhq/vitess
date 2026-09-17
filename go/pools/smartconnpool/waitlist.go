@@ -20,14 +20,14 @@ import (
 	"context"
 	"runtime"
 	"sync"
-	"time"
 
+	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 type (
 	PoolConfig interface {
-		LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration)
+		LoadshedConfig(string) loadshed.SnakeConfig
 	}
 
 	// waiter represents a client waiting for a connection in the waitlist
@@ -37,6 +37,7 @@ type (
 		setting *Setting
 		// conn is a channel that will receive the connection when it's ready
 		conn chan *Pooled[C]
+		err  error
 		// age is the amount of cycles this client has been on the waitlist
 		age uint32
 	}
@@ -105,15 +106,17 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 			return nil, ErrPoolWaiterCapReached
 		}
 	}
-	request, _ := wl.snake.Enqueue(elem, "", 0)
+	request, dropped := wl.snake.Enqueue(elem, 0)
 	wl.mu.Unlock()
+	wl.reject(dropped)
 
 	select {
 	case <-closeChan:
 		// Pool was closed while we were waiting.
 		wl.mu.Lock()
-		removed, _ := wl.snake.Cancel(request)
+		removed, dropped := wl.snake.Cancel(request)
 		wl.mu.Unlock()
+		wl.reject(dropped)
 
 		if removed {
 			return nil, ErrConnPoolClosed
@@ -121,14 +124,15 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
-		return <-elem.conn, nil
+		return <-elem.conn, elem.err
 
 	case <-ctx.Done():
 		// Context expired. We need to try to remove ourselves from the waitlist to
 		// prevent another goroutine from trying to hand us a connection later on.
 		wl.mu.Lock()
-		removed, _ := wl.snake.Cancel(request)
+		removed, dropped := wl.snake.Cancel(request)
 		wl.mu.Unlock()
+		wl.reject(dropped)
 
 		if removed {
 			return nil, context.Cause(ctx)
@@ -136,10 +140,10 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
-		return <-elem.conn, nil
+		return <-elem.conn, elem.err
 
 	case conn := <-elem.conn:
-		return conn, nil
+		return conn, elem.err
 	}
 }
 
@@ -175,7 +179,7 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	connSetting := conn.Conn.Setting()
 
 	wl.mu.Lock()
-	target, ok, _ := wl.snake.DequeueMatching(func(waiter *waiter[D]) bool {
+	target, ok, dropped := wl.snake.DequeueMatching(func(waiter *waiter[D]) bool {
 		if waiter.age > maxAge || waiter.setting == connSetting {
 			return true
 		}
@@ -183,6 +187,7 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 		return false
 	})
 	wl.mu.Unlock()
+	wl.reject(dropped)
 
 	// maybe there isn't anybody to hand over the connection to, because we've
 	// raced with another client returning another connection
@@ -199,27 +204,53 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	return true
 }
 
+func (wl *waitlist[C]) reject(waiters []*waiter[C]) {
+	for _, waiter := range waiters {
+		waiter.err = ErrPoolLoadShed
+		waiter.conn <- nil
+	}
+}
+
+func (wl *waitlist[C]) runDropTimer() {
+	wl.mu.Lock()
+	dropped := wl.snake.LockedDropTimerFired()
+	wl.mu.Unlock()
+	wl.reject(dropped)
+}
+
+func (wl *waitlist[C]) runShadowTimer() {
+	wl.mu.Lock()
+	wl.snake.LockedShadowTimerFired()
+	wl.mu.Unlock()
+}
+
 func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	wl.nodes.New = func() any {
-		return &waiter[C]{conn: make(chan *Pooled[C])}
+		return &waiter[C]{conn: make(chan *Pooled[C], 1)}
 	}
 
-	mode := func() loadshed.Mode { return loadshed.ModeOff }
-	target := func() time.Duration { return time.Second }
-	interval := func() time.Duration { return time.Second }
+	snakeConfig := loadshed.SnakeConfig{}
 	if config != nil {
-		mode, target, interval = config.LoadshedConfig(poolName)
+		snakeConfig = config.LoadshedConfig(poolName)
 	}
+	snakeConfig.DropTimerFired = wl.runDropTimer
+	snakeConfig.ShadowTimerFired = wl.runShadowTimer
+	wl.snake = loadshed.NewSnake[*waiter[C]](snakeConfig)
+}
 
-	wl.snake = loadshed.NewSnake[*waiter[C]](loadshed.SnakeConfig{
-		Mode: mode,
-		CoDel: loadshed.CoDelConfig{
-			IntervalNs:     func() int64 { return interval().Nanoseconds() },
-			TargetNs:       func() int64 { return target().Nanoseconds() },
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-		},
-	})
+func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string) {
+	var statsName string
+	switch poolName {
+	case "ConnPool":
+		statsName = "SnakeOltpRead"
+	case "TransactionPool":
+		statsName = "SnakeDml"
+	case "FoundRowsPool":
+		statsName = "SnakeDmlFoundRows"
+	}
+	if statsName != "" {
+		loadshed.PublishStats(exporter, statsName, wl.snake)
+	}
 }
 
 func (wl *waitlist[C]) waiting() int {
