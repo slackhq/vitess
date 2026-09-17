@@ -349,19 +349,7 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
-}
-
-func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
-	cfg := &TabletConfig{}
-	cfg.InitLoadshedConfig()
-
-	oltp := cfg.LoadshedConfig("ConnPool")
-	tx := cfg.LoadshedConfig("TransactionPool")
-
-	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.ModeValue())
-	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
-	assert.Equal(t, LoadshedModeOff, oltp.ModeValue())
-	assert.Equal(t, LoadshedModeOff, tx.ModeValue())
+	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
@@ -371,6 +359,7 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg.LoadshedOltpRead.SetTarget(time.Second)
 	cfg.LoadshedOltpRead.SetInitialTarget(2 * time.Second)
 	cfg.LoadshedOltpRead.SetIntervalRatio(10)
+	cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 
 	assert.Equal(t, LoadshedModeShadow, cfg.LoadshedOltpRead.ModeValue())
 	assert.True(t, cfg.LoadshedOltpRead.IsShadow())
@@ -379,30 +368,7 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.NotEqual(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedTx.TargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTargetValue(), cfg.LoadshedTx.InitialTargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.IntervalRatioValue(), cfg.LoadshedTx.IntervalRatioValue())
-}
-
-func TestLoadshedModeEffectiveMode(t *testing.T) {
-	tests := []struct {
-		name       string
-		mode       LoadshedMode
-		tabletType topodatapb.TabletType
-		want       loadshed.Mode
-	}{
-		{name: "off primary", mode: LoadshedModeOff, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeOff},
-		{name: "shadow replica", mode: LoadshedModeShadow, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeShadow},
-		{name: "enabled primary", mode: LoadshedModeEnabled, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeEnabled},
-		{name: "enabled replicas primary", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeOff},
-		{name: "enabled replicas replica", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeEnabled},
-		{name: "enabled replicas rdonly", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_RDONLY, want: loadshed.ModeEnabled},
-		{name: "enabled replicas unknown", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_UNKNOWN, want: loadshed.ModeOff},
-		{name: "enabled replicas spare", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_SPARE, want: loadshed.ModeOff},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.mode.EffectiveMode(tt.tabletType))
-		})
-	}
+	assert.Equal(t, []string{"schema"}, cfg.LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
@@ -427,6 +393,7 @@ func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 		defer wg.Done()
 		for i := range 100 {
 			cfg.LoadshedOltpRead.SetInitialTarget(time.Duration(i))
+			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 		}
 	}()
 	go func() {
@@ -441,47 +408,6 @@ func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 	wg.Wait()
 }
 
-func TestLoadshedConfigConcurrentIntervals(t *testing.T) {
-	for _, test := range []struct {
-		name          string
-		initialTarget time.Duration
-	}{
-		{name: "fallback initial target"},
-		{name: "explicit initial target", initialTarget: 1 << 62},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := NewDefaultConfig()
-			config := &cfg.LoadshedOltpRead
-			config.SetIntervalRatio(1)
-			config.SetTarget(1 << 62)
-			config.SetInitialTarget(test.initialTarget)
-			codel := cfg.LoadshedConfig("ConnPool").CoDelConfig()
-
-			var wg sync.WaitGroup
-			wg.Add(1)
-			defer wg.Wait()
-			go func() {
-				defer wg.Done()
-				for range 10000 {
-					config.SetTarget(time.Nanosecond)
-					if test.initialTarget != 0 {
-						config.SetInitialTarget(time.Nanosecond)
-					}
-					config.SetIntervalRatio(1 << 62)
-					config.SetIntervalRatio(1)
-					config.SetInitialTarget(test.initialTarget)
-					config.SetTarget(1 << 62)
-				}
-			}()
-
-			for range 10000 {
-				require.Contains(t, []int64{1, 1 << 62}, codel.IntervalNs())
-				require.Contains(t, []int64{1, 1 << 62}, codel.InitialIntervalNs())
-			}
-		})
-	}
-}
-
 func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	original := currentConfig
 	t.Cleanup(func() { currentConfig = original })
@@ -490,13 +416,13 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
 	registerTabletEnvFlags(fs)
 
-	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "enabled-replicas"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "shadow"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
-	assert.Equal(t, LoadshedModeEnabledReplicas, currentConfig.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeShadow, currentConfig.LoadshedOltpRead.Mode)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
 	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedTx.Mode)
@@ -510,42 +436,34 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	tx := cfg.LoadshedConfig("TransactionPool")
 	foundRows := cfg.LoadshedConfig("FoundRowsPool")
 	unknown := cfg.LoadshedConfig("UnknownPool")
-	oltpCoDel := oltp.CoDelConfig()
-	txCoDel := tx.CoDelConfig()
-	foundRowsCoDel := foundRows.CoDelConfig()
 
-	assert.Same(t, &cfg.LoadshedOltpRead, oltp)
-	assert.Same(t, &cfg.LoadshedTx, tx)
-	assert.Same(t, tx, foundRows)
-	assert.Equal(t, LoadshedModeOff, oltp.ModeValue())
-	assert.Equal(t, cfg.LoadshedOltpRead.TargetValue().Nanoseconds(), oltpCoDel.TargetNs())
-	assert.Equal(t, cfg.LoadshedOltpRead.EffectiveInitialTargetValue().Nanoseconds(), oltpCoDel.InitialTargetNs())
-	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.TargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltpCoDel.IntervalNs())
-	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.EffectiveInitialTargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltpCoDel.InitialIntervalNs())
-	assert.Equal(t, LoadshedModeOff, tx.ModeValue())
-	assert.Equal(t, cfg.LoadshedTx.TargetValue().Nanoseconds(), txCoDel.TargetNs())
-	assert.Equal(t, tx.ModeValue(), foundRows.ModeValue())
-	assert.Equal(t, txCoDel.TargetNs(), foundRowsCoDel.TargetNs())
-	assert.Equal(t, txCoDel.IntervalNs(), foundRowsCoDel.IntervalNs())
-	assert.Nil(t, unknown)
-	var nilConfig *TabletConfig
-	assert.Nil(t, nilConfig.LoadshedConfig("ConnPool"))
+	assert.Equal(t, loadshed.ModeOff, oltp.Mode())
+	assert.Equal(t, cfg.LoadshedOltpRead.TargetValue().Nanoseconds(), oltp.CoDel.TargetNs())
+	assert.Equal(t, cfg.LoadshedOltpRead.EffectiveInitialTargetValue().Nanoseconds(), oltp.CoDel.InitialTargetNs())
+	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.TargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.IntervalNs())
+	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.EffectiveInitialTargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, loadshed.ModeOff, tx.Mode())
+	assert.Equal(t, cfg.LoadshedTx.TargetValue().Nanoseconds(), tx.CoDel.TargetNs())
+	assert.Equal(t, tx.Mode(), foundRows.Mode())
+	assert.Equal(t, tx.CoDel.TargetNs(), foundRows.CoDel.TargetNs())
+	assert.Equal(t, tx.CoDel.IntervalNs(), foundRows.CoDel.IntervalNs())
+	assert.Nil(t, unknown.Mode)
 
-	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled-replicas"))
+	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled"))
 	cfg.LoadshedOltpRead.SetTarget(10 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetInitialTarget(15 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetIntervalRatio(5)
 	require.NoError(t, cfg.LoadshedTx.SetMode("shadow"))
 	cfg.LoadshedTx.SetTarget(20 * time.Millisecond)
 
-	assert.Equal(t, LoadshedModeEnabledReplicas, oltp.ModeValue())
-	assert.Equal(t, (10 * time.Millisecond).Nanoseconds(), oltpCoDel.TargetNs())
-	assert.Equal(t, (15 * time.Millisecond).Nanoseconds(), oltpCoDel.InitialTargetNs())
-	assert.Equal(t, (50 * time.Millisecond).Nanoseconds(), oltpCoDel.IntervalNs())
-	assert.Equal(t, (75 * time.Millisecond).Nanoseconds(), oltpCoDel.InitialIntervalNs())
-	assert.Equal(t, LoadshedModeShadow, tx.ModeValue())
-	assert.Equal(t, (20 * time.Millisecond).Nanoseconds(), txCoDel.TargetNs())
-	assert.Equal(t, LoadshedModeShadow, foundRows.ModeValue())
+	assert.Equal(t, loadshed.ModeEnabled, oltp.Mode())
+	assert.Equal(t, (10 * time.Millisecond).Nanoseconds(), oltp.CoDel.TargetNs())
+	assert.Equal(t, (15 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialTargetNs())
+	assert.Equal(t, (50 * time.Millisecond).Nanoseconds(), oltp.CoDel.IntervalNs())
+	assert.Equal(t, (75 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, loadshed.ModeShadow, tx.Mode())
+	assert.Equal(t, (20 * time.Millisecond).Nanoseconds(), tx.CoDel.TargetNs())
+	assert.Equal(t, loadshed.ModeShadow, foundRows.Mode())
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {

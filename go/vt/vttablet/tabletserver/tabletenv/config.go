@@ -228,7 +228,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
-	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead, defaultConfig.LoadshedOltpRead)
+	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead.LoadshedConfig, defaultConfig.LoadshedOltpRead.LoadshedConfig)
+	fs.StringSliceVar(&currentConfig.LoadshedOltpRead.UndroppableSchemas, "loadshed-oltp-read-undroppable-schemas", defaultConfig.LoadshedOltpRead.UndroppableSchemas, "Schema qualifiers whose OLTP read queries are never shed.")
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -236,7 +237,7 @@ func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, 
 	if cfg.Mode == "" {
 		cfg.Mode = defaultCfg.Mode
 	}
-	fs.Var(&cfg.Mode, "loadshed-"+pool+"-mode", "Load shedding mode for the "+pool+" pool: off, shadow, enabled, or enabled-replicas.")
+	fs.Var(&cfg.Mode, "loadshed-"+pool+"-mode", "Load shedding mode for the "+pool+" pool: off, shadow, or enabled.")
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
 	fs.DurationVar(&cfg.InitialTarget, "loadshed-"+pool+"-initial-target", defaultCfg.InitialTarget, "Initial CoDel target delay for the "+pool+" load shedder. 0 uses its normal target.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
@@ -413,8 +414,8 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedOltpRead LoadshedConfig `json:"-"`
-	LoadshedTx       LoadshedConfig `json:"-"`
+	LoadshedOltpRead OltpLoadshedConfig `json:"-"`
+	LoadshedTx       LoadshedConfig     `json:"-"`
 }
 
 type (
@@ -427,34 +428,27 @@ type (
 		InitialTarget time.Duration
 		IntervalRatio float64
 	}
+
+	OltpLoadshedConfig struct {
+		LoadshedConfig
+		schemasMu          *sync.RWMutex
+		UndroppableSchemas []string
+	}
 )
 
 const (
-	LoadshedModeOff             LoadshedMode = "off"
-	LoadshedModeShadow          LoadshedMode = "shadow"
-	LoadshedModeEnabled         LoadshedMode = "enabled"
-	LoadshedModeEnabledReplicas LoadshedMode = "enabled-replicas"
+	LoadshedModeOff     LoadshedMode = "off"
+	LoadshedModeShadow  LoadshedMode = "shadow"
+	LoadshedModeEnabled LoadshedMode = "enabled"
 )
 
 func parseLoadshedMode(value string) (LoadshedMode, error) {
 	mode := LoadshedMode(value)
 	switch mode {
-	case LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled, LoadshedModeEnabledReplicas:
+	case LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("load shedding mode must be one of %q, %q, %q, or %q", LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled, LoadshedModeEnabledReplicas)
-	}
-}
-
-func (m LoadshedMode) EffectiveMode(tabletType topodatapb.TabletType) loadshed.Mode {
-	if m != LoadshedModeEnabledReplicas {
-		return loadshed.Mode(m)
-	}
-	switch tabletType {
-	case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
-		return loadshed.ModeEnabled
-	default:
-		return loadshed.ModeOff
+		return "", fmt.Errorf("load shedding mode must be one of %q, %q, or %q", LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled)
 	}
 }
 
@@ -475,48 +469,39 @@ func (m LoadshedMode) Type() string {
 	return "loadshed-mode"
 }
 
-func (c *TabletConfig) LoadshedConfig(poolName string) *LoadshedConfig {
+func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	var config *LoadshedConfig
 	if c != nil {
 		switch poolName {
 		case "ConnPool":
-			config = &c.LoadshedOltpRead
+			config = &c.LoadshedOltpRead.LoadshedConfig
 		case "TransactionPool", "FoundRowsPool":
 			config = &c.LoadshedTx
 		}
 	}
-	return config
-}
-
-func (c *LoadshedConfig) CoDelConfig() loadshed.CoDelConfig {
-	return loadshed.CoDelConfig{
-		IntervalNs: func() int64 {
-			c.mu.RLock()
-			defer c.mu.RUnlock()
-			return time.Duration(float64(c.Target) * c.IntervalRatio).Nanoseconds()
+	if config == nil {
+		return loadshed.SnakeConfig{}
+	}
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs: func() int64 {
+				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+			},
+			InitialIntervalNs: func() int64 {
+				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+			},
+			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
+			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
+			Exponent:        func() float64 { return 1 },
+			MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
 		},
-		InitialIntervalNs: func() int64 {
-			c.mu.RLock()
-			defer c.mu.RUnlock()
-			initialTarget := c.InitialTarget
-			if initialTarget <= 0 {
-				initialTarget = c.Target
-			}
-			return time.Duration(float64(initialTarget) * c.IntervalRatio).Nanoseconds()
-		},
-		TargetNs:        func() int64 { return c.TargetValue().Nanoseconds() },
-		InitialTargetNs: func() int64 { return c.EffectiveInitialTargetValue().Nanoseconds() },
-		Exponent:        func() float64 { return 1 },
-		MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
 	}
 }
 
 func (c *LoadshedConfig) ModeValue() LoadshedMode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.Mode == "" {
-		return LoadshedModeOff
-	}
 	return c.Mode
 }
 
@@ -582,6 +567,18 @@ func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.IntervalRatio = intervalRatio
+}
+
+func (c *OltpLoadshedConfig) UndroppableSchemasValue() []string {
+	c.schemasMu.RLock()
+	defer c.schemasMu.RUnlock()
+	return append([]string(nil), c.UndroppableSchemas...)
+}
+
+func (c *OltpLoadshedConfig) SetUndroppableSchemas(schemas []string) {
+	c.schemasMu.Lock()
+	defer c.schemasMu.Unlock()
+	c.UndroppableSchemas = append([]string(nil), schemas...)
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1073,45 +1070,62 @@ func NewDefaultConfig() *TabletConfig {
 
 // Clone creates a clone of TabletConfig.
 func (c *TabletConfig) Clone() *TabletConfig {
-	unlock := c.lockLoadshedConfigs()
-	defer unlock()
+	if c.LoadshedOltpRead.mu != nil {
+		c.LoadshedOltpRead.mu.RLock()
+		defer c.LoadshedOltpRead.mu.RUnlock()
+	}
+	if c.LoadshedOltpRead.schemasMu != nil {
+		c.LoadshedOltpRead.schemasMu.RLock()
+		defer c.LoadshedOltpRead.schemasMu.RUnlock()
+	}
+	if c.LoadshedTx.mu != nil {
+		c.LoadshedTx.mu.RLock()
+		defer c.LoadshedTx.mu.RUnlock()
+	}
 
 	tc := *c
 	if tc.DB != nil {
 		tc.DB = c.DB.Clone()
 	}
-	if tc.LoadshedOltpRead.mu != nil {
-		tc.LoadshedOltpRead.mu = &sync.RWMutex{}
+	var oltpMu *sync.RWMutex
+	if c.LoadshedOltpRead.mu != nil {
+		oltpMu = &sync.RWMutex{}
 	}
-	if tc.LoadshedTx.mu != nil {
-		tc.LoadshedTx.mu = &sync.RWMutex{}
+	var schemasMu *sync.RWMutex
+	if c.LoadshedOltpRead.schemasMu != nil {
+		schemasMu = &sync.RWMutex{}
+	}
+	tc.LoadshedOltpRead = OltpLoadshedConfig{
+		LoadshedConfig: LoadshedConfig{
+			mu:            oltpMu,
+			Mode:          c.LoadshedOltpRead.Mode,
+			Target:        c.LoadshedOltpRead.Target,
+			InitialTarget: c.LoadshedOltpRead.InitialTarget,
+			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
+		},
+		schemasMu:          schemasMu,
+		UndroppableSchemas: append([]string(nil), c.LoadshedOltpRead.UndroppableSchemas...),
+	}
+	var txMu *sync.RWMutex
+	if c.LoadshedTx.mu != nil {
+		txMu = &sync.RWMutex{}
+	}
+	tc.LoadshedTx = LoadshedConfig{
+		mu:            txMu,
+		Mode:          c.LoadshedTx.Mode,
+		Target:        c.LoadshedTx.Target,
+		InitialTarget: c.LoadshedTx.InitialTarget,
+		IntervalRatio: c.LoadshedTx.IntervalRatio,
 	}
 	return &tc
-}
-
-func (c *TabletConfig) lockLoadshedConfigs() func() {
-	mus := []*sync.RWMutex{
-		c.LoadshedOltpRead.mu,
-		c.LoadshedTx.mu,
-	}
-	for _, mu := range mus {
-		if mu != nil {
-			mu.RLock()
-		}
-	}
-
-	return func() {
-		for i := len(mus) - 1; i >= 0; i-- {
-			if mus[i] != nil {
-				mus[i].RUnlock()
-			}
-		}
-	}
 }
 
 func (c *TabletConfig) InitLoadshedConfig() {
 	if c.LoadshedOltpRead.mu == nil {
 		c.LoadshedOltpRead.mu = &sync.RWMutex{}
+	}
+	if c.LoadshedOltpRead.schemasMu == nil {
+		c.LoadshedOltpRead.schemasMu = &sync.RWMutex{}
 	}
 	if c.LoadshedTx.mu == nil {
 		c.LoadshedTx.mu = &sync.RWMutex{}
@@ -1374,15 +1388,19 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: defaultLoadshedConfig(5 * time.Millisecond),
-	LoadshedTx:       defaultLoadshedConfig(20 * time.Millisecond),
+	LoadshedOltpRead: OltpLoadshedConfig{
+		LoadshedConfig:     defaultLoadshedConfig(),
+		schemasMu:          &sync.RWMutex{},
+		UndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
+	},
+	LoadshedTx: defaultLoadshedConfig(),
 }
 
-func defaultLoadshedConfig(target time.Duration) LoadshedConfig {
+func defaultLoadshedConfig() LoadshedConfig {
 	return LoadshedConfig{
 		mu:            &sync.RWMutex{},
 		Mode:          LoadshedModeOff,
-		Target:        target,
+		Target:        5 * time.Millisecond,
 		InitialTarget: 0,
 		IntervalRatio: 20,
 	}

@@ -25,32 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"vitess.io/vitess/go/list"
-	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
-
-type fakeWaitlistStatsExporter struct {
-	exporterName string
-	metricName   string
-	gauge        *stats.GaugesFuncWithMultiLabels
-	creates      int
-}
-
-func (e *fakeWaitlistStatsExporter) Name() string {
-	return e.exporterName
-}
-
-func (e *fakeWaitlistStatsExporter) NewGaugesFuncWithMultiLabels(name, help string, labels []string, sample func() map[string]int64) *stats.GaugesFuncWithMultiLabels {
-	e.creates++
-	if e.creates > 1 {
-		panic("duplicate metric registration")
-	}
-	e.metricName = name
-	e.gauge = stats.NewGaugesFuncWithMultiLabels("", help, labels, sample)
-	e.gauge.Counts()
-	return e.gauge
-}
 
 type testPoolConfig struct{}
 
@@ -68,38 +44,6 @@ func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
 	}
 }
 
-type mutableTestPoolConfig struct {
-	mode atomic.Value
-}
-
-func newMutableTestPoolConfig(mode loadshed.Mode) *mutableTestPoolConfig {
-	config := &mutableTestPoolConfig{}
-	config.mode.Store(mode)
-	return config
-}
-
-func (c *mutableTestPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
-	return loadshed.SnakeConfig{
-		Mode: func() loadshed.Mode { return c.mode.Load().(loadshed.Mode) },
-		CoDel: loadshed.CoDelConfig{
-			IntervalNs:     func() int64 { return time.Second.Nanoseconds() },
-			TargetNs:       func() int64 { return time.Second.Nanoseconds() },
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return time.Second.Nanoseconds() },
-		},
-	}
-}
-
-func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
-	c.mode.Store(mode)
-}
-
-func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
-	elem := &list.Element[waiter[*TestConn]]{Value: value}
-	wl.snake.EnqueueExisting(elem)
-	return elem
-}
-
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
 	wait.init("", nil)
@@ -115,7 +59,6 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	for i := 0; i < waiterCount; i++ {
 		go func() {
 			_, err := wait.waitForConn(ctx, nil, poolClose, 0, false)
-
 			if err != nil {
 				expireCount.Add(1)
 			}
@@ -143,27 +86,6 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	assert.Equal(t, int32(waiterCount), expireCount.Load())
 }
 
-func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
-	wl := waitlist[*TestConn]{}
-	wl.init("", nil)
-
-	poolClose := make(chan struct{})
-	errs := make(chan error, 1)
-	go func() {
-		_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
-		errs <- err
-	}()
-
-	require.Eventually(t, func() bool {
-		return wl.numWaiting() == 1
-	}, 30*time.Second, time.Millisecond)
-	assert.Equal(t, 1, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
-
-	close(poolClose)
-	assert.ErrorIs(t, <-errs, ErrConnPoolClosed)
-}
-
 func TestWaitlistWaiterCap(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("", nil)
@@ -180,13 +102,13 @@ func TestWaitlistWaiterCap(t *testing.T) {
 		}()
 
 		assert.Eventually(t, func() bool {
-			return wl.numWaiting() == i
+			return wl.waiting() == i
 		}, time.Second, 5*time.Millisecond)
 	}
 
 	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
-	assert.Equal(t, maxWaiters, wl.numWaiting())
+	assert.Equal(t, maxWaiters, wl.waiting())
 
 	close(poolClose)
 
@@ -195,267 +117,61 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	}
 }
 
-func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
-	wl := waitlist[*TestConn]{}
-	config := newMutableTestPoolConfig(loadshed.ModeOff)
-	wl.init("", config)
-
-	capReachedCount := atomic.Int32{}
-	wl.onWaiterCapReached = func() {
-		capReachedCount.Add(1)
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	const (
-		maxWaiters = 1
-		waiters    = 2
-	)
-
-	errs := make(chan error, waiters)
-	go func() {
-		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
-		errs <- err
-	}()
-	require.Eventually(t, func() bool {
-		return wl.numWaiting() == maxWaiters
-	}, time.Second, 5*time.Millisecond)
-
-	config.setMode(loadshed.ModeEnabled)
-	go func() {
-		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
-		errs <- err
-	}()
-
-	require.Eventually(t, func() bool {
-		return wl.numWaiting() == waiters
-	}, time.Second, 5*time.Millisecond)
-	assert.Zero(t, capReachedCount.Load())
-
-	config.setMode(loadshed.ModeShadow)
-	_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
-	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
-	assert.Equal(t, int32(1), capReachedCount.Load())
-
-	cancel()
-	for range waiters {
-		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
-	}
-}
-
-func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
-	wl := waitlist[*TestConn]{}
-	wl.init("", newMutableTestPoolConfig(loadshed.ModeEnabled))
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	const (
-		maxWaiters = 1
-		waiters    = 2
-	)
-
-	errs := make(chan error, waiters)
-	for range waiters {
-		go func() {
-			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
-			errs <- err
-		}()
-	}
-
-	require.Eventually(t, func() bool {
-		return wl.numWaiting() == waiters
-	}, time.Second, 5*time.Millisecond)
-
-	cancel()
-	for range waiters {
-		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
-	}
-}
-
-func TestWaitlistActiveModeMetric(t *testing.T) {
-	exporterName := t.Name()
-	t.Cleanup(func() {
-		snakeModeGauges.Lock()
-		delete(snakeModeGauges.byExporter, exporterName)
-		snakeModeGauges.Unlock()
-	})
-	exporter := &fakeWaitlistStatsExporter{exporterName: exporterName}
-	for _, tt := range []struct {
-		poolName  string
-		poolLabel string
-	}{
-		{poolName: "ConnPool", poolLabel: "oltp_read"},
-		{poolName: "TransactionPool", poolLabel: "dml"},
-		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
-	} {
-		t.Run(tt.poolName, func(t *testing.T) {
-			config := newMutableTestPoolConfig(loadshed.ModeOff)
-			wl := waitlist[*TestConn]{}
-			wl.init(tt.poolName, config)
-
-			wl.registerStats(exporter, tt.poolName)
-
-			require.NotNil(t, exporter.gauge)
-			assert.Equal(t, "SnakeMode", exporter.metricName)
-			assert.Equal(t, []string{"pool", "mode", "source"}, exporter.gauge.Labels())
-			assertModes := func(actual, desired loadshed.Mode) {
-				counts := exporter.gauge.Counts()
-				for source, mode := range map[string]loadshed.Mode{"actual": actual, "desired": desired} {
-					for _, candidate := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
-						expected := int64(0)
-						if candidate == mode {
-							expected = 1
-						}
-						assert.Equal(t, expected, counts[tt.poolLabel+"."+string(candidate)+"."+source])
-					}
-				}
-			}
-			assertModes(loadshed.ModeOff, loadshed.ModeOff)
-			actual := loadshed.ModeOff
-
-			for _, mode := range []loadshed.Mode{loadshed.ModeShadow, loadshed.ModeEnabled, loadshed.ModeOff} {
-				config.setMode(mode)
-				assertModes(actual, mode)
-				assert.Zero(t, wl.numWaiting())
-				ctx, cancel := context.WithCancel(t.Context())
-				cancel()
-				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
-				require.ErrorIs(t, err, context.Canceled)
-				assertModes(mode, mode)
-				actual = mode
-			}
-
-			replacement := waitlist[*TestConn]{}
-			replacement.init(tt.poolName, newMutableTestPoolConfig(loadshed.ModeShadow))
-			replacement.registerStats(exporter, tt.poolName)
-			assertModes(loadshed.ModeShadow, loadshed.ModeShadow)
-
-			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-			defer cancel()
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for range 1000 {
-					exporter.gauge.Counts()
-				}
-			}()
-			for range 1000 {
-				replacement.registerStats(exporter, tt.poolName)
-			}
-			select {
-			case <-done:
-			case <-ctx.Done():
-				t.Fatal("metric sampling did not finish")
-			}
-			assertModes(loadshed.ModeShadow, loadshed.ModeShadow)
-		})
-	}
-	assert.Equal(t, 1, exporter.creates)
-	assert.Len(t, exporter.gauge.Counts(), 18)
-}
-
-func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
+func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("", nil)
 
-	foo := &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)},
-	}
-	wl.list.PushBackValue(foo)
-	bar := &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
-	}
-	wl.list.PushBackValue(bar)
+	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped := wl.snake.Enqueue(foo, 0)
+	require.Empty(t, dropped)
+	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(bar, 0)
+	require.Empty(t, dropped)
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
 	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-bar.Value.conn)
-	assert.Equal(t, uint32(1), foo.Value.age)
+	assert.Same(t, conn, <-bar.conn)
+	assert.Equal(t, uint32(1), foo.age)
 	assert.Zero(t, wl.maybeStarvingCount())
 
-	foo.Value.age = 9
-	bar = &list.Element[waiter[*TestConn]]{
-		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
-	}
-	wl.list.PushBackValue(bar)
+	foo.age = 9
+	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(bar, 0)
+	require.Empty(t, dropped)
 
 	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-foo.Value.conn)
-}
-
-func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
-	wl := waitlist[*TestConn]{}
-	wl.init("ConnPool", testPoolConfig{})
-
-	foo := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)})
-	bar := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
-	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
-
-	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-bar.Value.conn)
-	assert.Equal(t, uint32(1), foo.Value.age)
-	assert.Zero(t, wl.maybeStarvingCount())
-
-	foo.Value.age = 9
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
-
-	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-foo.Value.conn)
-}
-
-func TestWaitlistFallsBackWhenNoSettingMatches(t *testing.T) {
-	for _, mode := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
-		t.Run(string(mode), func(t *testing.T) {
-			var state TestState
-			pool := NewPool(&Config[*TestConn]{Capacity: 1, PoolName: "ConnPool", PoolConfig: newMutableTestPoolConfig(mode)}).Open(newConnector(&state), nil)
-			t.Cleanup(pool.Close)
-			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-			defer cancel()
-			conn, err := pool.Get(ctx, sFoo)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				if conn != nil {
-					conn.Recycle()
-				}
-			})
-
-			errs := make(chan error, 1)
-			go func() {
-				returned, err := pool.Get(ctx, nil)
-				if returned != nil {
-					returned.Recycle()
-				}
-				errs <- err
-			}()
-			require.Eventually(t, func() bool { return pool.wait.numWaiting() == 1 }, 30*time.Second, time.Millisecond)
-			conn.Recycle()
-			conn = nil
-			require.NoError(t, <-errs)
-			assert.Zero(t, pool.wait.numWaiting())
-		})
-	}
+	assert.Same(t, conn, <-foo.conn)
 }
 
 func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init("ConnPool", testPoolConfig{})
+	wl.init("", nil)
 
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1})
-	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)})
+	aged := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1}
+	_, dropped := wl.snake.Enqueue(aged, 0)
+	require.Empty(t, dropped)
+	newWaiter := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)}
+	_, dropped = wl.snake.Enqueue(newWaiter, 0)
+	require.Empty(t, dropped)
 
 	assert.Equal(t, 1, wl.maybeStarvingCount())
 }
 
-func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
-	config := newMutableTestPoolConfig(loadshed.ModeOff)
+func TestWaitlistShedsQueuedRequests(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init("ConnPool", config)
+	wl.init("ConnPool", testPoolConfig{})
 
 	poolClose := make(chan struct{})
-	errs := make(chan error, 3)
-	for range 3 {
+	t.Cleanup(func() {
+		close(poolClose)
+	})
+
+	errs := make(chan error, 6)
+	var waiting atomic.Int32
+	wl.onWait = func() {
+		waiting.Add(1)
+	}
+	for range 6 {
 		go func() {
 			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
 			errs <- err
@@ -463,122 +179,13 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return wl.numWaiting() == 3
+		return waiting.Load() == 6
 	}, 30*time.Second, time.Millisecond)
-	assert.Equal(t, 3, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
-
-	config.setMode(loadshed.ModeShadow)
-	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Zero(t, wl.list.Len())
-	assert.Equal(t, 3, wl.snake.Len())
-
-	config.setMode(loadshed.ModeOff)
-	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Equal(t, 3, wl.list.Len())
-	assert.Zero(t, wl.snake.Len())
-
-	close(poolClose)
-	for range 3 {
-		assert.ErrorIs(t, <-errs, ErrConnPoolClosed)
-	}
-}
-
-func TestWaitlistTransitionDoesNotHideWaitersFromConnectionHandoff(t *testing.T) {
-	wl := waitlist[*TestConn]{}
-	wl.init("", nil)
-
-	assert.False(t, wl.shouldTryReturnConn())
-	wl.transitioning.Store(true)
-	assert.True(t, wl.shouldTryReturnConn())
-	wl.transitioning.Store(false)
-	assert.False(t, wl.shouldTryReturnConn())
-}
-
-func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
-	tests := []struct {
-		name string
-		from loadshed.Mode
-		to   loadshed.Mode
-	}{
-		{name: "legacy to snake", from: loadshed.ModeOff, to: loadshed.ModeShadow},
-		{name: "snake to legacy", from: loadshed.ModeShadow, to: loadshed.ModeOff},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := newMutableTestPoolConfig(tt.from)
-			wl := waitlist[*TestConn]{}
-			wl.init("ConnPool", config)
-
-			ctx, cancel := context.WithCancel(t.Context())
-			errs := make(chan error, 1)
-			go func() {
-				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
-				errs <- err
-			}()
-
-			require.Eventually(t, func() bool {
-				return wl.numWaiting() == 1
-			}, 30*time.Second, time.Millisecond)
-
-			config.setMode(tt.to)
-			cancel()
-			assert.ErrorIs(t, <-errs, context.Canceled)
-			assert.Zero(t, wl.numWaiting())
-			assert.Zero(t, wl.list.Len())
-			assert.Zero(t, wl.snake.Len())
-		})
-	}
-}
-
-func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
-	type waitResult struct {
-		conn *Pooled[*TestConn]
-		err  error
-	}
-
-	for range 1000 {
-		wl := waitlist[*TestConn]{}
-		wl.init("ConnPool", newMutableTestPoolConfig(loadshed.ModeShadow))
-
-		ctx, cancel := context.WithCancel(t.Context())
-		result := make(chan waitResult, 1)
-		go func() {
-			conn, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
-			result <- waitResult{conn: conn, err: err}
-		}()
-
-		require.Eventually(t, func() bool {
-			return wl.numWaiting() == 1
-		}, time.Second, time.Millisecond)
-
-		conn := &Pooled[*TestConn]{Conn: &TestConn{}}
-		start := make(chan struct{})
-		handoff := make(chan bool, 1)
-		cancelled := make(chan struct{})
-		go func() {
-			<-start
-			handoff <- wl.tryReturnConn(conn)
-		}()
-		go func() {
-			<-start
-			cancel()
-			close(cancelled)
-		}()
-		close(start)
-
-		<-cancelled
-		handedOff := <-handoff
-		got := <-result
-		if handedOff {
-			assert.Same(t, conn, got.conn)
-			assert.NoError(t, got.err)
-		} else {
-			assert.Nil(t, got.conn)
-			assert.ErrorIs(t, got.err, context.Canceled)
-		}
-		assert.Zero(t, wl.numWaiting())
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, ErrPoolLoadShed)
+	case <-time.After(30 * time.Second):
+		require.Fail(t, "timed out waiting for Snake to shed a waiter")
 	}
 }
 
@@ -603,7 +210,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 		}()
 
 		assert.Eventually(t, func() bool {
-			return wl.numWaiting() == i
+			return wl.waiting() == i
 		}, time.Second, 5*time.Millisecond)
 	}
 
@@ -614,7 +221,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	}()
 
 	assert.Eventually(t, func() bool {
-		return wl.numWaiting() == maxWaiters+1
+		return wl.waiting() == maxWaiters+1
 	}, time.Second, 5*time.Millisecond)
 
 	assert.Equal(t, int32(1), capReachedCount.Load())
