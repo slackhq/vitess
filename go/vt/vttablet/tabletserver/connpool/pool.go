@@ -58,8 +58,7 @@ type Pool struct {
 	getConnTime    *servenv.TimingsWrapper
 }
 
-// NewPool creates a new Pool. The name is used
-// to publish stats only.
+// NewPool creates a new Pool. The name selects its stats and load-shedding configuration.
 func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool {
 	cp := &Pool{
 		timeout: cfg.Timeout,
@@ -74,6 +73,8 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		RefreshInterval: mysqlctl.PoolDynamicHostnameResolution,
 		MaxWaiters:      cfg.MaxWaiters,
 		WaiterCapDryRun: cfg.WaiterCapDryRun,
+		PoolName:        name,
+		PoolConfig:      env.Config(),
 	}
 
 	if name != "" {

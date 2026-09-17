@@ -107,6 +107,8 @@ type Config[C Connection] struct {
 	MaxWaiters      uint
 	WaiterCapDryRun bool
 	LogWait         func(time.Time)
+	PoolName        string
+	PoolConfig      PoolConfig
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -183,7 +185,7 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters.Store(uint32(config.MaxWaiters))
 	pool.config.waiterCapDryRun.Store(config.WaiterCapDryRun)
-	pool.wait.init()
+	pool.wait.init(config.PoolName, config.PoolConfig)
 	pool.wait.onWait = func() {
 		pool.Metrics.waitCount.Add(1)
 	}
