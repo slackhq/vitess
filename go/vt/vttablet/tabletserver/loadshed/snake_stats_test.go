@@ -18,17 +18,18 @@ package loadshed
 
 import "vitess.io/vitess/go/stats"
 
+// fakeExporter captures the CounterFuncs and Histograms registered by
+// PublishStats so the test can invoke them directly, without touching global
+// stats registration.
 type fakeExporter struct {
-	counters      map[string]func() int64
-	histograms    map[string]*stats.Histogram
-	histogramHelp map[string]string
+	counters   map[string]func() int64
+	histograms map[string]*stats.Histogram
 }
 
 func newFakeExporter() *fakeExporter {
 	return &fakeExporter{
-		counters:      make(map[string]func() int64),
-		histograms:    make(map[string]*stats.Histogram),
-		histogramHelp: make(map[string]string),
+		counters:   make(map[string]func() int64),
+		histograms: make(map[string]*stats.Histogram),
 	}
 }
 
@@ -40,6 +41,5 @@ func (e *fakeExporter) NewCounterFunc(name, _ string, f func() int64) *stats.Cou
 func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.Histogram {
 	h := stats.NewHistogram("", help, cutoffs)
 	e.histograms[name] = h
-	e.histogramHelp[name] = help
 	return h
 }
