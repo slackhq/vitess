@@ -72,3 +72,34 @@ func TestSnakeDrainPromotesValveWaiters(t *testing.T) {
 	assert.Equal(t, []string{"first", "second"}, snake.Drain())
 	assert.Zero(t, snake.Len())
 }
+
+func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+
+	snake.Enqueue("new", "", 100)
+	snake.EnqueueExisting("existing", "", PriorityUndroppable)
+
+	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
+	assert.Equal(t, map[string]int64{"0": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
+}
+
+func TestSnakeShedByPriorityMetric(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+
+	snake.droppedValues([]*Request[string]{
+		newRequest("highest", 100),
+		newRequest("middle", 50),
+		newRequest("lowest", 0),
+	})
+
+	require.Contains(t, exporter.multiCounters, "SnakeTestShedByPriority")
+	assert.Equal(t, map[string]int64{
+		"0":   1,
+		"50":  1,
+		"100": 1,
+	}, exporter.multiCounters["SnakeTestShedByPriority"].Counts())
+}

@@ -24,6 +24,7 @@ import (
 
 	"vitess.io/vitess/go/list"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
@@ -124,7 +125,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.queues.list.PushBackValue(elem)
 	} else {
 		var newlyDropped []*list.Element[waiter[C]]
-		request, newlyDropped = wl.queues.snake.Enqueue(elem, valveID, priority)
+		request, newlyDropped = wl.queues.snake.Enqueue(elem, valveID, snakePriority(priority))
 		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
@@ -167,6 +168,13 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	case conn := <-elem.Value.conn:
 		return conn, elem.Value.err
 	}
+}
+
+func snakePriority(priority float64) float64 {
+	if priority == loadshed.PriorityUndroppable {
+		return priority
+	}
+	return float64(sqlparser.MaxPriorityValue) - priority
 }
 
 func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {

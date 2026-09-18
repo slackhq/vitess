@@ -77,6 +77,13 @@ func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.
 	return elem
 }
 
+func TestSnakePriority(t *testing.T) {
+	assert.Equal(t, float64(100), snakePriority(0))
+	assert.Equal(t, float64(50), snakePriority(50))
+	assert.Equal(t, float64(0), snakePriority(100))
+	assert.Equal(t, loadshed.PriorityUndroppable, snakePriority(loadshed.PriorityUndroppable))
+}
+
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
 	wait.init("", nil)
