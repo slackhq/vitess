@@ -363,6 +363,19 @@ func TestUndroppableSchemasConfig(t *testing.T) {
 	assert.Equal(t, []string{"schema"}, cfg.Clone().LoadshedOltpRead.UndroppableSchemasValue())
 }
 
+func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
+	cfg := &TabletConfig{}
+	cfg.InitLoadshedConfig()
+
+	oltp := cfg.LoadshedConfig("ConnPool")
+	tx := cfg.LoadshedConfig("TransactionPool")
+
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.ModeValue())
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
+	assert.Equal(t, loadshed.ModeOff, oltp.Mode())
+	assert.Equal(t, loadshed.ModeOff, tx.Mode())
+}
+
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg := NewDefaultConfig()
 
