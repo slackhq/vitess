@@ -243,6 +243,19 @@ func TestOpen(t *testing.T) {
 	assert.EqualValues(t, 0, state.open.Load())
 }
 
+func TestHasIdleConnection(t *testing.T) {
+	pool := &ConnPool[*TestConn]{}
+	assert.False(t, pool.hasIdleConnection())
+
+	pool.clean.Push(&Pooled[*TestConn]{})
+	assert.True(t, pool.hasIdleConnection())
+	_, ok := pool.clean.Pop()
+	require.True(t, ok)
+
+	pool.settings[3].Push(&Pooled[*TestConn]{})
+	assert.True(t, pool.hasIdleConnection())
+}
+
 func TestShrinking(t *testing.T) {
 	var state TestState
 
@@ -994,7 +1007,7 @@ func TestPoolLoadShedPropagation(t *testing.T) {
 	errs := make(chan error, 6)
 	for range 6 {
 		go func() {
-			conn, err := p.Get(ctx, nil)
+			conn, err := p.GetWithPriority(ctx, nil, 100)
 			if conn != nil {
 				conn.Recycle()
 			}

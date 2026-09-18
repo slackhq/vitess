@@ -22,14 +22,16 @@ import "vitess.io/vitess/go/stats"
 // PublishStats so the test can invoke them directly, without touching global
 // stats registration.
 type fakeExporter struct {
-	counters   map[string]func() int64
-	histograms map[string]*stats.Histogram
+	counters      map[string]func() int64
+	histograms    map[string]*stats.Histogram
+	multiCounters map[string]*stats.CountersWithMultiLabels
 }
 
 func newFakeExporter() *fakeExporter {
 	return &fakeExporter{
-		counters:   make(map[string]func() int64),
-		histograms: make(map[string]*stats.Histogram),
+		counters:      make(map[string]func() int64),
+		histograms:    make(map[string]*stats.Histogram),
+		multiCounters: make(map[string]*stats.CountersWithMultiLabels),
 	}
 }
 
@@ -42,4 +44,10 @@ func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.H
 	h := stats.NewHistogram("", help, cutoffs)
 	e.histograms[name] = h
 	return h
+}
+
+func (e *fakeExporter) NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels {
+	c := stats.NewCountersWithMultiLabels("", help, labels)
+	e.multiCounters[name] = c
+	return c
 }

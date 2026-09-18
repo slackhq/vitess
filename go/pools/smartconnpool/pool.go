@@ -28,6 +28,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -234,6 +235,10 @@ func (pool *ConnPool[C]) open() {
 	// The expire worker takes care of removing from the waiter list any clients whose
 	// context has been cancelled.
 	pool.runWorker(closeChan, 100*time.Millisecond, func(_ time.Time) bool {
+		if !pool.hasIdleConnection() {
+			return true
+		}
+
 		maybeStarving := pool.wait.maybeStarvingCount()
 
 		// Do not allow connections to starve; if there's waiters in the queue
@@ -436,6 +441,10 @@ func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle
 func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C], error) {
+	return pool.GetWithPriority(ctx, setting, loadshed.PriorityUndroppable)
+}
+
+func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
@@ -443,9 +452,9 @@ func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C],
 		return nil, ErrConnPoolClosed
 	}
 	if setting == nil {
-		return pool.get(ctx)
+		return pool.get(ctx, priority)
 	}
-	return pool.getWithSetting(ctx, setting)
+	return pool.getWithSetting(ctx, setting, priority)
 }
 
 // put returns a connection to the pool. This is a private API.
@@ -529,6 +538,18 @@ func (pool *ConnPool[C]) tryReturnAnyConn() bool {
 		if conn := pool.pop(&pool.settings[u]); conn != nil {
 			conn.timeUsed.update()
 			return pool.tryReturnConn(conn)
+		}
+	}
+	return false
+}
+
+func (pool *ConnPool[C]) hasIdleConnection() bool {
+	if pool.clean.Peek() != nil {
+		return true
+	}
+	for i := range pool.settings {
+		if pool.settings[i].Peek() != nil {
+			return true
 		}
 	}
 	return false
@@ -633,7 +654,7 @@ func (pool *ConnPool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 }
 
 // get returns a pooled connection with no Setting applied
-func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
+func (pool *ConnPool[C]) get(ctx context.Context, priority float64) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// best case: if there's a connection in the clean stack, return it right away
@@ -661,7 +682,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, uint(pool.config.maxWaiters.Load()), pool.config.waiterCapDryRun.Load())
+		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, uint(pool.config.maxWaiters.Load()), priority, pool.config.waiterCapDryRun.Load())
 		if err != nil {
 			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
@@ -695,7 +716,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 }
 
 // getWithSetting returns a connection from the pool with the given Setting applied
-func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (*Pooled[C], error) {
+func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
 	pool.Metrics.getWithSettingsCount.Add(1)
 
 	var err error
@@ -727,7 +748,7 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, uint(pool.config.maxWaiters.Load()), pool.config.waiterCapDryRun.Load())
+		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, uint(pool.config.maxWaiters.Load()), priority, pool.config.waiterCapDryRun.Load())
 		if err != nil {
 			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err

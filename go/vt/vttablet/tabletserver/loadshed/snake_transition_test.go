@@ -28,7 +28,7 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 	cfg.Mode = nil
 	snake := NewSnake[string](cfg)
 
-	_, dropped := snake.Enqueue("queued")
+	_, dropped := snake.Enqueue("queued", 0)
 
 	assert.Empty(t, dropped)
 	assert.Equal(t, ModeOff, snake.mode())
@@ -37,8 +37,8 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first")
-	snake.Enqueue("second")
+	snake.Enqueue("first", 0)
+	snake.Enqueue("second", 0)
 
 	removed, dropped := snake.CancelMatching(func(value string) bool {
 		return value == "second"
@@ -51,9 +51,40 @@ func TestSnakeCancelMatching(t *testing.T) {
 
 func TestSnakeDrain(t *testing.T) {
 	snake := NewSnake[string](defaultSnakeConfig())
-	snake.EnqueueExisting("first")
-	snake.EnqueueExisting("second")
+	snake.EnqueueExisting("first", PriorityUndroppable)
+	snake.EnqueueExisting("second", PriorityUndroppable)
 
 	assert.Equal(t, []string{"first", "second"}, snake.Drain())
 	assert.Zero(t, snake.Len())
+}
+
+func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+
+	snake.Enqueue("new", 100)
+	snake.EnqueueExisting("existing", PriorityUndroppable)
+
+	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
+	assert.Equal(t, map[string]int64{"0": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
+}
+
+func TestSnakeShedByPriorityMetric(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+
+	snake.droppedValues([]*Request[string]{
+		newRequest("highest", 100),
+		newRequest("middle", 50),
+		newRequest("lowest", 0),
+	})
+
+	require.Contains(t, exporter.multiCounters, "SnakeTestShedByPriority")
+	assert.Equal(t, map[string]int64{
+		"0":   1,
+		"50":  1,
+		"100": 1,
+	}, exporter.multiCounters["SnakeTestShedByPriority"].Counts())
 }

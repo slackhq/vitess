@@ -27,6 +27,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 type StressConn struct {
@@ -135,7 +137,7 @@ func TestStress(t *testing.T) {
 		wg.Go(func() error {
 			ctx := context.Background()
 			for !stop.Load() {
-				conn, err := pool.get(ctx)
+				conn, err := pool.get(ctx, loadshed.PriorityUndroppable)
 				if err != nil {
 					return err
 				}
