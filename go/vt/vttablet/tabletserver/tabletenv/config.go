@@ -502,6 +502,9 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 func (c *LoadshedConfig) ModeValue() LoadshedMode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.Mode == "" {
+		return LoadshedModeOff
+	}
 	return c.Mode
 }
 

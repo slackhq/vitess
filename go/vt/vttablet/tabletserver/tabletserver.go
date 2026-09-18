@@ -1643,13 +1643,21 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Errorf
-	skipQueryString := errCode == vtrpcpb.Code_RESOURCE_EXHAUSTED
+	// skipQueryString suppresses building the (expensive) query+bindvars string
+	// for the log message. RESOURCE_EXHAUSTED is a high-volume, expected outcome
+	// under load shedding / pool exhaustion, and its log is rate-limited
+	// (logPoolFull) anyway — so formatting the SQL and prototext-marshalling every
+	// bind variable per rejection is wasted work that dominates CPU exactly when
+	// the tablet is already overloaded. The returned client error is unaffected;
+	// only the throttled log line omits the query detail.
+	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
 		logMethod = nil
 	case vtrpcpb.Code_RESOURCE_EXHAUSTED:
 		logMethod = logPoolFull.Errorf
+		skipQueryString = true
 	case vtrpcpb.Code_ABORTED:
 		logMethod = log.Warningf
 	case vtrpcpb.Code_INVALID_ARGUMENT, vtrpcpb.Code_DEADLINE_EXCEEDED:
