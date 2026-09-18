@@ -73,7 +73,7 @@ func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
 
 func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
 	elem := &list.Element[waiter[*TestConn]]{Value: value}
-	wl.queues.snake.EnqueueExisting(elem)
+	wl.snake.EnqueueExisting(elem)
 	return elem
 }
 
@@ -92,6 +92,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	for i := 0; i < waiterCount; i++ {
 		go func() {
 			_, err := wait.waitForConn(ctx, nil, poolClose, 0, false)
+
 			if err != nil {
 				expireCount.Add(1)
 			}
@@ -133,8 +134,8 @@ func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return wl.waiting() == 1
 	}, 30*time.Second, time.Millisecond)
-	assert.Equal(t, 1, wl.queues.list.Len())
-	assert.Zero(t, wl.queues.snake.Len())
+	assert.Equal(t, 1, wl.list.Len())
+	assert.Zero(t, wl.snake.Len())
 
 	close(poolClose)
 	assert.ErrorIs(t, <-errs, ErrConnPoolClosed)
@@ -178,11 +179,11 @@ func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 	foo := &list.Element[waiter[*TestConn]]{
 		Value: waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.queues.list.PushBackValue(foo)
+	wl.list.PushBackValue(foo)
 	bar := &list.Element[waiter[*TestConn]]{
 		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.queues.list.PushBackValue(bar)
+	wl.list.PushBackValue(bar)
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
 	require.True(t, wl.tryReturnConn(conn))
@@ -194,7 +195,7 @@ func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 	bar = &list.Element[waiter[*TestConn]]{
 		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
 	}
-	wl.queues.list.PushBackValue(bar)
+	wl.list.PushBackValue(bar)
 
 	require.True(t, wl.tryReturnConn(conn))
 	assert.Same(t, conn, <-foo.Value.conn)
@@ -247,18 +248,18 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return wl.waiting() == 3
 	}, 30*time.Second, time.Millisecond)
-	assert.Equal(t, 3, wl.queues.list.Len())
-	assert.Zero(t, wl.queues.snake.Len())
+	assert.Equal(t, 3, wl.list.Len())
+	assert.Zero(t, wl.snake.Len())
 
 	config.setMode(loadshed.ModeShadow)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Zero(t, wl.queues.list.Len())
-	assert.Equal(t, 3, wl.queues.snake.Len())
+	assert.Zero(t, wl.list.Len())
+	assert.Equal(t, 3, wl.snake.Len())
 
 	config.setMode(loadshed.ModeOff)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Equal(t, 3, wl.queues.list.Len())
-	assert.Zero(t, wl.queues.snake.Len())
+	assert.Equal(t, 3, wl.list.Len())
+	assert.Zero(t, wl.snake.Len())
 
 	close(poolClose)
 	for range 3 {
@@ -271,9 +272,9 @@ func TestWaitlistTransitionDoesNotHideWaitersFromConnectionHandoff(t *testing.T)
 	wl.init("", nil)
 
 	assert.False(t, wl.shouldTryReturnConn())
-	wl.queues.transitioning.Store(true)
+	wl.transitioning.Store(true)
 	assert.True(t, wl.shouldTryReturnConn())
-	wl.queues.transitioning.Store(false)
+	wl.transitioning.Store(false)
 	assert.False(t, wl.shouldTryReturnConn())
 }
 
@@ -308,8 +309,8 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 			cancel()
 			assert.ErrorIs(t, <-errs, context.Canceled)
 			assert.Zero(t, wl.waiting())
-			assert.Zero(t, wl.queues.list.Len())
-			assert.Zero(t, wl.queues.snake.Len())
+			assert.Zero(t, wl.list.Len())
+			assert.Zero(t, wl.snake.Len())
 		})
 	}
 }
