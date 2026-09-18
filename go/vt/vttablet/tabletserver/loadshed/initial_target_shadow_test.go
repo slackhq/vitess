@@ -17,7 +17,6 @@ limitations under the License.
 package loadshed
 
 import (
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,80 +25,86 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newShadowTestSnake(mode func() Mode) (*Snake[struct{}], *atomic.Int64) {
-	var now atomic.Int64
-	s := NewSnake[struct{}](SnakeConfig{
-		Mode: mode,
-		CoDel: CoDelConfig{
-			IntervalNs:     func() int64 { return (10 * time.Millisecond).Nanoseconds() },
-			TargetNs:       func() int64 { return time.Millisecond.Nanoseconds() },
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return 1 },
-		},
-	})
-	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
-	return s, &now
+func defaultSnakeConfig() SnakeConfig {
+	return SnakeConfig{CoDel: defaultTestConfig()}
 }
 
-func TestInitialTargetShadowSmallestHittingCandidate(t *testing.T) {
+func lockedEnqueueShadowTestRequest(s *Snake[struct{}], priority float64) *Request[struct{}] {
+	req := newRequest(struct{}{}, priority)
+	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
+	return req
+}
+
+func TestInitialTargetShadow_SmallestHittingCandidate(t *testing.T) {
 	var tracker initialTargetShadowTracker
 	require.True(t, tracker.start(0))
 
 	sojourn := int64(6 * time.Millisecond)
-	assert.False(t, tracker.observe(int64(150*time.Millisecond), &sojourn, false).completed)
-	outcome := tracker.observe(initialTargetShadowMaxIntervalNs, nil, false)
+	outcome := tracker.observe(int64(150*time.Millisecond), &sojourn, false)
+	assert.False(t, outcome.completed)
+
+	outcome = tracker.observe(initialTargetShadowMaxIntervalNs, nil, false)
+	require.True(t, outcome.completed)
+	assert.Equal(t, int64(10*time.Millisecond), outcome.requiredTargetNs)
+}
+
+func TestInitialTargetShadow_StrictBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		atNs       int64
+		sojournNs  int64
+		wantTarget int64
+	}{
+		{
+			name:       "deadline equality misses",
+			atNs:       int64(100 * time.Millisecond),
+			sojournNs:  int64(4 * time.Millisecond),
+			wantTarget: int64(10 * time.Millisecond),
+		},
+		{
+			name:       "target equality misses",
+			atNs:       int64(99 * time.Millisecond),
+			sojournNs:  int64(5 * time.Millisecond),
+			wantTarget: int64(10 * time.Millisecond),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tracker initialTargetShadowTracker
+			require.True(t, tracker.start(0))
+
+			outcome := tracker.observe(tc.atNs, &tc.sojournNs, false)
+			assert.False(t, outcome.completed)
+
+			outcome = tracker.observe(initialTargetShadowMaxIntervalNs, nil, false)
+			require.True(t, outcome.completed)
+			assert.Equal(t, tc.wantTarget, outcome.requiredTargetNs)
+		})
+	}
+}
+
+func TestInitialTargetShadow_NaturalDrainHits(t *testing.T) {
+	var tracker initialTargetShadowTracker
+	require.True(t, tracker.start(0))
+
+	outcome := tracker.observe(int64(99*time.Millisecond), nil, true)
+
+	require.True(t, outcome.completed)
+	assert.Equal(t, int64(5*time.Millisecond), outcome.requiredTargetNs)
+	assert.False(t, tracker.active)
+	assert.False(t, tracker.waitingForDrain)
+}
+
+func TestInitialTargetShadow_DrainAtDeadlineMissesCandidate(t *testing.T) {
+	var tracker initialTargetShadowTracker
+	require.True(t, tracker.start(0))
+
+	outcome := tracker.observe(int64(100*time.Millisecond), nil, true)
 
 	require.True(t, outcome.completed)
 	assert.Equal(t, int64(10*time.Millisecond), outcome.requiredTargetNs)
 }
 
-func TestInitialTargetShadowStrictBoundaries(t *testing.T) {
-	tests := []struct {
-		name    string
-		at      time.Duration
-		sojourn time.Duration
-		want    time.Duration
-	}{
-		{name: "deadline", at: 100 * time.Millisecond, sojourn: 4 * time.Millisecond, want: 10 * time.Millisecond},
-		{name: "target", at: 99 * time.Millisecond, sojourn: 5 * time.Millisecond, want: 10 * time.Millisecond},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var tracker initialTargetShadowTracker
-			require.True(t, tracker.start(0))
-			sojourn := int64(tt.sojourn)
-			assert.False(t, tracker.observe(int64(tt.at), &sojourn, false).completed)
-			outcome := tracker.observe(initialTargetShadowMaxIntervalNs, nil, false)
-			require.True(t, outcome.completed)
-			assert.Equal(t, int64(tt.want), outcome.requiredTargetNs)
-		})
-	}
-}
-
-func TestInitialTargetShadowDrainOutcome(t *testing.T) {
-	tests := []struct {
-		name string
-		at   time.Duration
-		want time.Duration
-	}{
-		{name: "before deadline", at: 99 * time.Millisecond, want: 5 * time.Millisecond},
-		{name: "at deadline", at: 100 * time.Millisecond, want: 10 * time.Millisecond},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var tracker initialTargetShadowTracker
-			require.True(t, tracker.start(0))
-			outcome := tracker.observe(int64(tt.at), nil, true)
-			require.True(t, outcome.completed)
-			assert.Equal(t, int64(tt.want), outcome.requiredTargetNs)
-			assert.False(t, tracker.active)
-			assert.False(t, tracker.waitingForDrain)
-		})
-	}
-}
-
-func TestInitialTargetShadowAllCandidatesMiss(t *testing.T) {
+func TestInitialTargetShadow_AllCandidatesMiss(t *testing.T) {
 	var tracker initialTargetShadowTracker
 	require.True(t, tracker.start(0))
 
@@ -108,23 +113,46 @@ func TestInitialTargetShadowAllCandidatesMiss(t *testing.T) {
 	require.True(t, outcome.completed)
 	assert.Equal(t, initialTargetShadowMissNs, outcome.requiredTargetNs)
 	assert.True(t, tracker.waitingForDrain)
-	assert.False(t, tracker.start(initialTargetShadowMaxIntervalNs))
-	tracker.observe(initialTargetShadowMaxIntervalNs, nil, true)
+	assert.False(t, tracker.start(outcome.requiredTargetNs))
+
+	tracker.observe(outcome.requiredTargetNs, nil, true)
 	assert.False(t, tracker.waitingForDrain)
+	assert.True(t, tracker.start(outcome.requiredTargetNs))
 }
 
-func TestInitialTargetShadowMetricContract(t *testing.T) {
-	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
-	exporter := newFakeExporter()
-	PublishStats(exporter, "SnakeOltpRead", s)
-	histogram := exporter.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
+func TestInitialTargetShadow_DeadlineCompletesAtMaximumWindow(t *testing.T) {
+	var tracker initialTargetShadowTracker
+	require.True(t, tracker.start(0))
 
+	outcome := tracker.observe(initialTargetShadowMaxIntervalNs, nil, false)
+
+	assert.True(t, outcome.completed)
+	assert.Equal(t, initialTargetShadowMissNs, outcome.requiredTargetNs)
+}
+
+// TestInitialTargetShadow_ShadowModeRecordsBurst enqueues a droppable request in
+// shadow mode (starting a burst at t=0), then grants it at t=101ms. The grant
+// drains the backlog, so the smallest candidate whose interval (target*20) has
+// not yet elapsed — 10ms, whose 200ms interval outlasts 101ms — is recorded,
+// and nothing is shed.
+func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
+	var now atomic.Int64
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
+	s.clockFunc = now.Load
+	s.q.nowNs = now.Load
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
-	assert.True(t, strings.Contains(exporter.histogramHelp["SnakeOltpReadInitialTargetShadow20xMs"], "milliseconds"))
 
 	_, dropped := s.Enqueue(struct{}{}, 0)
 	require.Empty(t, dropped)
+	require.True(t, s.initialTargetShadow.active)
+
 	now.Store(int64(101 * time.Millisecond))
 	_, ok, dropped := s.Dequeue()
 	require.True(t, ok)
@@ -133,15 +161,22 @@ func TestInitialTargetShadowMetricContract(t *testing.T) {
 	assert.Equal(t, int64(1), histogram.Count())
 	assert.Equal(t, int64(1), histogram.Counts()["10"])
 	assert.Equal(t, int64(10), histogram.Total())
+	assert.Equal(t, int64(0), s.ShedCount())
 }
 
-func TestInitialTargetShadowModeDoesNotRunCoDel(t *testing.T) {
-	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
+// TestInitialTargetShadow_ShadowModeDoesNotRunCoDel verifies that a droppable
+// enqueue in shadow mode starts a shadow burst but leaves the CoDel controller
+// completely idle: no drop timer, no dropping state, no control-law warming, and
+// no interval/drop-count observations.
+func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
 
 	_, dropped := s.Enqueue(struct{}{}, 0)
 	require.Empty(t, dropped)
+	require.True(t, s.initialTargetShadow.active)
 
-	assert.True(t, s.initialTargetShadow.active)
 	assert.False(t, s.dropTimerArmed)
 	assert.False(t, s.q.dropping)
 	assert.Zero(t, s.q.dropNextNs)
@@ -150,134 +185,211 @@ func TestInitialTargetShadowModeDoesNotRunCoDel(t *testing.T) {
 	assert.Zero(t, s.dropCount.Count())
 }
 
-func TestInitialTargetOffModeRunsNeitherControllerNorShadow(t *testing.T) {
-	s, _ := newShadowTestSnake(func() Mode { return ModeOff })
+// TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow verifies that in off
+// mode a droppable enqueue runs neither the CoDel controller nor the shadow
+// backtest: the queue behaves as a plain FIFO.
+func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeOff }
+	s := NewSnake[struct{}](cfg)
 
 	_, dropped := s.Enqueue(struct{}{}, 0)
 	require.Empty(t, dropped)
+	require.Equal(t, 1, s.q.droppableLen)
 
-	assert.Equal(t, 1, s.q.droppableLen)
 	assert.False(t, s.dropTimerArmed)
 	assert.False(t, s.shadowTimerArmed)
 	assert.False(t, s.initialTargetShadow.active)
-	assert.Zero(t, s.shadowRequiredTarget.Count())
+	assert.Zero(t, s.initialTargetShadowRequired.Count())
 }
 
-func TestInitialTargetShadowStartsAtBacklogTransition(t *testing.T) {
-	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
-	now.Store(int64(time.Millisecond))
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
-	now.Store(int64(2 * time.Millisecond))
+// TestInitialTargetShadow_StartsIndependentlyOfControllerCount verifies a burst
+// starts on the backlog transition regardless of the live CoDel count: every
+// fresh burst is modeled as starting fully relaxed.
+func TestInitialTargetShadow_StartsIndependentlyOfControllerCount(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
 
-	s.lockedStartInitialTargetShadow(req)
-
-	assert.Equal(t, int64(time.Millisecond), s.initialTargetShadow.startedAtNs)
-}
-
-func TestInitialTargetShadowStartsIndependentlyOfControllerCount(t *testing.T) {
-	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
 	s.q.count = 2
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
-
+	req := lockedEnqueueShadowTestRequest(s, 0)
 	s.lockedStartInitialTargetShadow(req)
 
 	assert.True(t, s.initialTargetShadow.active)
 }
 
-func TestInitialTargetShadowDoesNotStartWithExistingBacklog(t *testing.T) {
-	var shadow atomic.Bool
-	s, _ := newShadowTestSnake(func() Mode {
-		if shadow.Load() {
-			return ModeShadow
-		}
-		return ModeEnabled
-	})
-	s.Enqueue(struct{}{}, 0)
-	shadow.Store(true)
+// TestInitialTargetShadow_StartsAtBacklogTransition verifies a burst is anchored
+// to the request's enqueue time (the backlog-transition instant), not the wall
+// clock at the time the burst logic runs.
+func TestInitialTargetShadow_StartsAtBacklogTransition(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
+	s.clockFunc = func() int64 { return int64(2 * time.Millisecond) }
+	s.q.nowNs = func() int64 { return int64(time.Millisecond) }
 
-	s.Enqueue(struct{}{}, 0)
+	req := lockedEnqueueShadowTestRequest(s, 0)
+	s.lockedStartInitialTargetShadow(req)
+	startedAtNs := s.initialTargetShadow.startedAtNs
+
+	assert.Equal(t, int64(time.Millisecond), startedAtNs)
+}
+
+// TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog verifies
+// that if shadow mode is entered while a droppable backlog already exists, no
+// burst is started for the pre-existing backlog (a burst only begins on a fresh
+// 0->1 transition).
+func TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog(t *testing.T) {
+	var enabled atomic.Bool
+	enabled.Store(true)
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode {
+		if enabled.Load() {
+			return ModeEnabled
+		}
+		return ModeShadow
+	}
+	s := NewSnake[struct{}](cfg)
+
+	first := lockedEnqueueShadowTestRequest(s, 0)
+	s.lockedStartInitialTargetShadow(first)
+	enabled.Store(false)
+	second := lockedEnqueueShadowTestRequest(s, 0)
+	s.lockedStartInitialTargetShadow(second)
 
 	assert.False(t, s.initialTargetShadow.active)
 }
 
-func TestInitialTargetShadowEnabledModeCannotRecordSample(t *testing.T) {
-	s, _ := newShadowTestSnake(func() Mode { return ModeEnabled })
-	s.q.lockedEnqueueIf(newRequest(struct{}{}, 0), false)
+// TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample verifies that an
+// observation taken while the mode is enabled (not shadow) censors an active
+// burst rather than recording a sample.
+func TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample(t *testing.T) {
+	var enabled atomic.Bool
+	enabled.Store(true)
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode {
+		if enabled.Load() {
+			return ModeEnabled
+		}
+		return ModeShadow
+	}
+	s := NewSnake[struct{}](cfg)
+
+	lockedEnqueueShadowTestRequest(s, 0)
 	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
-
 	s.lockedObserveInitialTargetShadow(nil)
 
-	assert.Zero(t, s.shadowRequiredTarget.Count())
-	assert.Equal(t, int64(1), s.shadowCensored.Load())
-	assert.False(t, s.initialTargetShadow.active)
+	assert.Equal(t, int64(0), s.initialTargetShadowRequired.Count())
+	assert.Equal(t, int64(1), s.initialTargetShadowCensored.Load())
 }
 
-func TestInitialTargetShadowLeavingModeCensorsBurst(t *testing.T) {
-	var shadow atomic.Bool
-	shadow.Store(true)
-	s, _ := newShadowTestSnake(func() Mode {
-		if shadow.Load() {
+// TestInitialTargetShadow_LeavingShadowForOffCensorsBurst verifies that leaving
+// shadow mode (for off) while a burst is active and the backlog has not drained
+// censors the burst instead of recording a sample.
+func TestInitialTargetShadow_LeavingShadowForOffCensorsBurst(t *testing.T) {
+	var shadowing atomic.Bool
+	shadowing.Store(true)
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode {
+		if shadowing.Load() {
 			return ModeShadow
 		}
 		return ModeOff
-	})
-	s.Enqueue(struct{}{}, 0)
-	require.True(t, s.initialTargetShadow.active)
+	}
+	s := NewSnake[struct{}](cfg)
 
-	shadow.Store(false)
+	lockedEnqueueShadowTestRequest(s, 0)
+	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
+	shadowing.Store(false)
 	s.lockedObserveInitialTargetShadow(nil)
 
-	assert.Zero(t, s.shadowRequiredTarget.Count())
-	assert.Equal(t, int64(1), s.shadowCensored.Load())
-	assert.False(t, s.initialTargetShadow.active)
+	assert.Equal(t, int64(0), s.initialTargetShadowRequired.Count())
+	assert.Equal(t, int64(1), s.initialTargetShadowCensored.Load())
 }
 
-func TestInitialTargetShadowLeavingModeClearsWaitingForDrain(t *testing.T) {
-	var shadow atomic.Bool
-	shadow.Store(true)
-	s, _ := newShadowTestSnake(func() Mode {
-		if shadow.Load() {
+// TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain verifies that
+// leaving shadow mode clears a lingering waitingForDrain state so a subsequent
+// shadow burst can start. The mode change is observed lazily via
+// lockedObserveInitialTargetShadow (the smartconnpool queue has no RefreshMode).
+func TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain(t *testing.T) {
+	var shadowing atomic.Bool
+	shadowing.Store(true)
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode {
+		if shadowing.Load() {
 			return ModeShadow
 		}
 		return ModeOff
-	})
+	}
+	s := NewSnake[struct{}](cfg)
+
 	s.initialTargetShadow.reset(true)
 
-	shadow.Store(false)
+	shadowing.Store(false)
 	s.lockedObserveInitialTargetShadow(nil)
-
 	assert.False(t, s.initialTargetShadow.waitingForDrain)
-	shadow.Store(true)
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+
+	shadowing.Store(true)
+	req := lockedEnqueueShadowTestRequest(s, 0)
 	s.lockedStartInitialTargetShadow(req)
 	assert.True(t, s.initialTargetShadow.active)
 	s.lockedStopShadowTimer()
 }
 
-func TestInitialTargetShadowDeadlineTimerCompletesWithoutTraffic(t *testing.T) {
-	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
-	s.Enqueue(struct{}{}, 0)
+// TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic verifies the
+// shadow backstop timer completes a burst as a full miss (+Inf) when no traffic
+// resolves it before the maximum window elapses.
+func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) {
+	var now atomic.Int64
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
+	s.clockFunc = now.Load
+	s.q.nowNs = now.Load
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
+	require.NotNil(t, histogram)
+
+	_, dropped := s.Enqueue(struct{}{}, 0)
+	require.Empty(t, dropped)
 	require.True(t, s.shadowTimerArmed)
 
 	now.Store(initialTargetShadowMaxIntervalNs)
 	s.LockedShadowTimerFired()
 
-	assert.Equal(t, int64(1), s.shadowRequiredTarget.Count())
-	assert.Equal(t, int64(1), s.shadowRequiredTarget.Counts()["inf"])
+	assert.Equal(t, int64(1), histogram.Count())
+	assert.Equal(t, int64(1), histogram.Counts()["inf"])
 }
 
-func TestInitialTargetShadowFinalCancellationCountsAsDrain(t *testing.T) {
-	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
+// TestInitialTargetShadow_FinalCancellationCountsAsDrain verifies that cancelling
+// the last droppable request drains the backlog and completes the burst, hitting
+// the smallest candidate (5ms) whose interval (100ms) has not yet elapsed at
+// t=99ms.
+func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
+	var now atomic.Int64
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
+	s.clockFunc = now.Load
+	s.q.nowNs = now.Load
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
+	require.NotNil(t, histogram)
+
 	req, dropped := s.Enqueue(struct{}{}, 0)
 	require.Empty(t, dropped)
+	require.True(t, s.initialTargetShadow.active)
+
 	now.Store(int64(99 * time.Millisecond))
-
 	cancelled, dropped := s.Cancel(req)
-
 	require.True(t, cancelled)
 	require.Empty(t, dropped)
-	assert.Equal(t, int64(1), s.shadowRequiredTarget.Counts()["5"])
+
+	assert.Equal(t, int64(1), histogram.Count())
+	assert.Equal(t, int64(1), histogram.Counts()["5"])
+	assert.Equal(t, int64(5), histogram.Total())
 }

@@ -17,20 +17,31 @@ limitations under the License.
 package loadshed
 
 import (
+	"container/list"
 	"math"
-
-	"vitess.io/vitess/go/list"
 )
 
-type Request[T any] struct {
-	priority           float64
-	codelqEnqueuedAtNs int64
-	codelqElem         *list.Element[*Request[T]]
-	value              T
-	bucketElem         *list.Element[*Request[T]]
-	bucketIdx          int
-}
+type (
+	Request[T any] struct {
+		priority           float64
+		codelqEnqueuedAtNs int64
+		codelqElem         *list.Element
+		value              T
 
+		// bucketElem locates this request in the droppableIndex while it is a
+		// droppable queue entry: it is the request's node in its priority
+		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
+		// node lives in (0..maxPriorityBucket, or overflowBucket). bucketElem is
+		// nil when the request is not indexed (undroppable, dequeued, or removed).
+		bucketElem *list.Element
+		bucketIdx  int
+	}
+)
+
+// PriorityUndroppable is a sentinel priority indicating a request that must
+// never be dropped by CoDel. We use negative infinity so it's distinguishable
+// from any real priority value (e.g. health-check queries against system
+// schemas).
 var PriorityUndroppable = math.Inf(-1)
 
 func newRequest[T any](value T, priority float64) *Request[T] {

@@ -23,6 +23,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSnakeDefaultModeIsOff(t *testing.T) {
+	cfg := defaultSnakeConfig()
+	cfg.Mode = nil
+	snake := NewSnake[string](cfg)
+
+	_, dropped := snake.Enqueue("queued", 0)
+
+	assert.Empty(t, dropped)
+	assert.Equal(t, ModeOff, snake.mode())
+	assert.Zero(t, snake.q.dropNextNs)
+}
+
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
 	snake.Enqueue("first", 0)
@@ -38,7 +50,7 @@ func TestSnakeCancelMatching(t *testing.T) {
 }
 
 func TestSnakeDrain(t *testing.T) {
-	snake := NewSnake[string](SnakeConfig{})
+	snake := NewSnake[string](defaultSnakeConfig())
 	snake.EnqueueExisting("first", PriorityUndroppable)
 	snake.EnqueueExisting("second", PriorityUndroppable)
 
