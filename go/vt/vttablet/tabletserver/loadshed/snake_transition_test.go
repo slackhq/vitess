@@ -28,57 +28,51 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 	cfg.Mode = nil
 	snake := NewSnake[string](cfg)
 
-	_, dropped := snake.Enqueue("queued", 0)
+	_, dropped := snake.Enqueue("queued", "", 0)
 
 	assert.Empty(t, dropped)
 	assert.Equal(t, ModeOff, snake.mode())
-	assert.Zero(t, snake.q.dropNextNs)
+	assert.Zero(t, snake.q.codelq.dropNextNs)
 }
 
-func TestSnakeCancelMatching(t *testing.T) {
-	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first", 0)
-	snake.Enqueue("second", 0)
+func TestSnakeCancelMatchingFindsValveWaiter(t *testing.T) {
+	snake := NewSnake[string](defaultSnakeConfig())
+	snake.Enqueue("active", "valve", 0)
+	snake.Enqueue("pending", "valve", 0)
 
 	removed, dropped := snake.CancelMatching(func(value string) bool {
-		return value == "second"
+		return value == "pending"
 	})
 
 	require.True(t, removed)
 	assert.Empty(t, dropped)
 	assert.Equal(t, 1, snake.Len())
-}
-
-func TestSnakeDrain(t *testing.T) {
-	snake := NewSnake[string](defaultSnakeConfig())
-	snake.EnqueueExisting("first", PriorityUndroppable)
-	snake.EnqueueExisting("second", PriorityUndroppable)
-
-	assert.Equal(t, []string{"first", "second"}, snake.Drain())
-	assert.Zero(t, snake.Len())
+	value, ok, dropped := snake.Dequeue()
+	require.True(t, ok)
+	assert.Equal(t, "active", value)
+	assert.Empty(t, dropped)
 }
 
 func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
-	snake := NewSnake[string](SnakeConfig{})
+	snake := NewSnake[string](defaultSnakeConfig())
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 
-	snake.Enqueue("new", 100)
-	snake.EnqueueExisting("existing", PriorityUndroppable)
+	snake.Enqueue("new", "", 100)
+	snake.EnqueueExisting("existing", "", PriorityUndroppable)
 
-	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
 	assert.Equal(t, map[string]int64{"0": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
 }
 
 func TestSnakeShedByPriorityMetric(t *testing.T) {
-	snake := NewSnake[string](SnakeConfig{})
+	snake := NewSnake[string](defaultSnakeConfig())
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 
 	snake.droppedValues([]*Request[string]{
-		newRequest("highest", 100),
-		newRequest("middle", 50),
-		newRequest("lowest", 0),
+		newRequest[string](100),
+		newRequest[string](50),
+		newRequest[string](0),
 	})
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestShedByPriority")

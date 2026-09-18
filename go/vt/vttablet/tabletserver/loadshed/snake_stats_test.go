@@ -16,7 +16,14 @@ limitations under the License.
 
 package loadshed
 
-import "vitess.io/vitess/go/stats"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/stats"
+)
 
 // fakeExporter captures the CounterFuncs and Histograms registered by
 // PublishStats so the test can invoke them directly, without touching global
@@ -50,4 +57,19 @@ func (e *fakeExporter) NewCountersWithMultiLabels(name, help string, labels []st
 	c := stats.NewCountersWithMultiLabels("", help, labels)
 	e.multiCounters[name] = c
 	return c
+}
+
+func TestSnakeValveDepthMetric(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+	histogram := exporter.histograms["SnakeTestValveDepthObserved"]
+	require.NotNil(t, histogram)
+
+	snake.Enqueue("first", "valve", 0)
+	snake.Enqueue("second", "valve", 0)
+	snake.Enqueue("third", "valve", 0)
+
+	assert.Equal(t, int64(3), histogram.Count())
+	assert.Equal(t, int64(3), histogram.Total())
 }

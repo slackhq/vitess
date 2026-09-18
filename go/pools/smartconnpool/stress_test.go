@@ -137,7 +137,7 @@ func TestStress(t *testing.T) {
 		wg.Go(func() error {
 			ctx := context.Background()
 			for !stop.Load() {
-				conn, err := pool.get(ctx, loadshed.PriorityUndroppable)
+				conn, err := pool.get(ctx, "", loadshed.PriorityUndroppable)
 				if err != nil {
 					return err
 				}

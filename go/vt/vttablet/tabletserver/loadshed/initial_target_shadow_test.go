@@ -29,12 +29,6 @@ func defaultSnakeConfig() SnakeConfig {
 	return SnakeConfig{CoDel: defaultTestConfig()}
 }
 
-func lockedEnqueueShadowTestRequest(s *Snake[struct{}], priority float64) *Request[struct{}] {
-	req := newRequest(struct{}{}, priority)
-	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
-	return req
-}
-
 func TestInitialTargetShadow_SmallestHittingCandidate(t *testing.T) {
 	var tracker initialTargetShadowTracker
 	require.True(t, tracker.start(0))
@@ -141,7 +135,7 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
@@ -149,7 +143,7 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	require.NotNil(t, histogram)
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
@@ -173,14 +167,14 @@ func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
 	assert.False(t, s.dropTimerArmed)
-	assert.False(t, s.q.dropping)
-	assert.Zero(t, s.q.dropNextNs)
-	assert.Equal(t, 1, s.q.count)
+	assert.False(t, s.q.codelq.dropping)
+	assert.Zero(t, s.q.codelq.dropNextNs)
+	assert.Equal(t, 1, s.q.codelq.count)
 	assert.Zero(t, s.interval.Count())
 	assert.Zero(t, s.dropCount.Count())
 }
@@ -193,9 +187,9 @@ func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeOff }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
-	require.Equal(t, 1, s.q.droppableLen)
+	require.Equal(t, 1, s.q.lockedDroppableLen())
 
 	assert.False(t, s.dropTimerArmed)
 	assert.False(t, s.shadowTimerArmed)
@@ -211,8 +205,8 @@ func TestInitialTargetShadow_StartsIndependentlyOfControllerCount(t *testing.T) 
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 
-	s.q.count = 2
-	req := lockedEnqueueShadowTestRequest(s, 0)
+	s.q.codelq.count = 2
+	req := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(req)
 
 	assert.True(t, s.initialTargetShadow.active)
@@ -226,9 +220,9 @@ func TestInitialTargetShadow_StartsAtBacklogTransition(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = func() int64 { return int64(2 * time.Millisecond) }
-	s.q.nowNs = func() int64 { return int64(time.Millisecond) }
+	s.q.codelq.nowNs = func() int64 { return int64(time.Millisecond) }
 
-	req := lockedEnqueueShadowTestRequest(s, 0)
+	req := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(req)
 	startedAtNs := s.initialTargetShadow.startedAtNs
 
@@ -251,10 +245,10 @@ func TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog(t *te
 	}
 	s := NewSnake[struct{}](cfg)
 
-	first := lockedEnqueueShadowTestRequest(s, 0)
+	first := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(first)
 	enabled.Store(false)
-	second := lockedEnqueueShadowTestRequest(s, 0)
+	second := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(second)
 
 	assert.False(t, s.initialTargetShadow.active)
@@ -275,7 +269,7 @@ func TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample(t *testing.T) 
 	}
 	s := NewSnake[struct{}](cfg)
 
-	lockedEnqueueShadowTestRequest(s, 0)
+	s.q.lockedEnqueue("", 0)
 	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
 	s.lockedObserveInitialTargetShadow(nil)
 
@@ -298,7 +292,7 @@ func TestInitialTargetShadow_LeavingShadowForOffCensorsBurst(t *testing.T) {
 	}
 	s := NewSnake[struct{}](cfg)
 
-	lockedEnqueueShadowTestRequest(s, 0)
+	s.q.lockedEnqueue("", 0)
 	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
 	shadowing.Store(false)
 	s.lockedObserveInitialTargetShadow(nil)
@@ -330,7 +324,7 @@ func TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain(t *testing.T) {
 	assert.False(t, s.initialTargetShadow.waitingForDrain)
 
 	shadowing.Store(true)
-	req := lockedEnqueueShadowTestRequest(s, 0)
+	req := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(req)
 	assert.True(t, s.initialTargetShadow.active)
 	s.lockedStopShadowTimer()
@@ -345,14 +339,14 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	require.True(t, s.shadowTimerArmed)
 
@@ -373,14 +367,14 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	req, dropped := s.Enqueue(struct{}{}, 0)
+	req, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 

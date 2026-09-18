@@ -97961,6 +97961,7 @@ export const query = $root.query = (() => {
          * @property {number|Long|null} [authoritative_timeout] ExecuteOptions authoritative_timeout
          * @property {boolean|null} [fetch_last_insert_id] ExecuteOptions fetch_last_insert_id
          * @property {boolean|null} [in_dml_execution] ExecuteOptions in_dml_execution
+         * @property {string|null} [loadshed_valve_id] ExecuteOptions loadshed_valve_id
          */
 
         /**
@@ -98099,6 +98100,14 @@ export const query = $root.query = (() => {
          */
         ExecuteOptions.prototype.in_dml_execution = false;
 
+        /**
+         * ExecuteOptions loadshed_valve_id.
+         * @member {string} loadshed_valve_id
+         * @memberof query.ExecuteOptions
+         * @instance
+         */
+        ExecuteOptions.prototype.loadshed_valve_id = "";
+
         // OneOf field names bound to virtual getters and setters
         let $oneOfFields;
 
@@ -98171,6 +98180,8 @@ export const query = $root.query = (() => {
                 writer.uint32(/* id 18, wireType 0 =*/144).bool(message.fetch_last_insert_id);
             if (message.in_dml_execution != null && Object.hasOwnProperty.call(message, "in_dml_execution"))
                 writer.uint32(/* id 19, wireType 0 =*/152).bool(message.in_dml_execution);
+            if (message.loadshed_valve_id != null && Object.hasOwnProperty.call(message, "loadshed_valve_id"))
+                writer.uint32(/* id 22, wireType 2 =*/178).string(message.loadshed_valve_id);
             return writer;
         };
 
@@ -98270,6 +98281,10 @@ export const query = $root.query = (() => {
                     }
                 case 19: {
                         message.in_dml_execution = reader.bool();
+                        break;
+                    }
+                case 22: {
+                        message.loadshed_valve_id = reader.string();
                         break;
                     }
                 default:
@@ -98406,6 +98421,9 @@ export const query = $root.query = (() => {
             if (message.in_dml_execution != null && message.hasOwnProperty("in_dml_execution"))
                 if (typeof message.in_dml_execution !== "boolean")
                     return "in_dml_execution: boolean expected";
+            if (message.loadshed_valve_id != null && message.hasOwnProperty("loadshed_valve_id"))
+                if (!$util.isString(message.loadshed_valve_id))
+                    return "loadshed_valve_id: string expected";
             return null;
         };
 
@@ -98622,6 +98640,8 @@ export const query = $root.query = (() => {
                 message.fetch_last_insert_id = Boolean(object.fetch_last_insert_id);
             if (object.in_dml_execution != null)
                 message.in_dml_execution = Boolean(object.in_dml_execution);
+            if (object.loadshed_valve_id != null)
+                message.loadshed_valve_id = String(object.loadshed_valve_id);
             return message;
         };
 
@@ -98658,6 +98678,7 @@ export const query = $root.query = (() => {
                 object.priority = "";
                 object.fetch_last_insert_id = false;
                 object.in_dml_execution = false;
+                object.loadshed_valve_id = "";
             }
             if (message.included_fields != null && message.hasOwnProperty("included_fields"))
                 object.included_fields = options.enums === String ? $root.query.ExecuteOptions.IncludedFields[message.included_fields] === undefined ? message.included_fields : $root.query.ExecuteOptions.IncludedFields[message.included_fields] : message.included_fields;
@@ -98701,6 +98722,8 @@ export const query = $root.query = (() => {
                 object.fetch_last_insert_id = message.fetch_last_insert_id;
             if (message.in_dml_execution != null && message.hasOwnProperty("in_dml_execution"))
                 object.in_dml_execution = message.in_dml_execution;
+            if (message.loadshed_valve_id != null && message.hasOwnProperty("loadshed_valve_id"))
+                object.loadshed_valve_id = message.loadshed_valve_id;
             return object;
         };
 

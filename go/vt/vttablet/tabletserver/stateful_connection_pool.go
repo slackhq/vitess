@@ -176,11 +176,12 @@ func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.
 	var conn *connpool.PooledConn
 	var err error
 	priority := float64(priorityFromOptions(options, sf.env.Config().TxThrottlerDefaultPriority))
+	valveID := options.GetLoadshedValveId()
 
 	if options.GetClientFoundRows() {
-		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, priority)
+		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, valveID, priority)
 	} else {
-		conn, err = sf.conns.GetWithPriority(ctx, setting, priority)
+		conn, err = sf.conns.GetWithPriority(ctx, setting, valveID, priority)
 	}
 	if err != nil {
 		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
