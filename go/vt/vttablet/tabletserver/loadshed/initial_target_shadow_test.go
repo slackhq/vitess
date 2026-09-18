@@ -174,6 +174,16 @@ func TestInitialTargetShadowStartsAtBacklogTransition(t *testing.T) {
 	assert.Equal(t, int64(time.Millisecond), s.initialTargetShadow.startedAtNs)
 }
 
+func TestInitialTargetShadowStartsIndependentlyOfControllerCount(t *testing.T) {
+	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
+	s.q.codelq.count = 2
+	req := s.q.lockedEnqueue("", 0)
+
+	s.lockedStartInitialTargetShadow(req)
+
+	assert.True(t, s.initialTargetShadow.active)
+}
+
 func TestInitialTargetShadowDoesNotStartWithExistingBacklog(t *testing.T) {
 	var shadow atomic.Bool
 	s, _ := newShadowTestSnake(func() Mode {
@@ -187,6 +197,18 @@ func TestInitialTargetShadowDoesNotStartWithExistingBacklog(t *testing.T) {
 
 	s.Enqueue(struct{}{}, "", 0)
 
+	assert.False(t, s.initialTargetShadow.active)
+}
+
+func TestInitialTargetShadowEnabledModeCannotRecordSample(t *testing.T) {
+	s, _ := newShadowTestSnake(func() Mode { return ModeEnabled })
+	s.q.lockedEnqueue("", 0)
+	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
+
+	s.lockedObserveInitialTargetShadow(nil)
+
+	assert.Zero(t, s.shadowRequiredTarget.Count())
+	assert.Equal(t, int64(1), s.shadowCensored.Load())
 	assert.False(t, s.initialTargetShadow.active)
 }
 
@@ -208,6 +230,28 @@ func TestInitialTargetShadowLeavingModeCensorsBurst(t *testing.T) {
 	assert.Zero(t, s.shadowRequiredTarget.Count())
 	assert.Equal(t, int64(1), s.shadowCensored.Load())
 	assert.False(t, s.initialTargetShadow.active)
+}
+
+func TestInitialTargetShadowLeavingModeClearsWaitingForDrain(t *testing.T) {
+	var shadow atomic.Bool
+	shadow.Store(true)
+	s, _ := newShadowTestSnake(func() Mode {
+		if shadow.Load() {
+			return ModeShadow
+		}
+		return ModeOff
+	})
+	s.initialTargetShadow.reset(true)
+
+	shadow.Store(false)
+	s.lockedObserveInitialTargetShadow(nil)
+
+	assert.False(t, s.initialTargetShadow.waitingForDrain)
+	shadow.Store(true)
+	req := s.q.lockedEnqueue("", 0)
+	s.lockedStartInitialTargetShadow(req)
+	assert.True(t, s.initialTargetShadow.active)
+	s.lockedStopShadowTimer()
 }
 
 func TestInitialTargetShadowDeadlineTimerCompletesWithoutTraffic(t *testing.T) {
