@@ -218,6 +218,17 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(loadshedConfig(tsv, varname).SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
 		err = setFloat64Val(loadshedConfig(tsv, varname).SetIntervalRatio)
+	case "LoadshedOltpReadUndroppableSchemas":
+		err = setStringVal(func(value string) error {
+			var schemas []string
+			for _, schema := range strings.Split(value, ",") {
+				if schema = strings.TrimSpace(schema); schema != "" {
+					schemas = append(schemas, schema)
+				}
+			}
+			tsv.Config().LoadshedOltpRead.SetUndroppableSchemas(schemas)
+			return nil
+		})
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -273,7 +284,11 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"InitialTarget", cfg.InitialTargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
 	}
-	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
+	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead.LoadshedConfig)
+	vars = append(vars, envValue{
+		Name:  "LoadshedOltpReadUndroppableSchemas",
+		Value: strings.Join(tsv.Config().LoadshedOltpRead.UndroppableSchemasValue(), ","),
+	})
 	addLoadshedVars("LoadshedTx", &tsv.Config().LoadshedTx)
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
@@ -291,7 +306,7 @@ func loadshedConfig(tsv *TabletServer, varname string) *tabletenv.LoadshedConfig
 	if strings.HasPrefix(varname, "LoadshedTx") {
 		return &tsv.Config().LoadshedTx
 	}
-	return &tsv.Config().LoadshedOltpRead
+	return &tsv.Config().LoadshedOltpRead.LoadshedConfig
 }
 
 func respondWithJSON(w http.ResponseWriter, vars []envValue, msg string) {
