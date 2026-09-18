@@ -21,7 +21,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"vitess.io/vitess/go/list"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
@@ -29,7 +28,7 @@ import (
 
 type (
 	PoolConfig interface {
-		LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration)
+		LoadshedConfig(string) loadshed.SnakeConfig
 	}
 
 	// waiter represents a client waiting for a connection in the waitlist
@@ -363,29 +362,21 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 		}
 	}
 
-	mode := func() loadshed.Mode { return loadshed.ModeOff }
-	target := func() time.Duration { return time.Second }
-	interval := func() time.Duration { return time.Second }
+	snakeConfig := loadshed.SnakeConfig{}
 	if config != nil {
-		mode, target, interval = config.LoadshedConfig(poolName)
+		snakeConfig = config.LoadshedConfig(poolName)
 	}
-
-	wl.queues = &waitlistQueues[C]{
-		mode:       mode,
-		activeMode: mode(),
-	}
-	wl.queues.list.Init()
-	snakeConfig := loadshed.SnakeConfig{
-		Mode: mode,
-		CoDel: loadshed.CoDelConfig{
-			IntervalNs:     func() int64 { return interval().Nanoseconds() },
-			TargetNs:       func() int64 { return target().Nanoseconds() },
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return int64(100 * time.Millisecond) },
-		},
+	if snakeConfig.Mode == nil {
+		snakeConfig.Mode = func() loadshed.Mode { return loadshed.ModeOff }
 	}
 	snakeConfig.DropTimerFired = wl.runDropTimer
 	snakeConfig.ShadowTimerFired = wl.runShadowTimer
+
+	wl.queues = &waitlistQueues[C]{
+		mode:       snakeConfig.Mode,
+		activeMode: snakeConfig.Mode(),
+	}
+	wl.queues.list.Init()
 	wl.queues.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
 }
 
