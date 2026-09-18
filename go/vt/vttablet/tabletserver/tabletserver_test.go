@@ -249,8 +249,7 @@ func TestTabletServerRedoLogIsKeptBetweenRestarts(t *testing.T) {
 	got := tsv.te.preparedPool.conns["dtid0"].TxProperties().Queries
 	want := []tx.Query{{
 		Sql:    "update test_table set `name` = 2 where pk = 1 limit 10001",
-		Tables: []string{"test_table"},
-	}}
+		Tables: []string{"test_table"}}}
 	utils.MustMatch(t, want, got, "Prepared queries")
 	turnOffTxEngine()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -294,8 +293,7 @@ func TestTabletServerRedoLogIsKeptBetweenRestarts(t *testing.T) {
 	got = tsv.te.preparedPool.conns["a:b:10"].TxProperties().Queries
 	want = []tx.Query{{
 		Sql:    "update test_table set `name` = 2 where pk = 1 limit 10001",
-		Tables: []string{"test_table"},
-	}}
+		Tables: []string{"test_table"}}}
 	utils.MustMatch(t, want, got, "Prepared queries")
 	wantFailed := map[string]error{
 		"bogus":  errPrepFailed, // The query is rejected by database so added to failed list.
@@ -2177,7 +2175,6 @@ var aclJSON1 = `{
     }
   ]
 }`
-
 var aclJSON2 = `{
   "table_groups": [
     {
@@ -2188,7 +2185,6 @@ var aclJSON2 = `{
     }
   ]
 }`
-
 var aclJSONOverlapError = `{
 	"table_groups": [
 	  {
@@ -2273,6 +2269,7 @@ func TestACLHUP(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // wait for signal handler
 
 	test_loaded_acl()
+
 }
 
 func TestConfigChanges(t *testing.T) {
