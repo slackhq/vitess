@@ -462,7 +462,7 @@ func (m LoadshedMode) Type() string {
 	return "loadshed-mode"
 }
 
-func (c *TabletConfig) LoadshedConfig(poolName string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
+func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	var config *LoadshedConfig
 	if c != nil {
 		switch poolName {
@@ -473,20 +473,31 @@ func (c *TabletConfig) LoadshedConfig(poolName string) (func() loadshed.Mode, fu
 		}
 	}
 	if config == nil {
-		return func() loadshed.Mode { return loadshed.ModeOff },
-			func() time.Duration { return time.Second },
-			func() time.Duration { return time.Second }
+		return loadshed.SnakeConfig{}
 	}
-	return func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
-		config.TargetValue,
-		func() time.Duration {
-			return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue())
-		}
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs: func() int64 {
+				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+			},
+			InitialIntervalNs: func() int64 {
+				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+			},
+			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
+			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
+			Exponent:        func() float64 { return 1 },
+			MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+		},
+	}
 }
 
 func (c *LoadshedConfig) ModeValue() LoadshedMode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.Mode == "" {
+		return LoadshedModeOff
+	}
 	return c.Mode
 }
 

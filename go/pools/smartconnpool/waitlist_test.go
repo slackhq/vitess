@@ -31,10 +31,18 @@ import (
 
 type testPoolConfig struct{}
 
-func (testPoolConfig) LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
-	return func() loadshed.Mode { return loadshed.ModeEnabled },
-		func() time.Duration { return time.Second },
-		func() time.Duration { return time.Second }
+func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs:        func() int64 { return time.Millisecond.Nanoseconds() },
+			InitialIntervalNs: func() int64 { return time.Millisecond.Nanoseconds() },
+			TargetNs:          func() int64 { return time.Millisecond.Nanoseconds() },
+			InitialTargetNs:   func() int64 { return time.Millisecond.Nanoseconds() },
+			Exponent:          func() float64 { return 1 },
+			MinDropDelayNs:    func() int64 { return time.Millisecond.Nanoseconds() },
+		},
+	}
 }
 
 type mutableTestPoolConfig struct {
@@ -47,10 +55,16 @@ func newMutableTestPoolConfig(mode loadshed.Mode) *mutableTestPoolConfig {
 	return config
 }
 
-func (c *mutableTestPoolConfig) LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
-	return func() loadshed.Mode { return c.mode.Load().(loadshed.Mode) },
-		func() time.Duration { return time.Second },
-		func() time.Duration { return time.Second }
+func (c *mutableTestPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode { return c.mode.Load().(loadshed.Mode) },
+		CoDel: loadshed.CoDelConfig{
+			IntervalNs:     func() int64 { return time.Second.Nanoseconds() },
+			TargetNs:       func() int64 { return time.Second.Nanoseconds() },
+			Exponent:       func() float64 { return 1 },
+			MinDropDelayNs: func() int64 { return time.Second.Nanoseconds() },
+		},
+	}
 }
 
 func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {

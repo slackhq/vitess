@@ -22,10 +22,13 @@ type (
 	Mode string
 
 	CoDelConfig struct {
-		IntervalNs     func() int64
-		TargetNs       func() int64
-		Exponent       func() float64
-		MinDropDelayNs func() int64
+		IntervalNs        func() int64
+		InitialIntervalNs func() int64
+		TargetNs          func() int64
+		InitialTargetNs   func() int64
+		Exponent          func() float64
+		MinDropDelayNs    func() int64
+		EasingLogBase     func() float64
 	}
 
 	SnakeConfig struct {
