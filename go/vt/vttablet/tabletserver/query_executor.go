@@ -248,6 +248,7 @@ func (qre *QueryExecutor) execAutocommit(f func(conn *StatefulConnection) (*sqlt
 	}
 
 	conn, _, _, err := qre.tsv.te.txPool.Begin(qre.ctx, qre.options, false, 0, qre.setting)
+
 	if err != nil {
 		return nil, err
 	}
@@ -832,7 +833,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
 		priority = loadshed.PriorityUndroppable
 	}
-	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}

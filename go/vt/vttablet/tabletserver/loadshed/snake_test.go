@@ -46,20 +46,20 @@ func newTestSnake[T any](mode Mode) (*Snake[T], *snakeTestClock) {
 		},
 	})
 	snake.clockFunc = func() int64 { return clock.now }
-	snake.q.nowNs = snake.clockFunc
+	snake.q.codelq.nowNs = snake.clockFunc
 	return snake, clock
 }
 
 func TestSnakeQueue(t *testing.T) {
 	snake, _ := newTestSnake[int](ModeEnabled)
 
-	first, dropped := snake.Enqueue(1, 100)
+	first, dropped := snake.Enqueue(1, "", 100)
 	require.NotNil(t, first)
 	assert.Empty(t, dropped)
-	second, dropped := snake.Enqueue(2, 50)
+	second, dropped := snake.Enqueue(2, "", 50)
 	require.NotNil(t, second)
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue(3, 0)
+	_, dropped = snake.Enqueue(3, "", 0)
 	assert.Empty(t, dropped)
 	assert.Equal(t, 3, snake.Len())
 
@@ -87,11 +87,11 @@ func TestSnakeQueue(t *testing.T) {
 
 func TestSnakeCountMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	_, dropped := snake.Enqueue("one", 0)
+	_, dropped := snake.Enqueue("one", "", 0)
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue("two", 0)
+	_, dropped = snake.Enqueue("two", "", 0)
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue("three", 0)
+	_, dropped = snake.Enqueue("three", "", 0)
 	assert.Empty(t, dropped)
 
 	assert.Equal(t, 2, snake.CountMatching(func(value string) bool {
@@ -113,7 +113,7 @@ func TestSnakeDropsLowestPriorityRequest(t *testing.T) {
 		{"middle-3", 50},
 		{"middle-4", 50},
 	} {
-		_, dropped := snake.Enqueue(item.value, item.priority)
+		_, dropped := snake.Enqueue(item.value, "", item.priority)
 		require.Empty(t, dropped)
 	}
 
@@ -130,7 +130,7 @@ func TestSnakeOffAndShadowDoNotDrop(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			snake, clock := newTestSnake[int](mode)
 			for i := range 10 {
-				_, dropped := snake.Enqueue(i, 0)
+				_, dropped := snake.Enqueue(i, "", 0)
 				require.Empty(t, dropped)
 			}
 
@@ -145,7 +145,7 @@ func TestSnakeOffAndShadowDoNotDrop(t *testing.T) {
 func TestSnakeShadowRecordsInitialTarget(t *testing.T) {
 	snake, clock := newTestSnake[int](ModeShadow)
 
-	_, dropped := snake.Enqueue(1, 0)
+	_, dropped := snake.Enqueue(1, "", 0)
 	require.Empty(t, dropped)
 	require.True(t, snake.initialTargetShadow.active)
 
@@ -161,10 +161,10 @@ func TestSnakeShadowRecordsInitialTarget(t *testing.T) {
 func TestSnakeNeverDropsUndroppableRequests(t *testing.T) {
 	snake, clock := newTestSnake[string](ModeEnabled)
 
-	_, dropped := snake.Enqueue("undroppable", PriorityUndroppable)
+	_, dropped := snake.Enqueue("undroppable", "", PriorityUndroppable)
 	require.Empty(t, dropped)
 	for i := range 5 {
-		_, dropped = snake.Enqueue(string(rune('a'+i)), 0)
+		_, dropped = snake.Enqueue(string(rune('a'+i)), "", 0)
 		require.Empty(t, dropped)
 	}
 

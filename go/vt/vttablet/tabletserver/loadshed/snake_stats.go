@@ -66,5 +66,6 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control intervals", intervalBucketCutoffs)
 	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop counts", lengthBucketCutoffs)
 	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of Snake CoDel timer lag", loadshedBucketCutoffs)
+	s.valveDepth = exporter.NewHistogram(prefix+"ValveDepthObserved", "Distribution of Snake self-contention valve depth (requests stacked behind one valve's droppable representative), sampled at each valve-keyed enqueue", lengthBucketCutoffs)
 	s.shadowRequiredTarget = exporter.NewHistogram(prefix+"InitialTargetShadow20xMs", "Smallest candidate initial target that hit during a completed no-drop shadow burst using fixed target*20 intervals, in milliseconds; +Inf means every candidate missed", initialTargetShadowMetricCutoffsMs)
 }

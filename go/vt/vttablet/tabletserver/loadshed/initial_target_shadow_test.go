@@ -38,7 +38,7 @@ func newShadowTestSnake(mode func() Mode) (*Snake[struct{}], *atomic.Int64) {
 		},
 	})
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 	return s, &now
 }
 
@@ -123,7 +123,7 @@ func TestInitialTargetShadowMetricContract(t *testing.T) {
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
 	assert.True(t, strings.Contains(exporter.histogramHelp["SnakeOltpReadInitialTargetShadow20xMs"], "milliseconds"))
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	now.Store(int64(101 * time.Millisecond))
 	_, ok, dropped := s.Dequeue()
@@ -138,14 +138,14 @@ func TestInitialTargetShadowMetricContract(t *testing.T) {
 func TestInitialTargetShadowModeDoesNotRunCoDel(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 
 	assert.True(t, s.initialTargetShadow.active)
 	assert.False(t, s.dropTimerArmed)
-	assert.False(t, s.q.dropping)
-	assert.Zero(t, s.q.dropNextNs)
-	assert.Equal(t, 1, s.q.count)
+	assert.False(t, s.q.codelq.dropping)
+	assert.Zero(t, s.q.codelq.dropNextNs)
+	assert.Equal(t, 1, s.q.codelq.count)
 	assert.Zero(t, s.interval.Count())
 	assert.Zero(t, s.dropCount.Count())
 }
@@ -153,10 +153,10 @@ func TestInitialTargetShadowModeDoesNotRunCoDel(t *testing.T) {
 func TestInitialTargetOffModeRunsNeitherControllerNorShadow(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeOff })
 
-	_, dropped := s.Enqueue(struct{}{}, 0)
+	_, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 
-	assert.Equal(t, 1, s.q.droppableLen)
+	assert.Equal(t, 1, s.q.lockedDroppableLen())
 	assert.False(t, s.dropTimerArmed)
 	assert.False(t, s.shadowTimerArmed)
 	assert.False(t, s.initialTargetShadow.active)
@@ -166,8 +166,7 @@ func TestInitialTargetOffModeRunsNeitherControllerNorShadow(t *testing.T) {
 func TestInitialTargetShadowStartsAtBacklogTransition(t *testing.T) {
 	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
 	now.Store(int64(time.Millisecond))
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+	req := s.q.lockedEnqueue("", 0)
 	now.Store(int64(2 * time.Millisecond))
 
 	s.lockedStartInitialTargetShadow(req)
@@ -177,9 +176,8 @@ func TestInitialTargetShadowStartsAtBacklogTransition(t *testing.T) {
 
 func TestInitialTargetShadowStartsIndependentlyOfControllerCount(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
-	s.q.count = 2
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+	s.q.codelq.count = 2
+	req := s.q.lockedEnqueue("", 0)
 
 	s.lockedStartInitialTargetShadow(req)
 
@@ -194,17 +192,17 @@ func TestInitialTargetShadowDoesNotStartWithExistingBacklog(t *testing.T) {
 		}
 		return ModeEnabled
 	})
-	s.Enqueue(struct{}{}, 0)
+	s.Enqueue(struct{}{}, "", 0)
 	shadow.Store(true)
 
-	s.Enqueue(struct{}{}, 0)
+	s.Enqueue(struct{}{}, "", 0)
 
 	assert.False(t, s.initialTargetShadow.active)
 }
 
 func TestInitialTargetShadowEnabledModeCannotRecordSample(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeEnabled })
-	s.q.lockedEnqueueIf(newRequest(struct{}{}, 0), false)
+	s.q.lockedEnqueue("", 0)
 	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
 
 	s.lockedObserveInitialTargetShadow(nil)
@@ -223,7 +221,7 @@ func TestInitialTargetShadowLeavingModeCensorsBurst(t *testing.T) {
 		}
 		return ModeOff
 	})
-	s.Enqueue(struct{}{}, 0)
+	s.Enqueue(struct{}{}, "", 0)
 	require.True(t, s.initialTargetShadow.active)
 
 	shadow.Store(false)
@@ -250,8 +248,7 @@ func TestInitialTargetShadowLeavingModeClearsWaitingForDrain(t *testing.T) {
 
 	assert.False(t, s.initialTargetShadow.waitingForDrain)
 	shadow.Store(true)
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+	req := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(req)
 	assert.True(t, s.initialTargetShadow.active)
 	s.lockedStopShadowTimer()
@@ -259,7 +256,7 @@ func TestInitialTargetShadowLeavingModeClearsWaitingForDrain(t *testing.T) {
 
 func TestInitialTargetShadowDeadlineTimerCompletesWithoutTraffic(t *testing.T) {
 	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
-	s.Enqueue(struct{}{}, 0)
+	s.Enqueue(struct{}{}, "", 0)
 	require.True(t, s.shadowTimerArmed)
 
 	now.Store(initialTargetShadowMaxIntervalNs)
@@ -271,7 +268,7 @@ func TestInitialTargetShadowDeadlineTimerCompletesWithoutTraffic(t *testing.T) {
 
 func TestInitialTargetShadowFinalCancellationCountsAsDrain(t *testing.T) {
 	s, now := newShadowTestSnake(func() Mode { return ModeShadow })
-	req, dropped := s.Enqueue(struct{}{}, 0)
+	req, dropped := s.Enqueue(struct{}{}, "", 0)
 	require.Empty(t, dropped)
 	now.Store(int64(99 * time.Millisecond))
 
