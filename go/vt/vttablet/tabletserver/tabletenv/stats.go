@@ -109,7 +109,8 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 		UserReservedTimesNs:     exporter.NewCountersWithSingleLabel("UserReservedTimesNs", "Total reserved connection latency for each CallerID", "CallerID"),
 
 		QueryTimingsByTabletType: exporter.NewTimings("QueryTimingsByTabletType", "Query timings broken down by active tablet type", "TabletType"),
-		QueryTimingsByErrorCode:  exporter.NewTimings("QueryTimingsByErrorCode", "Query timings broken down by result error code (OK for successful queries)", "ErrorCode"),
+
+		QueryTimingsByErrorCode: exporter.NewTimings("QueryTimingsByErrorCode", "Query timings broken down by result error code (OK for successful queries)", "ErrorCode"),
 
 		ConsolidatorWaiterCapRejectCount: exporter.NewCounter("ConsolidatorWaiterCapRejectCount", "Number of queries that hit the consolidator waiter cap with reject method"),
 
