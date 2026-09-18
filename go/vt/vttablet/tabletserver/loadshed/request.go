@@ -17,6 +17,7 @@ limitations under the License.
 package loadshed
 
 import (
+	"errors"
 	"math"
 
 	"vitess.io/vitess/go/list"
@@ -26,12 +27,16 @@ type Request[T any] struct {
 	priority           float64
 	codelqEnqueuedAtNs int64
 	codelqElem         *list.Element[*Request[T]]
+	valveID            string
+	signaledValue      error
 	value              T
 	bucketElem         *list.Element[*Request[T]]
 	bucketIdx          int
 }
 
 var PriorityUndroppable = math.Inf(-1)
+
+var grantSentinel = errors.New("granted") //nolint:staticcheck // sentinel for request state
 
 func newRequest[T any](value T, priority float64) *Request[T] {
 	return &Request[T]{
@@ -42,4 +47,11 @@ func newRequest[T any](value T, priority float64) *Request[T] {
 
 func (r *Request[T]) isDroppable() bool {
 	return r.priority != PriorityUndroppable
+}
+
+func (r *Request[T]) signal(value error) {
+	if r.signaledValue != nil {
+		panic("loadshed: signal called more than once")
+	}
+	r.signaledValue = value
 }

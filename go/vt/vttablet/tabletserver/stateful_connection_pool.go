@@ -26,6 +26,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 
@@ -174,11 +175,12 @@ func (sf *StatefulConnectionPool) GetAndLock(id int64, reason string) (*Stateful
 func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.ExecuteOptions, setting *smartconnpool.Setting) (*StatefulConnection, error) {
 	var conn *connpool.PooledConn
 	var err error
+	valveID := options.GetLoadshedValveId()
 
 	if options.GetClientFoundRows() {
-		conn, err = sf.foundRowsPool.Get(ctx, setting)
+		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, valveID, loadshed.PriorityUndroppable)
 	} else {
-		conn, err = sf.conns.Get(ctx, setting)
+		conn, err = sf.conns.GetWithPriority(ctx, setting, valveID, loadshed.PriorityUndroppable)
 	}
 	if err != nil {
 		return nil, err

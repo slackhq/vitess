@@ -831,7 +831,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
 		priority = loadshed.PriorityUndroppable
 	}
-	return qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+	return qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority)
 }
 
 // matchesUndroppableSchema reports whether any of the query's schema qualifiers
