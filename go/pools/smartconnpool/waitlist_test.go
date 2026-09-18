@@ -279,13 +279,13 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 
 	config.setMode(loadshed.ModeEnabled)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Zero(t, wl.queues.list.Len())
-	assert.Equal(t, 3, wl.queues.snake.Len())
+	assert.Zero(t, wl.list.Len())
+	assert.Equal(t, 3, wl.snake.Len())
 
 	config.setMode(loadshed.ModeOff)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
-	assert.Equal(t, 3, wl.queues.list.Len())
-	assert.Zero(t, wl.queues.snake.Len())
+	assert.Equal(t, 3, wl.list.Len())
+	assert.Zero(t, wl.snake.Len())
 
 	close(poolClose)
 	for range 3 {
