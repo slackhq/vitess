@@ -43,6 +43,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -823,7 +824,32 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+
+	priority := 0.0
+	// Queries against a configured schema (e.g. performance_schema health
+	// checks) are marked undroppable instead, so they are never shed.
+	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
+		priority = loadshed.PriorityUndroppable
+	}
+	return qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+}
+
+// matchesUndroppableSchema reports whether any of the query's schema qualifiers
+// is in the configured undroppable-schema allowlist (case-insensitive). The
+// common case is queryQualifiers empty (unqualified tables), which returns
+// immediately without scanning the allowlist.
+func matchesUndroppableSchema(queryQualifiers, allowlist []string) bool {
+	if len(queryQualifiers) == 0 || len(allowlist) == 0 {
+		return false
+	}
+	for _, q := range queryQualifiers {
+		for _, a := range allowlist {
+			if strings.EqualFold(q, a) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
