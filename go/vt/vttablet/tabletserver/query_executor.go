@@ -87,6 +87,8 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
+	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -138,6 +140,7 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		var errCode string
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
+		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {
 			qre.tsv.qe.AddStats(qre.plan, tableName, qre.options.GetWorkloadName(), qre.targetTabletType, 1, duration, mysqlTime, 0, 0, 1, errCode)
@@ -823,7 +826,11 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.conns.Get(ctx, qre.setting)
+	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+		return nil, errLoadShed
+	}
+	return conn, err
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {

@@ -110,7 +110,7 @@ func (q *CoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
 			return elem.Value
 		}
 	}
-	return nil
+	return q.lockedPeek()
 }
 
 func (q *CoDelQueue[T]) lockedRemove(req *Request[T]) {
@@ -142,12 +142,16 @@ func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *Request[T] {
 }
 
 func (q *CoDelQueue[T]) lockedRunTimer(drop func() bool) {
+	q.lockedRunTimerLimited(drop, -1)
+}
+
+func (q *CoDelQueue[T]) lockedRunTimerLimited(drop func() bool, maxDrops int) {
 	now := q.nowNs()
 	if q.dropNextNs == 0 || now < q.dropNextNs {
 		return
 	}
 
-	q.lockedAdvance(now, drop)
+	q.lockedAdvanceLimited(now, drop, maxDrops)
 	if q.droppableLen > 0 || q.count > 1 {
 		q.lockedArmDropTimer()
 	} else {
@@ -156,11 +160,17 @@ func (q *CoDelQueue[T]) lockedRunTimer(drop func() bool) {
 }
 
 func (q *CoDelQueue[T]) lockedAdvance(now int64, drop func() bool) {
-	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) {
+	q.lockedAdvanceLimited(now, drop, -1)
+}
+
+func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, drop func() bool, maxDrops int) {
+	drops := 0
+	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) && (maxDrops < 0 || drops < maxDrops) {
 		dropped := false
 		if q.dropping {
 			dropped = drop()
 			if dropped {
+				drops++
 				q.count++
 				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 			}
