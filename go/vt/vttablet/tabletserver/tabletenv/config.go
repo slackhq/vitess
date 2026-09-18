@@ -228,8 +228,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
-	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead.LoadshedConfig, defaultConfig.LoadshedOltpRead.LoadshedConfig)
-	fs.StringSliceVar(&currentConfig.LoadshedOltpRead.UndroppableSchemas, "loadshed-oltp-read-undroppable-schemas", defaultConfig.LoadshedOltpRead.UndroppableSchemas, "Schema qualifiers whose OLTP read queries are never shed.")
+	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead, defaultConfig.LoadshedOltpRead)
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -414,8 +413,8 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedOltpRead OltpLoadshedConfig `json:"-"`
-	LoadshedTx       LoadshedConfig     `json:"-"`
+	LoadshedOltpRead LoadshedConfig `json:"-"`
+	LoadshedTx       LoadshedConfig `json:"-"`
 }
 
 type (
@@ -427,12 +426,6 @@ type (
 		Target        time.Duration
 		InitialTarget time.Duration
 		IntervalRatio float64
-	}
-
-	OltpLoadshedConfig struct {
-		LoadshedConfig
-		schemasMu          *sync.RWMutex
-		UndroppableSchemas []string
 	}
 )
 
@@ -474,7 +467,7 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	if c != nil {
 		switch poolName {
 		case "ConnPool":
-			config = &c.LoadshedOltpRead.LoadshedConfig
+			config = &c.LoadshedOltpRead
 		case "TransactionPool", "FoundRowsPool":
 			config = &c.LoadshedTx
 		}
@@ -567,18 +560,6 @@ func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.IntervalRatio = intervalRatio
-}
-
-func (c *OltpLoadshedConfig) UndroppableSchemasValue() []string {
-	c.schemasMu.RLock()
-	defer c.schemasMu.RUnlock()
-	return append([]string(nil), c.UndroppableSchemas...)
-}
-
-func (c *OltpLoadshedConfig) SetUndroppableSchemas(schemas []string) {
-	c.schemasMu.Lock()
-	defer c.schemasMu.Unlock()
-	c.UndroppableSchemas = append([]string(nil), schemas...)
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1074,10 +1055,6 @@ func (c *TabletConfig) Clone() *TabletConfig {
 		c.LoadshedOltpRead.mu.RLock()
 		defer c.LoadshedOltpRead.mu.RUnlock()
 	}
-	if c.LoadshedOltpRead.schemasMu != nil {
-		c.LoadshedOltpRead.schemasMu.RLock()
-		defer c.LoadshedOltpRead.schemasMu.RUnlock()
-	}
 	if c.LoadshedTx.mu != nil {
 		c.LoadshedTx.mu.RLock()
 		defer c.LoadshedTx.mu.RUnlock()
@@ -1091,20 +1068,12 @@ func (c *TabletConfig) Clone() *TabletConfig {
 	if c.LoadshedOltpRead.mu != nil {
 		oltpMu = &sync.RWMutex{}
 	}
-	var schemasMu *sync.RWMutex
-	if c.LoadshedOltpRead.schemasMu != nil {
-		schemasMu = &sync.RWMutex{}
-	}
-	tc.LoadshedOltpRead = OltpLoadshedConfig{
-		LoadshedConfig: LoadshedConfig{
-			mu:            oltpMu,
-			Mode:          c.LoadshedOltpRead.Mode,
-			Target:        c.LoadshedOltpRead.Target,
-			InitialTarget: c.LoadshedOltpRead.InitialTarget,
-			IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
-		},
-		schemasMu:          schemasMu,
-		UndroppableSchemas: append([]string(nil), c.LoadshedOltpRead.UndroppableSchemas...),
+	tc.LoadshedOltpRead = LoadshedConfig{
+		mu:            oltpMu,
+		Mode:          c.LoadshedOltpRead.Mode,
+		Target:        c.LoadshedOltpRead.Target,
+		InitialTarget: c.LoadshedOltpRead.InitialTarget,
+		IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
 	}
 	var txMu *sync.RWMutex
 	if c.LoadshedTx.mu != nil {
@@ -1123,9 +1092,6 @@ func (c *TabletConfig) Clone() *TabletConfig {
 func (c *TabletConfig) InitLoadshedConfig() {
 	if c.LoadshedOltpRead.mu == nil {
 		c.LoadshedOltpRead.mu = &sync.RWMutex{}
-	}
-	if c.LoadshedOltpRead.schemasMu == nil {
-		c.LoadshedOltpRead.schemasMu = &sync.RWMutex{}
 	}
 	if c.LoadshedTx.mu == nil {
 		c.LoadshedTx.mu = &sync.RWMutex{}
@@ -1388,12 +1354,8 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: OltpLoadshedConfig{
-		LoadshedConfig:     defaultLoadshedConfig(),
-		schemasMu:          &sync.RWMutex{},
-		UndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
-	},
-	LoadshedTx: defaultLoadshedConfig(),
+	LoadshedOltpRead: defaultLoadshedConfig(),
+	LoadshedTx:       defaultLoadshedConfig(),
 }
 
 func defaultLoadshedConfig() LoadshedConfig {
