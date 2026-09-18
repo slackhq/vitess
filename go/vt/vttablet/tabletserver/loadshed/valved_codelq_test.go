@@ -24,8 +24,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type valvedQueueTimerRecorder struct {
+	scheduled bool
+	stopped   bool
+}
+
 func newTestValvedCoDelQueue() *ValvedCoDelQueue[string] {
-	return newValvedCoDelQueue[string](
+	q, _ := newTestValvedCoDelQueueMode(func() Mode { return ModeEnabled })
+	return q
+}
+
+func newTestValvedCoDelQueueMode(mode func() Mode) (*ValvedCoDelQueue[string], *valvedQueueTimerRecorder) {
+	recorder := &valvedQueueTimerRecorder{}
+	q := newValvedCoDelQueue[string](
 		CoDelConfig{
 			IntervalNs:     func() int64 { return (10 * time.Millisecond).Nanoseconds() },
 			TargetNs:       func() int64 { return time.Millisecond.Nanoseconds() },
@@ -33,10 +44,17 @@ func newTestValvedCoDelQueue() *ValvedCoDelQueue[string] {
 			MinDropDelayNs: func() int64 { return 1 },
 		},
 		func() int64 { return 0 },
-		func(int64) {},
-		func() {},
-		func() Mode { return ModeEnabled },
+		func(int64) {
+			recorder.scheduled = true
+			recorder.stopped = false
+		},
+		func() {
+			recorder.scheduled = false
+			recorder.stopped = true
+		},
+		mode,
 	)
+	return q, recorder
 }
 
 func TestValvedCoDelQueueSerializesSameValve(t *testing.T) {
@@ -154,6 +172,8 @@ func TestValvedCoDelQueueCancelMiddlePromotesRemainingFIFO(t *testing.T) {
 	last := q.lockedEnqueue("valve", 0)
 
 	q.lockedCancel(middle)
+	var droppedError *DroppedRequestError
+	assert.ErrorAs(t, middle.signaledValue, &droppedError)
 	q.lockedDequeue(active)
 	require.Same(t, first, q.lockedPeek())
 
@@ -190,6 +210,9 @@ func TestValvedCoDelQueueAllWaitersCancelledCleansMaps(t *testing.T) {
 	assert.Zero(t, q.lockedLen())
 	assert.NotContains(t, q.valves, "valve")
 	assert.NotContains(t, q.droppablePerValve, "valve")
+
+	next := q.lockedEnqueue("valve", 0)
+	assert.NotNil(t, next.codelqElem)
 }
 
 func TestValvedCoDelQueueCancelAllThenNewArrivalWaitsForActive(t *testing.T) {
@@ -243,6 +266,10 @@ func TestValvedCoDelQueuePendingDropsTransferOwnership(t *testing.T) {
 	q.lockedDrop(first)
 	q.lockedDrop(second)
 
+	var firstError *DroppedRequestError
+	var secondError *DroppedRequestError
+	assert.ErrorAs(t, first.signaledValue, &firstError)
+	assert.ErrorAs(t, second.signaledValue, &secondError)
 	assert.Equal(t, []*Request[string]{first, second}, q.lockedTakePendingDrops())
 	assert.Nil(t, q.lockedTakePendingDrops())
 }
@@ -263,4 +290,71 @@ func TestValvedCoDelQueueDisabledTearsDownController(t *testing.T) {
 	assert.Zero(t, q.codelq.dropNextNs)
 	assert.Equal(t, 5, q.lockedLen())
 	assert.Nil(t, q.lockedTakePendingDrops())
+}
+
+func TestDroppedRequestErrorMessage(t *testing.T) {
+	assert.EqualError(t, &DroppedRequestError{}, "request dropped by CoDel queue")
+}
+
+func TestValvedCoDelQueueOnlyActiveRequestIsDroppable(t *testing.T) {
+	q := newTestValvedCoDelQueue()
+	requests := make([]*Request[string], 4)
+	for i := range requests {
+		requests[i] = q.lockedEnqueue("valve", 0)
+	}
+
+	assert.Equal(t, 1, q.lockedDroppableLen())
+	assert.Equal(t, 1, q.lockedLen())
+	q.lockedDequeue(requests[0])
+	assert.Equal(t, 1, q.lockedDroppableLen())
+	assert.Same(t, requests[1], q.lockedPeek())
+}
+
+func TestValvedCoDelQueueCancelDoesNotAffectOtherValve(t *testing.T) {
+	q := newTestValvedCoDelQueue()
+	activeA := q.lockedEnqueue("a", 0)
+	pendingA := q.lockedEnqueue("a", 0)
+	activeB := q.lockedEnqueue("b", 0)
+	pendingB := q.lockedEnqueue("b", 0)
+
+	q.lockedCancel(pendingA)
+
+	require.Len(t, q.valves["b"], 1)
+	assert.Same(t, pendingB, q.valves["b"][0])
+	assert.Nil(t, pendingB.signaledValue)
+	assert.Same(t, activeA, q.droppablePerValve["a"])
+	assert.Same(t, activeB, q.droppablePerValve["b"])
+}
+
+func TestValvedCoDelQueueInterleavesCancellationAndPromotion(t *testing.T) {
+	q := newTestValvedCoDelQueue()
+	active := q.lockedEnqueue("valve", 0)
+	first := q.lockedEnqueue("valve", 0)
+	cancelledOne := q.lockedEnqueue("valve", 0)
+	second := q.lockedEnqueue("valve", 0)
+	cancelledTwo := q.lockedEnqueue("valve", 0)
+	last := q.lockedEnqueue("valve", 0)
+	q.lockedCancel(cancelledOne)
+	q.lockedCancel(cancelledTwo)
+
+	q.lockedDequeue(active)
+	assert.Same(t, first, q.lockedPeek())
+	q.lockedDequeue(first)
+	assert.Same(t, second, q.lockedPeek())
+	q.lockedDequeue(second)
+	assert.Same(t, last, q.lockedPeek())
+}
+
+func TestValvedCoDelQueueShadowModeDoesNotArmController(t *testing.T) {
+	q, recorder := newTestValvedCoDelQueueMode(func() Mode { return ModeShadow })
+	for i := range 10 {
+		q.lockedEnqueue(string(rune('a'+i)), 0)
+	}
+
+	assert.False(t, q.codelq.dropping)
+	assert.Equal(t, 1, q.codelq.count)
+	assert.Zero(t, q.codelq.dropNextNs)
+	assert.False(t, recorder.scheduled)
+	assert.True(t, recorder.stopped)
+	assert.Equal(t, 10, q.lockedLen())
 }

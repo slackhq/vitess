@@ -16,7 +16,14 @@ limitations under the License.
 
 package loadshed
 
-import "vitess.io/vitess/go/stats"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/stats"
+)
 
 type fakeExporter struct {
 	counters      map[string]func() int64
@@ -42,4 +49,19 @@ func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.H
 	e.histograms[name] = h
 	e.histogramHelp[name] = help
 	return h
+}
+
+func TestSnakeValveDepthMetric(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+	histogram := exporter.histograms["SnakeTestValveDepthObserved"]
+	require.NotNil(t, histogram)
+
+	snake.Enqueue("first", "valve", 0)
+	snake.Enqueue("second", "valve", 0)
+	snake.Enqueue("third", "valve", 0)
+
+	assert.Equal(t, int64(3), histogram.Count())
+	assert.Equal(t, int64(3), histogram.Total())
 }
