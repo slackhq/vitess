@@ -48,7 +48,12 @@ type Stats struct {
 	UserReservedTimesNs     *stats.CountersWithSingleLabel // Per CallerID reserved connection duration
 
 	QueryTimingsByTabletType *servenv.TimingsWrapper // Query timings split by current tablet type
-	QueryTimingsByErrorCode  *servenv.TimingsWrapper // Query timings split by result error code
+
+	// QueryTimingsByErrorCode splits query timings by result vterrors code (e.g.
+	// OK for successful queries, RESOURCE_EXHAUSTED for load-shed rejections), so
+	// successful-request latency percentiles can be measured in isolation from
+	// fast-failing shed requests.
+	QueryTimingsByErrorCode *servenv.TimingsWrapper
 
 	ConsolidatorWaiterCapRejectCount *stats.Counter
 
