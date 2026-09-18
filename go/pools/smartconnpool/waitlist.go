@@ -28,42 +28,41 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-type (
-	PoolConfig interface {
-		LoadshedConfig(string) loadshed.SnakeConfig
-	}
+type PoolConfig interface {
+	LoadshedConfig(string) loadshed.SnakeConfig
+}
 
-	// waiter represents a client waiting for a connection in the waitlist
-	waiter[C Connection] struct {
-		// setting is the connection Setting that we'd like, or nil if we'd like a
-		// a connection with no Setting applied
-		setting *Setting
-		// conn is a channel that will receive the connection when it's ready
-		conn chan *Pooled[C]
-		err  error
-		// age is the amount of cycles this client has been on the waitlist
-		age uint32
-	}
+// waiter represents a client waiting for a connection in the waitlist
+type waiter[C Connection] struct {
+	// setting is the connection Setting that we'd like, or nil if we'd like a
+	// a connection with no Setting applied
+	setting *Setting
+	// conn is a channel that will receive the connection when it's ready
+	conn chan *Pooled[C]
+	err  error
+	// age is the amount of cycles this client has been on the waitlist
+	age uint32
+}
 
-	waitlistQueues[C Connection] struct {
-		list          list.List[waiter[C]]
-		snake         *loadshed.Snake[*list.Element[waiter[C]]]
-		mode          func() loadshed.Mode
-		activeMode    loadshed.Mode
-		transitioning atomic.Bool
-	}
+type waitlistQueues[C Connection] struct {
+	list          list.List[waiter[C]]
+	snake         *loadshed.Snake[*list.Element[waiter[C]]]
+	mode          func() loadshed.Mode
+	activeMode    loadshed.Mode
+	transitioning atomic.Bool
+}
 
-	waitlist[C Connection] struct {
-		nodes  sync.Pool
-		mu     sync.Mutex
-		queues *waitlistQueues[C]
+type waitlist[C Connection] struct {
+	nodes sync.Pool
+	mu    sync.Mutex
 
-		// onWait is called when a client gets to the point in which it is waiting for a connection - or the mutex that it needs to grab to wait for a connection.
-		onWait func()
-		// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
-		onWaiterCapReached func()
-	}
-)
+	*waitlistQueues[C]
+
+	// onWait is called when a client gets to the point in which it is waiting for a connection - or the mutex that it needs to grab to wait for a connection.
+	onWait func()
+	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
+	onWaiterCapReached func()
+}
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
 // or until the given context expires.
@@ -76,8 +75,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
-	conn := elem.Value.conn
-	elem.Value = waiter[C]{conn: conn, setting: setting}
+	elem.Value = waiter[C]{conn: elem.Value.conn, setting: setting}
 	var request *loadshed.Request[*list.Element[waiter[C]]]
 
 	// Fast path: reject early using an atomic read of the list length to avoid
@@ -121,11 +119,11 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 			return nil, ErrPoolWaiterCapReached
 		}
 	}
-	if wl.queues.activeMode == loadshed.ModeOff {
-		wl.queues.list.PushBackValue(elem)
+	if wl.activeMode == loadshed.ModeOff {
+		wl.list.PushBackValue(elem)
 	} else {
 		var newlyDropped []*list.Element[waiter[C]]
-		request, newlyDropped = wl.queues.snake.Enqueue(elem, valveID, snakePriority(priority))
+		request, newlyDropped = wl.snake.Enqueue(elem, valveID, snakePriority(priority))
 		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
@@ -134,8 +132,11 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	select {
 	case <-closeChan:
 		// Pool was closed while we were waiting.
+		removed := false
+
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
+		// Try to find and remove ourselves from the list.
 		removed, newlyDropped := wl.cancelLocked(elem, request)
 		dropped = append(dropped, newlyDropped...)
 		wl.mu.Unlock()
@@ -144,6 +145,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		if removed {
 			return nil, ErrConnPoolClosed
 		}
+
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
 		return <-elem.Value.conn, elem.Value.err
@@ -151,8 +153,11 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	case <-ctx.Done():
 		// Context expired. We need to try to remove ourselves from the waitlist to
 		// prevent another goroutine from trying to hand us a connection later on.
+		removed := false
+
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
+		// Try to find and remove ourselves from the list.
 		removed, newlyDropped := wl.cancelLocked(elem, request)
 		dropped = append(dropped, newlyDropped...)
 		wl.mu.Unlock()
@@ -161,6 +166,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		if removed {
 			return nil, context.Cause(ctx)
 		}
+
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
 		return <-elem.Value.conn, elem.Value.err
@@ -181,28 +187,30 @@ func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {
 	return maxWaiters > 0 && wl.waiting() >= int(maxWaiters)
 }
 
-func (wl *waitlist[C]) maybeStarvingCount() int {
+func (wl *waitlist[C]) maybeStarvingCount() (maybeStarving int) {
 	if wl.waiting() == 0 {
-		return 0
+		return
 	}
 
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	count := 0
-	if wl.queues.activeMode == loadshed.ModeOff {
-		for elem := wl.queues.list.Front(); elem != nil; elem = elem.Next() {
-			if elem.Value.age == 0 {
-				count++
+	if wl.activeMode == loadshed.ModeOff {
+		// iterate the waitlist looking for waiters with an expired Context,
+		// or remove everything if force is true
+		for e := wl.list.Front(); e != nil; e = e.Next() {
+			if e.Value.age == 0 {
+				maybeStarving++
 			}
 		}
 	} else {
-		count = wl.queues.snake.CountMatching(func(elem *list.Element[waiter[C]]) bool {
-			return elem.Value.age == 0
+		maybeStarving = wl.snake.CountMatching(func(e *list.Element[waiter[C]]) bool {
+			return e.Value.age == 0
 		})
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
-	return count
+
+	return
 }
 
 // tryReturnConn tries handing over a connection to one of the waiters in the pool.
@@ -219,7 +227,7 @@ func (wl *waitlist[C]) shouldTryReturnConn() bool {
 	if wl.waiting() != 0 {
 		return true
 	}
-	if wl.queues.transitioning.Load() {
+	if wl.transitioning.Load() {
 		return true
 	}
 	return wl.waiting() != 0
@@ -227,35 +235,40 @@ func (wl *waitlist[C]) shouldTryReturnConn() bool {
 
 func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	const maxAge = 8
-	connSetting := conn.Conn.Setting()
+	var (
+		target      *list.Element[waiter[D]]
+		connSetting = conn.Conn.Setting()
+	)
 
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	var (
-		selected *list.Element[waiter[D]]
-		ok       bool
-	)
-	if wl.queues.activeMode == loadshed.ModeOff {
-		target := wl.queues.list.Front()
-		for elem := target; elem != nil; elem = elem.Next() {
-			if elem.Value.age > maxAge || elem.Value.setting == connSetting {
-				target = elem
+	if wl.activeMode == loadshed.ModeOff {
+		target = wl.list.Front()
+		// iterate through the waitlist looking for either waiters that have been
+		// here too long, or a waiter that is looking exactly for the same Setting
+		// as the one we have in our connection.
+		for e := target; e != nil; e = e.Next() {
+			if e.Value.age > maxAge || e.Value.setting == connSetting {
+				target = e
 				break
 			}
-			elem.Value.age++
+			// this only ages the waiters that are being skipped over: we'll start
+			// aging the waiters in the back once they get to the front of the pool.
+			// the maxAge of 8 has been set empirically: smaller values cause clients
+			// with a specific setting to slightly starve, and aging all the clients
+			// in the list every time leads to unfairness when the system is at capacity
+			e.Value.age++
 		}
 		if target != nil {
-			wl.queues.list.Remove(target)
-			selected = target
-			ok = true
+			wl.list.Remove(target)
 		}
 	} else {
 		// iterate through the waitlist looking for either waiters that have been
 		// here too long, or a waiter that is looking exactly for the same Setting
 		// as the one we have in our connection.
 		var newlyDropped []*list.Element[waiter[D]]
-		selected, ok, newlyDropped = wl.queues.snake.DequeueMatching(func(elem *list.Element[waiter[D]]) bool {
-			if elem.Value.age > maxAge || elem.Value.setting == connSetting {
+		target, _, newlyDropped = wl.snake.DequeueMatching(func(e *list.Element[waiter[D]]) bool {
+			if e.Value.age > maxAge || e.Value.setting == connSetting {
 				return true
 			}
 			// this only ages the waiters that are being skipped over: we'll start
@@ -263,7 +276,7 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 			// the maxAge of 8 has been set empirically: smaller values cause clients
 			// with a specific setting to slightly starve, and aging all the clients
 			// in the list every time leads to unfairness when the system is at capacity
-			elem.Value.age++
+			e.Value.age++
 			return false
 		})
 		dropped = append(dropped, newlyDropped...)
@@ -273,35 +286,36 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 
 	// maybe there isn't anybody to hand over the connection to, because we've
 	// raced with another client returning another connection
-	if !ok {
+	if target == nil {
 		return false
 	}
 
 	// if we have a target to return the connection to, simply write the connection
 	// into the waiter's channel.
-	selected.Value.conn <- conn
+	target.Value.conn <- conn
 	// Allow the goroutine waiting on the channel to start running _now_.
 	runtime.Gosched()
+
 	return true
 }
 
 func (wl *waitlist[C]) cancelLocked(elem *list.Element[waiter[C]], request *loadshed.Request[*list.Element[waiter[C]]]) (bool, []*list.Element[waiter[C]]) {
-	if wl.queues.activeMode == loadshed.ModeOff {
-		for current := wl.queues.list.Front(); current != nil; current = current.Next() {
+	if wl.activeMode == loadshed.ModeOff {
+		for current := wl.list.Front(); current != nil; current = current.Next() {
 			if current == elem {
-				wl.queues.list.Remove(elem)
+				wl.list.Remove(elem)
 				return true, nil
 			}
 		}
 		return false, nil
 	}
 	if request != nil {
-		removed, dropped := wl.queues.snake.Cancel(request)
+		removed, dropped := wl.snake.Cancel(request)
 		if removed {
 			return true, dropped
 		}
 	}
-	return wl.queues.snake.CancelMatching(func(candidate *list.Element[waiter[C]]) bool {
+	return wl.snake.CancelMatching(func(candidate *list.Element[waiter[C]]) bool {
 		return candidate == elem
 	})
 }
@@ -316,8 +330,8 @@ func (wl *waitlist[C]) reject(waiters []*list.Element[waiter[C]]) {
 func (wl *waitlist[C]) runDropTimer() {
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	if wl.queues.activeMode != loadshed.ModeOff {
-		dropped = append(dropped, wl.queues.snake.LockedDropTimerFired()...)
+	if wl.activeMode != loadshed.ModeOff {
+		dropped = append(dropped, wl.snake.LockedDropTimerFired()...)
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
@@ -326,41 +340,41 @@ func (wl *waitlist[C]) runDropTimer() {
 func (wl *waitlist[C]) runShadowTimer() {
 	wl.mu.Lock()
 	dropped := wl.transitionLocked()
-	if wl.queues.activeMode != loadshed.ModeOff {
-		wl.queues.snake.LockedShadowTimerFired()
+	if wl.activeMode != loadshed.ModeOff {
+		wl.snake.LockedShadowTimerFired()
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
 }
 
 func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
-	mode := wl.queues.mode()
-	if mode == wl.queues.activeMode {
+	mode := wl.mode()
+	if mode == wl.activeMode {
 		return nil
 	}
 
-	movesQueues := (wl.queues.activeMode == loadshed.ModeOff) != (mode == loadshed.ModeOff)
+	movesQueues := (wl.activeMode == loadshed.ModeOff) != (mode == loadshed.ModeOff)
 	if movesQueues {
-		wl.queues.transitioning.Store(true)
-		defer wl.queues.transitioning.Store(false)
+		wl.transitioning.Store(true)
+		defer wl.transitioning.Store(false)
 	}
 
 	var dropped []*list.Element[waiter[C]]
 	switch {
-	case wl.queues.activeMode == loadshed.ModeOff && mode != loadshed.ModeOff:
-		for elem := wl.queues.list.Front(); elem != nil; {
+	case wl.activeMode == loadshed.ModeOff && mode != loadshed.ModeOff:
+		for elem := wl.list.Front(); elem != nil; {
 			next := elem.Next()
-			wl.queues.list.Remove(elem)
-			_, newlyDropped := wl.queues.snake.EnqueueExisting(elem, "", loadshed.PriorityUndroppable)
+			wl.list.Remove(elem)
+			_, newlyDropped := wl.snake.EnqueueExisting(elem, "", loadshed.PriorityUndroppable)
 			dropped = append(dropped, newlyDropped...)
 			elem = next
 		}
-	case wl.queues.activeMode != loadshed.ModeOff && mode == loadshed.ModeOff:
-		for _, elem := range wl.queues.snake.Drain() {
-			wl.queues.list.PushBackValue(elem)
+	case wl.activeMode != loadshed.ModeOff && mode == loadshed.ModeOff:
+		for _, elem := range wl.snake.Drain() {
+			wl.list.PushBackValue(elem)
 		}
 	}
-	wl.queues.activeMode = mode
+	wl.activeMode = mode
 	return dropped
 }
 
@@ -381,12 +395,12 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	snakeConfig.DropTimerFired = wl.runDropTimer
 	snakeConfig.ShadowTimerFired = wl.runShadowTimer
 
-	wl.queues = &waitlistQueues[C]{
+	wl.waitlistQueues = &waitlistQueues[C]{
 		mode:       snakeConfig.Mode,
 		activeMode: snakeConfig.Mode(),
 	}
-	wl.queues.list.Init()
-	wl.queues.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
+	wl.list.Init()
+	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
 }
 
 func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string) {
@@ -400,10 +414,10 @@ func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string
 		statsName = "SnakeDmlFoundRows"
 	}
 	if statsName != "" {
-		loadshed.PublishStats(exporter, statsName, wl.queues.snake)
+		loadshed.PublishStats(exporter, statsName, wl.snake)
 	}
 }
 
 func (wl *waitlist[C]) waiting() int {
-	return wl.queues.list.Len() + wl.queues.snake.Len()
+	return wl.list.Len() + wl.snake.Len()
 }
