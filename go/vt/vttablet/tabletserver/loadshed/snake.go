@@ -119,6 +119,14 @@ func normalizeConfig(cfg SnakeConfig) SnakeConfig {
 }
 
 func (s *Snake[T]) Enqueue(value T, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, priority)
+}
+
+func (s *Snake[T]) EnqueueExisting(value T, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, priority)
+}
+
+func (s *Snake[T]) enqueue(value T, priority float64) (*Request[T], []T) {
 	req := newRequest(value, priority)
 	s.q.lockedEnqueueIf(req, s.mode() == ModeEnabled)
 	s.length.Add(1)
@@ -178,6 +186,28 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
+func (s *Snake[T]) Drain() []T {
+	s.lockedObserveInitialTargetShadow(nil)
+	s.q.lockedDisable()
+
+	values := make([]T, 0, s.Len())
+	for {
+		req := s.q.lockedPeek()
+		if req == nil {
+			break
+		}
+		s.q.lockedDequeue(req)
+		s.length.Add(-1)
+		values = append(values, req.value)
+		var zero T
+		req.value = zero
+	}
+
+	s.lockedObserveLengths()
+	s.lockedObserveDropping()
+	return values
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.codelqElem == nil {
 		return false, nil
@@ -190,6 +220,15 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return true, nil
+}
+
+func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
+		if match(elem.Value.value) {
+			return s.Cancel(elem.Value)
+		}
+	}
+	return false, nil
 }
 
 func (s *Snake[T]) lockedAdvance() []*Request[T] {
