@@ -249,7 +249,8 @@ func TestTabletServerRedoLogIsKeptBetweenRestarts(t *testing.T) {
 	got := tsv.te.preparedPool.conns["dtid0"].TxProperties().Queries
 	want := []tx.Query{{
 		Sql:    "update test_table set `name` = 2 where pk = 1 limit 10001",
-		Tables: []string{"test_table"}}}
+		Tables: []string{"test_table"},
+	}}
 	utils.MustMatch(t, want, got, "Prepared queries")
 	turnOffTxEngine()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -293,7 +294,8 @@ func TestTabletServerRedoLogIsKeptBetweenRestarts(t *testing.T) {
 	got = tsv.te.preparedPool.conns["a:b:10"].TxProperties().Queries
 	want = []tx.Query{{
 		Sql:    "update test_table set `name` = 2 where pk = 1 limit 10001",
-		Tables: []string{"test_table"}}}
+		Tables: []string{"test_table"},
+	}}
 	utils.MustMatch(t, want, got, "Prepared queries")
 	wantFailed := map[string]error{
 		"bogus":  errPrepFailed, // The query is rejected by database so added to failed list.
@@ -2175,6 +2177,7 @@ var aclJSON1 = `{
     }
   ]
 }`
+
 var aclJSON2 = `{
   "table_groups": [
     {
@@ -2185,6 +2188,7 @@ var aclJSON2 = `{
     }
   ]
 }`
+
 var aclJSONOverlapError = `{
 	"table_groups": [
 	  {
@@ -2269,7 +2273,6 @@ func TestACLHUP(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // wait for signal handler
 
 	test_loaded_acl()
-
 }
 
 func TestConfigChanges(t *testing.T) {
@@ -2942,4 +2945,46 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 			Type: sqltypes.Int64,
 		}},
 	})
+}
+
+func TestPriorityFromOptions(t *testing.T) {
+	const defaultPriority = 100
+
+	tests := []struct {
+		name    string
+		options *querypb.ExecuteOptions
+		want    int
+	}{
+		{
+			name:    "nil options uses default",
+			options: nil,
+			want:    defaultPriority,
+		},
+		{
+			name:    "empty priority string uses default",
+			options: &querypb.ExecuteOptions{},
+			want:    defaultPriority,
+		},
+		{
+			name:    "valid priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "0"},
+			want:    0,
+		},
+		{
+			name:    "valid mid-range priority is parsed",
+			options: &querypb.ExecuteOptions{Priority: "30"},
+			want:    30,
+		},
+		{
+			name:    "non-numeric priority falls back to default",
+			options: &querypb.ExecuteOptions{Priority: "not-a-number"},
+			want:    defaultPriority,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, priorityFromOptions(tt.options, defaultPriority))
+		})
+	}
 }
