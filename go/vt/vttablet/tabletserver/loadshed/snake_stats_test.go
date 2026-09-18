@@ -22,6 +22,7 @@ type fakeExporter struct {
 	counters      map[string]func() int64
 	histograms    map[string]*stats.Histogram
 	histogramHelp map[string]string
+	multiCounters map[string]*stats.CountersWithMultiLabels
 }
 
 func newFakeExporter() *fakeExporter {
@@ -29,6 +30,7 @@ func newFakeExporter() *fakeExporter {
 		counters:      make(map[string]func() int64),
 		histograms:    make(map[string]*stats.Histogram),
 		histogramHelp: make(map[string]string),
+		multiCounters: make(map[string]*stats.CountersWithMultiLabels),
 	}
 }
 
@@ -42,4 +44,10 @@ func (e *fakeExporter) NewHistogram(name, help string, cutoffs []int64) *stats.H
 	e.histograms[name] = h
 	e.histogramHelp[name] = help
 	return h
+}
+
+func (e *fakeExporter) NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels {
+	counter := stats.NewCountersWithMultiLabels("", help, labels)
+	e.multiCounters[name] = counter
+	return counter
 }

@@ -247,7 +247,6 @@ func (qre *QueryExecutor) execAutocommit(f func(conn *StatefulConnection) (*sqlt
 	}
 
 	conn, _, _, err := qre.tsv.te.txPool.Begin(qre.ctx, qre.options, false, 0, qre.setting)
-
 	if err != nil {
 		return nil, err
 	}
@@ -826,7 +825,8 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	conn, err := qre.tsv.qe.conns.Get(ctx, qre.setting)
+	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.TxThrottlerDefaultPriority))
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}

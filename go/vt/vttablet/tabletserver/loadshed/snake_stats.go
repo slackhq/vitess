@@ -24,6 +24,7 @@ import (
 
 type statsExporter interface {
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
+	NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
 }
 
@@ -55,6 +56,8 @@ func durationNanos(durations ...time.Duration) []int64 {
 
 func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", s.ShedCount)
+	s.shedByPriority = exporter.NewCountersWithMultiLabels(prefix+"ShedByPriority", "Cumulative requests shed by the Snake load shedder, labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); sum equals ShedCount", []string{"priority"})
+	s.acquireByPriority = exporter.NewCountersWithMultiLabels(prefix+"AcquireByPriority", "Cumulative Acquire attempts (offered load) labeled by the caller's original query priority (\"0\" most important .. \"100\" least, \"overflow\"); ShedByPriority/AcquireByPriority is the per-priority shed rate", []string{"priority"})
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state", s.DroppingNanos)
 	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative fixed-20x initial-target shadow bursts censored because shadow mode ended before an outcome was known", s.shadowCensored.Load)
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake queue wait before dequeue, in nanoseconds", loadshedBucketCutoffs)

@@ -17,6 +17,7 @@ limitations under the License.
 package loadshed
 
 import (
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -54,6 +55,8 @@ type (
 		shadowTimerArmed     bool
 		length               atomic.Int64
 		shedCount            atomic.Int64
+		shedByPriority       *stats.CountersWithMultiLabels
+		acquireByPriority    *stats.CountersWithMultiLabels
 		droppingNanos        atomic.Int64
 		droppingSinceNs      atomic.Int64
 		sojourn              *stats.Histogram
@@ -119,14 +122,17 @@ func normalizeConfig(cfg SnakeConfig) SnakeConfig {
 }
 
 func (s *Snake[T]) Enqueue(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+	return s.enqueue(value, priority, true)
 }
 
 func (s *Snake[T]) EnqueueExisting(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+	return s.enqueue(value, priority, false)
 }
 
-func (s *Snake[T]) enqueue(value T, priority float64) (*Request[T], []T) {
+func (s *Snake[T]) enqueue(value T, priority float64, recordAcquire bool) (*Request[T], []T) {
+	if recordAcquire && s.acquireByPriority != nil {
+		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
+	}
 	req := newRequest(value, priority)
 	s.q.lockedEnqueueIf(req, s.mode() == ModeEnabled)
 	s.length.Add(1)
@@ -265,11 +271,21 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	for i, req := range requests {
 		s.length.Add(-1)
 		s.shedCount.Add(1)
+		if s.shedByPriority != nil {
+			s.shedByPriority.Add([]string{shedPriorityLabel(req.priority)}, 1)
+		}
 		values[i] = req.value
 		var zero T
 		req.value = zero
 	}
 	return values
+}
+
+func shedPriorityLabel(priority float64) string {
+	if bucket := bucketFor(priority); bucket >= 0 {
+		return strconv.Itoa(maxPriorityBucket - bucket)
+	}
+	return "overflow"
 }
 
 func (s *Snake[T]) ShedCount() int64 {
