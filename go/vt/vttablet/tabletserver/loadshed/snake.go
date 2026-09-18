@@ -63,15 +63,15 @@ func NewSnake[T any](_ SnakeConfig) *Snake[T] {
 	return s
 }
 
-func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, valveID, priority)
+func (s *Snake[T]) Enqueue(value T, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, priority)
 }
 
-func (s *Snake[T]) EnqueueExisting(value T, valveID string, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, valveID, priority)
+func (s *Snake[T]) EnqueueExisting(value T, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, priority)
 }
 
-func (s *Snake[T]) enqueue(value T, _ string, _ float64) (*Request[T], []T) {
+func (s *Snake[T]) enqueue(value T, _ float64) (*Request[T], []T) {
 	req := &Request[T]{value: value}
 	req.elem = s.queue.PushBack(req)
 	return req, nil
@@ -149,4 +149,11 @@ func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
 		}
 	}
 	return false, nil
+}
+
+func (s *Snake[T]) LockedDropTimerFired() []T {
+	return nil
+}
+
+func (s *Snake[T]) LockedShadowTimerFired() {
 }

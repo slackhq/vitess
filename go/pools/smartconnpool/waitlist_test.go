@@ -59,8 +59,20 @@ func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
 
 func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
 	elem := &list.Element[waiter[*TestConn]]{Value: value}
-	wl.queues.snake.Enqueue(elem, "", loadshed.PriorityUndroppable)
+	wl.queues.snake.Enqueue(elem, loadshed.PriorityUndroppable)
 	return elem
+}
+
+func TestWaitlistRejectDropped(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	elem := &list.Element[waiter[*TestConn]]{
+		Value: waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)},
+	}
+
+	wl.reject([]*list.Element[waiter[*TestConn]]{elem})
+
+	assert.Nil(t, <-elem.Value.conn)
+	assert.ErrorIs(t, elem.Value.err, ErrPoolLoadShed)
 }
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
