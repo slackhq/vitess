@@ -23,12 +23,14 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/safehtml/template"
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
 var (
@@ -89,6 +91,14 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	if varname == "" || value == "" {
 		http.Error(w, "Missing varname or value", http.StatusBadRequest)
 		return
+	}
+
+	setStringVal := func(f func(string) error) error {
+		if err := f(value); err != nil {
+			return fmt.Errorf("invalid value for %v: %v", varname, err)
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
 	}
 
 	setIntVal := func(f func(int)) error {
@@ -200,6 +210,14 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
+	case "LoadshedOltpReadMode", "LoadshedTxMode":
+		err = setStringVal(loadshedConfig(tsv, varname).SetMode)
+	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
+		err = setDurationVal(loadshedConfig(tsv, varname).SetTarget)
+	case "LoadshedOltpReadInitialTarget", "LoadshedTxInitialTarget":
+		err = setDurationVal(loadshedConfig(tsv, varname).SetInitialTarget)
+	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
+		err = setFloat64Val(loadshedConfig(tsv, varname).SetIntervalRatio)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -249,6 +267,14 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "RowStreamerMaxMySQLReplLagSecs", func() int64 { return tsv.Config().RowStreamer.MaxMySQLReplLagSecs })
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
+	addLoadshedVars := func(prefix string, cfg *tabletenv.LoadshedConfig) {
+		vars = addVar(vars, prefix+"Mode", cfg.ModeValue)
+		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
+		vars = addVar(vars, prefix+"InitialTarget", cfg.InitialTargetValue)
+		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
+	}
+	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
+	addLoadshedVars("LoadshedTx", &tsv.Config().LoadshedTx)
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),
@@ -259,6 +285,13 @@ func getVars(tsv *TabletServer) []envValue {
 	})
 
 	return vars
+}
+
+func loadshedConfig(tsv *TabletServer, varname string) *tabletenv.LoadshedConfig {
+	if strings.HasPrefix(varname, "LoadshedTx") {
+		return &tsv.Config().LoadshedTx
+	}
+	return &tsv.Config().LoadshedOltpRead
 }
 
 func respondWithJSON(w http.ResponseWriter, vars []envValue, msg string) {
