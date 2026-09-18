@@ -124,7 +124,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.queues.list.PushBackValue(elem)
 	} else {
 		var newlyDropped []*list.Element[waiter[C]]
-		request, newlyDropped = wl.queues.snake.Enqueue(elem, 0)
+		request, newlyDropped = wl.queues.snake.Enqueue(elem)
 		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
@@ -343,7 +343,7 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 		for elem := wl.queues.list.Front(); elem != nil; {
 			next := elem.Next()
 			wl.queues.list.Remove(elem)
-			_, newlyDropped := wl.queues.snake.EnqueueExisting(elem, loadshed.PriorityUndroppable)
+			_, newlyDropped := wl.queues.snake.EnqueueExisting(elem)
 			dropped = append(dropped, newlyDropped...)
 			elem = next
 		}

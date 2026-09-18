@@ -28,7 +28,7 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 	cfg.Mode = nil
 	snake := NewSnake[string](cfg)
 
-	_, dropped := snake.Enqueue("queued", 0)
+	_, dropped := snake.Enqueue("queued")
 
 	assert.Empty(t, dropped)
 	assert.Equal(t, ModeOff, snake.mode())
@@ -37,8 +37,8 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first", 0)
-	snake.Enqueue("second", 0)
+	snake.Enqueue("first")
+	snake.Enqueue("second")
 
 	removed, dropped := snake.CancelMatching(func(value string) bool {
 		return value == "second"
@@ -51,8 +51,8 @@ func TestSnakeCancelMatching(t *testing.T) {
 
 func TestSnakeDrain(t *testing.T) {
 	snake := NewSnake[string](defaultSnakeConfig())
-	snake.EnqueueExisting("first", PriorityUndroppable)
-	snake.EnqueueExisting("second", PriorityUndroppable)
+	snake.EnqueueExisting("first")
+	snake.EnqueueExisting("second")
 
 	assert.Equal(t, []string{"first", "second"}, snake.Drain())
 	assert.Zero(t, snake.Len())
