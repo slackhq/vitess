@@ -25,21 +25,22 @@ import (
 
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first")
-	snake.Enqueue("second")
+	snake.Enqueue("first", 0)
+	snake.Enqueue("second", 0)
 
-	removed := snake.CancelMatching(func(value string) bool {
+	removed, dropped := snake.CancelMatching(func(value string) bool {
 		return value == "second"
 	})
 
 	require.True(t, removed)
+	assert.Empty(t, dropped)
 	assert.Equal(t, 1, snake.Len())
 }
 
 func TestSnakeDrain(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.EnqueueExisting("first")
-	snake.EnqueueExisting("second")
+	snake.EnqueueExisting("first", PriorityUndroppable)
+	snake.EnqueueExisting("second", PriorityUndroppable)
 
 	assert.Equal(t, []string{"first", "second"}, snake.Drain())
 	assert.Zero(t, snake.Len())
