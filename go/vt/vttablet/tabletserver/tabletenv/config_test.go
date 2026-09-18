@@ -349,7 +349,6 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
-	assert.NotEmpty(t, cfg.LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
@@ -359,7 +358,6 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg.LoadshedOltpRead.SetTarget(time.Second)
 	cfg.LoadshedOltpRead.SetInitialTarget(2 * time.Second)
 	cfg.LoadshedOltpRead.SetIntervalRatio(10)
-	cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 
 	assert.Equal(t, LoadshedModeShadow, cfg.LoadshedOltpRead.ModeValue())
 	assert.True(t, cfg.LoadshedOltpRead.IsShadow())
@@ -368,7 +366,6 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.NotEqual(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedTx.TargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTargetValue(), cfg.LoadshedTx.InitialTargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.IntervalRatioValue(), cfg.LoadshedTx.IntervalRatioValue())
-	assert.Equal(t, []string{"schema"}, cfg.LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
@@ -393,7 +390,6 @@ func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 		defer wg.Done()
 		for i := range 100 {
 			cfg.LoadshedOltpRead.SetInitialTarget(time.Duration(i))
-			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 		}
 	}()
 	go func() {
