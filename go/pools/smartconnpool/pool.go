@@ -99,10 +99,8 @@ func (m *Metrics) WaiterCapRejected() int64 {
 	return m.waiterCapRejected.Load()
 }
 
-type (
-	Connector[C Connection] func(ctx context.Context) (C, error)
-	RefreshCheck            func() (bool, error)
-)
+type Connector[C Connection] func(ctx context.Context) (C, error)
+type RefreshCheck func() (bool, error)
 
 type Config[C Connection] struct {
 	Capacity        int64
