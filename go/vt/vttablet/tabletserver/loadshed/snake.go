@@ -106,16 +106,16 @@ func (s *Snake[T]) lockedObserveLengths() {
 	s.droppableLen.Add(int64(s.q.droppableLen))
 }
 
-func (s *Snake[T]) Enqueue(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+func (s *Snake[T]) Enqueue(value T) (*Request[T], []T) {
+	return s.enqueue(value, true)
 }
 
-func (s *Snake[T]) EnqueueExisting(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+func (s *Snake[T]) EnqueueExisting(value T) (*Request[T], []T) {
+	return s.enqueue(value, false)
 }
 
-func (s *Snake[T]) enqueue(value T, priority float64) (*Request[T], []T) {
-	req := newRequest(value, priority)
+func (s *Snake[T]) enqueue(value T, droppable bool) (*Request[T], []T) {
+	req := newRequest(value, droppable)
 	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
 	s.length.Add(1)
 	s.lockedObserveInitialTargetShadow(nil)
@@ -241,7 +241,7 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 		if s.q.droppableLen <= keepDroppableFloor {
 			return false
 		}
-		elem := s.q.lockedFindLowestPriorityDroppable()
+		elem := s.q.lockedFindDroppable()
 		if elem == nil {
 			return false
 		}
@@ -342,7 +342,7 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 	}
 	s.dropTimerArmed = false
 	// Record how late this fire is versus when it was scheduled. Under CPU
-	// contention the normal-priority timer goroutine can fire well past its
+	// contention the timer goroutine can fire well past its
 	// deadline, which delays shedding; this surfaces that lag.
 	if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
 		s.timerLag.Add(lag)
