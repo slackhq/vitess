@@ -176,9 +176,8 @@ func TestInitialTargetShadowStartsAtBacklogTransition(t *testing.T) {
 
 func TestInitialTargetShadowStartsIndependentlyOfControllerCount(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeShadow })
-	s.q.count = 2
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+	s.q.codelq.count = 2
+	req := s.q.lockedEnqueue("", 0)
 
 	s.lockedStartInitialTargetShadow(req)
 
@@ -203,7 +202,7 @@ func TestInitialTargetShadowDoesNotStartWithExistingBacklog(t *testing.T) {
 
 func TestInitialTargetShadowEnabledModeCannotRecordSample(t *testing.T) {
 	s, _ := newShadowTestSnake(func() Mode { return ModeEnabled })
-	s.q.lockedEnqueueIf(newRequest(struct{}{}, 0), false)
+	s.q.lockedEnqueue("", 0)
 	require.True(t, s.initialTargetShadow.start(s.clockFunc()))
 
 	s.lockedObserveInitialTargetShadow(nil)
@@ -249,8 +248,7 @@ func TestInitialTargetShadowLeavingModeClearsWaitingForDrain(t *testing.T) {
 
 	assert.False(t, s.initialTargetShadow.waitingForDrain)
 	shadow.Store(true)
-	req := newRequest(struct{}{}, 0)
-	s.q.lockedEnqueueIf(req, false)
+	req := s.q.lockedEnqueue("", 0)
 	s.lockedStartInitialTargetShadow(req)
 	assert.True(t, s.initialTargetShadow.active)
 	s.lockedStopShadowTimer()
