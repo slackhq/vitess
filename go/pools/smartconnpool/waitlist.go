@@ -406,7 +406,7 @@ func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string
 		statsName = "SnakeDmlFoundRows"
 	}
 	if statsName != "" {
-		loadshed.PublishStats(exporter, statsName, wl.queues.snake)
+		loadshed.PublishStats(exporter, statsName, wl.snake)
 	}
 }
 
