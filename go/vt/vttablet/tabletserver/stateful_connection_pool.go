@@ -18,6 +18,7 @@ package tabletserver
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"time"
 
@@ -181,6 +182,9 @@ func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.
 		conn, err = sf.conns.Get(ctx, setting)
 	}
 	if err != nil {
+		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+			return nil, errDMLLoadShed
+		}
 		return nil, err
 	}
 
