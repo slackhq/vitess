@@ -25,18 +25,11 @@ import (
 )
 
 type (
+	// Mode selects which load-shedding mechanism is active.
 	Mode string
 
-	CoDelConfig struct {
-		IntervalNs        func() int64
-		InitialIntervalNs func() int64
-		TargetNs          func() int64
-		InitialTargetNs   func() int64
-		Exponent          func() float64
-		MinDropDelayNs    func() int64
-		EasingLogBase     func() float64
-	}
-
+	// SnakeConfig configures a Snake. Functions are used to allow dynamic runtime
+	// tuning.
 	SnakeConfig struct {
 		CoDel            CoDelConfig
 		Mode             func() Mode
@@ -44,31 +37,49 @@ type (
 		ShadowTimerFired func()
 	}
 
+	// Snake is a CoDel-based load-shedding queue. It decides which waiting
+	// request may proceed; the caller owns execution capacity and handoff.
 	Snake[T any] struct {
-		q                    *ValvedCoDelQueue[T]
-		cfg                  SnakeConfig
-		clockFunc            func() int64
-		dropTimer            *time.Timer
-		dropTimerArmed       bool
-		dropTimerExpectedNs  int64
-		shadowTimer          *time.Timer
-		shadowTimerArmed     bool
-		length               atomic.Int64
-		shedCount            atomic.Int64
-		shedByPriority       *stats.CountersWithMultiLabels
-		acquireByPriority    *stats.CountersWithMultiLabels
-		droppingNanos        atomic.Int64
-		droppingSinceNs      atomic.Int64
-		sojourn              *stats.Histogram
-		queueLen             *stats.Histogram
-		droppableLen         *stats.Histogram
-		interval             *stats.Histogram
-		dropCount            *stats.Histogram
-		timerLag             *stats.Histogram
-		valveDepth           *stats.Histogram
-		initialTargetShadow  initialTargetShadowTracker
-		shadowRequiredTarget *stats.Histogram
-		shadowCensored       atomic.Int64
+		q              *ValvedCoDelQueue[T]
+		dropTimer      *time.Timer
+		dropTimerArmed bool
+		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
+		// fire (arm time + delay), used to measure how late it actually fires.
+		dropTimerExpectedNs int64
+		shadowTimer         *time.Timer
+		shadowTimerArmed    bool
+		cfg                 SnakeConfig
+		clockFunc           func() int64
+		length              atomic.Int64
+
+		shedCount atomic.Int64
+		// shedByPriority breaks shedCount down by the shed request's priority label
+		// (the caller's original query priority: "0" most important .. "100" least,
+		// "overflow"), so operators can see whether the queue is correctly shedding
+		// low-priority traffic first rather than eating high-priority requests. Nil
+		// until PublishStats registers it (tests and the benchmark build a Snake
+		// without it); the shed path nil-checks. Its sum equals shedCount.
+		shedByPriority *stats.CountersWithMultiLabels
+		// acquireByPriority counts every enqueue, labeled by the same caller
+		// priority as shedByPriority, so shed rate per priority class can be
+		// computed exactly (shedByPriority / acquireByPriority) rather than from
+		// assumed offered-load weights. Nil until PublishStats registers it.
+		acquireByPriority *stats.CountersWithMultiLabels
+
+		sojourn      *stats.Histogram
+		queueLen     *stats.Histogram
+		droppableLen *stats.Histogram
+		interval     *stats.Histogram
+		dropCount    *stats.Histogram
+		timerLag     *stats.Histogram
+		valveDepth   *stats.Histogram
+
+		initialTargetShadow         initialTargetShadowTracker
+		initialTargetShadowRequired *stats.Histogram
+		initialTargetShadowCensored atomic.Int64
+
+		droppingNanos   atomic.Int64
+		droppingSinceNs atomic.Int64
 	}
 )
 
@@ -76,8 +87,6 @@ const (
 	ModeOff     Mode = "off"
 	ModeShadow  Mode = "shadow"
 	ModeEnabled Mode = "enabled"
-
-	keepDroppableFloor = 4
 )
 
 var epoch = time.Now()
@@ -86,41 +95,32 @@ func defaultClock() int64 {
 	return time.Since(epoch).Nanoseconds()
 }
 
+// NewSnake creates a new CoDel-based load-shedding queue.
 func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
-	cfg = normalizeConfig(cfg)
 	s := &Snake[T]{
-		cfg:                  cfg,
-		clockFunc:            defaultClock,
-		sojourn:              stats.NewHistogram("", "", loadshedBucketCutoffs),
-		queueLen:             stats.NewHistogram("", "", lengthBucketCutoffs),
-		droppableLen:         stats.NewHistogram("", "", lengthBucketCutoffs),
-		interval:             stats.NewHistogram("", "", intervalBucketCutoffs),
-		dropCount:            stats.NewHistogram("", "", lengthBucketCutoffs),
-		timerLag:             stats.NewHistogram("", "", loadshedBucketCutoffs),
-		valveDepth:           stats.NewHistogram("", "", lengthBucketCutoffs),
-		shadowRequiredTarget: stats.NewHistogram("", "", initialTargetShadowMetricCutoffsMs),
+		cfg:          cfg,
+		clockFunc:    defaultClock,
+		sojourn:      stats.NewHistogram("", "", loadshedBucketCutoffs),
+		queueLen:     stats.NewHistogram("", "", lengthBucketCutoffs),
+		droppableLen: stats.NewHistogram("", "", lengthBucketCutoffs),
+		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
+		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
+		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
+		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
+
+		initialTargetShadowRequired: stats.NewHistogram("", "", initialTargetShadowMetricCutoffsMs),
 	}
-	s.q = newValvedCoDelQueue[T](cfg.CoDel, s.clockFunc, s.lockedScheduleDropTimer, s.lockedStopDropTimer, s.mode)
+	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer, s.mode)
 	return s
 }
 
-func normalizeConfig(cfg SnakeConfig) SnakeConfig {
-	if cfg.Mode == nil {
-		cfg.Mode = func() Mode { return ModeOff }
-	}
-	if cfg.CoDel.IntervalNs == nil {
-		cfg.CoDel.IntervalNs = func() int64 { return int64(time.Second) }
-	}
-	if cfg.CoDel.TargetNs == nil {
-		cfg.CoDel.TargetNs = func() int64 { return int64(time.Second) }
-	}
-	if cfg.CoDel.Exponent == nil {
-		cfg.CoDel.Exponent = func() float64 { return 1 }
-	}
-	if cfg.CoDel.MinDropDelayNs == nil {
-		cfg.CoDel.MinDropDelayNs = func() int64 { return int64(100 * time.Millisecond) }
-	}
-	return cfg
+func (s *Snake[T]) lockedObserveLengths() {
+	s.queueLen.Add(int64(s.q.lockedLen()))
+	s.droppableLen.Add(int64(s.q.lockedDroppableLen()))
+}
+
+func (s *Snake[T]) lockedObserveValveDepth(valveID string) {
+	s.valveDepth.Add(int64(s.q.lockedValveDepth(valveID)))
 }
 
 func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[T], []T) {
@@ -135,15 +135,16 @@ func (s *Snake[T]) enqueue(value T, valveID string, priority float64, recordAcqu
 	if recordAcquire && s.acquireByPriority != nil {
 		s.acquireByPriority.Add([]string{shedPriorityLabel(priority)}, 1)
 	}
+
 	req := s.q.lockedEnqueue(valveID, priority)
 	req.value = value
 	s.length.Add(1)
 	if valveID != "" {
-		s.valveDepth.Add(int64(s.q.lockedValveDepth(valveID)))
+		s.lockedObserveValveDepth(valveID)
 	}
 	s.lockedObserveInitialTargetShadow(nil)
 	s.lockedStartInitialTargetShadow(req)
-	dropped := s.lockedAdvance()
+	dropped := s.lockedEnqueueAdvance()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return req, s.droppedValues(dropped)
@@ -158,40 +159,46 @@ func (s *Snake[T]) DequeueMatching(match func(T) bool) (T, bool, []T) {
 }
 
 func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
-	pending := s.lockedAdvance()
+	var pending []*Request[T]
+	if s.q.lockedNeedsAdvance() {
+		pending = s.lockedEnqueueAdvance()
+	}
 	req := s.q.lockedPeek()
 	if match != nil {
 		req = s.q.lockedFind(match)
 	}
-	if req == nil {
+	var value T
+	ok := false
+	if req != nil {
+		s.q.lockedDequeue(req)
+		req.signal(grantSentinel)
+		s.length.Add(-1)
+		now := s.clockFunc()
+		s.lockedAccrueDropping(now)
+		sojournNs := now - req.codelqEnqueuedAtNs
+		s.lockedObserveInitialTargetShadowAt(now, &sojournNs)
+		s.sojourn.Add(sojournNs)
+		value = req.value
+		ok = true
 		var zero T
-		return zero, false, s.droppedValues(pending)
+		req.value = zero
 	}
-
-	s.q.lockedDequeue(req)
-	req.signal(grantSentinel)
-	s.length.Add(-1)
-	now := s.clockFunc()
-	s.lockedAccrueDropping(now)
-	sojournNs := now - req.codelqEnqueuedAtNs
-	s.lockedObserveInitialTargetShadowAt(now, &sojournNs)
-	s.sojourn.Add(sojournNs)
-	value := req.value
-	var zero T
-	req.value = zero
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
-	return value, true, s.droppedValues(pending)
+	return value, ok, s.droppedValues(pending)
 }
 
 func (s *Snake[T]) Len() int {
 	return int(s.length.Load())
 }
 
+// CountMatching counts active requests matching the predicate. The caller must
+// hold the mutex protecting the Snake.
 func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	count := 0
 	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
-		if elem.Value.signaledValue == nil && match(elem.Value.value) {
+		req := elem.Value.(*Request[T])
+		if req.signaledValue == nil && match(req.value) {
 			count++
 		}
 	}
@@ -205,6 +212,8 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
+// Drain removes and returns every queued value without shedding it. The caller
+// must hold the mutex protecting the Snake.
 func (s *Snake[T]) Drain() []T {
 	s.lockedObserveInitialTargetShadow(nil)
 	s.q.lockedRunTimerIf(false)
@@ -237,38 +246,82 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	var zero T
 	req.value = zero
 	s.lockedObserveInitialTargetShadow(nil)
+	dropped := s.q.lockedTakePendingDrops()
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
-	return true, s.droppedValues(s.q.lockedTakePendingDrops())
+	return true, s.droppedValues(dropped)
 }
 
 func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+	var matched *Request[T]
 	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
-		if elem.Value.signaledValue == nil && match(elem.Value.value) {
-			return s.Cancel(elem.Value)
+		req := elem.Value.(*Request[T])
+		if req.signaledValue == nil && match(req.value) {
+			matched = req
+			break
 		}
 	}
-	for _, pending := range s.q.valves {
-		for _, req := range pending {
-			if req != nil && req.signaledValue == nil && match(req.value) {
-				return s.Cancel(req)
+	if matched == nil {
+		for _, pending := range s.q.valves {
+			for _, req := range pending {
+				if req != nil && req.signaledValue == nil && match(req.value) {
+					matched = req
+					break
+				}
+			}
+			if matched != nil {
+				break
 			}
 		}
 	}
-	return false, nil
+	if matched == nil {
+		return false, nil
+	}
+	return s.Cancel(matched)
 }
 
-func (s *Snake[T]) lockedAdvance() []*Request[T] {
+// lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
+// an arrival can drive shedding, not just the dequeue path and the backstop
+// timer. The pending drops are returned so the caller can signal them after
+// releasing the parent mutex.
+func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.lockedObserveInitialTargetShadow(nil)
-	if s.mode() != ModeEnabled {
-		s.q.lockedRunTimerIf(false)
-		return s.q.lockedTakePendingDrops()
+	enabled := s.loadsheddingAllowed()
+	s.q.lockedRunTimerIf(enabled)
+	if enabled {
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
 	}
-
-	s.q.lockedRunTimerIf(true)
-	s.interval.Add(s.q.lockedCurrentInterval())
-	s.dropCount.Add(int64(s.q.lockedCount()))
 	return s.q.lockedTakePendingDrops()
+}
+
+func (s *Snake[T]) lockedObserveDropping() {
+	dropping := !s.q.lockedIsHealthy()
+	if dropping == (s.droppingSinceNs.Load() != 0) {
+		return
+	}
+	s.lockedAccrueDropping(s.clockFunc())
+}
+
+func (s *Snake[T]) lockedAccrueDropping(now int64) {
+	dropping := !s.q.lockedIsHealthy()
+	switch {
+	case dropping && s.droppingSinceNs.Load() == 0:
+		s.droppingSinceNs.Store(now)
+	case !dropping && s.droppingSinceNs.Load() != 0:
+		s.droppingNanos.Add(now - s.droppingSinceNs.Swap(0))
+	}
+}
+
+func (s *Snake[T]) loadsheddingAllowed() bool {
+	return s.mode() == ModeEnabled
+}
+
+func (s *Snake[T]) mode() Mode {
+	if s.cfg.Mode == nil {
+		return ModeOff
+	}
+	return s.cfg.Mode()
 }
 
 func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
@@ -289,13 +342,21 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	return values
 }
 
+// shedPriorityLabel maps a request's internal Snake priority to its shed-metric
+// label, reported as the ORIGINAL caller priority (the value passed to the query,
+// where 0 is most important) rather than the internal Snake value. The caller
+// inverts on the way in (snake = maxPriorityBucket - caller, so lower Snake value
+// sheds first); we invert back here so the label matches what was passed in.
+// Out-of-range/non-integer/PriorityUndroppable values fall in "overflow".
 func shedPriorityLabel(priority float64) string {
-	if bucket := bucketFor(priority); bucket >= 0 {
-		return strconv.Itoa(maxPriorityBucket - bucket)
+	if b := bucketFor(priority); b >= 0 {
+		return strconv.Itoa(maxPriorityBucket - b)
 	}
 	return "overflow"
 }
 
+// ShedCount returns the cumulative number of requests this Snake has shed.
+// Context cancellations are not counted — only queue-driven drops.
 func (s *Snake[T]) ShedCount() int64 {
 	return s.shedCount.Load()
 }
@@ -308,31 +369,7 @@ func (s *Snake[T]) DroppingNanos() int64 {
 	return total
 }
 
-func (s *Snake[T]) mode() Mode {
-	return s.cfg.Mode()
-}
-
-func (s *Snake[T]) lockedObserveLengths() {
-	s.queueLen.Add(int64(s.q.lockedLen()))
-	s.droppableLen.Add(int64(s.q.lockedDroppableLen()))
-}
-
-func (s *Snake[T]) lockedObserveDropping() {
-	dropping := !s.q.lockedIsHealthy()
-	if dropping == (s.droppingSinceNs.Load() != 0) {
-		return
-	}
-	s.lockedAccrueDropping(s.clockFunc())
-}
-
-func (s *Snake[T]) lockedAccrueDropping(now int64) {
-	switch {
-	case !s.q.lockedIsHealthy() && s.droppingSinceNs.Load() == 0:
-		s.droppingSinceNs.Store(now)
-	case s.q.lockedIsHealthy() && s.droppingSinceNs.Load() != 0:
-		s.droppingNanos.Add(now - s.droppingSinceNs.Swap(0))
-	}
-}
+// --- timer management (must be called with the parent mutex held) ---
 
 func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
@@ -341,7 +378,7 @@ func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	s.dropTimerArmed = true
 	s.dropTimerExpectedNs = s.clockFunc() + delayNs
 	if s.cfg.DropTimerFired != nil {
-		s.dropTimer = time.AfterFunc(time.Duration(delayNs), s.cfg.DropTimerFired)
+		s.dropTimer = time.AfterFunc(time.Duration(delayNs)*time.Nanosecond, s.cfg.DropTimerFired)
 	}
 }
 
@@ -360,12 +397,28 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 		return nil
 	}
 	s.dropTimerArmed = false
-	s.timerLag.Add(max(s.clockFunc()-s.dropTimerExpectedNs, 0))
-	dropped := s.lockedAdvance()
+	// Record how late this fire is versus when it was scheduled. Under CPU
+	// contention the normal-priority timer goroutine can fire well past its
+	// deadline, which delays shedding; this surfaces that lag.
+	if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
+		s.timerLag.Add(lag)
+	} else {
+		s.timerLag.Add(0)
+	}
+	s.lockedObserveInitialTargetShadow(nil)
+	enabled := s.loadsheddingAllowed()
+	s.q.lockedRunTimerIf(enabled)
+	if enabled {
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
+	}
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
+	dropped := s.q.lockedTakePendingDrops()
 	return s.droppedValues(dropped)
 }
+
+// --- initial-target shadow backtesting (must be called with the parent mutex held) ---
 
 func (s *Snake[T]) lockedStartInitialTargetShadow(req *Request[T]) {
 	if !req.isDroppable() ||
@@ -377,8 +430,11 @@ func (s *Snake[T]) lockedStartInitialTargetShadow(req *Request[T]) {
 		return
 	}
 	startedAtNs := req.codelqEnqueuedAtNs
+	nowNs := s.clockFunc()
 	if s.initialTargetShadow.start(startedAtNs) {
-		s.lockedScheduleShadowTimer(max(startedAtNs+initialTargetShadowMaxIntervalNs-s.clockFunc(), 0))
+		s.lockedScheduleShadowTimer(
+			max(startedAtNs+initialTargetShadowMaxIntervalNs-nowNs, 0),
+		)
 	}
 }
 
@@ -397,9 +453,13 @@ func (s *Snake[T]) lockedObserveInitialTargetShadowAt(nowNs int64, sojournNs *in
 	if !s.initialTargetShadow.active && !s.initialTargetShadow.waitingForDrain {
 		return
 	}
-	outcome := s.initialTargetShadow.observe(nowNs, sojournNs, s.q.lockedDroppableLen() == 0)
+	outcome := s.initialTargetShadow.observe(
+		nowNs,
+		sojournNs,
+		s.q.lockedDroppableLen() == 0,
+	)
 	if outcome.completed {
-		s.shadowRequiredTarget.Add(initialTargetShadowMetricValueMs(outcome.requiredTargetNs))
+		s.initialTargetShadowRequired.Add(initialTargetShadowMetricValueMs(outcome.requiredTargetNs))
 		s.lockedStopShadowTimer()
 	}
 }
@@ -408,14 +468,17 @@ func (s *Snake[T]) lockedLeaveInitialTargetShadow(nowNs int64) {
 	if !s.initialTargetShadow.active && !s.initialTargetShadow.waitingForDrain {
 		return
 	}
+
 	if s.initialTargetShadow.active &&
-		(s.q.lockedDroppableLen() == 0 || nowNs >= s.initialTargetShadow.startedAtNs+initialTargetShadowMaxIntervalNs) {
+		(s.q.lockedDroppableLen() == 0 ||
+			nowNs >= s.initialTargetShadow.startedAtNs+initialTargetShadowMaxIntervalNs) {
 		s.lockedObserveInitialTargetShadowAt(nowNs, nil)
 		s.initialTargetShadow.reset(false)
 		return
 	}
+
 	if s.initialTargetShadow.active {
-		s.shadowCensored.Add(1)
+		s.initialTargetShadowCensored.Add(1)
 	}
 	s.initialTargetShadow.reset(false)
 	s.lockedStopShadowTimer()
@@ -427,7 +490,7 @@ func (s *Snake[T]) lockedScheduleShadowTimer(delayNs int64) {
 	}
 	s.shadowTimerArmed = true
 	if s.cfg.ShadowTimerFired != nil {
-		s.shadowTimer = time.AfterFunc(time.Duration(delayNs), s.cfg.ShadowTimerFired)
+		s.shadowTimer = time.AfterFunc(time.Duration(delayNs)*time.Nanosecond, s.cfg.ShadowTimerFired)
 	}
 }
 
@@ -441,6 +504,8 @@ func (s *Snake[T]) lockedStopShadowTimer() {
 	}
 }
 
+// LockedShadowTimerFired advances the initial-target shadow backtest when its
+// backstop timer fires. Called by the caller under the parent mutex.
 func (s *Snake[T]) LockedShadowTimerFired() {
 	if !s.shadowTimerArmed {
 		return

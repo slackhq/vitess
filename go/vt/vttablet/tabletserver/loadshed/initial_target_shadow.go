@@ -42,10 +42,8 @@ var initialTargetShadowMetricCutoffsMs = func() []int64 {
 
 const initialTargetShadowIntervalRatio = int64(20)
 
-var (
-	initialTargetShadowMissNs        = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] + 1
-	initialTargetShadowMaxIntervalNs = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] * initialTargetShadowIntervalRatio
-)
+var initialTargetShadowMissNs = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] + 1
+var initialTargetShadowMaxIntervalNs = initialTargetShadowCandidates[len(initialTargetShadowCandidates)-1] * initialTargetShadowIntervalRatio
 
 func initialTargetShadowMetricValueMs(requiredTargetNs int64) int64 {
 	return (requiredTargetNs + int64(time.Millisecond) - 1) / int64(time.Millisecond)
@@ -69,13 +67,18 @@ func (t *initialTargetShadowTracker) start(nowNs int64) bool {
 	if t.active || t.waitingForDrain || nowNs > math.MaxInt64-initialTargetShadowMaxIntervalNs {
 		return false
 	}
+
 	t.active = true
 	t.startedAtNs = nowNs
 	t.hits = 0
 	return true
 }
 
-func (t *initialTargetShadowTracker) observe(nowNs int64, sojournNs *int64, drained bool) initialTargetShadowOutcome {
+func (t *initialTargetShadowTracker) observe(
+	nowNs int64,
+	sojournNs *int64,
+	drained bool,
+) initialTargetShadowOutcome {
 	if t.waitingForDrain {
 		if drained {
 			t.waitingForDrain = false
@@ -85,9 +88,11 @@ func (t *initialTargetShadowTracker) observe(nowNs int64, sojournNs *int64, drai
 	if !t.active {
 		return initialTargetShadowOutcome{}
 	}
+
 	if nowNs >= t.startedAtNs+initialTargetShadowMaxIntervalNs {
 		return t.complete(!drained)
 	}
+
 	if sojournNs != nil {
 		for i, targetNs := range initialTargetShadowCandidates {
 			if nowNs < t.deadlineNs(targetNs) && *sojournNs < targetNs {
@@ -95,6 +100,7 @@ func (t *initialTargetShadowTracker) observe(nowNs int64, sojournNs *int64, drai
 			}
 		}
 	}
+
 	if drained {
 		for i, targetNs := range initialTargetShadowCandidates {
 			if nowNs < t.deadlineNs(targetNs) {
@@ -103,6 +109,7 @@ func (t *initialTargetShadowTracker) observe(nowNs int64, sojournNs *int64, drai
 		}
 		return t.complete(false)
 	}
+
 	if t.hits&1 != 0 {
 		return t.complete(true)
 	}

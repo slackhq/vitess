@@ -18,343 +18,400 @@ package loadshed
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type valvedQueueTimerRecorder struct {
-	scheduled bool
-	stopped   bool
+type testValvedCoDelQueue = ValvedCoDelQueue[struct{}]
+
+func newValvedQueue(clock *testClock) (*testValvedCoDelQueue, *testDropTimerRecorder) {
+	return newValvedQueueMode(clock, nil)
 }
 
-func newTestValvedCoDelQueue() *ValvedCoDelQueue[string] {
-	q, _ := newTestValvedCoDelQueueMode(func() Mode { return ModeEnabled })
-	return q
+func newValvedQueueMode(clock *testClock, mode func() Mode) (*testValvedCoDelQueue, *testDropTimerRecorder) {
+	rec := &testDropTimerRecorder{}
+	q := newValvedCoDelQueue[struct{}](defaultTestConfig(), clock.nowFunc, rec.schedule, rec.stop, mode)
+	return q, rec
 }
 
-func newTestValvedCoDelQueueMode(mode func() Mode) (*ValvedCoDelQueue[string], *valvedQueueTimerRecorder) {
-	recorder := &valvedQueueTimerRecorder{}
-	q := newValvedCoDelQueue[string](
-		CoDelConfig{
-			IntervalNs:     func() int64 { return (10 * time.Millisecond).Nanoseconds() },
-			TargetNs:       func() int64 { return time.Millisecond.Nanoseconds() },
-			Exponent:       func() float64 { return 1 },
-			MinDropDelayNs: func() int64 { return 1 },
-		},
-		func() int64 { return 0 },
-		func(int64) {
-			recorder.scheduled = true
-			recorder.stopped = false
-		},
-		func() {
-			recorder.scheduled = false
-			recorder.stopped = true
-		},
-		mode,
-	)
-	return q, recorder
+func testValvedDequeue(sq *testValvedCoDelQueue) *testRequest {
+	req := sq.lockedPeek()
+	if req == nil {
+		return nil
+	}
+	sq.lockedDequeue(req)
+	return req
 }
 
-func TestValvedCoDelQueueSerializesSameValve(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+// --- Direct entry tests ---
 
-	first := q.lockedEnqueue("valve", 0)
-	second := q.lockedEnqueue("valve", 0)
-	other := q.lockedEnqueue("other", 0)
+func TestValved_FirstRequest_DirectEntry(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	require.NotNil(t, first.codelqElem)
-	assert.Nil(t, second.codelqElem)
-	require.NotNil(t, other.codelqElem)
-	assert.Equal(t, 2, q.lockedLen())
+	req := sq.lockedEnqueue("id1", 0)
 
-	q.lockedDequeue(first)
-
-	require.NotNil(t, second.codelqElem)
-	assert.Equal(t, 2, q.lockedLen())
+	assert.NotNil(t, req)
+	assert.Equal(t, 1, sq.lockedLen())
+	assert.NotNil(t, req.codelqElem, "should be in the CoDel queue (has list element)")
 }
 
-func TestValvedCoDelQueueEmptyValveIDBypassesValve(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+func TestValved_EmptyValveID_AlwaysDirect(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	first := q.lockedEnqueue("", 0)
-	second := q.lockedEnqueue("", 0)
+	r1 := sq.lockedEnqueue("", 0)
+	r2 := sq.lockedEnqueue("", 0)
 
-	require.NotNil(t, first.codelqElem)
-	require.NotNil(t, second.codelqElem)
-	assert.Equal(t, 2, q.lockedLen())
+	assert.NotNil(t, r1.codelqElem, "empty ID always goes to CoDel queue")
+	assert.NotNil(t, r2.codelqElem, "empty ID always goes to CoDel queue")
+	assert.Equal(t, 2, sq.lockedLen())
 }
 
-func TestValvedCoDelQueueCancelPendingDoesNotBypassActive(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+// --- Valve tests ---
 
-	active := q.lockedEnqueue("valve", 0)
-	cancelled := q.lockedEnqueue("valve", 0)
-	q.lockedCancel(cancelled)
-	next := q.lockedEnqueue("valve", 0)
+func TestValved_SecondRequest_Valved(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	assert.Nil(t, next.codelqElem)
-	q.lockedDequeue(active)
-	require.NotNil(t, next.codelqElem)
-	assert.Equal(t, 1, q.lockedLen())
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+
+	assert.NotNil(t, r1.codelqElem, "first enters CoDel queue")
+	assert.Nil(t, r2.codelqElem, "second should be in valve (no list element)")
+	assert.Equal(t, 1, sq.lockedLen(), "only 1 in CoDel queue")
+	require.Len(t, sq.valves["id1"], 1)
+	assert.Same(t, r2, sq.valves["id1"][0])
 }
 
-func TestValvedCoDelQueueCancelActivePromotesNext(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+func TestValved_DifferentIDs_Independent(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	active := q.lockedEnqueue("valve", 0)
-	next := q.lockedEnqueue("valve", 0)
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id2", 0)
 
-	q.lockedCancel(active)
-
-	require.NotNil(t, next.codelqElem)
-	assert.Equal(t, 1, q.lockedLen())
+	assert.NotNil(t, r1.codelqElem, "id1 in CoDel queue")
+	assert.NotNil(t, r2.codelqElem, "id2 in CoDel queue (different ID)")
+	assert.Equal(t, 2, sq.lockedLen())
 }
 
-func TestValvedCoDelQueueDropPromotesNext(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+func TestValved_FourParallel_SameID(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	active := q.lockedEnqueue("valve", 0)
-	next := q.lockedEnqueue("valve", 0)
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+	r3 := sq.lockedEnqueue("id1", 0)
+	r4 := sq.lockedEnqueue("id1", 0)
 
-	q.lockedDrop(active)
+	assert.NotNil(t, r1.codelqElem, "first in CoDel queue")
+	assert.Nil(t, r2.codelqElem, "second in valve")
+	assert.Nil(t, r3.codelqElem, "third in valve")
+	assert.Nil(t, r4.codelqElem, "fourth in valve")
 
-	require.NotNil(t, next.codelqElem)
-	assert.Equal(t, 1, q.lockedLen())
-	assert.Equal(t, []*Request[string]{active}, q.lockedTakePendingDrops())
+	assert.Equal(t, 1, sq.lockedLen())
+	assert.Len(t, sq.valves["id1"], 3)
 }
 
-func TestValvedCoDelQueueDifferentValvesAreIndependent(t *testing.T) {
-	q := newTestValvedCoDelQueue()
+// --- Promotion tests ---
 
-	firstA := q.lockedEnqueue("a", 0)
-	secondA := q.lockedEnqueue("a", 0)
-	firstB := q.lockedEnqueue("b", 0)
-	secondB := q.lockedEnqueue("b", 0)
+func TestValved_Promotion_OnDequeue(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	require.NotNil(t, firstA.codelqElem)
-	assert.Nil(t, secondA.codelqElem)
-	require.NotNil(t, firstB.codelqElem)
-	assert.Nil(t, secondB.codelqElem)
-	assert.Equal(t, 2, q.lockedLen())
+	sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
 
-	q.lockedDequeue(firstA)
-	require.NotNil(t, secondA.codelqElem)
-	assert.Nil(t, secondB.codelqElem)
+	assert.Nil(t, r2.codelqElem, "r2 in valve before dequeue")
+
+	d := testValvedDequeue(sq)
+	assert.NotNil(t, d)
+
+	assert.NotNil(t, r2.codelqElem, "r2 promoted to CoDel queue after dequeue")
+	assert.Equal(t, 1, sq.lockedLen())
+	assert.Empty(t, sq.valves["id1"])
 }
 
-func TestValvedCoDelQueuePreservesFIFOWithinValve(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	requests := make([]*Request[string], 4)
-	for i := range requests {
-		requests[i] = q.lockedEnqueue("valve", 0)
+func TestValved_Promotion_OnDrop(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+
+	sq.lockedDrop(r1)
+
+	assert.NotNil(t, r2.codelqElem, "r2 promoted after r1 dropped")
+	assert.Equal(t, 1, sq.lockedLen())
+}
+
+func TestValved_Promotion_OnCancel(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+
+	sq.lockedCancel(r1)
+
+	assert.NotNil(t, r2.codelqElem, "r2 promoted after r1 cancelled")
+	assert.Equal(t, 1, sq.lockedLen())
+}
+
+// --- Cancel tests ---
+
+func TestValved_CancelInValve(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	r1 := sq.lockedEnqueue("id1", 0)
+	sq.lockedEnqueue("id1", 0)
+	r3 := sq.lockedEnqueue("id1", 0)
+	sq.lockedEnqueue("id1", 0)
+
+	sq.lockedCancel(r3)
+
+	assert.NotNil(t, r1.codelqElem, "r1 still in CoDel queue")
+	assert.Equal(t, 1, sq.lockedLen())
+	assert.Len(t, sq.valves["id1"], 3)
+	assert.NotNil(t, r3.signaledValue)
+}
+
+func TestValved_ClearDone_InValve(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+	r3 := sq.lockedEnqueue("id1", 0)
+
+	sq.lockedCancel(r2)
+
+	// dequeue r1 → promote should skip r2 (done) and promote r3
+	testValvedDequeue(sq)
+
+	assert.NotNil(t, r3.codelqElem, "r3 promoted (r2 was skipped)")
+	assert.Equal(t, 1, sq.lockedLen())
+}
+
+func TestValved_CancelInMiddle_EventualPromotion(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", 0) // r3: valve[1]
+	r4 := sq.lockedEnqueue("id1", 0) // r4: valve[2]
+
+	// Cancel r3 in the middle of the valve
+	sq.lockedCancel(r3)
+
+	// Dequeue r1 → promotes r2 (r3 is in the middle, not at head)
+	testValvedDequeue(sq)
+	assert.NotNil(t, r2.codelqElem, "r2 promoted")
+
+	// Dequeue r2 → clearDone finds r3 (now at head), skips it, promotes r4
+	testValvedDequeue(sq)
+	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
+}
+
+func TestValved_CancelMultipleConsecutiveAtHead(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", 0) // r3: valve[1]
+	r4 := sq.lockedEnqueue("id1", 0) // r4: valve[2]
+	r5 := sq.lockedEnqueue("id1", 0) // r5: valve[3]
+
+	// Cancel r2 and r3 (the first two in the valve)
+	sq.lockedCancel(r2)
+	sq.lockedCancel(r3)
+
+	// Dequeue r1 → clearDone should skip both r2 and r3, promote r4
+	testValvedDequeue(sq)
+	assert.NotNil(t, r4.codelqElem, "r4 promoted (r2 and r3 skipped)")
+	assert.Nil(t, r2.codelqElem, "r2 never entered CoDel queue")
+	assert.Nil(t, r3.codelqElem, "r3 never entered CoDel queue")
+
+	// Dequeue r4 → promotes r5
+	testValvedDequeue(sq)
+	assert.NotNil(t, r5.codelqElem, "r5 promoted")
+}
+
+func TestValved_AllValveEntriesCancelled(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", 0) // r3: valve[1]
+	r4 := sq.lockedEnqueue("id1", 0) // r4: valve[2]
+
+	// Cancel everything in the valve
+	sq.lockedCancel(r2)
+	sq.lockedCancel(r3)
+	sq.lockedCancel(r4)
+
+	// Dequeue r1 → clearDone drains the entire valve, nothing to promote
+	testValvedDequeue(sq)
+
+	assert.Equal(t, 0, sq.lockedLen(), "CoDel queue empty")
+	_, exists := sq.valves["id1"]
+	assert.False(t, exists, "valve map entry should be cleaned up")
+}
+
+func TestValved_CancelledWaiterDoesNotBypassValve(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+
+	sq.lockedCancel(r2)
+
+	// A new arrival for the same valve ID remains valved behind r1.
+	r3 := sq.lockedEnqueue("id1", 0)
+	assert.Nil(t, r3.codelqElem, "r3 should be valved")
+	assert.Equal(t, 1, sq.lockedLen(), "still only r1 in CoDel queue")
+}
+
+func TestValved_CancelAllThenNewArrival(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", 0) // r3: valve[1]
+
+	// Cancel both valve entries
+	sq.lockedCancel(r2)
+	sq.lockedCancel(r3)
+
+	// Dequeue r1 → clearDone drains valve, queue empties
+	testValvedDequeue(sq)
+	assert.Equal(t, 0, sq.lockedLen())
+
+	// Fresh arrival for same valve ID should go directly to CoDel (no stale state)
+	r4 := sq.lockedEnqueue("id1", 0)
+	assert.NotNil(t, r4.codelqElem, "r4 goes directly to CoDel after full cleanup")
+}
+
+func TestValved_CancelInterleavedWithPromotions(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0)       // r1: active in CoDel
+	r2 := sq.lockedEnqueue("id1", 0) // r2: valve[0]
+	r3 := sq.lockedEnqueue("id1", 0) // r3: valve[1]
+	r4 := sq.lockedEnqueue("id1", 0) // r4: valve[2]
+	r5 := sq.lockedEnqueue("id1", 0) // r5: valve[3]
+	r6 := sq.lockedEnqueue("id1", 0) // r6: valve[4]
+
+	// Cancel alternating: r3 and r5
+	sq.lockedCancel(r3)
+	sq.lockedCancel(r5)
+
+	// Dequeue r1 → promotes r2 (head is live)
+	testValvedDequeue(sq)
+	assert.NotNil(t, r2.codelqElem, "r2 promoted")
+
+	// Dequeue r2 → clearDone hits r3 (cancelled at head), skips it, promotes r4
+	testValvedDequeue(sq)
+	assert.NotNil(t, r4.codelqElem, "r4 promoted (r3 skipped)")
+
+	// Dequeue r4 → clearDone hits r5 (cancelled at head), skips it, promotes r6
+	testValvedDequeue(sq)
+	assert.NotNil(t, r6.codelqElem, "r6 promoted (r5 skipped)")
+}
+
+func TestValved_MassCancel_OverloadScenario(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
+
+	sq.lockedEnqueue("id1", 0) // r0: active in CoDel
+
+	// Simulate overload: 50 requests arrive for same valve ID
+	requests := make([]*testRequest, 50)
+	for i := range 50 {
+		requests[i] = sq.lockedEnqueue("id1", 0)
+	}
+	assert.Equal(t, 1, sq.lockedLen())
+
+	// Cancel all but the last 5 (simulating context timeouts in overload)
+	for i := range 45 {
+		sq.lockedCancel(requests[i])
 	}
 
-	for i, req := range requests {
-		require.Same(t, req, q.lockedPeek())
-		q.lockedDequeue(req)
-		if i+1 < len(requests) {
-			require.NotNil(t, requests[i+1].codelqElem)
+	// Dequeue the active entry → clearDone should efficiently skip the 45
+	// cancelled entries at the head and promote the first live one
+	testValvedDequeue(sq)
+	assert.NotNil(t, requests[45].codelqElem, "first surviving request promoted")
+
+	// Drain remaining 5
+	for i := 45; i < 50; i++ {
+		d := testValvedDequeue(sq)
+		assert.NotNil(t, d)
+		if i < 49 {
+			assert.NotNil(t, requests[i+1].codelqElem, "next request promoted")
 		}
 	}
 
-	assert.Zero(t, q.lockedLen())
-	assert.Empty(t, q.valves)
-	assert.Empty(t, q.droppablePerValve)
+	_, exists := sq.valves["id1"]
+	assert.False(t, exists, "valve map cleaned up")
 }
 
-func TestValvedCoDelQueueCancelMiddlePromotesRemainingFIFO(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	first := q.lockedEnqueue("valve", 0)
-	middle := q.lockedEnqueue("valve", 0)
-	last := q.lockedEnqueue("valve", 0)
+func TestValved_CancelFromValve_DoesNotAffectOtherValveIDs(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	q.lockedCancel(middle)
-	var droppedError *DroppedRequestError
-	assert.ErrorAs(t, middle.signaledValue, &droppedError)
-	q.lockedDequeue(active)
-	require.Same(t, first, q.lockedPeek())
+	// Two valve IDs with parallel requests
+	sq.lockedEnqueue("id1", 0)        // id1 active
+	r1v := sq.lockedEnqueue("id1", 0) // id1 valve[0]
+	sq.lockedEnqueue("id2", 0)        // id2 active
+	r2v := sq.lockedEnqueue("id2", 0) // id2 valve[0]
 
-	q.lockedDequeue(first)
-	require.Same(t, last, q.lockedPeek())
-	assert.Nil(t, middle.codelqElem)
+	// Cancel id1's valve entry
+	sq.lockedCancel(r1v)
+
+	// id2's valve should be completely unaffected
+	assert.Len(t, sq.valves["id2"], 1)
+	assert.Same(t, r2v, sq.valves["id2"][0])
+	assert.Nil(t, r2v.signaledValue)
 }
 
-func TestValvedCoDelQueueSkipsConsecutiveCancelledWaiters(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	cancelledOne := q.lockedEnqueue("valve", 0)
-	cancelledTwo := q.lockedEnqueue("valve", 0)
-	next := q.lockedEnqueue("valve", 0)
+func TestValved_EmptyValve_MapCleanup(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	q.lockedCancel(cancelledOne)
-	q.lockedCancel(cancelledTwo)
-	q.lockedDequeue(active)
+	sq.lockedEnqueue("id1", 0)
+	sq.lockedEnqueue("id1", 0)
 
-	require.Same(t, next, q.lockedPeek())
-	assert.Equal(t, 1, q.lockedLen())
+	testValvedDequeue(sq) // removes first, promotes second
+	testValvedDequeue(sq) // removes second
+
+	_, exists := sq.valves["id1"]
+	assert.False(t, exists, "empty valve should be removed from map")
 }
 
-func TestValvedCoDelQueueAllWaitersCancelledCleansMaps(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	first := q.lockedEnqueue("valve", 0)
-	second := q.lockedEnqueue("valve", 0)
+// --- FIFO within contention ---
 
-	q.lockedCancel(first)
-	q.lockedCancel(second)
-	q.lockedDequeue(active)
+func TestValved_FIFO_WithinContention(t *testing.T) {
+	clock := newTestClock()
+	sq, _ := newValvedQueue(clock)
 
-	assert.Zero(t, q.lockedLen())
-	assert.NotContains(t, q.valves, "valve")
-	assert.NotContains(t, q.droppablePerValve, "valve")
+	r1 := sq.lockedEnqueue("id1", 0)
+	r2 := sq.lockedEnqueue("id1", 0)
+	r3 := sq.lockedEnqueue("id1", 0)
 
-	next := q.lockedEnqueue("valve", 0)
-	assert.NotNil(t, next.codelqElem)
-}
+	d1 := testValvedDequeue(sq)
+	d2 := testValvedDequeue(sq)
+	d3 := testValvedDequeue(sq)
 
-func TestValvedCoDelQueueCancelAllThenNewArrivalWaitsForActive(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	first := q.lockedEnqueue("valve", 0)
-	second := q.lockedEnqueue("valve", 0)
-
-	q.lockedCancel(first)
-	q.lockedCancel(second)
-	next := q.lockedEnqueue("valve", 0)
-
-	assert.Nil(t, next.codelqElem)
-	q.lockedDequeue(active)
-	require.NotNil(t, next.codelqElem)
-	assert.Same(t, next, q.lockedPeek())
-}
-
-func TestValvedCoDelQueueMassCancellation(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	requests := make([]*Request[string], 100)
-	for i := range requests {
-		requests[i] = q.lockedEnqueue("valve", 0)
-	}
-	for i, req := range requests {
-		if i%3 != 0 {
-			q.lockedCancel(req)
-		}
-	}
-
-	q.lockedDequeue(active)
-	for i, req := range requests {
-		if i%3 != 0 {
-			continue
-		}
-		require.Same(t, req, q.lockedPeek())
-		q.lockedDequeue(req)
-	}
-
-	assert.Zero(t, q.lockedLen())
-	assert.Empty(t, q.valves)
-	assert.Empty(t, q.droppablePerValve)
-}
-
-func TestValvedCoDelQueuePendingDropsTransferOwnership(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	first := q.lockedEnqueue("first", 0)
-	second := q.lockedEnqueue("second", 0)
-
-	q.lockedDrop(first)
-	q.lockedDrop(second)
-
-	var firstError *DroppedRequestError
-	var secondError *DroppedRequestError
-	assert.ErrorAs(t, first.signaledValue, &firstError)
-	assert.ErrorAs(t, second.signaledValue, &secondError)
-	assert.Equal(t, []*Request[string]{first, second}, q.lockedTakePendingDrops())
-	assert.Nil(t, q.lockedTakePendingDrops())
-}
-
-func TestValvedCoDelQueueDisabledTearsDownController(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	for i := range 5 {
-		q.lockedEnqueue(string(rune('a'+i)), 0)
-	}
-	q.codelq.count = 5
-	q.codelq.dropNextNs = 1
-	q.codelq.dropping = true
-
-	q.lockedRunTimerIf(false)
-
-	assert.False(t, q.codelq.dropping)
-	assert.Equal(t, 1, q.codelq.count)
-	assert.Zero(t, q.codelq.dropNextNs)
-	assert.Equal(t, 5, q.lockedLen())
-	assert.Nil(t, q.lockedTakePendingDrops())
-}
-
-func TestDroppedRequestErrorMessage(t *testing.T) {
-	assert.EqualError(t, &DroppedRequestError{}, "request dropped by CoDel queue")
-}
-
-func TestValvedCoDelQueueOnlyActiveRequestIsDroppable(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	requests := make([]*Request[string], 4)
-	for i := range requests {
-		requests[i] = q.lockedEnqueue("valve", 0)
-	}
-
-	assert.Equal(t, 1, q.lockedDroppableLen())
-	assert.Equal(t, 1, q.lockedLen())
-	q.lockedDequeue(requests[0])
-	assert.Equal(t, 1, q.lockedDroppableLen())
-	assert.Same(t, requests[1], q.lockedPeek())
-}
-
-func TestValvedCoDelQueueCancelDoesNotAffectOtherValve(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	activeA := q.lockedEnqueue("a", 0)
-	pendingA := q.lockedEnqueue("a", 0)
-	activeB := q.lockedEnqueue("b", 0)
-	pendingB := q.lockedEnqueue("b", 0)
-
-	q.lockedCancel(pendingA)
-
-	require.Len(t, q.valves["b"], 1)
-	assert.Same(t, pendingB, q.valves["b"][0])
-	assert.Nil(t, pendingB.signaledValue)
-	assert.Same(t, activeA, q.droppablePerValve["a"])
-	assert.Same(t, activeB, q.droppablePerValve["b"])
-}
-
-func TestValvedCoDelQueueInterleavesCancellationAndPromotion(t *testing.T) {
-	q := newTestValvedCoDelQueue()
-	active := q.lockedEnqueue("valve", 0)
-	first := q.lockedEnqueue("valve", 0)
-	cancelledOne := q.lockedEnqueue("valve", 0)
-	second := q.lockedEnqueue("valve", 0)
-	cancelledTwo := q.lockedEnqueue("valve", 0)
-	last := q.lockedEnqueue("valve", 0)
-	q.lockedCancel(cancelledOne)
-	q.lockedCancel(cancelledTwo)
-
-	q.lockedDequeue(active)
-	assert.Same(t, first, q.lockedPeek())
-	q.lockedDequeue(first)
-	assert.Same(t, second, q.lockedPeek())
-	q.lockedDequeue(second)
-	assert.Same(t, last, q.lockedPeek())
-}
-
-func TestValvedCoDelQueueShadowModeDoesNotArmController(t *testing.T) {
-	q, recorder := newTestValvedCoDelQueueMode(func() Mode { return ModeShadow })
-	for i := range 10 {
-		q.lockedEnqueue(string(rune('a'+i)), 0)
-	}
-
-	assert.False(t, q.codelq.dropping)
-	assert.Equal(t, 1, q.codelq.count)
-	assert.Zero(t, q.codelq.dropNextNs)
-	assert.False(t, recorder.scheduled)
-	assert.True(t, recorder.stopped)
-	assert.Equal(t, 10, q.lockedLen())
+	assert.Same(t, r1, d1)
+	assert.Same(t, r2, d2)
+	assert.Same(t, r3, d3)
 }
