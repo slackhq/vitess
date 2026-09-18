@@ -59,7 +59,7 @@ func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
 
 func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
 	elem := &list.Element[waiter[*TestConn]]{Value: value}
-	wl.queues.snake.Enqueue(elem, loadshed.PriorityUndroppable)
+	wl.queues.snake.EnqueueExisting(elem)
 	return elem
 }
 

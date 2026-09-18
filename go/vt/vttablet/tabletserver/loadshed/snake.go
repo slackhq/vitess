@@ -16,11 +16,7 @@ limitations under the License.
 
 package loadshed
 
-import (
-	"math"
-
-	"vitess.io/vitess/go/list"
-)
+import "vitess.io/vitess/go/list"
 
 type (
 	Mode string
@@ -55,23 +51,21 @@ const (
 	ModeEnabled Mode = "enabled"
 )
 
-var PriorityUndroppable = math.Inf(-1)
-
 func NewSnake[T any](_ SnakeConfig) *Snake[T] {
 	s := &Snake[T]{}
 	s.queue.Init()
 	return s
 }
 
-func (s *Snake[T]) Enqueue(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+func (s *Snake[T]) Enqueue(value T) (*Request[T], []T) {
+	return s.enqueue(value)
 }
 
-func (s *Snake[T]) EnqueueExisting(value T, priority float64) (*Request[T], []T) {
-	return s.enqueue(value, priority)
+func (s *Snake[T]) EnqueueExisting(value T) (*Request[T], []T) {
+	return s.enqueue(value)
 }
 
-func (s *Snake[T]) enqueue(value T, _ float64) (*Request[T], []T) {
+func (s *Snake[T]) enqueue(value T) (*Request[T], []T) {
 	req := &Request[T]{value: value}
 	req.elem = s.queue.PushBack(req)
 	return req, nil

@@ -28,13 +28,13 @@ func TestSnakeQueue(t *testing.T) {
 		Mode: func() Mode { return ModeEnabled },
 	})
 
-	first, dropped := snake.Enqueue(1, 100)
+	first, dropped := snake.Enqueue(1)
 	require.NotNil(t, first)
 	assert.Empty(t, dropped)
-	second, dropped := snake.Enqueue(2, 50)
+	second, dropped := snake.Enqueue(2)
 	require.NotNil(t, second)
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue(3, 0)
+	_, dropped = snake.Enqueue(3)
 	assert.Empty(t, dropped)
 	assert.Equal(t, 3, snake.Len())
 
@@ -62,11 +62,11 @@ func TestSnakeQueue(t *testing.T) {
 
 func TestSnakeCountMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	_, dropped := snake.Enqueue("one", 0)
+	_, dropped := snake.Enqueue("one")
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue("two", 0)
+	_, dropped = snake.Enqueue("two")
 	assert.Empty(t, dropped)
-	_, dropped = snake.Enqueue("three", 0)
+	_, dropped = snake.Enqueue("three")
 	assert.Empty(t, dropped)
 
 	assert.Equal(t, 2, snake.CountMatching(func(value string) bool {
