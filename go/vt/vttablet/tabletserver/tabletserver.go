@@ -1639,6 +1639,7 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Errorf
+	skipQueryString := errCode == vtrpcpb.Code_RESOURCE_EXHAUSTED
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
@@ -1675,6 +1676,10 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 			if logMethod != nil {
 				message = fmt.Sprintf("%s (errno %d) (sqlstate %s)%s: %s", sqlErr.Message, errnum, sqlState, callerID, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
 			}
+		}
+	} else if skipQueryString {
+		if logMethod != nil {
+			message = fmt.Sprintf("%v%s", err, callerID)
 		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
