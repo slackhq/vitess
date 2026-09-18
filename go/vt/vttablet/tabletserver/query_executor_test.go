@@ -1784,6 +1784,24 @@ func TestGetConnectionLogStats(t *testing.T) {
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 }
 
+func TestQueryExecutorRecordsTimingByErrorCode(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	t.Cleanup(db.Close)
+	ctx := t.Context()
+	tsv := newTestTabletServer(ctx, noFlags, db)
+	t.Cleanup(tsv.StopService)
+	query := "select * from test_table limit 1"
+	db.AddQuery(query, &sqltypes.Result{})
+	qre := newTestQueryExecutor(ctx, tsv, query, 0)
+	key := "TabletServerTest." + vtrpcpb.Code_OK.String()
+	before := tsv.stats.QueryTimingsByErrorCode.Counts()[key]
+
+	_, err := qre.Execute()
+
+	require.NoError(t, err)
+	assert.Equal(t, before+1, tsv.stats.QueryTimingsByErrorCode.Counts()[key])
+}
+
 type executorFlags int64
 
 const (

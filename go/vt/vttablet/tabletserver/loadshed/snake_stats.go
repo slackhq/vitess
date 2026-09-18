@@ -56,12 +56,12 @@ func durationNanos(durations ...time.Duration) []int64 {
 func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", s.ShedCount)
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state", s.DroppingNanos)
-	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative initial-target shadow bursts censored before completion", s.shadowCensored.Load)
+	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative fixed-20x initial-target shadow bursts censored because shadow mode ended before an outcome was known", s.shadowCensored.Load)
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake queue wait before dequeue, in nanoseconds", loadshedBucketCutoffs)
 	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake queue length", lengthBucketCutoffs)
 	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake droppable queue length", lengthBucketCutoffs)
 	s.interval = exporter.NewHistogram(prefix+"IntervalObservedNs", "Distribution of Snake CoDel control intervals", intervalBucketCutoffs)
 	s.dropCount = exporter.NewHistogram(prefix+"DropCountObserved", "Distribution of Snake CoDel drop counts", lengthBucketCutoffs)
 	s.timerLag = exporter.NewHistogram(prefix+"DropTimerLagNs", "Distribution of Snake CoDel timer lag", loadshedBucketCutoffs)
-	s.shadowRequiredTarget = exporter.NewHistogram(prefix+"InitialTargetShadow20xMs", "Smallest candidate initial target for a completed shadow burst", initialTargetShadowMetricCutoffsMs)
+	s.shadowRequiredTarget = exporter.NewHistogram(prefix+"InitialTargetShadow20xMs", "Smallest candidate initial target that hit during a completed no-drop shadow burst using fixed target*20 intervals, in milliseconds; +Inf means every candidate missed", initialTargetShadowMetricCutoffsMs)
 }
