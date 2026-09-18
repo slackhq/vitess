@@ -16,7 +16,11 @@ limitations under the License.
 
 package loadshed
 
-import "vitess.io/vitess/go/list"
+import (
+	"math"
+
+	"vitess.io/vitess/go/list"
+)
 
 type (
 	Mode string
@@ -51,13 +55,23 @@ const (
 	ModeEnabled Mode = "enabled"
 )
 
+var PriorityUndroppable = math.Inf(-1)
+
 func NewSnake[T any](_ SnakeConfig) *Snake[T] {
 	s := &Snake[T]{}
 	s.queue.Init()
 	return s
 }
 
-func (s *Snake[T]) Enqueue(value T, _ string, _ float64) (*Request[T], []T) {
+func (s *Snake[T]) Enqueue(value T, valveID string, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, valveID, priority)
+}
+
+func (s *Snake[T]) EnqueueExisting(value T, valveID string, priority float64) (*Request[T], []T) {
+	return s.enqueue(value, valveID, priority)
+}
+
+func (s *Snake[T]) enqueue(value T, _ string, _ float64) (*Request[T], []T) {
 	req := &Request[T]{value: value}
 	req.elem = s.queue.PushBack(req)
 	return req, nil
@@ -104,6 +118,17 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
+func (s *Snake[T]) Drain() []T {
+	values := make([]T, 0, s.Len())
+	for {
+		value, ok, _ := s.Dequeue()
+		if !ok {
+			return values
+		}
+		values = append(values, value)
+	}
+}
+
 func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	if req.elem == nil {
 		return false, nil
@@ -114,4 +139,14 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	var zero T
 	req.value = zero
 	return true, nil
+}
+
+func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+	for elem := s.queue.Front(); elem != nil; elem = elem.Next() {
+		req := elem.Value
+		if match(req.value) {
+			return s.Cancel(req)
+		}
+	}
+	return false, nil
 }

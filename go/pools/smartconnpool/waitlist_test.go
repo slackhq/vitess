@@ -24,7 +24,44 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
+
+type testPoolConfig struct{}
+
+func (testPoolConfig) LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
+	return func() loadshed.Mode { return loadshed.ModeEnabled },
+		func() time.Duration { return time.Second },
+		func() time.Duration { return time.Second }
+}
+
+type mutableTestPoolConfig struct {
+	mode atomic.Value
+}
+
+func newMutableTestPoolConfig(mode loadshed.Mode) *mutableTestPoolConfig {
+	config := &mutableTestPoolConfig{}
+	config.mode.Store(mode)
+	return config
+}
+
+func (c *mutableTestPoolConfig) LoadshedConfig(string) (func() loadshed.Mode, func() time.Duration, func() time.Duration) {
+	return func() loadshed.Mode { return c.mode.Load().(loadshed.Mode) },
+		func() time.Duration { return time.Second },
+		func() time.Duration { return time.Second }
+}
+
+func (c *mutableTestPoolConfig) setMode(mode loadshed.Mode) {
+	c.mode.Store(mode)
+}
+
+func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.Element[waiter[*TestConn]] {
+	elem := &list.Element[waiter[*TestConn]]{Value: value}
+	wl.queues.snake.Enqueue(elem, "", loadshed.PriorityUndroppable)
+	return elem
+}
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
@@ -41,7 +78,6 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	for i := 0; i < waiterCount; i++ {
 		go func() {
 			_, err := wait.waitForConn(ctx, nil, poolClose, 0, false)
-
 			if err != nil {
 				expireCount.Add(1)
 			}
@@ -67,6 +103,27 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	}
 
 	assert.Equal(t, int32(waiterCount), expireCount.Load())
+}
+
+func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	poolClose := make(chan struct{})
+	errs := make(chan error, 1)
+	go func() {
+		_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
+		errs <- err
+	}()
+
+	require.Eventually(t, func() bool {
+		return wl.waiting() == 1
+	}, 30*time.Second, time.Millisecond)
+	assert.Equal(t, 1, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
+
+	close(poolClose)
+	assert.ErrorIs(t, <-errs, ErrConnPoolClosed)
 }
 
 func TestWaitlistWaiterCap(t *testing.T) {
@@ -100,44 +157,147 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	}
 }
 
-func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
+func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("", nil)
 
-	foo := &waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped := wl.snake.Enqueue(foo, "", 0)
-	require.Empty(t, dropped)
-	bar := &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(bar, "", 0)
-	require.Empty(t, dropped)
+	foo := &list.Element[waiter[*TestConn]]{
+		Value: waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)},
+	}
+	wl.queues.list.PushBackValue(foo)
+	bar := &list.Element[waiter[*TestConn]]{
+		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
+	}
+	wl.queues.list.PushBackValue(bar)
 	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
 
 	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-bar.conn)
-	assert.Equal(t, uint32(1), foo.age)
+	assert.Same(t, conn, <-bar.Value.conn)
+	assert.Equal(t, uint32(1), foo.Value.age)
 	assert.Zero(t, wl.maybeStarvingCount())
 
-	foo.age = 9
-	bar = &waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(bar, "", 0)
-	require.Empty(t, dropped)
+	foo.Value.age = 9
+	bar = &list.Element[waiter[*TestConn]]{
+		Value: waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)},
+	}
+	wl.queues.list.PushBackValue(bar)
 
 	require.True(t, wl.tryReturnConn(conn))
-	assert.Same(t, conn, <-foo.conn)
+	assert.Same(t, conn, <-foo.Value.conn)
+}
+
+func TestWaitlistSnakePreservesSettingAffinityAndAging(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{})
+
+	foo := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sFoo, conn: make(chan *Pooled[*TestConn], 1)})
+	bar := enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
+	conn := &Pooled[*TestConn]{Conn: &TestConn{setting: sBar}}
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-bar.Value.conn)
+	assert.Equal(t, uint32(1), foo.Value.age)
+	assert.Zero(t, wl.maybeStarvingCount())
+
+	foo.Value.age = 9
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{setting: sBar, conn: make(chan *Pooled[*TestConn], 1)})
+
+	require.True(t, wl.tryReturnConn(conn))
+	assert.Same(t, conn, <-foo.Value.conn)
 }
 
 func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
 	wl := waitlist[*TestConn]{}
-	wl.init("", nil)
+	wl.init("ConnPool", testPoolConfig{})
 
-	aged := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1}
-	_, dropped := wl.snake.Enqueue(aged, "", 0)
-	require.Empty(t, dropped)
-	newWaiter := &waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)}
-	_, dropped = wl.snake.Enqueue(newWaiter, "", 0)
-	require.Empty(t, dropped)
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1), age: 1})
+	enqueueSnakeWaiter(&wl, waiter[*TestConn]{conn: make(chan *Pooled[*TestConn], 1)})
 
 	assert.Equal(t, 1, wl.maybeStarvingCount())
+}
+
+func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
+	config := newMutableTestPoolConfig(loadshed.ModeOff)
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", config)
+
+	poolClose := make(chan struct{})
+	errs := make(chan error, 3)
+	for range 3 {
+		go func() {
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
+			errs <- err
+		}()
+	}
+
+	require.Eventually(t, func() bool {
+		return wl.waiting() == 3
+	}, 30*time.Second, time.Millisecond)
+	assert.Equal(t, 3, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
+
+	config.setMode(loadshed.ModeShadow)
+	assert.Equal(t, 3, wl.maybeStarvingCount())
+	assert.Zero(t, wl.queues.list.Len())
+	assert.Equal(t, 3, wl.queues.snake.Len())
+
+	config.setMode(loadshed.ModeOff)
+	assert.Equal(t, 3, wl.maybeStarvingCount())
+	assert.Equal(t, 3, wl.queues.list.Len())
+	assert.Zero(t, wl.queues.snake.Len())
+
+	close(poolClose)
+	for range 3 {
+		assert.ErrorIs(t, <-errs, ErrConnPoolClosed)
+	}
+}
+
+func TestWaitlistTransitionDoesNotHideWaitersFromConnectionHandoff(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", nil)
+
+	assert.False(t, wl.shouldTryReturnConn())
+	wl.queues.transitioning.Store(true)
+	assert.True(t, wl.shouldTryReturnConn())
+	wl.queues.transitioning.Store(false)
+	assert.False(t, wl.shouldTryReturnConn())
+}
+
+func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
+	tests := []struct {
+		name string
+		from loadshed.Mode
+		to   loadshed.Mode
+	}{
+		{name: "legacy to snake", from: loadshed.ModeOff, to: loadshed.ModeShadow},
+		{name: "snake to legacy", from: loadshed.ModeShadow, to: loadshed.ModeOff},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := newMutableTestPoolConfig(tt.from)
+			wl := waitlist[*TestConn]{}
+			wl.init("ConnPool", config)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			errs := make(chan error, 1)
+			go func() {
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
+				errs <- err
+			}()
+
+			require.Eventually(t, func() bool {
+				return wl.waiting() == 1
+			}, 30*time.Second, time.Millisecond)
+
+			config.setMode(tt.to)
+			cancel()
+			assert.ErrorIs(t, <-errs, context.Canceled)
+			assert.Zero(t, wl.waiting())
+			assert.Zero(t, wl.queues.list.Len())
+			assert.Zero(t, wl.queues.snake.Len())
+		})
+	}
 }
 
 func TestWaitlistWaiterCapDryRun(t *testing.T) {
