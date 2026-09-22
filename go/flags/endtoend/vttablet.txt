@@ -220,6 +220,7 @@ Flags:
       --keep_logs duration                                               keep logs for this long (using ctime) (zero to keep forever)
       --keep_logs_by_mtime duration                                      keep logs for this long (using mtime) (zero to keep forever)
       --lameduck-period duration                                         keep running at least this long after SIGTERM before stopping (default 50ms)
+      --loadshed-oltp-read-default-priority int                          Default priority assigned to OLTP reads that lack priority information. (default 100)
       --loadshed-oltp-read-initial-target duration                       Initial CoDel target delay for the oltp-read load shedder. 0 uses its normal target.
       --loadshed-oltp-read-interval-ratio float                          CoDel observation interval for the oltp-read load shedder, as a multiple of its target. (default 20)
       --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, or enabled. (default off)
