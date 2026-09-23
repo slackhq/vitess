@@ -85,7 +85,7 @@ func newStatsTestSnake() (*Snake[string], *testClock, *fakeExporter) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	snake := NewSnake[string](cfg)
 	snake.clockFunc = clock.nowFunc
-	snake.q.nowNs = clock.nowFunc
+	snake.q.codelq.nowNs = clock.nowFunc
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 	return snake, clock, exporter
@@ -182,21 +182,21 @@ func TestDroppingNanosIntegratesExactly(t *testing.T) {
 	snake, clock, _ := newStatsTestSnake()
 
 	clock.now = 100
-	snake.q.dropping = true
+	snake.q.codelq.dropping = true
 	snake.lockedObserveDropping()
 	clock.now = 250
 	assert.Equal(t, int64(150), snake.DroppingNanos())
 
 	clock.now = 400
-	snake.q.dropping = false
+	snake.q.codelq.dropping = false
 	snake.lockedObserveDropping()
 	assert.Equal(t, int64(300), snake.DroppingNanos())
 
 	clock.now = 1000
-	snake.q.dropping = true
+	snake.q.codelq.dropping = true
 	snake.lockedObserveDropping()
 	clock.now = 1100
-	snake.q.dropping = false
+	snake.q.codelq.dropping = false
 	snake.lockedObserveDropping()
 	assert.Equal(t, int64(400), snake.DroppingNanos())
 }
