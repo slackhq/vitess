@@ -18,6 +18,8 @@ package smartconnpool
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,9 +31,15 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-type testPoolConfig struct{}
+type testPoolConfig struct {
+	minDropDelay time.Duration
+}
 
-func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+func (c testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	minDropDelay := c.minDropDelay
+	if minDropDelay == 0 {
+		minDropDelay = time.Millisecond
+	}
 	return loadshed.SnakeConfig{
 		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
 		CoDel: loadshed.CoDelConfig{
@@ -40,7 +48,7 @@ func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
 			TargetNs:          func() int64 { return time.Millisecond.Nanoseconds() },
 			InitialTargetNs:   func() int64 { return time.Millisecond.Nanoseconds() },
 			Exponent:          func() float64 { return 1 },
-			MinDropDelayNs:    func() int64 { return time.Millisecond.Nanoseconds() },
+			MinDropDelayNs:    func() int64 { return minDropDelay.Nanoseconds() },
 		},
 	}
 }
@@ -244,6 +252,44 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 		require.ErrorIs(t, err, ErrPoolLoadShed)
 	case <-time.After(30 * time.Second):
 		require.Fail(t, "timed out waiting for Snake to shed a waiter")
+	}
+}
+
+func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
+	for range 50 {
+		wl := waitlist[*TestConn]{}
+		wl.init("ConnPool", testPoolConfig{minDropDelay: time.Second})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		errs := make(chan error, 8)
+		for range 8 {
+			go func() {
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
+				errs <- err
+			}()
+		}
+		require.Eventually(t, func() bool {
+			return wl.waiting() == 8
+		}, time.Second, time.Millisecond)
+
+		time.Sleep(2 * time.Millisecond)
+		var race sync.WaitGroup
+		race.Add(2)
+		go func() {
+			defer race.Done()
+			cancel()
+		}()
+		go func() {
+			defer race.Done()
+			wl.runDropTimer()
+		}()
+		race.Wait()
+
+		for range 8 {
+			err := <-errs
+			assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, ErrPoolLoadShed), "unexpected error: %v", err)
+		}
+		assert.Zero(t, wl.waiting())
 	}
 }
 
