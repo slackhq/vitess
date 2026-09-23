@@ -262,6 +262,46 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 	}
 }
 
+func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
+	type result struct {
+		priority float64
+		err      error
+	}
+
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{minDropDelay: time.Second})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	results := make(chan result, 7)
+	for _, priority := range []float64{0, 20, 40, 60, 80, 100, loadshed.PriorityUndroppable} {
+		go func() {
+			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, priority, false)
+			results <- result{priority: priority, err: err}
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return wl.waiting() == 7
+	}, time.Second, time.Millisecond)
+
+	time.Sleep(2 * time.Millisecond)
+	wl.runDropTimer()
+
+	dropped := make([]float64, 0, 2)
+	for range 2 {
+		result := <-results
+		require.ErrorIs(t, result.err, ErrPoolLoadShed)
+		dropped = append(dropped, result.priority)
+	}
+	assert.ElementsMatch(t, []float64{80, 100}, dropped)
+
+	cancel()
+	for range 5 {
+		result := <-results
+		assert.ErrorIs(t, result.err, context.Canceled)
+	}
+	assert.Zero(t, wl.waiting())
+}
+
 func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
 	for range 50 {
 		wl := waitlist[*TestConn]{}
