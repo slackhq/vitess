@@ -57,8 +57,8 @@ type (
 		// (the caller's original query priority: "0" most important .. "100" least,
 		// "overflow"), so operators can see whether the queue is correctly shedding
 		// low-priority traffic first rather than eating high-priority requests. Nil
-		// until PublishStats registers it (tests and the benchmark build a Snake
-		// without it); the shed path nil-checks. Its sum equals shedCount.
+		// until PublishStats registers it (tests build a Snake without it); the shed
+		// path nil-checks. Its sum equals shedCount.
 		shedByPriority *stats.CountersWithMultiLabels
 		// acquireByPriority counts every enqueue, labeled by the same caller
 		// priority as shedByPriority, so shed rate per priority class can be
