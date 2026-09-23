@@ -341,6 +341,56 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 	}
 }
 
+func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
+	type waitResult struct {
+		conn *Pooled[*TestConn]
+		err  error
+	}
+
+	for range 1000 {
+		wl := waitlist[*TestConn]{}
+		wl.init("ConnPool", newMutableTestPoolConfig(loadshed.ModeShadow))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		result := make(chan waitResult, 1)
+		go func() {
+			conn, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
+			result <- waitResult{conn: conn, err: err}
+		}()
+
+		require.Eventually(t, func() bool {
+			return wl.waiting() == 1
+		}, time.Second, time.Millisecond)
+
+		conn := &Pooled[*TestConn]{Conn: &TestConn{}}
+		start := make(chan struct{})
+		handoff := make(chan bool, 1)
+		cancelled := make(chan struct{})
+		go func() {
+			<-start
+			handoff <- wl.tryReturnConn(conn)
+		}()
+		go func() {
+			<-start
+			cancel()
+			close(cancelled)
+		}()
+		close(start)
+
+		<-cancelled
+		handedOff := <-handoff
+		got := <-result
+		if handedOff {
+			assert.Same(t, conn, got.conn)
+			assert.NoError(t, got.err)
+		} else {
+			assert.Nil(t, got.conn)
+			assert.ErrorIs(t, got.err, context.Canceled)
+		}
+		assert.Zero(t, wl.waiting())
+	}
+}
+
 func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("", nil)

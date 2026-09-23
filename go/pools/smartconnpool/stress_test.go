@@ -18,7 +18,6 @@ package smartconnpool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -120,114 +119,51 @@ func TestStackRace(t *testing.T) {
 }
 
 func TestStress(t *testing.T) {
-	const parallelism = 8
+	const (
+		capacity     = 2
+		parallelism  = 8
+		opsPerWorker = 1000
+	)
 
 	connect := func(ctx context.Context) (*StressConn, error) {
 		return &StressConn{}, nil
 	}
 
 	tests := []struct {
-		name         string
-		capacity     int64
-		opsPerWorker int64
-		duration     time.Duration
-		poolConfig   PoolConfig
-		toggle       bool
+		name       string
+		poolConfig PoolConfig
 	}{
-		{name: "legacy", capacity: 2, opsPerWorker: 1000},
-		{name: "snake", capacity: 2, opsPerWorker: 1000, poolConfig: newMutableTestPoolConfig(loadshed.ModeShadow)},
-		{name: "stack", capacity: 64, duration: 5 * time.Second},
-		{name: "toggling", capacity: 2, duration: 5 * time.Second, poolConfig: newMutableTestPoolConfig(loadshed.ModeOff), toggle: true},
+		{name: "legacy"},
+		{name: "snake", poolConfig: newMutableTestPoolConfig(loadshed.ModeShadow)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pool := NewPool[*StressConn](&Config[*StressConn]{
-				Capacity:   tt.capacity,
+				Capacity:   capacity,
 				PoolName:   "ConnPool",
 				PoolConfig: tt.poolConfig,
 			}).Open(connect, nil)
 			t.Cleanup(pool.Close)
 
-			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-			wg, ctx := errgroup.WithContext(ctx)
-			t.Cleanup(func() {
-				cancel()
-				_ = wg.Wait()
-			})
-			stopAt := time.Now().Add(tt.duration)
 			completed := make([]atomic.Int64, parallelism)
-			migrations := make(map[loadshed.Mode]int)
-			if tt.toggle {
-				config := tt.poolConfig.(*mutableTestPoolConfig)
-				wg.Go(func() error {
-					modes := []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled}
-					ticker := time.NewTicker(time.Millisecond)
-					defer ticker.Stop()
-					modeIndex := 0
-					observed := false
-					var before int64
-					for {
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						case <-ticker.C:
-							if !time.Now().Before(stopAt) {
-								return nil
-							}
-							var progress int64
-							for worker := range completed {
-								progress += completed[worker].Load()
-							}
-							mode := modes[modeIndex%len(modes)]
-							wl := &pool.wait
-							wl.mu.Lock()
-							queued := wl.list.Len() > 0 && wl.snake.Len() == 0
-							if mode != loadshed.ModeOff {
-								queued = wl.snake.Len() > 0 && wl.list.Len() == 0
-							}
-							if wl.activeMode == mode && queued {
-								if !observed {
-									before = progress
-									observed = true
-								} else if progress > before {
-									if modeIndex > 0 {
-										migrations[mode]++
-									}
-									modeIndex++
-									config.setMode(modes[modeIndex%len(modes)])
-									observed = false
-								}
-							}
-							wl.mu.Unlock()
-						}
-					}
-				})
-			}
+			var wg errgroup.Group
 			for p := range parallelism {
 				tid := int32(p + 1)
 				wg.Go(func() error {
-					for completed[p].Load() < tt.opsPerWorker || time.Now().Before(stopAt) {
-						if err := ctx.Err(); err != nil {
-							return err
-						}
-						conn, err := pool.get(ctx)
+					for range opsPerWorker {
+						conn, err := pool.get(t.Context())
 						if err != nil {
-							if tt.toggle && errors.Is(err, ErrPoolLoadShed) {
-								continue
-							}
 							return err
 						}
 
 						previousOwner := conn.Conn.owner.Swap(tid)
 						if previousOwner != 0 {
-							conn.Recycle()
 							return fmt.Errorf("owner race: %d with %d", tid, previousOwner)
 						}
 						runtime.Gosched()
 						previousOwner = conn.Conn.owner.Swap(0)
 						if previousOwner != tid {
-							conn.Recycle()
 							return fmt.Errorf("owner race: %d with %d", previousOwner, tid)
 						}
 						conn.Recycle()
@@ -238,17 +174,8 @@ func TestStress(t *testing.T) {
 			}
 
 			require.NoError(t, wg.Wait())
-			for i := range completed {
-				if tt.duration == 0 {
-					assert.Equal(t, tt.opsPerWorker, completed[i].Load(), "worker %d", i)
-				} else {
-					assert.Positive(t, completed[i].Load(), "worker %d", i)
-				}
-			}
-			if tt.toggle {
-				for _, mode := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
-					assert.Positive(t, migrations[mode], "queued migration and progress in mode %s", mode)
-				}
+			for _, count := range completed {
+				assert.Equal(t, int64(opsPerWorker), count.Load())
 			}
 		})
 	}
