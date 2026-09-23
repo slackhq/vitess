@@ -174,8 +174,8 @@ func TestStress(t *testing.T) {
 			}
 
 			require.NoError(t, wg.Wait())
-			for _, count := range completed {
-				assert.Equal(t, int64(opsPerWorker), count.Load())
+			for i := range completed {
+				assert.Equal(t, int64(opsPerWorker), completed[i].Load())
 			}
 		})
 	}
