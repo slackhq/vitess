@@ -50,9 +50,9 @@ type (
 	// supports an arbitrary notion of "valve ID", typically a request ID or
 	// job execution instance ID.
 	//
-	// Invariant: each nonempty valve always has exactly one droppable entry
-	// in the CoDel queue. The droppable entry is always present so CoDel can
-	// measure sojourn time and shed load when necessary.
+	// Invariant: each nonempty valve always has exactly one representative
+	// in the CoDel queue. The representative is always present so CoDel can
+	// measure sojourn time and shed it when eligible.
 	//
 	// This approach has a few benefits:
 	//   1. Pushes successive requests back to the end of the queue, which is
@@ -88,11 +88,10 @@ type (
 		// be entries with the same valve ID in the CoDel queue.
 		valves map[string][]*Request[T]
 
-		// droppablePerValve tracks which request is the current droppable
-		// representative in the CoDel queue for each valve ID. Maintains the
-		// invariant that each nonempty valve always has exactly one droppable
-		// entry in the CoDel queue.
-		droppablePerValve map[string]*Request[T]
+		// representativePerValve tracks the current representative in the CoDel
+		// queue for each valve ID. Maintains the invariant that each nonempty
+		// valve always has exactly one representative in the CoDel queue.
+		representativePerValve map[string]*Request[T]
 
 		// pendingDrops collects requests removed by the drop path. The caller
 		// takes this slice before unlocking and signals each waiter afterward.
@@ -107,9 +106,9 @@ type (
 
 func newValvedCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func(), mode func() Mode) *ValvedCoDelQueue[T] {
 	q := &ValvedCoDelQueue[T]{
-		valves:            make(map[string][]*Request[T]),
-		droppablePerValve: make(map[string]*Request[T]),
-		mode:              mode,
+		valves:                 make(map[string][]*Request[T]),
+		representativePerValve: make(map[string]*Request[T]),
+		mode:                   mode,
 	}
 	q.codelq = newCoDelQueue[T](cfg, nowNs, scheduleDropTimer, stopDropTimer)
 	return q
@@ -150,7 +149,7 @@ func (q *ValvedCoDelQueue[T]) lockedEnqueue(valveID string, priority float64) *R
 	req.valveID = valveID
 
 	if valveID != "" {
-		if q.droppablePerValve[valveID] != nil {
+		if q.representativePerValve[valveID] != nil {
 			q.valves[valveID] = append(q.valves[valveID], req)
 			return req
 		}
@@ -245,7 +244,7 @@ func (q *ValvedCoDelQueue[T]) lockedDropOne() bool {
 func (q *ValvedCoDelQueue[T]) lockedDequeue(r *Request[T]) {
 	q.codelq.lockedDequeue(r)
 	if r.valveID != "" {
-		delete(q.droppablePerValve, r.valveID)
+		delete(q.representativePerValve, r.valveID)
 		q.lockedPromote(r.valveID)
 	}
 }
@@ -262,7 +261,7 @@ func (q *ValvedCoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
 
 func (q *ValvedCoDelQueue[T]) lockedEnqueueToCoDel(req *Request[T], valveID string) {
 	if valveID != "" {
-		q.droppablePerValve[valveID] = req
+		q.representativePerValve[valveID] = req
 	}
 	enabled := q.mode == nil || q.mode() == ModeEnabled
 	q.codelq.lockedEnqueueIf(req, enabled)
@@ -274,7 +273,7 @@ func (q *ValvedCoDelQueue[T]) lockedPromoteOnEvict(req *Request[T]) {
 	if valveID == "" {
 		return
 	}
-	delete(q.droppablePerValve, valveID)
+	delete(q.representativePerValve, valveID)
 	q.lockedPromote(valveID)
 }
 

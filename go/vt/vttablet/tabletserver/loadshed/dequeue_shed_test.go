@@ -87,7 +87,7 @@ func TestValved_DropReturnsPendingRequests(t *testing.T) {
 	sq.codelq.cfg.IntervalNs = func() int64 { return 10_000_000 }
 
 	// A backlog of distinct-valve droppable requests (distinct valves so each is
-	// its own droppable representative and all are eligible to shed).
+	// its own representative and all are eligible to shed).
 	const backlog = 5
 	for i := range backlog {
 		sq.lockedEnqueue(string(rune('a'+i)), 0)
