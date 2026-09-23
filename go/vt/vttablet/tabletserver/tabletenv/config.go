@@ -230,6 +230,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead.LoadshedConfig, defaultConfig.LoadshedOltpRead.LoadshedConfig)
 	fs.StringSliceVar(&currentConfig.LoadshedOltpRead.UndroppableSchemas, "loadshed-oltp-read-undroppable-schemas", defaultConfig.LoadshedOltpRead.UndroppableSchemas, "Schema qualifiers whose OLTP read queries are never shed.")
+	fs.IntVar(&currentConfig.LoadshedOltpReadDefaultPriority, "loadshed-oltp-read-default-priority", defaultConfig.LoadshedOltpReadDefaultPriority, "Default priority assigned to OLTP reads that lack priority information.")
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -414,8 +415,9 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedOltpRead OltpLoadshedConfig `json:"-"`
-	LoadshedTx       LoadshedConfig     `json:"-"`
+	LoadshedOltpRead                OltpLoadshedConfig `json:"-"`
+	LoadshedOltpReadDefaultPriority int                `json:"-"`
+	LoadshedTx                      LoadshedConfig     `json:"-"`
 }
 
 type (
@@ -1171,6 +1173,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTxThrottlerConfig(); err != nil {
 		return err
 	}
+	if v := c.LoadshedOltpReadDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-oltp-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
 	}
@@ -1396,7 +1401,8 @@ var defaultConfig = TabletConfig{
 		schemasMu:          &sync.RWMutex{},
 		UndroppableSchemas: []string{"performance_schema", "information_schema", "sys", "mysql"},
 	},
-	LoadshedTx: defaultLoadshedConfig(),
+	LoadshedOltpReadDefaultPriority: sqlparser.MaxPriorityValue,
+	LoadshedTx:                      defaultLoadshedConfig(),
 }
 
 func defaultLoadshedConfig() LoadshedConfig {

@@ -18,6 +18,8 @@ package smartconnpool
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,9 +31,15 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-type testPoolConfig struct{}
+type testPoolConfig struct {
+	minDropDelay time.Duration
+}
 
-func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+func (c testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	minDropDelay := c.minDropDelay
+	if minDropDelay == 0 {
+		minDropDelay = time.Millisecond
+	}
 	return loadshed.SnakeConfig{
 		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
 		CoDel: loadshed.CoDelConfig{
@@ -40,7 +48,7 @@ func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
 			TargetNs:          func() int64 { return time.Millisecond.Nanoseconds() },
 			InitialTargetNs:   func() int64 { return time.Millisecond.Nanoseconds() },
 			Exponent:          func() float64 { return 1 },
-			MinDropDelayNs:    func() int64 { return time.Millisecond.Nanoseconds() },
+			MinDropDelayNs:    func() int64 { return minDropDelay.Nanoseconds() },
 		},
 	}
 }
@@ -254,6 +262,84 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 	}
 }
 
+func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
+	type result struct {
+		priority float64
+		err      error
+	}
+
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{minDropDelay: time.Second})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	results := make(chan result, 7)
+	for _, priority := range []float64{0, 20, 40, 60, 80, 100, loadshed.PriorityUndroppable} {
+		go func() {
+			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, priority, false)
+			results <- result{priority: priority, err: err}
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return wl.waiting() == 7
+	}, time.Second, time.Millisecond)
+
+	time.Sleep(2 * time.Millisecond)
+	wl.runDropTimer()
+
+	dropped := make([]float64, 0, 2)
+	for range 2 {
+		result := <-results
+		require.ErrorIs(t, result.err, ErrPoolLoadShed)
+		dropped = append(dropped, result.priority)
+	}
+	assert.ElementsMatch(t, []float64{80, 100}, dropped)
+
+	cancel()
+	for range 5 {
+		result := <-results
+		assert.ErrorIs(t, result.err, context.Canceled)
+	}
+	assert.Zero(t, wl.waiting())
+}
+
+func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
+	for range 50 {
+		wl := waitlist[*TestConn]{}
+		wl.init("ConnPool", testPoolConfig{minDropDelay: time.Second})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		errs := make(chan error, 8)
+		for range 8 {
+			go func() {
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, loadshed.PriorityUndroppable, false)
+				errs <- err
+			}()
+		}
+		require.Eventually(t, func() bool {
+			return wl.waiting() == 8
+		}, time.Second, time.Millisecond)
+
+		time.Sleep(2 * time.Millisecond)
+		var race sync.WaitGroup
+		race.Add(2)
+		go func() {
+			defer race.Done()
+			cancel()
+		}()
+		go func() {
+			defer race.Done()
+			wl.runDropTimer()
+		}()
+		race.Wait()
+
+		for range 8 {
+			err := <-errs
+			assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, ErrPoolLoadShed), "unexpected error: %v", err)
+		}
+		assert.Zero(t, wl.waiting())
+	}
+}
+
 func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	config := newMutableTestPoolConfig(loadshed.ModeOff)
 	wl := waitlist[*TestConn]{}
@@ -345,6 +431,56 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 			assert.Zero(t, wl.list.Len())
 			assert.Zero(t, wl.snake.Len())
 		})
+	}
+}
+
+func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
+	type waitResult struct {
+		conn *Pooled[*TestConn]
+		err  error
+	}
+
+	for range 1000 {
+		wl := waitlist[*TestConn]{}
+		wl.init("ConnPool", newMutableTestPoolConfig(loadshed.ModeShadow))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		result := make(chan waitResult, 1)
+		go func() {
+			conn, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, loadshed.PriorityUndroppable, false)
+			result <- waitResult{conn: conn, err: err}
+		}()
+
+		require.Eventually(t, func() bool {
+			return wl.waiting() == 1
+		}, time.Second, time.Millisecond)
+
+		conn := &Pooled[*TestConn]{Conn: &TestConn{}}
+		start := make(chan struct{})
+		handoff := make(chan bool, 1)
+		cancelled := make(chan struct{})
+		go func() {
+			<-start
+			handoff <- wl.tryReturnConn(conn)
+		}()
+		go func() {
+			<-start
+			cancel()
+			close(cancelled)
+		}()
+		close(start)
+
+		<-cancelled
+		handedOff := <-handoff
+		got := <-result
+		if handedOff {
+			assert.Same(t, conn, got.conn)
+			assert.NoError(t, got.err)
+		} else {
+			assert.Nil(t, got.conn)
+			assert.ErrorIs(t, got.err, context.Canceled)
+		}
+		assert.Zero(t, wl.waiting())
 	}
 }
 
