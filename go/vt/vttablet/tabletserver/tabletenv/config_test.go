@@ -32,6 +32,7 @@ import (
 	"vitess.io/vitess/go/vt/mysqlctl"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/throttler"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -350,6 +351,7 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
 	assert.Equal(t, []string{"performance_schema", "information_schema", "sys", "mysql"}, cfg.LoadshedOltpRead.UndroppableSchemasValue())
+	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOltpReadDefaultPriority)
 }
 
 func TestUndroppableSchemasConfig(t *testing.T) {
@@ -439,6 +441,7 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	registerTabletEnvFlags(fs)
 
 	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "shadow"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-default-priority", "17"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-undroppable-schemas", "mysql,sys"))
@@ -446,6 +449,7 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
 	assert.Equal(t, LoadshedModeShadow, currentConfig.LoadshedOltpRead.Mode)
+	assert.Equal(t, 17, currentConfig.LoadshedOltpReadDefaultPriority)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
 	assert.Equal(t, []string{"mysql", "sys"}, currentConfig.LoadshedOltpRead.UndroppableSchemas)
@@ -488,6 +492,12 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, loadshed.ModeShadow, tx.Mode())
 	assert.Equal(t, (20 * time.Millisecond).Nanoseconds(), tx.CoDel.TargetNs())
 	assert.Equal(t, loadshed.ModeShadow, foundRows.Mode())
+}
+
+func TestVerifyLoadshedPriority(t *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue + 1
+	require.Error(t, cfg.Verify())
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {

@@ -60,8 +60,7 @@ func durationNanos(ds ...time.Duration) []int64 {
 // PublishStats registers Snake's counters and distribution histograms, each
 // name prefixed with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once
 // per Snake instance from engine init — never from NewSnake, which is also
-// exercised by tests and the benchmark harness where duplicate registration
-// would panic.
+// exercised by tests where duplicate registration would panic.
 //
 // Each Snake gets its own prefixed metric names rather than a shared "pool"
 // label: both the oltp-read and dml snakes register through the same tablet
