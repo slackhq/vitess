@@ -308,26 +308,21 @@ func (dbc *Conn) streamOnce(
 	now := time.Now()
 	defer dbc.stats.MySQLTimings.Record("ExecStream", now)
 
-	ch := make(chan error)
-	go func() {
-		ch <- dbc.conn.ExecuteStreamFetch(query, callback, alloc, streamBufferSize)
-		close(ch)
-	}()
-
-	select {
-	case <-ctx.Done():
+	var wg sync.WaitGroup
+	wg.Add(1)
+	stop := context.AfterFunc(ctx, func() {
+		defer wg.Done()
 		dbc.terminate(ctx, insideTxn, now)
-		if !insideTxn {
-			// wait for the execute method to finish to make connection reusable.
-			<-ch
-		}
+	})
+	err := dbc.conn.ExecuteStreamFetch(query, callback, alloc, streamBufferSize)
+	if !stop() {
+		wg.Wait()
 		return dbc.Err()
-	case err := <-ch:
-		if dbcErr := dbc.Err(); dbcErr != nil {
-			return dbcErr
-		}
-		return err
 	}
+	if dbcErr := dbc.Err(); dbcErr != nil {
+		return dbcErr
+	}
+	return err
 }
 
 // StreamOnce executes the query and streams the results. But, does not retry on connection errors.
@@ -469,28 +464,25 @@ func (dbc *Conn) kill(ctx context.Context, reason string, elapsed time.Duration)
 	}
 	defer killConn.Recycle()
 
-	ch := make(chan error)
 	sql := fmt.Sprintf("kill %d", dbc.conn.ID())
-	go func() {
-		_, err := killConn.Conn.ExecuteFetch(sql, -1, false)
-		ch <- err
-		close(ch)
-	}()
-
-	select {
-	case <-ctx.Done():
+	var wg sync.WaitGroup
+	wg.Add(1)
+	stop := context.AfterFunc(ctx, func() {
+		defer wg.Done()
 		killConn.Close()
-
 		dbc.stats.InternalErrors.Add("HungConnection", 1)
 		log.Warningf("Failed to kill MySQL connection ID %d which was executing the following query, it may be hung: %s", dbc.conn.ID(), dbc.CurrentForLogging())
+	})
+	_, err = killConn.Conn.ExecuteFetch(sql, -1, false)
+	if !stop() {
+		wg.Wait()
 		return context.Cause(ctx)
-	case err := <-ch:
-		if err != nil {
-			log.Errorf("Could not kill connection ID %v %s: %v", dbc.conn.ID(), dbc.CurrentForLogging(), err)
-			return err
-		}
-		return nil
 	}
+	if err != nil {
+		log.Errorf("Could not kill connection ID %v %s: %v", dbc.conn.ID(), dbc.CurrentForLogging(), err)
+		return err
+	}
+	return nil
 }
 
 // killQuery kills the currently executing query both on MySQL side
@@ -512,28 +504,25 @@ func (dbc *Conn) killQuery(ctx context.Context, reason string, elapsed time.Dura
 	}
 	defer killConn.Recycle()
 
-	ch := make(chan error)
 	sql := fmt.Sprintf("kill query %d", dbc.conn.ID())
-	go func() {
-		_, err := killConn.Conn.ExecuteFetch(sql, -1, false)
-		ch <- err
-		close(ch)
-	}()
-
-	select {
-	case <-ctx.Done():
+	var wg sync.WaitGroup
+	wg.Add(1)
+	stop := context.AfterFunc(ctx, func() {
+		defer wg.Done()
 		killConn.Close()
-
 		dbc.stats.InternalErrors.Add("HungQuery", 1)
 		log.Warningf("Failed to kill MySQL query ID %d which was executing the following query, it may be hung: %s", dbc.conn.ID(), dbc.CurrentForLogging())
+	})
+	_, err = killConn.Conn.ExecuteFetch(sql, -1, false)
+	if !stop() {
+		wg.Wait()
 		return context.Cause(ctx)
-	case err := <-ch:
-		if err != nil {
-			log.Errorf("Could not kill query ID %v %s: %v", dbc.conn.ID(), dbc.CurrentForLogging(), err)
-			return err
-		}
-		return nil
 	}
+	if err != nil {
+		log.Errorf("Could not kill query ID %v %s: %v", dbc.conn.ID(), dbc.CurrentForLogging(), err)
+		return err
+	}
+	return nil
 }
 
 // Current returns the currently executing query.
