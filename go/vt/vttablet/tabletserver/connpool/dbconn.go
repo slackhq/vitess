@@ -172,32 +172,28 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 	now := time.Now()
 	defer dbc.stats.MySQLTimings.Record("Exec", now)
 
-	type execResult struct {
-		result *sqltypes.Result
-		err    error
-	}
-
-	ch := make(chan execResult)
-	go func() {
-		result, err := dbc.conn.ExecuteFetch(query, maxrows, wantfields)
-		ch <- execResult{result, err}
-		close(ch)
-	}()
-
-	select {
-	case <-ctx.Done():
+	// Use context.AfterFunc to register query termination as a callback
+	// instead of spawning a goroutine for every query execution. The
+	// callback only runs if the context is cancelled, avoiding goroutine
+	// and channel overhead on the happy path.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	stop := context.AfterFunc(ctx, func() {
+		defer wg.Done()
 		dbc.terminate(ctx, insideTxn, now)
-		if !insideTxn {
-			// wait for the execute method to finish to make connection reusable.
-			<-ch
-		}
+	})
+	result, err := dbc.conn.ExecuteFetch(query, maxrows, wantfields)
+	if !stop() {
+		// The context was cancelled and terminate has started. Wait for
+		// it to finish so that the kill statement completes and the dba
+		// pool connection is released before we return.
+		wg.Wait()
 		return nil, dbc.Err()
-	case r := <-ch:
-		if dbcErr := dbc.Err(); dbcErr != nil {
-			return nil, dbcErr
-		}
-		return r.result, r.err
 	}
+	if dbcErr := dbc.Err(); dbcErr != nil {
+		return nil, dbcErr
+	}
+	return result, err
 }
 
 // getErrorMessageFromContextError gets the error message from context error.
