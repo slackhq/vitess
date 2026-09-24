@@ -190,6 +190,8 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		wg.Wait()
 		return nil, dbc.Err()
 	}
+	// Check for errors set by an explicit Kill call from another
+	// goroutine (not triggered by context cancellation).
 	if dbcErr := dbc.Err(); dbcErr != nil {
 		return nil, dbcErr
 	}
@@ -319,6 +321,8 @@ func (dbc *Conn) streamOnce(
 		wg.Wait()
 		return dbc.Err()
 	}
+	// Check for errors set by an explicit Kill call from another
+	// goroutine (not triggered by context cancellation).
 	if dbcErr := dbc.Err(); dbcErr != nil {
 		return dbcErr
 	}
@@ -475,6 +479,10 @@ func (dbc *Conn) kill(ctx context.Context, reason string, elapsed time.Duration)
 	})
 	_, err = killConn.Conn.ExecuteFetch(sql, -1, false)
 	if !stop() {
+		// The context was cancelled and the callback has started. Wait
+		// for it to finish before returning so that the deferred Recycle
+		// does not return the connection to the pool while Close is
+		// still running.
 		wg.Wait()
 		return context.Cause(ctx)
 	}
@@ -515,6 +523,10 @@ func (dbc *Conn) killQuery(ctx context.Context, reason string, elapsed time.Dura
 	})
 	_, err = killConn.Conn.ExecuteFetch(sql, -1, false)
 	if !stop() {
+		// The context was cancelled and the callback has started. Wait
+		// for it to finish before returning so that the deferred Recycle
+		// does not return the connection to the pool while Close is
+		// still running.
 		wg.Wait()
 		return context.Cause(ctx)
 	}
