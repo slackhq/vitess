@@ -43,6 +43,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/evalengine"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	p "vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	eschema "vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
@@ -835,12 +836,20 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
+	priority := qre.getConnPriority()
 	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}
 	return conn, err
+}
+
+func (qre *QueryExecutor) getConnPriority() float64 {
+	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
+	if !qre.plan.UsesOnlyLocalTables {
+		return loadshed.PriorityUndroppable
+	}
+	return priority
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
