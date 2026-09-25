@@ -106,6 +106,9 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
+
+	postVar(t, tsv, "LoadshedOltpReadUndroppableSchemas", "mysql, sys")
+	assert.Equal(t, []string{"mysql", "sys"}, tsv.Config().LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestDebugEnvLoadshedParamsListed(t *testing.T) {
@@ -121,6 +124,7 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		"LoadshedOltpReadTarget",
 		"LoadshedOltpReadInitialTarget",
 		"LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadUndroppableSchemas",
 		"LoadshedTxMode",
 		"LoadshedTxTarget",
 		"LoadshedTxInitialTarget",
