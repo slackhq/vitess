@@ -43,14 +43,8 @@ type PendingResult interface {
 	Wait()
 	HasWaiters() bool
 	AddWaiterCounter(int64)
-	SetPriorityRaiser(PriorityRaiser)
-	RaisePriority(priority float64)
-}
-
-// PriorityRaiser raises the load-shedding priority of the original query while
-// it waits to execute.
-type PriorityRaiser interface {
-	RaisePriority(priority float64)
+	SetWaitEntry(any)
+	WaitEntry() any
 }
 
 type consolidator struct {
@@ -79,8 +73,7 @@ type pendingResult struct {
 	result       *sqltypes.Result
 	err          error
 	waiterCount  atomic.Int64
-	// raiser is guarded by consolidator.mu.
-	raiser PriorityRaiser
+	waitEntry    any
 }
 
 // Create adds a query to currently executing queries and acquires a
@@ -130,23 +123,16 @@ func (rs *pendingResult) SetResult(res *sqltypes.Result) {
 	rs.result = res
 }
 
-// SetPriorityRaiser lets duplicate queries raise the original query's priority
-// through raiser. Should be invoked by the original query before it waits.
-func (rs *pendingResult) SetPriorityRaiser(raiser PriorityRaiser) {
+func (rs *pendingResult) SetWaitEntry(waitEntry any) {
 	rs.consolidator.mu.Lock()
 	defer rs.consolidator.mu.Unlock()
-	rs.raiser = raiser
+	rs.waitEntry = waitEntry
 }
 
-// RaisePriority makes the original query inherit priority if it is more
-// important. Should be invoked by duplicate queries before Wait.
-func (rs *pendingResult) RaisePriority(priority float64) {
+func (rs *pendingResult) WaitEntry() any {
 	rs.consolidator.mu.Lock()
-	raiser := rs.raiser
-	rs.consolidator.mu.Unlock()
-	if raiser != nil {
-		raiser.RaisePriority(priority)
-	}
+	defer rs.consolidator.mu.Unlock()
+	return rs.waitEntry
 }
 
 func (rs *pendingResult) HasWaiters() bool {

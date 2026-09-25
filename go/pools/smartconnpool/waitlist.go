@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
@@ -64,23 +65,14 @@ type waitlist[C Connection] struct {
 	onWaiterCapReached func()
 }
 
-// WaitHandle lets other goroutines raise the load-shedding priority of a caller
-// while it waits for a connection. Create one per wait with ConnPool.NewWaitHandle.
-type WaitHandle[C Connection] struct {
-	wl *waitlist[C]
-	// request is the caller's Snake entry while it is queued; guarded by wl.mu.
-	request *loadshed.Request[*list.Element[waiter[C]]]
-}
-
-// RaisePriority makes the waiting caller inherit priority (0 most important) if
-// it is more important than the caller's own. No-op unless the caller is queued
-// in Snake.
-func (h *WaitHandle[C]) RaisePriority(priority float64) {
-	h.wl.mu.Lock()
-	defer h.wl.mu.Unlock()
-	if h.request != nil {
-		h.wl.snake.RaisePriority(h.request, snakePriority(priority))
+func (wl *waitlist[C]) maybeInheritPriority(waitEntry any, priority float64) {
+	request, ok := waitEntry.(*loadshed.Request[*list.Element[waiter[C]]])
+	if !ok {
+		return
 	}
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+	wl.snake.LockedMaybeInheritPriority(request, snakePriority(priority))
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -90,7 +82,7 @@ func (h *WaitHandle[C]) RaisePriority(priority float64) {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority float64, handle *WaitHandle[C], dryRun bool) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority float64, pending sync2.PendingResult, dryRun bool) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -144,12 +136,12 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		var newlyDropped []*list.Element[waiter[C]]
 		request, newlyDropped = wl.snake.Enqueue(elem, snakePriority(priority))
 		dropped = append(dropped, newlyDropped...)
-		if handle != nil && handle.wl == wl {
-			handle.request = request
-		}
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
+	if pending != nil && request != nil {
+		pending.SetWaitEntry(request)
+	}
 
 	select {
 	case <-closeChan:

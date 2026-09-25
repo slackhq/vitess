@@ -25,6 +25,7 @@ import (
 
 	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/pools/smartconnpool"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/dbconfigs"
@@ -124,7 +125,7 @@ func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*Poole
 	return cp.GetWithPriority(ctx, setting, loadshed.PriorityUndroppable, nil)
 }
 
-func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority float64, handle *smartconnpool.WaitHandle[*Conn]) (*PooledConn, error) {
+func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority float64, pending sync2.PendingResult) (*PooledConn, error) {
 	span, ctx := trace.NewSpan(ctx, "Pool.Get")
 	defer span.Finish()
 
@@ -147,7 +148,7 @@ func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Sett
 	}
 
 	start := time.Now()
-	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, priority, handle)
+	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, priority, pending)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +160,10 @@ func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Sett
 		}
 	}
 	return conn, nil
+}
+
+func (cp *Pool) MaybeInheritPriority(waitEntry any, priority float64) {
+	cp.ConnPool.MaybeInheritPriority(waitEntry, priority)
 }
 
 // SetIdleTimeout sets the idleTimeout on the pool.

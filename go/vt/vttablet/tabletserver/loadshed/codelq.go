@@ -274,24 +274,13 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	r.codelqElem = nil
 
 	if r.isDroppable() {
-		q.droppableLen--
-		q.droppable.remove(r)
-		if q.droppableLen == 0 && q.dropping {
-			q.dropping = false
-		}
+		q.lockedRemoveDroppable(r)
 	}
 }
 
-// lockedRaisePriority re-indexes a queued droppable request at a more important
-// priority, leaving the droppable set entirely if that priority is undroppable.
-func (q *CoDelQueue[T]) lockedRaisePriority(r *Request[T], priority float64) {
-	q.droppable.remove(r)
-	r.priority = priority
-	if r.isDroppable() {
-		q.droppable.insert(r)
-		return
-	}
+func (q *CoDelQueue[T]) lockedRemoveDroppable(r *Request[T]) {
 	q.droppableLen--
+	q.droppable.remove(r)
 	if q.droppableLen == 0 && q.dropping {
 		q.dropping = false
 	}
