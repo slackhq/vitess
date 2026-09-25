@@ -350,19 +350,7 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
-	assert.Equal(t, []string{"performance_schema", "information_schema", "sys", "mysql"}, cfg.LoadshedOltpRead.UndroppableSchemasValue())
 	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOltpReadDefaultPriority)
-}
-
-func TestUndroppableSchemasConfig(t *testing.T) {
-	cfg := NewDefaultConfig()
-
-	cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
-	schemas := cfg.LoadshedOltpRead.UndroppableSchemasValue()
-	schemas[0] = "changed"
-
-	assert.Equal(t, []string{"schema"}, cfg.LoadshedOltpRead.UndroppableSchemasValue())
-	assert.Equal(t, []string{"schema"}, cfg.Clone().LoadshedOltpRead.UndroppableSchemasValue())
 }
 
 func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
@@ -417,7 +405,6 @@ func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
 		defer wg.Done()
 		for i := range 100 {
 			cfg.LoadshedOltpRead.SetInitialTarget(time.Duration(i))
-			cfg.LoadshedOltpRead.SetUndroppableSchemas([]string{"schema"})
 		}
 	}()
 	go func() {
@@ -444,7 +431,6 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	require.NoError(t, fs.Set("loadshed-oltp-read-default-priority", "17"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
-	require.NoError(t, fs.Set("loadshed-oltp-read-undroppable-schemas", "mysql,sys"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
@@ -452,7 +438,6 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	assert.Equal(t, 17, currentConfig.LoadshedOltpReadDefaultPriority)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
-	assert.Equal(t, []string{"mysql", "sys"}, currentConfig.LoadshedOltpRead.UndroppableSchemas)
 	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedTx.Mode)
 	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
 	assert.Equal(t, 23*time.Millisecond, currentConfig.LoadshedTx.InitialTarget)

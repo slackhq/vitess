@@ -836,12 +836,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
-	// Queries against a configured schema (e.g. performance_schema health
-	// checks) are marked undroppable instead, so they are never shed.
-	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
-		priority = loadshed.PriorityUndroppable
-	}
+	priority := qre.getConnPriority()
 	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
@@ -849,22 +844,12 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	return conn, err
 }
 
-// matchesUndroppableSchema reports whether any of the query's schema qualifiers
-// is in the configured undroppable-schema allowlist (case-insensitive). The
-// common case is queryQualifiers empty (unqualified tables), which returns
-// immediately without scanning the allowlist.
-func matchesUndroppableSchema(queryQualifiers, allowlist []string) bool {
-	if len(queryQualifiers) == 0 || len(allowlist) == 0 {
-		return false
+func (qre *QueryExecutor) getConnPriority() float64 {
+	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
+	if !qre.plan.UsesOnlyLocalTables {
+		return loadshed.PriorityUndroppable
 	}
-	for _, q := range queryQualifiers {
-		for _, a := range allowlist {
-			if strings.EqualFold(q, a) {
-				return true
-			}
-		}
-	}
-	return false
+	return priority
 }
 
 func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
