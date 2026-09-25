@@ -17,8 +17,9 @@ limitations under the License.
 package loadshed
 
 import (
-	"container/list"
 	"math"
+
+	"vitess.io/vitess/go/list"
 )
 
 /*
@@ -151,7 +152,7 @@ type (
 	// algorithm. All methods are prefixed locked* and assume the caller holds
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue[T any] struct {
-		queue        *list.List
+		queue        *list.List[*Request[T]]
 		dropping     bool
 		dropNextNs   int64
 		count        int
@@ -174,7 +175,7 @@ func (e *DroppedRequestError) Error() string {
 
 func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
-		queue:             list.New(),
+		queue:             list.New[*Request[T]](),
 		count:             1,
 		cfg:               cfg,
 		nowNs:             nowNs,
@@ -252,12 +253,12 @@ func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
 	if first == nil {
 		return nil
 	}
-	return first.Value.(*Request[T])
+	return first.Value
 }
 
 func (q *CoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
 	for e := q.queue.Front(); e != nil; e = e.Next() {
-		req := e.Value.(*Request[T])
+		req := e.Value
 		if match(req.value) {
 			return req
 		}
@@ -295,7 +296,7 @@ func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
 // lockedFindLowestPriorityDroppable finds the lowest-priority droppable
 // element in the queue — the oldest one at the lowest priority present — or nil
 // if none exists. O(1) via the droppable priority index (see droppableIndex).
-func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element {
+func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element[*Request[T]] {
 	req := q.droppable.min()
 	if req == nil {
 		return nil
