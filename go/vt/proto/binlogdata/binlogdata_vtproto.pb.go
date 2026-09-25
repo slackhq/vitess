@@ -581,6 +581,7 @@ func (m *VStreamOptions) CloneVT() *VStreamOptions {
 		return (*VStreamOptions)(nil)
 	}
 	r := new(VStreamOptions)
+	r.NoTimeouts = m.NoTimeouts
 	if rhs := m.InternalTables; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -597,6 +598,11 @@ func (m *VStreamOptions) CloneVT() *VStreamOptions {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
 		r.TablesToCopy = tmpContainer
+	}
+	if rhs := m.EventTypes; rhs != nil {
+		tmpContainer := make([]VEventType, len(rhs))
+		copy(tmpContainer, rhs)
+		r.EventTypes = tmpContainer
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -2462,6 +2468,37 @@ func (m *VStreamOptions) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.EventTypes) > 0 {
+		var pksize2 int
+		for _, num := range m.EventTypes {
+			pksize2 += protohelpers.SizeOfVarint(uint64(num))
+		}
+		i -= pksize2
+		j1 := i
+		for _, num1 := range m.EventTypes {
+			num := uint64(num1)
+			for num >= 1<<7 {
+				dAtA[j1] = uint8(uint64(num)&0x7f | 0x80)
+				num >>= 7
+				j1++
+			}
+			dAtA[j1] = uint8(num)
+			j1++
+		}
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(pksize2))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.NoTimeouts {
+		i--
+		if m.NoTimeouts {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x20
+	}
 	if len(m.TablesToCopy) > 0 {
 		for iNdEx := len(m.TablesToCopy) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.TablesToCopy[iNdEx])
@@ -3981,6 +4018,16 @@ func (m *VStreamOptions) SizeVT() (n int) {
 			l = len(s)
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
+	}
+	if m.NoTimeouts {
+		n += 2
+	}
+	if len(m.EventTypes) > 0 {
+		l = 0
+		for _, e := range m.EventTypes {
+			l += protohelpers.SizeOfVarint(uint64(e))
+		}
+		n += 1 + protohelpers.SizeOfVarint(uint64(l)) + l
 	}
 	n += len(m.unknownFields)
 	return n
@@ -8817,6 +8864,95 @@ func (m *VStreamOptions) UnmarshalVT(dAtA []byte) error {
 			}
 			m.TablesToCopy = append(m.TablesToCopy, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NoTimeouts", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.NoTimeouts = bool(v != 0)
+		case 5:
+			if wireType == 0 {
+				var v VEventType
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protohelpers.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					v |= VEventType(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				m.EventTypes = append(m.EventTypes, v)
+			} else if wireType == 2 {
+				var packedLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return protohelpers.ErrIntOverflow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					packedLen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if packedLen < 0 {
+					return protohelpers.ErrInvalidLength
+				}
+				postIndex := iNdEx + packedLen
+				if postIndex < 0 {
+					return protohelpers.ErrInvalidLength
+				}
+				if postIndex > l {
+					return io.ErrUnexpectedEOF
+				}
+				var elementCount int
+				if elementCount != 0 && len(m.EventTypes) == 0 {
+					m.EventTypes = make([]VEventType, 0, elementCount)
+				}
+				for iNdEx < postIndex {
+					var v VEventType
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return protohelpers.ErrIntOverflow
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						v |= VEventType(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					m.EventTypes = append(m.EventTypes, v)
+				}
+			} else {
+				return fmt.Errorf("proto: wrong wireType = %d for field EventTypes", wireType)
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
