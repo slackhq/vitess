@@ -248,7 +248,7 @@ func TestCoDelQueue_FindDroppable_FIFO(t *testing.T) {
 
 	elem := q.lockedFindDroppable()
 	require.NotNil(t, elem)
-	dropped := elem.Value.(*testRequest)
+	dropped := elem.Value
 	q.lockedRemove(dropped)
 	assert.Same(t, first, dropped)
 	assert.Equal(t, 2, q.lockedLen())
@@ -263,7 +263,7 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 
 	elem := q.lockedFindDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, droppable, elem.Value.(*testRequest))
+	assert.Same(t, droppable, elem.Value)
 	q.lockedRemove(droppable)
 	assert.Equal(t, 1, q.lockedLen())
 }
@@ -372,7 +372,7 @@ func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindDroppable()
 		require.NotNil(t, elem)
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	})
 
@@ -401,7 +401,7 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindDroppable()
 		require.NotNil(t, elem)
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	})
 	assert.Equal(t, 2, q.count)
@@ -459,7 +459,7 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	rec.reset()
@@ -481,7 +481,7 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	q.lockedRunTimer(dropFn)
@@ -775,7 +775,7 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 
@@ -902,7 +902,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	q.lockedRunTimer(dropFn)
