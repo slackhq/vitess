@@ -157,6 +157,10 @@ type (
 		dropNextNs   int64
 		count        int
 		droppableLen int
+		// droppable indexes the droppable queue entries by priority so the
+		// lowest-priority one is found in O(1) rather than an O(n) scan. Kept in
+		// lockstep with droppableLen: every insert/remove pairs with a ++/--.
+		droppable droppableIndex[T]
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -178,6 +182,7 @@ func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer
 		scheduleDropTimer: scheduleDropTimer,
 		stopDropTimer:     stopDropTimer,
 	}
+	q.droppable.init()
 	return q
 }
 
@@ -205,6 +210,7 @@ func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 
 	if req.isDroppable() {
 		q.droppableLen++
+		q.droppable.insert(req)
 		if !enabled {
 			q.lockedDisable()
 			return
@@ -270,6 +276,7 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 
 	if r.isDroppable() {
 		q.droppableLen--
+		q.droppable.remove(r)
 		if q.droppableLen == 0 && q.dropping {
 			q.dropping = false
 		}
@@ -286,14 +293,15 @@ func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
 	q.lockedRemove(r)
 }
 
-// lockedFindDroppable returns the oldest droppable element in the queue.
-func (q *CoDelQueue[T]) lockedFindDroppable() *list.Element[*Request[T]] {
-	for elem := q.queue.Front(); elem != nil; elem = elem.Next() {
-		if elem.Value.isDroppable() {
-			return elem
-		}
+// lockedFindLowestPriorityDroppable finds the lowest-priority droppable
+// element in the queue — the oldest one at the lowest priority present — or nil
+// if none exists. O(1) via the droppable priority index (see droppableIndex).
+func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element[*Request[T]] {
+	req := q.droppable.min()
+	if req == nil {
+		return nil
 	}
-	return nil
+	return req.codelqElem
 }
 
 // lockedRunTimer runs the CoDel drop logic. It is invoked both by the backstop

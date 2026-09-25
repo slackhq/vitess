@@ -229,6 +229,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
 	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead, defaultConfig.LoadshedOltpRead)
+	fs.IntVar(&currentConfig.LoadshedOltpReadDefaultPriority, "loadshed-oltp-read-default-priority", defaultConfig.LoadshedOltpReadDefaultPriority, "Default priority assigned to OLTP reads that lack priority information.")
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -413,8 +414,9 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedOltpRead LoadshedConfig `json:"-"`
-	LoadshedTx       LoadshedConfig `json:"-"`
+	LoadshedOltpRead                LoadshedConfig `json:"-"`
+	LoadshedOltpReadDefaultPriority int            `json:"-"`
+	LoadshedTx                      LoadshedConfig `json:"-"`
 }
 
 type (
@@ -1137,6 +1139,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTxThrottlerConfig(); err != nil {
 		return err
 	}
+	if v := c.LoadshedOltpReadDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-oltp-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
 	}
@@ -1357,8 +1362,9 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: defaultLoadshedConfig(),
-	LoadshedTx:       defaultLoadshedConfig(),
+	LoadshedOltpRead:                defaultLoadshedConfig(),
+	LoadshedOltpReadDefaultPriority: sqlparser.MaxPriorityValue,
+	LoadshedTx:                      defaultLoadshedConfig(),
 }
 
 func defaultLoadshedConfig() LoadshedConfig {

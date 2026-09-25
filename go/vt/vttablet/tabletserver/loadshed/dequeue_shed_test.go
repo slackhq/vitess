@@ -22,10 +22,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// dropAll is the standard test dropFn: sheds the oldest droppable request.
+// dropAll is the standard test dropFn: sheds the lowest-priority droppable head.
 func dropAllFn(q *testCoDelQueue) func() bool {
 	return func() bool {
-		elem := q.lockedFindDroppable()
+		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
 		}
@@ -51,7 +51,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	// Build a droppable backlog. The first enqueue arms an episode (slow mode).
 	const backlog = 6
 	for range backlog {
-		testEnqueue(q, true)
+		testEnqueue(q, 0)
 	}
 	assert.True(t, q.dropping, "first droppable enqueue should arm an episode")
 
