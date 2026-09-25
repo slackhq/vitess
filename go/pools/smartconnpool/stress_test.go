@@ -25,8 +25,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 type StressConn struct {
@@ -116,48 +119,64 @@ func TestStackRace(t *testing.T) {
 }
 
 func TestStress(t *testing.T) {
-	const Capacity = 64
-	const P = 8
+	const (
+		capacity     = 2
+		parallelism  = 8
+		opsPerWorker = 1000
+	)
 
 	connect := func(ctx context.Context) (*StressConn, error) {
 		return &StressConn{}, nil
 	}
 
-	pool := NewPool[*StressConn](&Config[*StressConn]{
-		Capacity: Capacity,
-	}).Open(connect, nil)
-
-	var wg errgroup.Group
-	var stop atomic.Bool
-
-	for p := 0; p < P; p++ {
-		tid := int32(p + 1)
-		wg.Go(func() error {
-			ctx := context.Background()
-			for !stop.Load() {
-				conn, err := pool.get(ctx)
-				if err != nil {
-					return err
-				}
-
-				previousOwner := conn.Conn.owner.Swap(tid)
-				if previousOwner != 0 {
-					return fmt.Errorf("owner race: %d with %d", tid, previousOwner)
-				}
-				runtime.Gosched()
-				previousOwner = conn.Conn.owner.Swap(0)
-				if previousOwner != tid {
-					return fmt.Errorf("owner race: %d with %d", previousOwner, tid)
-				}
-				conn.Recycle()
-			}
-			return nil
-		})
+	tests := []struct {
+		name       string
+		poolConfig PoolConfig
+	}{
+		{name: "legacy"},
+		{name: "snake", poolConfig: newMutableTestPoolConfig(loadshed.ModeShadow)},
 	}
 
-	time.Sleep(5 * time.Second)
-	stop.Store(true)
-	if err := wg.Wait(); err != nil {
-		t.Fatal(err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := NewPool[*StressConn](&Config[*StressConn]{
+				Capacity:   capacity,
+				PoolName:   "ConnPool",
+				PoolConfig: tt.poolConfig,
+			}).Open(connect, nil)
+			t.Cleanup(pool.Close)
+
+			completed := make([]atomic.Int64, parallelism)
+			var wg errgroup.Group
+			for p := range parallelism {
+				tid := int32(p + 1)
+				wg.Go(func() error {
+					for range opsPerWorker {
+						conn, err := pool.get(t.Context())
+						if err != nil {
+							return err
+						}
+
+						previousOwner := conn.Conn.owner.Swap(tid)
+						if previousOwner != 0 {
+							return fmt.Errorf("owner race: %d with %d", tid, previousOwner)
+						}
+						runtime.Gosched()
+						previousOwner = conn.Conn.owner.Swap(0)
+						if previousOwner != tid {
+							return fmt.Errorf("owner race: %d with %d", previousOwner, tid)
+						}
+						conn.Recycle()
+						completed[p].Add(1)
+					}
+					return nil
+				})
+			}
+
+			require.NoError(t, wg.Wait())
+			for i := range completed {
+				assert.Equal(t, int64(opsPerWorker), completed[i].Load())
+			}
+		})
 	}
 }
