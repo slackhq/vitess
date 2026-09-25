@@ -17,8 +17,9 @@ limitations under the License.
 package loadshed
 
 import (
-	"container/list"
 	"math"
+
+	"vitess.io/vitess/go/list"
 )
 
 /*
@@ -151,7 +152,7 @@ type (
 	// algorithm. All methods are prefixed locked* and assume the caller holds
 	// the mutex, which is defined in the files for the higher-level structure
 	CoDelQueue[T any] struct {
-		queue        *list.List
+		queue        *list.List[*Request[T]]
 		dropping     bool
 		dropNextNs   int64
 		count        int
@@ -170,7 +171,7 @@ func (e *DroppedRequestError) Error() string {
 
 func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
-		queue:             list.New(),
+		queue:             list.New[*Request[T]](),
 		count:             1,
 		cfg:               cfg,
 		nowNs:             nowNs,
@@ -246,12 +247,12 @@ func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
 	if first == nil {
 		return nil
 	}
-	return first.Value.(*Request[T])
+	return first.Value
 }
 
 func (q *CoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
 	for e := q.queue.Front(); e != nil; e = e.Next() {
-		req := e.Value.(*Request[T])
+		req := e.Value
 		if match(req.value) {
 			return req
 		}
@@ -286,9 +287,9 @@ func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
 }
 
 // lockedFindDroppable returns the oldest droppable element in the queue.
-func (q *CoDelQueue[T]) lockedFindDroppable() *list.Element {
+func (q *CoDelQueue[T]) lockedFindDroppable() *list.Element[*Request[T]] {
 	for elem := q.queue.Front(); elem != nil; elem = elem.Next() {
-		if elem.Value.(*Request[T]).isDroppable() {
+		if elem.Value.isDroppable() {
 			return elem
 		}
 	}

@@ -169,7 +169,7 @@ func (s *Snake[T]) Len() int {
 func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	count := 0
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
-		req := elem.Value.(*Request[T])
+		req := elem.Value
 		if match(req.value) {
 			count++
 		}
@@ -217,7 +217,7 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 
 func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
-		req := elem.Value.(*Request[T])
+		req := elem.Value
 		if match(req.value) {
 			return s.Cancel(req)
 		}
@@ -245,7 +245,7 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 		if elem == nil {
 			return false
 		}
-		req := elem.Value.(*Request[T])
+		req := elem.Value
 		s.q.lockedRemove(req)
 		dropped = append(dropped, req)
 		return true

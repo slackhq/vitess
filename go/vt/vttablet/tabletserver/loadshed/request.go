@@ -16,15 +16,13 @@ limitations under the License.
 
 package loadshed
 
-import (
-	"container/list"
-)
+import "vitess.io/vitess/go/list"
 
 type (
 	Request[T any] struct {
 		droppable          bool
 		codelqEnqueuedAtNs int64
-		codelqElem         *list.Element
+		codelqElem         *list.Element[*Request[T]]
 		value              T
 	}
 )
