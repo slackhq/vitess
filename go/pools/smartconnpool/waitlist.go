@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
@@ -392,6 +393,21 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	}
 	wl.list.Init()
 	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
+}
+
+func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string) {
+	var statsName string
+	switch poolName {
+	case "ConnPool":
+		statsName = "SnakeOltpRead"
+	case "TransactionPool":
+		statsName = "SnakeDml"
+	case "FoundRowsPool":
+		statsName = "SnakeDmlFoundRows"
+	}
+	if statsName != "" {
+		loadshed.PublishStats(exporter, statsName, wl.snake)
+	}
 }
 
 func (wl *waitlist[C]) waiting() int {

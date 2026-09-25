@@ -18,6 +18,8 @@ package smartconnpool
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,9 +31,15 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
-type testPoolConfig struct{}
+type testPoolConfig struct {
+	minDropDelay time.Duration
+}
 
-func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+func (c testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
+	minDropDelay := c.minDropDelay
+	if minDropDelay == 0 {
+		minDropDelay = time.Millisecond
+	}
 	return loadshed.SnakeConfig{
 		Mode: func() loadshed.Mode { return loadshed.ModeEnabled },
 		CoDel: loadshed.CoDelConfig{
@@ -40,7 +48,7 @@ func (testPoolConfig) LoadshedConfig(string) loadshed.SnakeConfig {
 			TargetNs:          func() int64 { return time.Millisecond.Nanoseconds() },
 			InitialTargetNs:   func() int64 { return time.Millisecond.Nanoseconds() },
 			Exponent:          func() float64 { return 1 },
-			MinDropDelayNs:    func() int64 { return time.Millisecond.Nanoseconds() },
+			MinDropDelayNs:    func() int64 { return minDropDelay.Nanoseconds() },
 		},
 	}
 }
@@ -81,15 +89,14 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	wait := waitlist[*TestConn]{}
 	wait.init("", nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 
 	poolClose := make(chan struct{})
-
-	waiterCount := 2
+	const waiterCount = 2
 	expireCount := atomic.Int32{}
 
-	for i := 0; i < waiterCount; i++ {
+	for range waiterCount {
 		go func() {
 			_, err := wait.waitForConn(ctx, nil, poolClose, 0, false)
 
@@ -100,24 +107,11 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 	}
 
 	close(poolClose)
-
-	// Wait for the context to expire
 	<-ctx.Done()
 
-	// Wait for the notified goroutines to finish
-	timeout := time.After(1 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for expireCount.Load() != int32(waiterCount) {
-		select {
-		case <-timeout:
-			require.Failf(t, "Timed out waiting for all waiters to expire", "Wanted %d, got %d", waiterCount, expireCount.Load())
-		case <-ticker.C:
-			// try again
-		}
-	}
-
-	assert.Equal(t, int32(waiterCount), expireCount.Load())
+	assert.Eventually(t, func() bool {
+		return expireCount.Load() == waiterCount
+	}, 30*time.Second, 10*time.Millisecond)
 }
 
 func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
@@ -146,28 +140,26 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	wl.init("", nil)
 
 	poolClose := make(chan struct{})
-
 	const maxWaiters = 3
 
 	errs := make(chan error, maxWaiters)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, false)
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, false)
 			errs <- err
 		}()
 
 		assert.Eventually(t, func() bool {
 			return wl.waiting() == i
-		}, time.Second, 5*time.Millisecond)
+		}, 30*time.Second, 5*time.Millisecond)
 	}
 
-	_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, false)
+	_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
 	assert.Equal(t, maxWaiters, wl.waiting())
 
 	close(poolClose)
-
-	for i := 0; i < maxWaiters; i++ {
+	for range maxWaiters {
 		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
 	}
 }
@@ -231,6 +223,76 @@ func TestWaitlistSnakePreservesStarvationCount(t *testing.T) {
 	assert.Equal(t, 1, wl.maybeStarvingCount())
 }
 
+func TestWaitlistShedsQueuedRequests(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("ConnPool", testPoolConfig{})
+
+	poolClose := make(chan struct{})
+	t.Cleanup(func() {
+		close(poolClose)
+	})
+
+	errs := make(chan error, 6)
+	var waiting atomic.Int32
+	wl.onWait = func() {
+		waiting.Add(1)
+	}
+	for range 6 {
+		go func() {
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, false)
+			errs <- err
+		}()
+	}
+
+	require.Eventually(t, func() bool {
+		return waiting.Load() == 6
+	}, 30*time.Second, time.Millisecond)
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, ErrPoolLoadShed)
+	case <-time.After(30 * time.Second):
+		require.Fail(t, "timed out waiting for Snake to shed a waiter")
+	}
+}
+
+func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
+	for range 50 {
+		wl := waitlist[*TestConn]{}
+		wl.init("ConnPool", testPoolConfig{minDropDelay: time.Second})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		errs := make(chan error, 8)
+		for range 8 {
+			go func() {
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, false)
+				errs <- err
+			}()
+		}
+		require.Eventually(t, func() bool {
+			return wl.waiting() == 8
+		}, time.Second, time.Millisecond)
+
+		time.Sleep(2 * time.Millisecond)
+		var race sync.WaitGroup
+		race.Add(2)
+		go func() {
+			defer race.Done()
+			cancel()
+		}()
+		go func() {
+			defer race.Done()
+			wl.runDropTimer()
+		}()
+		race.Wait()
+
+		for range 8 {
+			err := <-errs
+			assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, ErrPoolLoadShed), "unexpected error: %v", err)
+		}
+		assert.Zero(t, wl.waiting())
+	}
+}
+
 func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	config := newMutableTestPoolConfig(loadshed.ModeOff)
 	wl := waitlist[*TestConn]{}
@@ -252,6 +314,16 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	assert.Zero(t, wl.snake.Len())
 
 	config.setMode(loadshed.ModeShadow)
+	assert.Equal(t, 3, wl.maybeStarvingCount())
+	assert.Zero(t, wl.list.Len())
+	assert.Equal(t, 3, wl.snake.Len())
+
+	config.setMode(loadshed.ModeOff)
+	assert.Equal(t, 3, wl.maybeStarvingCount())
+	assert.Equal(t, 3, wl.list.Len())
+	assert.Zero(t, wl.snake.Len())
+
+	config.setMode(loadshed.ModeEnabled)
 	assert.Equal(t, 3, wl.maybeStarvingCount())
 	assert.Zero(t, wl.list.Len())
 	assert.Equal(t, 3, wl.snake.Len())
@@ -375,36 +447,32 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	}
 
 	poolClose := make(chan struct{})
-
 	const maxWaiters = 3
 
-	errs := make(chan error, maxWaiters)
+	errs := make(chan error, maxWaiters+1)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, true)
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, true)
 			errs <- err
 		}()
 
 		assert.Eventually(t, func() bool {
 			return wl.waiting() == i
-		}, time.Second, 5*time.Millisecond)
+		}, 30*time.Second, 5*time.Millisecond)
 	}
 
-	// In dryrun mode, exceeding the cap fires the callback but still lets the waiter through
 	go func() {
-		_, err := wl.waitForConn(context.Background(), nil, poolClose, maxWaiters, true)
+		_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, true)
 		errs <- err
 	}()
 
 	assert.Eventually(t, func() bool {
 		return wl.waiting() == maxWaiters+1
-	}, time.Second, 5*time.Millisecond)
-
+	}, 30*time.Second, 5*time.Millisecond)
 	assert.Equal(t, int32(1), capReachedCount.Load())
 
 	close(poolClose)
-
-	for i := 0; i < maxWaiters+1; i++ {
+	for range maxWaiters + 1 {
 		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
 	}
 }
