@@ -17,8 +17,9 @@ limitations under the License.
 package loadshed
 
 import (
-	"container/list"
 	"math/bits"
+
+	"vitess.io/vitess/go/list"
 )
 
 // Production priorities are integers in [0, sqlparser.MaxPriorityValue] (0..100,
@@ -41,8 +42,8 @@ const (
 //
 // Not safe for concurrent use; the caller holds the queue mutex.
 type droppableIndex[T any] struct {
-	buckets  [numPriorityBuckets]list.List
-	overflow list.List
+	buckets  [numPriorityBuckets]list.List[*Request[T]]
+	overflow list.List[*Request[T]]
 	// occ is the occupancy bitset over buckets: bit i is set iff buckets[i] is
 	// non-empty. Two words cover 0..127, which spans the 0..100 domain.
 	occ [2]uint64
@@ -107,10 +108,10 @@ func (idx *droppableIndex[T]) remove(req *Request[T]) {
 // buckets always outrank the overflow list.
 func (idx *droppableIndex[T]) min() *Request[T] {
 	if b := idx.lowestOccupiedBucket(); b >= 0 {
-		return idx.buckets[b].Front().Value.(*Request[T])
+		return idx.buckets[b].Front().Value
 	}
 	if e := idx.overflow.Front(); e != nil {
-		return e.Value.(*Request[T])
+		return e.Value
 	}
 	return nil
 }
