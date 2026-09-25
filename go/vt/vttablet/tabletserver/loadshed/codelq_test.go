@@ -91,7 +91,7 @@ func newTestQueue(cfg CoDelConfig, clock *testClock) (*testCoDelQueue, *testDrop
 }
 
 func testEnqueue(q *testCoDelQueue, priority float64) *testRequest {
-	req := newRequest(struct{}{}, priority)
+	req := newRequest[struct{}](priority)
 	q.lockedEnqueue(req)
 	return req
 }
@@ -964,18 +964,19 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
 
-	_, dropped := s.Enqueue("value", 0)
+	req, dropped := s.Enqueue("value", "", 0)
 	require.Empty(t, dropped)
 	dequeued, ok, dropped := s.Dequeue()
 	require.True(t, ok)
 	require.Equal(t, "value", dequeued)
 	require.Empty(t, dropped)
 	require.Equal(t, 0, s.q.lockedLen())
+	require.NotNil(t, req.signaledValue)
 }
 
 func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
-	req, dropped := s.Enqueue("value", 0)
+	req, dropped := s.Enqueue("value", "", 0)
 	require.Empty(t, dropped)
 
 	cancelled, dropped := s.Cancel(req)
@@ -987,6 +988,28 @@ func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	require.Empty(t, dropped)
 }
 
+func TestSnakeQueue_CancelRemovesValveWaiter(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+	first, dropped := s.Enqueue("first", "valve", 0)
+	require.Empty(t, dropped)
+	second, dropped := s.Enqueue("second", "valve", 0)
+	require.Empty(t, dropped)
+
+	cancelled, dropped := s.Cancel(second)
+	require.True(t, cancelled)
+	require.Empty(t, dropped)
+
+	dequeued, ok, dropped := s.Dequeue()
+	require.True(t, ok)
+	require.Equal(t, "first", dequeued)
+	require.Empty(t, dropped)
+	dequeued, ok, dropped = s.Dequeue()
+	require.False(t, ok)
+	require.Empty(t, dequeued)
+	require.Empty(t, dropped)
+	require.NotNil(t, first.signaledValue)
+}
+
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	config := SnakeConfig{
 		CoDel: defaultTestConfig(),
@@ -994,10 +1017,10 @@ func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	}
 	s := NewSnake[struct{}](config)
 	for range 6 {
-		_, dropped := s.Enqueue(struct{}{}, 0)
+		_, dropped := s.Enqueue(struct{}{}, "", 0)
 		require.Empty(t, dropped)
 	}
-	s.q.dropNextNs = 1
+	s.q.codelq.dropNextNs = 1
 
 	_, _, dropped := s.Dequeue()
 	require.Empty(t, dropped)

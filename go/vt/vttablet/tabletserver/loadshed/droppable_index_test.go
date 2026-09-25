@@ -28,7 +28,7 @@ type testDroppableIndex = droppableIndex[struct{}]
 
 // idxReq builds a droppable request at the given priority for index tests.
 func idxReq(priority float64) *testRequest {
-	return newRequest(struct{}{}, priority)
+	return newRequest[struct{}](priority)
 }
 
 // TestDroppableIndex_Empty: min of an empty index returns nil.

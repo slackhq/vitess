@@ -27,6 +27,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -988,26 +990,30 @@ func TestTimeout(t *testing.T) {
 	p.put(r)
 }
 
-func TestPoolLoadShedPropagation(t *testing.T) {
+func newLoadShedTestPool(t *testing.T, capacity int64, config PoolConfig) *ConnPool[*TestConn] {
+	t.Helper()
 	var state TestState
-
-	p := NewPool(&Config[*TestConn]{
-		Capacity:    1,
+	pool := NewPool(&Config[*TestConn]{
+		Capacity:    capacity,
 		IdleTimeout: time.Second,
 		LogWait:     state.LogWait,
 		PoolName:    "ConnPool",
-		PoolConfig:  testPoolConfig{},
+		PoolConfig:  config,
 	}).Open(newConnector(&state), nil)
-	t.Cleanup(p.Close)
+	t.Cleanup(pool.Close)
+	return pool
+}
 
-	conn, err := p.Get(t.Context(), nil)
+func TestPoolLoadShedPropagation(t *testing.T) {
+	pool := newLoadShedTestPool(t, 1, testPoolConfig{})
+	conn, err := pool.Get(t.Context(), nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	errs := make(chan error, 6)
 	for range 6 {
 		go func() {
-			conn, err := p.GetWithPriority(ctx, nil, 100)
+			conn, err := pool.GetWithPriority(ctx, nil, "", 0)
 			if conn != nil {
 				conn.Recycle()
 			}
@@ -1027,6 +1033,47 @@ func TestPoolLoadShedPropagation(t *testing.T) {
 	for range 5 {
 		<-errs
 	}
+}
+
+func TestPoolValvesOnlyApplyWhileWaiting(t *testing.T) {
+	pool := newLoadShedTestPool(t, 3, testPoolConfig{})
+	conns := make([]*Pooled[*TestConn], 3)
+	for i := range conns {
+		conn, err := pool.GetWithPriority(t.Context(), nil, "same-valve", 0)
+		require.NoError(t, err)
+		conns[i] = conn
+	}
+	for _, conn := range conns {
+		conn.Recycle()
+	}
+}
+
+func TestPoolValveProgressAfterDiscard(t *testing.T) {
+	pool := newLoadShedTestPool(t, 1, newMutableTestPoolConfig(loadshed.ModeShadow))
+	held, err := pool.Get(t.Context(), nil)
+	require.NoError(t, err)
+
+	results := make(chan error, 3)
+	for range 3 {
+		go func() {
+			conn, err := pool.GetWithPriority(t.Context(), nil, "same-valve", 0)
+			if conn != nil {
+				conn.Close()
+				conn.Recycle()
+			}
+			results <- err
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return pool.wait.waiting() == 3
+	}, time.Second, time.Millisecond)
+
+	held.Close()
+	held.Recycle()
+	for range 3 {
+		assert.NoError(t, <-results)
+	}
+	assert.Zero(t, pool.wait.waiting())
 }
 
 func TestExpired(t *testing.T) {

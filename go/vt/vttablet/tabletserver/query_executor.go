@@ -842,7 +842,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	if matchesUndroppableSchema(qre.plan.SchemaQualifiers, qre.tsv.Config().LoadshedOltpRead.UndroppableSchemasValue()) {
 		priority = loadshed.PriorityUndroppable
 	}
-	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}

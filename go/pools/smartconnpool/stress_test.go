@@ -18,6 +18,7 @@ package smartconnpool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -152,7 +153,7 @@ func TestStress(t *testing.T) {
 				tid := int32(p + 1)
 				wg.Go(func() error {
 					for range opsPerWorker {
-						conn, err := pool.get(t.Context(), loadshed.PriorityUndroppable)
+						conn, err := pool.get(t.Context(), "", loadshed.PriorityUndroppable)
 						if err != nil {
 							return err
 						}
@@ -179,4 +180,69 @@ func TestStress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValveWaitlistStress(t *testing.T) {
+	const (
+		capacity = 4
+		waiters  = 60
+	)
+
+	pool := newLoadShedTestPool(t, capacity, testPoolConfig{})
+
+	held := make([]*Pooled[*TestConn], capacity)
+	for i := range held {
+		conn, err := pool.Get(t.Context(), nil)
+		require.NoError(t, err)
+		held[i] = conn
+	}
+
+	results := make(chan error, waiters)
+	cancels := make([]context.CancelFunc, 0, waiters/4)
+	for i := range waiters {
+		ctx := t.Context()
+		if i%4 == 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			cancels = append(cancels, cancel)
+		}
+		valveID := string(rune('a' + i%10))
+		go func() {
+			conn, err := pool.GetWithPriority(ctx, nil, valveID, 0)
+			if conn != nil {
+				conn.Recycle()
+			}
+			results <- err
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return pool.Metrics.WaitCount() == waiters
+	}, time.Second, time.Millisecond)
+
+	first := <-results
+	require.ErrorIs(t, first, ErrPoolLoadShed)
+	for _, cancel := range cancels {
+		cancel()
+	}
+	for _, conn := range held {
+		conn.Recycle()
+	}
+
+	succeeded, cancelled, shed := 0, 0, 1
+	for range waiters - 1 {
+		switch err := <-results; {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, context.Canceled), errors.Is(err, ErrTimeout):
+			cancelled++
+		case errors.Is(err, ErrPoolLoadShed):
+			shed++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	assert.Positive(t, succeeded)
+	assert.Positive(t, cancelled)
+	assert.Positive(t, shed)
+	assert.Zero(t, pool.wait.waiting())
 }
