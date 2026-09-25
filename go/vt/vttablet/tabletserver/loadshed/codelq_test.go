@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testRequest = Request[struct{}]
-type testCoDelQueue = CoDelQueue[struct{}]
+type (
+	testRequest    = Request[struct{}]
+	testCoDelQueue = CoDelQueue[struct{}]
+)
 
 func defaultTestConfig() CoDelConfig {
 	return CoDelConfig{
@@ -246,7 +248,7 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	dropped := elem.Value.(*testRequest)
+	dropped := elem.Value
 	q.lockedRemove(dropped)
 	assert.Equal(t, float64(1), dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
@@ -262,7 +264,7 @@ func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, r2, elem.Value.(*testRequest))
+	assert.Same(t, r2, elem.Value)
 }
 
 func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
@@ -274,7 +276,7 @@ func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, droppable, elem.Value.(*testRequest))
+	assert.Same(t, droppable, elem.Value)
 	q.lockedRemove(droppable)
 	assert.Equal(t, 1, q.lockedLen())
 }
@@ -299,7 +301,7 @@ func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, inf, elem.Value.(*testRequest))
+	assert.Same(t, inf, elem.Value)
 }
 
 func TestCoDelQueue_DropAllInf_NoPanic(t *testing.T) {
@@ -406,7 +408,7 @@ func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	})
 
@@ -435,7 +437,7 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	q.lockedRunTimer(func() bool {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	})
 	assert.Equal(t, 2, q.count)
@@ -493,7 +495,7 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	rec.reset()
@@ -515,7 +517,7 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	q.lockedRunTimer(dropFn)
@@ -809,7 +811,7 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 
@@ -936,7 +938,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 	q.lockedRunTimer(dropFn)

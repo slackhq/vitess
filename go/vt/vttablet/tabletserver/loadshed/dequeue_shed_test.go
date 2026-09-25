@@ -30,7 +30,7 @@ func dropAllFn(q *testCoDelQueue) func() bool {
 		if elem == nil {
 			return false
 		}
-		q.lockedRemove(elem.Value.(*testRequest))
+		q.lockedRemove(elem.Value)
 		return true
 	}
 }

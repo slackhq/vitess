@@ -17,9 +17,10 @@ limitations under the License.
 package loadshed
 
 import (
-	"container/list"
 	"errors"
 	"math"
+
+	"vitess.io/vitess/go/list"
 )
 
 type (
@@ -29,7 +30,7 @@ type (
 	Request[T any] struct {
 		priority           float64
 		codelqEnqueuedAtNs int64
-		codelqElem         *list.Element
+		codelqElem         *list.Element[*Request[T]]
 		valveID            string
 		signaledValue      error
 		value              T
@@ -39,7 +40,7 @@ type (
 		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
 		// node lives in (0..maxPriorityBucket, or overflowBucket). bucketElem is
 		// nil when the request is not indexed (undroppable, dequeued, or removed).
-		bucketElem *list.Element
+		bucketElem *list.Element[*Request[T]]
 		bucketIdx  int
 	}
 )

@@ -197,7 +197,7 @@ func (s *Snake[T]) Len() int {
 func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	count := 0
 	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
-		req := elem.Value.(*Request[T])
+		req := elem.Value
 		if req.signaledValue == nil && match(req.value) {
 			count++
 		}
@@ -255,7 +255,7 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
 	var matched *Request[T]
 	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
-		req := elem.Value.(*Request[T])
+		req := elem.Value
 		if req.signaledValue == nil && match(req.value) {
 			matched = req
 			break

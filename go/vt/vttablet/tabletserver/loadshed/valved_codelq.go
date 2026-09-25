@@ -237,7 +237,7 @@ func (q *ValvedCoDelQueue[T]) lockedDropOne() bool {
 	if elem == nil {
 		return false
 	}
-	q.lockedDrop(elem.Value.(*Request[T]))
+	q.lockedDrop(elem.Value)
 	return true
 }
 
