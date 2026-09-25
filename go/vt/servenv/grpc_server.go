@@ -19,9 +19,11 @@ package servenv
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"math"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -67,6 +69,7 @@ var (
 
 	// GRPC server metrics recorder
 	GRPCServerMetricsRecorder orca.ServerMetricsRecorder
+	orcaUpdateInterval        = 30 * time.Second
 
 	authPlugin Authenticator
 )
@@ -242,6 +245,7 @@ func createGRPCServer() {
 	if gRPCEnableOrcaMetrics {
 		GRPCServerMetricsRecorder = orca.NewServerMetricsRecorder()
 		opts = append(opts, orca.CallMetricsServerOption(GRPCServerMetricsRecorder))
+		opts = append(opts, grpc.StatsHandler(orcaEgressStatsHandler{}))
 	}
 
 	if gRPCInitialConnWindowSize != 0 {
@@ -297,18 +301,19 @@ func interceptors() []grpc.ServerOption {
 	return interceptors.Build()
 }
 
-func serveGRPC() {
+func serveGRPC() (stopOrcaUpdater func()) {
+	stopOrcaUpdater = func() {}
 	if grpccommon.EnableGRPCPrometheus() {
 		grpc_prometheus.Register(GRPCServer)
 		grpc_prometheus.EnableHandlingTimeHistogram()
 	}
 	// skip if not registered
 	if gRPCPort == 0 {
-		return
+		return stopOrcaUpdater
 	}
 
 	if gRPCEnableOrcaMetrics {
-		registerOrca()
+		stopOrcaUpdater = registerOrca()
 	}
 
 	// register reflection to support list calls :)
@@ -335,21 +340,31 @@ func serveGRPC() {
 	//       runs all OnRun() hooks after createGRPCServer() and before
 	//       serveGRPC(). If this was not the case, the binary would crash with
 	//       the error "grpc: Server.RegisterService after Server.Serve".
+	// Capture the server so the goroutine below does not read the GRPCServer
+	// global, which tests swap out between runs.
+	server := GRPCServer
 	go func() {
-		err := GRPCServer.Serve(listener)
-		if err != nil {
+		err := server.Serve(listener)
+		// Serve returns ErrServerStopped when Stop or GracefulStop was called
+		// before it started; that is a clean shutdown, not a startup failure.
+		if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			log.Exitf("Failed to start grpc server: %v", err)
 		}
 	}()
 
 	OnTermSync(func() {
 		log.Info("Initiated graceful stop of gRPC server")
-		GRPCServer.GracefulStop()
+		server.GracefulStop()
 		log.Info("gRPC server stopped")
 	})
+
+	return stopOrcaUpdater
 }
 
-func registerOrca() {
+// registerOrca returns a stop function that terminates the metrics updater
+// goroutine and waits for it to exit, so that once it returns the goroutine
+// no longer touches any package state.
+func registerOrca() (stop func()) {
 	if err := orcaRegisterFunc(GRPCServer, orca.ServiceOptions{
 		// The minimum interval of orca is 30 seconds, unless we enable a testing flag.
 		MinReportingInterval:  30 * time.Second,
@@ -362,14 +377,35 @@ func registerOrca() {
 	GRPCServerMetricsRecorder.SetCPUUtilization(getCpuUsage())
 	GRPCServerMetricsRecorder.SetMemoryUtilization(getMemoryUsage())
 
+	// Capture the recorder so the goroutine below does not read the
+	// GRPCServerMetricsRecorder global, which tests swap out between runs.
+	recorder := GRPCServerMetricsRecorder
+	interval := orcaUpdateInterval
+	stopCh := make(chan struct{})
+	doneCh := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		defer close(doneCh)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			GRPCServerMetricsRecorder.SetCPUUtilization(getCpuUsage())
-			GRPCServerMetricsRecorder.SetMemoryUtilization(getMemoryUsage())
+		lastReport := time.Now()
+		for {
+			select {
+			case now := <-ticker.C:
+				recorder.SetCPUUtilization(getCpuUsage())
+				recorder.SetMemoryUtilization(getMemoryUsage())
+				// Weighted round robin (gRFC A58) weights backends by qps / cpu.
+				recorder.SetQPS(float64(orcaEgressMessages.Swap(0)) / now.Sub(lastReport).Seconds())
+				lastReport = now
+			case <-stopCh:
+				return
+			}
 		}
 	}()
+
+	return sync.OnceFunc(func() {
+		close(stopCh)
+		<-doneCh
+	})
 }
 
 // GRPCCheckServiceMap returns if we should register a gRPC service
