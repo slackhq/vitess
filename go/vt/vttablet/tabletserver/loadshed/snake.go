@@ -231,6 +231,21 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	return true, nil
 }
 
+// RaisePriority makes a queued request inherit priority if it is more important
+// than the request's own (PriorityUndroppable is the most important), so it is
+// shed later. No-op once the request has left the queue. The caller must hold the
+// mutex protecting the Snake.
+func (s *Snake[T]) RaisePriority(req *Request[T], priority float64) {
+	if req.codelqElem == nil || !req.isDroppable() {
+		return
+	}
+	if priority != PriorityUndroppable && priority <= req.priority {
+		return
+	}
+	s.q.lockedRaisePriority(req, priority)
+	s.lockedObserveDropping()
+}
+
 func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value.(*Request[T])

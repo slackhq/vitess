@@ -152,7 +152,7 @@ func TestStress(t *testing.T) {
 				tid := int32(p + 1)
 				wg.Go(func() error {
 					for range opsPerWorker {
-						conn, err := pool.get(t.Context(), loadshed.PriorityUndroppable)
+						conn, err := pool.get(t.Context(), loadshed.PriorityUndroppable, nil)
 						if err != nil {
 							return err
 						}

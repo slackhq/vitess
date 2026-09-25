@@ -1007,7 +1007,7 @@ func TestPoolLoadShedPropagation(t *testing.T) {
 	errs := make(chan error, 6)
 	for range 6 {
 		go func() {
-			conn, err := p.GetWithPriority(ctx, nil, 100)
+			conn, err := p.GetWithPriority(ctx, nil, 100, nil)
 			if conn != nil {
 				conn.Recycle()
 			}

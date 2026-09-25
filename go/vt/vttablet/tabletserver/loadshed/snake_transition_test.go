@@ -49,6 +49,28 @@ func TestSnakeCancelMatching(t *testing.T) {
 	assert.Equal(t, 1, snake.Len())
 }
 
+func TestSnakeRaisePriority(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	low, _ := snake.Enqueue("low", 1)
+	mid, _ := snake.Enqueue("mid", 5)
+
+	snake.RaisePriority(low, 10)
+	assert.Same(t, mid, snake.q.droppable.min())
+
+	snake.RaisePriority(low, 2)
+	assert.Equal(t, float64(10), low.priority)
+
+	snake.RaisePriority(mid, PriorityUndroppable)
+	assert.Equal(t, 1, snake.q.droppableLen)
+	assert.Same(t, low, snake.q.droppable.min())
+
+	removed, _ := snake.Cancel(low)
+	require.True(t, removed)
+	snake.RaisePriority(low, 50)
+	assert.Equal(t, float64(10), low.priority)
+	assert.Nil(t, snake.q.droppable.min())
+}
+
 func TestSnakeDrain(t *testing.T) {
 	snake := NewSnake[string](defaultSnakeConfig())
 	snake.EnqueueExisting("first", PriorityUndroppable)

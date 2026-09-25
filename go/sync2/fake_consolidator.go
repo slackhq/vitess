@@ -126,6 +126,12 @@ func (fr *FakePendingResult) Wait() {
 	fr.WaitCalls++
 }
 
+// SetPriorityRaiser is a no-op.
+func (fr *FakePendingResult) SetPriorityRaiser(PriorityRaiser) {}
+
+// RaisePriority is a no-op.
+func (fr *FakePendingResult) RaisePriority(float64) {}
+
 func (fr *FakePendingResult) HasWaiters() bool {
 	return fr.WaiterCount > 0
 }

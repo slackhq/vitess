@@ -726,7 +726,9 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 
 		if original {
 			defer q.Broadcast()
-			conn, err := qre.getConn()
+			handle := qre.tsv.qe.conns.NewWaitHandle()
+			q.SetPriorityRaiser(handle)
+			conn, err := qre.getConnWithWaitHandle(handle)
 
 			if err != nil {
 				q.SetErr(err)
@@ -750,6 +752,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 			waiterCap := qre.tsv.consolidatorWaiterCap.Load()
 			if waiterCap == 0 || qre.tsv.qe.consolidator.TotalWaiterCount() <= waiterCap {
 				qre.logStats.QuerySources |= tabletenv.QuerySourceConsolidator
+				q.RaisePriority(float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority)))
 				startTime := time.Now()
 				q.Wait()
 				qre.tsv.stats.WaitTimings.Record("Consolidations", startTime)
@@ -829,6 +832,10 @@ func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
 }
 
 func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
+	return qre.getConnWithWaitHandle(nil)
+}
+
+func (qre *QueryExecutor) getConnWithWaitHandle(handle *smartconnpool.WaitHandle[*connpool.Conn]) (*connpool.PooledConn, error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
@@ -836,7 +843,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
-	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority, handle)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}
