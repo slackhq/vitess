@@ -231,6 +231,22 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	return true, nil
 }
 
+func (s *Snake[T]) LockedMaybeInheritPriority(req *Request[T], priority float64) {
+	if req.codelqElem == nil || !req.isDroppable() {
+		return
+	}
+	// priority is already in Snake units; smartconnpool converts it from caller units
+	if priority == PriorityUndroppable {
+		s.q.lockedRemoveDroppable(req)
+		req.priority = priority
+		s.lockedObserveDropping()
+	} else if priority > req.priority {
+		s.q.droppable.remove(req)
+		req.priority = priority
+		s.q.droppable.insert(req)
+	}
+}
+
 func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value

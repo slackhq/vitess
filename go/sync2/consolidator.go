@@ -43,6 +43,8 @@ type PendingResult interface {
 	Wait()
 	HasWaiters() bool
 	AddWaiterCounter(int64)
+	SetWaitEntry(any)
+	WaitEntry() any
 }
 
 type consolidator struct {
@@ -71,6 +73,7 @@ type pendingResult struct {
 	result       *sqltypes.Result
 	err          error
 	waiterCount  atomic.Int64
+	waitEntry    any
 }
 
 // Create adds a query to currently executing queries and acquires a
@@ -118,6 +121,18 @@ func (rs *pendingResult) SetErr(err error) {
 // SetResult sets any result returned by the query.
 func (rs *pendingResult) SetResult(res *sqltypes.Result) {
 	rs.result = res
+}
+
+func (rs *pendingResult) SetWaitEntry(waitEntry any) {
+	rs.consolidator.mu.Lock()
+	defer rs.consolidator.mu.Unlock()
+	rs.waitEntry = waitEntry
+}
+
+func (rs *pendingResult) WaitEntry() any {
+	rs.consolidator.mu.Lock()
+	defer rs.consolidator.mu.Unlock()
+	return rs.waitEntry
 }
 
 func (rs *pendingResult) HasWaiters() bool {

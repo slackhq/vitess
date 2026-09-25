@@ -178,9 +178,9 @@ func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.
 	priority := float64(priorityFromOptions(options, sf.env.Config().TxThrottlerDefaultPriority))
 
 	if options.GetClientFoundRows() {
-		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, priority)
+		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, priority, nil)
 	} else {
-		conn, err = sf.conns.GetWithPriority(ctx, setting, priority)
+		conn, err = sf.conns.GetWithPriority(ctx, setting, priority, nil)
 	}
 	if err != nil {
 		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {

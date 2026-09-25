@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
@@ -64,6 +65,16 @@ type waitlist[C Connection] struct {
 	onWaiterCapReached func()
 }
 
+func (wl *waitlist[C]) maybeInheritPriority(waitEntry any, priority float64) {
+	request, ok := waitEntry.(*loadshed.Request[*list.Element[waiter[C]]])
+	if !ok {
+		return
+	}
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+	wl.snake.LockedMaybeInheritPriority(request, snakePriority(priority))
+}
+
 // waitForConn blocks until a connection with the given Setting is returned by another client,
 // or until the given context expires.
 // If maxWaiters is > 0 and the waitlist already has that many waiters, it returns
@@ -71,7 +82,7 @@ type waitlist[C Connection] struct {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority float64, dryRun bool) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority float64, pending sync2.PendingResult, dryRun bool) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -128,6 +139,9 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
+	if pending != nil && request != nil {
+		pending.SetWaitEntry(request)
+	}
 
 	select {
 	case <-closeChan:

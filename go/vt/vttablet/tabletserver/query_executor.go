@@ -30,6 +30,7 @@ import (
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/pools/smartconnpool"
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/callinfo"
@@ -726,7 +727,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 
 		if original {
 			defer q.Broadcast()
-			conn, err := qre.getConn()
+			conn, err := qre.getConnWithPendingResult(q)
 
 			if err != nil {
 				q.SetErr(err)
@@ -750,6 +751,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 			waiterCap := qre.tsv.consolidatorWaiterCap.Load()
 			if waiterCap == 0 || qre.tsv.qe.consolidator.TotalWaiterCount() <= waiterCap {
 				qre.logStats.QuerySources |= tabletenv.QuerySourceConsolidator
+				qre.tsv.qe.conns.MaybeInheritPriority(q.WaitEntry(), float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority)))
 				startTime := time.Now()
 				q.Wait()
 				qre.tsv.stats.WaitTimings.Record("Consolidations", startTime)
@@ -829,6 +831,10 @@ func (qre *QueryExecutor) execOther() (*sqltypes.Result, error) {
 }
 
 func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
+	return qre.getConnWithPendingResult(nil)
+}
+
+func (qre *QueryExecutor) getConnWithPendingResult(pending sync2.PendingResult) (*connpool.PooledConn, error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.getConn")
 	defer span.Finish()
 
@@ -836,7 +842,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 	priority := float64(priorityFromOptions(qre.options, qre.tsv.config.LoadshedOltpReadDefaultPriority))
-	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority, pending)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}

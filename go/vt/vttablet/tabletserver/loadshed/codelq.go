@@ -275,11 +275,15 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	r.codelqElem = nil
 
 	if r.isDroppable() {
-		q.droppableLen--
-		q.droppable.remove(r)
-		if q.droppableLen == 0 && q.dropping {
-			q.dropping = false
-		}
+		q.lockedRemoveDroppable(r)
+	}
+}
+
+func (q *CoDelQueue[T]) lockedRemoveDroppable(r *Request[T]) {
+	q.droppableLen--
+	q.droppable.remove(r)
+	if q.droppableLen == 0 && q.dropping {
+		q.dropping = false
 	}
 }
 

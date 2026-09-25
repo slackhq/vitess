@@ -126,6 +126,10 @@ func (fr *FakePendingResult) Wait() {
 	fr.WaitCalls++
 }
 
+func (fr *FakePendingResult) SetWaitEntry(any) {}
+
+func (fr *FakePendingResult) WaitEntry() any { return nil }
+
 func (fr *FakePendingResult) HasWaiters() bool {
 	return fr.WaiterCount > 0
 }
