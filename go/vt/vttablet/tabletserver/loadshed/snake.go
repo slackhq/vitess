@@ -126,26 +126,26 @@ func (s *Snake[T]) Drain() []T {
 	}
 }
 
-func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
+func (s *Snake[T]) Cancel(req *Request[T]) bool {
 	if req.elem == nil {
-		return false, nil
+		return false
 	}
 
 	s.queue.Remove(req.elem)
 	req.elem = nil
 	var zero T
 	req.value = zero
-	return true, nil
+	return true
 }
 
-func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+func (s *Snake[T]) CancelMatching(match func(T) bool) bool {
 	for elem := s.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value
 		if match(req.value) {
 			return s.Cancel(req)
 		}
 	}
-	return false, nil
+	return false
 }
 
 func (s *Snake[T]) LockedDropTimerFired() []T {

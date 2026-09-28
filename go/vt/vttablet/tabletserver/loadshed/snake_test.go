@@ -45,9 +45,8 @@ func TestSnakeQueue(t *testing.T) {
 	assert.Equal(t, 2, value)
 	assert.Empty(t, dropped)
 
-	removed, dropped := snake.Cancel(first)
+	removed := snake.Cancel(first)
 	require.True(t, removed)
-	assert.Empty(t, dropped)
 
 	value, ok, dropped = snake.Dequeue()
 	require.True(t, ok)
@@ -55,9 +54,8 @@ func TestSnakeQueue(t *testing.T) {
 	assert.Empty(t, dropped)
 	assert.Zero(t, snake.Len())
 
-	removed, dropped = snake.Cancel(second)
+	removed = snake.Cancel(second)
 	assert.False(t, removed)
-	assert.Empty(t, dropped)
 }
 
 func TestSnakeCountMatching(t *testing.T) {
