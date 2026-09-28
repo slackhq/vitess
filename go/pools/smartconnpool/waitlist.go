@@ -137,8 +137,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
 		// Try to find and remove ourselves from the list.
-		removed, newlyDropped := wl.cancelLocked(elem, request)
-		dropped = append(dropped, newlyDropped...)
+		removed = wl.cancelLocked(elem, request)
 		wl.mu.Unlock()
 		wl.reject(dropped)
 
@@ -158,8 +157,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.mu.Lock()
 		dropped := wl.transitionLocked()
 		// Try to find and remove ourselves from the list.
-		removed, newlyDropped := wl.cancelLocked(elem, request)
-		dropped = append(dropped, newlyDropped...)
+		removed = wl.cancelLocked(elem, request)
 		wl.mu.Unlock()
 		wl.reject(dropped)
 
@@ -299,20 +297,19 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	return true
 }
 
-func (wl *waitlist[C]) cancelLocked(elem *list.Element[waiter[C]], request *loadshed.Request[*list.Element[waiter[C]]]) (bool, []*list.Element[waiter[C]]) {
+func (wl *waitlist[C]) cancelLocked(elem *list.Element[waiter[C]], request *loadshed.Request[*list.Element[waiter[C]]]) bool {
 	if wl.activeMode == loadshed.ModeOff {
 		for current := wl.list.Front(); current != nil; current = current.Next() {
 			if current == elem {
 				wl.list.Remove(elem)
-				return true, nil
+				return true
 			}
 		}
-		return false, nil
+		return false
 	}
 	if request != nil {
-		removed, dropped := wl.snake.Cancel(request)
-		if removed {
-			return true, dropped
+		if wl.snake.Cancel(request) {
+			return true
 		}
 	}
 	return wl.snake.CancelMatching(func(candidate *list.Element[waiter[C]]) bool {
