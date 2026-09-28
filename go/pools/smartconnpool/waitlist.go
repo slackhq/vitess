@@ -46,7 +46,7 @@ type waiter[C Connection] struct {
 type waitlistQueues[C Connection] struct {
 	list          list.List[waiter[C]]
 	snake         *loadshed.Snake[*list.Element[waiter[C]]]
-	mode          func() loadshed.Mode
+	desiredMode   func() loadshed.Mode
 	activeMode    loadshed.Mode
 	transitioning atomic.Bool
 }
@@ -337,12 +337,12 @@ func (wl *waitlist[C]) runShadowTimer() {
 }
 
 func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
-	mode := wl.mode()
-	if mode == wl.activeMode {
+	desiredMode := wl.desiredMode()
+	if desiredMode == wl.activeMode {
 		return nil
 	}
 
-	movesQueues := (wl.activeMode == loadshed.ModeOff) != (mode == loadshed.ModeOff)
+	movesQueues := (wl.activeMode == loadshed.ModeOff) != (desiredMode == loadshed.ModeOff)
 	if movesQueues {
 		wl.transitioning.Store(true)
 		defer wl.transitioning.Store(false)
@@ -350,7 +350,7 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 
 	var dropped []*list.Element[waiter[C]]
 	switch {
-	case wl.activeMode == loadshed.ModeOff && mode != loadshed.ModeOff:
+	case wl.activeMode == loadshed.ModeOff && desiredMode != loadshed.ModeOff:
 		for elem := wl.list.Front(); elem != nil; {
 			next := elem.Next()
 			wl.list.Remove(elem)
@@ -358,12 +358,12 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 			dropped = append(dropped, newlyDropped...)
 			elem = next
 		}
-	case wl.activeMode != loadshed.ModeOff && mode == loadshed.ModeOff:
+	case wl.activeMode != loadshed.ModeOff && desiredMode == loadshed.ModeOff:
 		for _, elem := range wl.snake.Drain() {
 			wl.list.PushBackValue(elem)
 		}
 	}
-	wl.activeMode = mode
+	wl.activeMode = desiredMode
 	return dropped
 }
 
@@ -385,8 +385,8 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	snakeConfig.ShadowTimerFired = wl.runShadowTimer
 
 	wl.waitlistQueues = &waitlistQueues[C]{
-		mode:       snakeConfig.Mode,
-		activeMode: snakeConfig.Mode(),
+		desiredMode: snakeConfig.Mode,
+		activeMode:  snakeConfig.Mode(),
 	}
 	wl.list.Init()
 	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
