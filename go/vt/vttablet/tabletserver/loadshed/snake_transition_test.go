@@ -40,12 +40,11 @@ func TestSnakeCancelMatching(t *testing.T) {
 	snake.Enqueue("first")
 	snake.Enqueue("second")
 
-	removed, dropped := snake.CancelMatching(func(value string) bool {
+	removed := snake.CancelMatching(func(value string) bool {
 		return value == "second"
 	})
 
 	require.True(t, removed)
-	assert.Empty(t, dropped)
 	assert.Equal(t, 1, snake.Len())
 }
 
