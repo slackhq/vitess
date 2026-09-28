@@ -978,13 +978,11 @@ func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	req, dropped := s.Enqueue("value", 0)
 	require.Empty(t, dropped)
 
-	cancelled, dropped := s.Cancel(req)
+	cancelled := s.Cancel(req)
 	require.True(t, cancelled)
-	require.Empty(t, dropped)
 	require.Equal(t, 0, s.q.lockedLen())
-	cancelled, dropped = s.Cancel(req)
+	cancelled = s.Cancel(req)
 	require.False(t, cancelled)
-	require.Empty(t, dropped)
 }
 
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {

@@ -385,9 +385,8 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	require.True(t, s.initialTargetShadow.active)
 
 	now.Store(int64(99 * time.Millisecond))
-	cancelled, dropped := s.Cancel(req)
+	cancelled := s.Cancel(req)
 	require.True(t, cancelled)
-	require.Empty(t, dropped)
 
 	assert.Equal(t, int64(1), histogram.Count())
 	assert.Equal(t, int64(1), histogram.Counts()["5"])
