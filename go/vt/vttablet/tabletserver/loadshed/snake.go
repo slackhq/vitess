@@ -201,9 +201,9 @@ func (s *Snake[T]) Drain() []T {
 	return values
 }
 
-func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
+func (s *Snake[T]) Cancel(req *Request[T]) bool {
 	if req.codelqElem == nil {
-		return false, nil
+		return false
 	}
 	s.q.lockedRemove(req)
 	s.length.Add(-1)
@@ -212,17 +212,17 @@ func (s *Snake[T]) Cancel(req *Request[T]) (bool, []T) {
 	s.lockedObserveInitialTargetShadow(nil)
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
-	return true, nil
+	return true
 }
 
-func (s *Snake[T]) CancelMatching(match func(T) bool) (bool, []T) {
+func (s *Snake[T]) CancelMatching(match func(T) bool) bool {
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value
 		if match(req.value) {
 			return s.Cancel(req)
 		}
 	}
-	return false, nil
+	return false
 }
 
 // lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
