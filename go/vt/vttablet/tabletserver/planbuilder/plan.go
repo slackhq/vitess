@@ -178,6 +178,10 @@ type Plan struct {
 
 	// NeedsReservedConn indicates at a reserved connection is needed to execute this plan
 	NeedsReservedConn bool
+
+	// UsesOnlyLocalTables indicates that the query references at least one table
+	// and every referenced table belongs to the database managed by this tablet.
+	UsesOnlyLocalTables bool
 }
 
 // TableName returns the table name for the plan.
@@ -261,7 +265,35 @@ func Build(env *vtenv.Environment, statement sqlparser.Statement, tables map[str
 	}
 	plan.AllTables = lookupAllTables(statement, tables)
 	plan.Permissions = BuildPermissions(statement)
+	plan.UsesOnlyLocalTables = usesOnlyLocalTables(statement, plan.Permissions, tables, dbName)
 	return plan, nil
+}
+
+func usesOnlyLocalTables(statement sqlparser.Statement, permissions []Permission, tables map[string]*schema.Table, dbName string) bool {
+	hasLocalTable := false
+	for _, permission := range permissions {
+		if permission.TableName == "dual" {
+			continue
+		}
+		if tables[permission.TableName] == nil {
+			return false
+		}
+		hasLocalTable = true
+	}
+	if !hasLocalTable {
+		return false
+	}
+
+	local := true
+	_ = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+		if tn, ok := node.(sqlparser.TableName); ok && tn.Qualifier.NotEmpty() {
+			if !strings.EqualFold(tn.Qualifier.String(), dbName) {
+				local = false
+			}
+		}
+		return true, nil
+	}, statement)
+	return local
 }
 
 // BuildStreaming builds a streaming plan based on the schema.
