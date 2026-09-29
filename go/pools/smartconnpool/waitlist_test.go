@@ -164,6 +164,85 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	}
 }
 
+func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	config := newMutableTestPoolConfig(loadshed.ModeOff)
+	wl.init("", config)
+
+	capReachedCount := atomic.Int32{}
+	wl.onWaiterCapReached = func() {
+		capReachedCount.Add(1)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	const (
+		maxWaiters = 1
+		waiters    = 2
+	)
+
+	errs := make(chan error, waiters)
+	go func() {
+		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+		errs <- err
+	}()
+	require.Eventually(t, func() bool {
+		return wl.waiting() == maxWaiters
+	}, time.Second, 5*time.Millisecond)
+
+	config.setMode(loadshed.ModeEnabled)
+	go func() {
+		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+		errs <- err
+	}()
+
+	require.Eventually(t, func() bool {
+		return wl.waiting() == waiters
+	}, time.Second, 5*time.Millisecond)
+	assert.Zero(t, capReachedCount.Load())
+
+	config.setMode(loadshed.ModeShadow)
+	_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
+	assert.Equal(t, int32(1), capReachedCount.Load())
+
+	cancel()
+	for range waiters {
+		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
+	}
+}
+
+func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
+	wl := waitlist[*TestConn]{}
+	wl.init("", newMutableTestPoolConfig(loadshed.ModeEnabled))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	const (
+		maxWaiters = 1
+		waiters    = 2
+	)
+
+	errs := make(chan error, waiters)
+	for range waiters {
+		go func() {
+			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+			errs <- err
+		}()
+	}
+
+	require.Eventually(t, func() bool {
+		return wl.waiting() == waiters
+	}, time.Second, 5*time.Millisecond)
+
+	cancel()
+	for range waiters {
+		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
+	}
+}
+
 func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
 	wl := waitlist[*TestConn]{}
 	wl.init("", nil)
