@@ -31,7 +31,6 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/servenv"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -121,7 +120,7 @@ func (cp *Pool) Close() {
 // Get returns a connection.
 // You must call Recycle on DBConn once done.
 func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*PooledConn, error) {
-	return cp.GetWithPriority(ctx, setting, loadshed.PriorityUndroppable)
+	return cp.GetWithPriority(ctx, setting, 0)
 }
 
 func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority float64) (*PooledConn, error) {

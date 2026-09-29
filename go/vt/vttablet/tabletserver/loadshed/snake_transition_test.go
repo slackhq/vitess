@@ -69,6 +69,13 @@ func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
 	assert.Equal(t, map[string]int64{"0": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
 }
 
+func TestShedPriorityLabel(t *testing.T) {
+	assert.Equal(t, "0", shedPriorityLabel(PriorityUndroppable))
+	assert.Equal(t, "100", shedPriorityLabel(0))
+	assert.Equal(t, "0", shedPriorityLabel(100))
+	assert.Equal(t, "overflow", shedPriorityLabel(1000))
+}
+
 func TestSnakeShedByPriorityMetric(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
 	exporter := newFakeExporter()
