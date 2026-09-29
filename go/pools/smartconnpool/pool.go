@@ -443,7 +443,7 @@ func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C],
 	return pool.GetWithPriority(ctx, setting, 0)
 }
 
-func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
+func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority int) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
@@ -653,7 +653,7 @@ func (pool *ConnPool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 }
 
 // get returns a pooled connection with no Setting applied
-func (pool *ConnPool[C]) get(ctx context.Context, priority float64) (*Pooled[C], error) {
+func (pool *ConnPool[C]) get(ctx context.Context, priority int) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// best case: if there's a connection in the clean stack, return it right away
@@ -715,7 +715,7 @@ func (pool *ConnPool[C]) get(ctx context.Context, priority float64) (*Pooled[C],
 }
 
 // getWithSetting returns a connection from the pool with the given Setting applied
-func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
+func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, priority int) (*Pooled[C], error) {
 	pool.Metrics.getWithSettingsCount.Add(1)
 
 	var err error
