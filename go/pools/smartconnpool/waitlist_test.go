@@ -86,10 +86,9 @@ func enqueueSnakeWaiter(wl *waitlist[*TestConn], value waiter[*TestConn]) *list.
 }
 
 func TestSnakePriority(t *testing.T) {
-	assert.Equal(t, float64(100), snakePriority(0))
+	assert.Equal(t, loadshed.PriorityUndroppable, snakePriority(0))
 	assert.Equal(t, float64(50), snakePriority(50))
 	assert.Equal(t, float64(0), snakePriority(100))
-	assert.Equal(t, loadshed.PriorityUndroppable, snakePriority(loadshed.PriorityUndroppable))
 }
 
 func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
@@ -105,7 +104,7 @@ func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
 
 	for range waiterCount {
 		go func() {
-			_, err := wait.waitForConn(ctx, nil, poolClose, 0, loadshed.PriorityUndroppable, false)
+			_, err := wait.waitForConn(ctx, nil, poolClose, 0, 0, false)
 
 			if err != nil {
 				expireCount.Add(1)
@@ -128,7 +127,7 @@ func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
 	poolClose := make(chan struct{})
 	errs := make(chan error, 1)
 	go func() {
-		_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, loadshed.PriorityUndroppable, false)
+		_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, 0, false)
 		errs <- err
 	}()
 
@@ -152,7 +151,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 	errs := make(chan error, maxWaiters)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, loadshed.PriorityUndroppable, false)
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, 0, false)
 			errs <- err
 		}()
 
@@ -161,7 +160,7 @@ func TestWaitlistWaiterCap(t *testing.T) {
 		}, 30*time.Second, 5*time.Millisecond)
 	}
 
-	_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, loadshed.PriorityUndroppable, false)
+	_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, 0, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
 	assert.Equal(t, maxWaiters, wl.waiting())
 
@@ -273,7 +272,7 @@ func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	results := make(chan result, 7)
-	for _, priority := range []float64{0, 20, 40, 60, 80, 100, loadshed.PriorityUndroppable} {
+	for _, priority := range []float64{0, 20, 40, 60, 70, 80, 100} {
 		go func() {
 			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, priority, false)
 			results <- result{priority: priority, err: err}
@@ -311,7 +310,7 @@ func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
 		errs := make(chan error, 8)
 		for range 8 {
 			go func() {
-				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, loadshed.PriorityUndroppable, false)
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, 0, false)
 				errs <- err
 			}()
 		}
@@ -349,7 +348,7 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	errs := make(chan error, 3)
 	for range 3 {
 		go func() {
-			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, loadshed.PriorityUndroppable, false)
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, 0, 0, false)
 			errs <- err
 		}()
 	}
@@ -416,7 +415,7 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			errs := make(chan error, 1)
 			go func() {
-				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, loadshed.PriorityUndroppable, false)
+				_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, 0, false)
 				errs <- err
 			}()
 
@@ -447,7 +446,7 @@ func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		result := make(chan waitResult, 1)
 		go func() {
-			conn, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, loadshed.PriorityUndroppable, false)
+			conn, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, 0, false)
 			result <- waitResult{conn: conn, err: err}
 		}()
 
@@ -499,7 +498,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	errs := make(chan error, maxWaiters+1)
 	for i := 1; i <= maxWaiters; i++ {
 		go func() {
-			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, loadshed.PriorityUndroppable, true)
+			_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, 0, true)
 			errs <- err
 		}()
 
@@ -509,7 +508,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	}
 
 	go func() {
-		_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, loadshed.PriorityUndroppable, true)
+		_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, 0, true)
 		errs <- err
 	}()
 

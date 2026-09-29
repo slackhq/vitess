@@ -175,8 +175,8 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 }
 
 func snakePriority(priority float64) float64 {
-	if priority == loadshed.PriorityUndroppable {
-		return priority
+	if priority == 0 {
+		return loadshed.PriorityUndroppable
 	}
 	return float64(sqlparser.MaxPriorityValue) - priority
 }

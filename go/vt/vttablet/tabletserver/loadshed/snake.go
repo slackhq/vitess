@@ -323,8 +323,11 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 // where 0 is most important) rather than the internal Snake value. The caller
 // inverts on the way in (snake = maxPriorityBucket - caller, so lower Snake value
 // sheds first); we invert back here so the label matches what was passed in.
-// Out-of-range/non-integer/PriorityUndroppable values fall in "overflow".
+// Other out-of-range and non-integer values fall in "overflow".
 func shedPriorityLabel(priority float64) string {
+	if priority == PriorityUndroppable {
+		return "0"
+	}
 	if b := bucketFor(priority); b >= 0 {
 		return strconv.Itoa(maxPriorityBucket - b)
 	}
