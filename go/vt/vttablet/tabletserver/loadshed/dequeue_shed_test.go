@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// dropAll is the standard test dropFn: sheds the oldest droppable request.
 func dropAllFn(q *testCoDelQueue) func() bool {
 	return func() bool {
 		elem := q.lockedFindDroppable()
@@ -34,38 +33,26 @@ func dropAllFn(q *testCoDelQueue) func() bool {
 	}
 }
 
-// TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown reproduces the bug where the
-// dequeue path could not re-establish a dropping episode on its own: once
-// lockedDequeue cleared `dropping` (a dequeue whose sojourn was under target), only
-// the backstop timer re-armed it. With the timer effectively off (large
-// MinDropDelay), the dequeue path must run the full CoDel logic and shed stale
-// waiters without a timer fire.
+// Dequeue must advance CoDel because MinDropDelay may postpone the backstop timer.
 func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()
-	cfg.TargetNs = func() int64 { return 1_000_000 }           // 1ms
-	cfg.IntervalNs = func() int64 { return 10_000_000 }        // 10ms
+	cfg.TargetNs = func() int64 { return 1_000_000 }
+	cfg.IntervalNs = func() int64 { return 10_000_000 }
 	cfg.MinDropDelayNs = func() int64 { return 1_000_000_000 } // 1s: backstop off
 	q, rec := newTestQueue(cfg, clock)
 
-	// Build a droppable backlog. The first enqueue arms an episode (slow mode).
 	const backlog = 6
 	for range backlog {
 		testEnqueue(q, true)
 	}
 	assert.True(t, q.dropping, "first droppable enqueue should arm an episode")
 
-	// Simulate the episode teardown that dequeue triggers: a request whose
-	// sojourn is under target clears `dropping` in lockedDequeue. We reproduce the
-	// cleared state directly (this is the state the dequeue path must recover from).
+	// Reproduce the state after a healthy dequeue tears down the episode.
 	q.dropping = false
 
-	// Time passes well beyond target+interval: every remaining waiter is stale and
-	// drops are due. The backstop timer never fires (MinDropDelay=1s).
-	clock.advance(5_000_000_000) // 5s
+	clock.advance(5_000_000_000)
 
-	// Drive the dequeue path repeatedly. It must re-establish
-	// the episode and shed the stale backlog with no timer fire.
 	before := q.droppableLen
 	for i := 0; i < backlog+2; i++ {
 		rec.reset()
