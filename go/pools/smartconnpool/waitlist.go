@@ -49,6 +49,7 @@ type waitlistQueues[C Connection] struct {
 	desiredMode   func() loadshed.Mode
 	activeMode    loadshed.Mode
 	transitioning atomic.Bool
+	waiterCapOn   atomic.Bool
 }
 
 type waitlist[C Connection] struct {
@@ -76,8 +77,8 @@ func (wl *waitlist[C]) maybeInheritPriority(priorityInheritanceKey string, prior
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
 // or until the given context expires.
-// If maxWaiters is > 0 and the waitlist already has that many waiters, it returns
-// ErrPoolWaiterCapReached immediately without blocking.
+// If maxWaiters is > 0, Snake is not enabled, and the waitlist already has that
+// many waiters, it returns ErrPoolWaiterCapReached immediately without blocking.
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
@@ -99,7 +100,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// connections, new connections, settings stacks). There is no point in checking
 	// there when those requests can still get a connection without waiting. The cap
 	// is just for waiting.
-	if wl.aboveWaiterCap(maxWaiters) {
+	if wl.waiterCapOn.Load() && wl.aboveWaiterCap(maxWaiters) && wl.desiredMode() != loadshed.ModeEnabled {
 		if !dryRun {
 			if wl.onWaiterCapReached != nil {
 				wl.onWaiterCapReached()
@@ -119,7 +120,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	// Strict check: the list length may have changed since the lockless check
 	// above, so we verify again while holding the lock to guarantee the cap is
 	// never exceeded.
-	if wl.aboveWaiterCap(maxWaiters) {
+	if wl.activeMode != loadshed.ModeEnabled && wl.aboveWaiterCap(maxWaiters) {
 		if wl.onWaiterCapReached != nil {
 			wl.onWaiterCapReached()
 		}
@@ -352,6 +353,9 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 	if desiredMode == wl.activeMode {
 		return nil
 	}
+	if desiredMode == loadshed.ModeEnabled {
+		wl.waiterCapOn.Store(false)
+	}
 
 	movesQueues := (wl.activeMode == loadshed.ModeOff) != (desiredMode == loadshed.ModeOff)
 	if movesQueues {
@@ -375,6 +379,9 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 		}
 	}
 	wl.activeMode = desiredMode
+	if desiredMode != loadshed.ModeEnabled {
+		wl.waiterCapOn.Store(true)
+	}
 	return dropped
 }
 
@@ -395,10 +402,12 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	snakeConfig.DropTimerFired = wl.runDropTimer
 	snakeConfig.ShadowTimerFired = wl.runShadowTimer
 
+	activeMode := snakeConfig.Mode()
 	wl.waitlistQueues = &waitlistQueues[C]{
 		desiredMode: snakeConfig.Mode,
-		activeMode:  snakeConfig.Mode(),
+		activeMode:  activeMode,
 	}
+	wl.waiterCapOn.Store(activeMode != loadshed.ModeEnabled)
 	wl.list.Init()
 	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
 }
