@@ -26,9 +26,7 @@ import (
 	"vitess.io/vitess/go/stats"
 )
 
-// fakeExporter captures the CounterFuncs and Histograms registered by
-// PublishStats so the test can invoke them directly, without touching global
-// stats registration.
+// fakeExporter avoids global metric registration.
 type fakeExporter struct {
 	counters   map[string]func() int64
 	histograms map[string]*stats.Histogram

@@ -130,11 +130,6 @@ func TestInitialTargetShadow_DeadlineCompletesAtMaximumWindow(t *testing.T) {
 	assert.Equal(t, initialTargetShadowMissNs, outcome.requiredTargetNs)
 }
 
-// TestInitialTargetShadow_ShadowModeRecordsBurst enqueues a droppable request in
-// shadow mode (starting a burst at t=0), then grants it at t=101ms. The grant
-// drains the backlog, so the smallest candidate whose interval (target*20) has
-// not yet elapsed — 10ms, whose 200ms interval outlasts 101ms — is recorded,
-// and nothing is shed.
 func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	var now atomic.Int64
 	cfg := defaultSnakeConfig()
@@ -158,16 +153,13 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	require.True(t, ok)
 	require.Empty(t, dropped)
 
+	// At 101ms, the 5ms candidate has expired but the 10ms candidate has not.
 	assert.Equal(t, int64(1), histogram.Count())
 	assert.Equal(t, int64(1), histogram.Counts()["10"])
 	assert.Equal(t, int64(10), histogram.Total())
 	assert.Equal(t, int64(0), s.ShedCount())
 }
 
-// TestInitialTargetShadow_ShadowModeDoesNotRunCoDel verifies that a droppable
-// enqueue in shadow mode starts a shadow burst but leaves the CoDel controller
-// completely idle: no drop timer, no dropping state, no control-law warming, and
-// no interval/drop-count observations.
 func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Mode = func() Mode { return ModeShadow }
@@ -185,9 +177,6 @@ func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
 	assert.Zero(t, s.dropCount.Count())
 }
 
-// TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow verifies that in off
-// mode a droppable enqueue runs neither the CoDel controller nor the shadow
-// backtest: the queue behaves as a plain FIFO.
 func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Mode = func() Mode { return ModeOff }
@@ -203,9 +192,6 @@ func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
 	assert.Zero(t, s.initialTargetShadowRequired.Count())
 }
 
-// TestInitialTargetShadow_StartsIndependentlyOfControllerCount verifies a burst
-// starts on the backlog transition regardless of the live CoDel count: every
-// fresh burst is modeled as starting fully relaxed.
 func TestInitialTargetShadow_StartsIndependentlyOfControllerCount(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Mode = func() Mode { return ModeShadow }
@@ -218,9 +204,6 @@ func TestInitialTargetShadow_StartsIndependentlyOfControllerCount(t *testing.T) 
 	assert.True(t, s.initialTargetShadow.active)
 }
 
-// TestInitialTargetShadow_StartsAtBacklogTransition verifies a burst is anchored
-// to the request's enqueue time (the backlog-transition instant), not the wall
-// clock at the time the burst logic runs.
 func TestInitialTargetShadow_StartsAtBacklogTransition(t *testing.T) {
 	cfg := defaultSnakeConfig()
 	cfg.Mode = func() Mode { return ModeShadow }
@@ -235,10 +218,6 @@ func TestInitialTargetShadow_StartsAtBacklogTransition(t *testing.T) {
 	assert.Equal(t, int64(time.Millisecond), startedAtNs)
 }
 
-// TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog verifies
-// that if shadow mode is entered while a droppable backlog already exists, no
-// burst is started for the pre-existing backlog (a burst only begins on a fresh
-// 0->1 transition).
 func TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog(t *testing.T) {
 	var enabled atomic.Bool
 	enabled.Store(true)
@@ -260,9 +239,6 @@ func TestInitialTargetShadow_RuntimeDisableDoesNotStartWithExistingBacklog(t *te
 	assert.False(t, s.initialTargetShadow.active)
 }
 
-// TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample verifies that an
-// observation taken while the mode is enabled (not shadow) censors an active
-// burst rather than recording a sample.
 func TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample(t *testing.T) {
 	var enabled atomic.Bool
 	enabled.Store(true)
@@ -283,9 +259,6 @@ func TestInitialTargetShadow_EnabledCoDelCannotRecordShadowSample(t *testing.T) 
 	assert.Equal(t, int64(1), s.initialTargetShadowCensored.Load())
 }
 
-// TestInitialTargetShadow_LeavingShadowForOffCensorsBurst verifies that leaving
-// shadow mode (for off) while a burst is active and the backlog has not drained
-// censors the burst instead of recording a sample.
 func TestInitialTargetShadow_LeavingShadowForOffCensorsBurst(t *testing.T) {
 	var shadowing atomic.Bool
 	shadowing.Store(true)
@@ -307,10 +280,6 @@ func TestInitialTargetShadow_LeavingShadowForOffCensorsBurst(t *testing.T) {
 	assert.Equal(t, int64(1), s.initialTargetShadowCensored.Load())
 }
 
-// TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain verifies that
-// leaving shadow mode clears a lingering waitingForDrain state so a subsequent
-// shadow burst can start. The mode change is observed lazily via
-// lockedObserveInitialTargetShadow (the smartconnpool queue has no RefreshMode).
 func TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain(t *testing.T) {
 	var shadowing atomic.Bool
 	shadowing.Store(true)
@@ -336,9 +305,6 @@ func TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain(t *testing.T) {
 	s.lockedStopShadowTimer()
 }
 
-// TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic verifies the
-// shadow backstop timer completes a burst as a full miss (+Inf) when no traffic
-// resolves it before the maximum window elapses.
 func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) {
 	var now atomic.Int64
 	cfg := defaultSnakeConfig()
@@ -363,10 +329,6 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 	assert.Equal(t, int64(1), histogram.Counts()["inf"])
 }
 
-// TestInitialTargetShadow_FinalCancellationCountsAsDrain verifies that cancelling
-// the last droppable request drains the backlog and completes the burst, hitting
-// the smallest candidate (5ms) whose interval (100ms) has not yet elapsed at
-// t=99ms.
 func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	var now atomic.Int64
 	cfg := defaultSnakeConfig()
