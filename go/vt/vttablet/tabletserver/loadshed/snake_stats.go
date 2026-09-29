@@ -22,10 +22,7 @@ import (
 	"vitess.io/vitess/go/stats"
 )
 
-// statsExporter is the subset of servenv.Exporter that PublishStats needs.
-// Declaring it here (rather than importing the concrete Exporter) keeps the
-// loadshed package free of a servenv dependency and lets tests pass a
-// throwaway exporter.
+// statsExporter prevents a servenv dependency while letting tests capture metric registrations.
 type statsExporter interface {
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
@@ -57,15 +54,8 @@ func durationNanos(ds ...time.Duration) []int64 {
 	return out
 }
 
-// PublishStats registers Snake's counters and distribution histograms, each
-// name prefixed with prefix (e.g. "SnakeOltpRead" or "SnakeDml"). Call this once
-// per Snake instance from engine init — never from NewSnake, which is also
-// exercised by tests where duplicate registration would panic.
-//
-// Each Snake gets its own prefixed metric names rather than a shared "pool"
-// label: both the oltp-read and dml snakes register through the same tablet
-// Exporter, whose single label dimension is already the tablet name, so a
-// shared labeled metric would collide on that one key.
+// PublishStats is separate from NewSnake because duplicate registration panics.
+// Each Snake needs a unique prefix because the Exporter label is already the tablet name.
 func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
