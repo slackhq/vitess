@@ -90,6 +90,7 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 
 	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedOltpRead.ModeValue())
+	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedOlapRead.ModeValue())
 	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedTx.ModeValue())
 
 	postVar(t, tsv, "LoadshedOltpReadMode", "shadow")
@@ -97,6 +98,9 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedTxMode", "enabled")
 	assert.Equal(t, tabletenv.LoadshedModeEnabled, tsv.Config().LoadshedTx.ModeValue())
+
+	postVar(t, tsv, "LoadshedOlapReadTarget", "9ms")
+	assert.Equal(t, 9*time.Millisecond, tsv.Config().LoadshedOlapRead.TargetValue())
 
 	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
 	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedOltpRead.TargetValue())
@@ -121,6 +125,10 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		"LoadshedOltpReadTarget",
 		"LoadshedOltpReadInitialTarget",
 		"LoadshedOltpReadIntervalRatio",
+		"LoadshedOlapReadMode",
+		"LoadshedOlapReadTarget",
+		"LoadshedOlapReadInitialTarget",
+		"LoadshedOlapReadIntervalRatio",
 		"LoadshedTxMode",
 		"LoadshedTxTarget",
 		"LoadshedTxInitialTarget",

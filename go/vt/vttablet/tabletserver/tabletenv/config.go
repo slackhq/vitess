@@ -230,6 +230,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 
 	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead, defaultConfig.LoadshedOltpRead)
 	fs.IntVar(&currentConfig.LoadshedOltpReadDefaultPriority, "loadshed-oltp-read-default-priority", defaultConfig.LoadshedOltpReadDefaultPriority, "Default priority assigned to OLTP reads that lack priority information.")
+	registerLoadshedFlags(fs, "olap-read", &currentConfig.LoadshedOlapRead, defaultConfig.LoadshedOlapRead)
+	fs.IntVar(&currentConfig.LoadshedOlapReadDefaultPriority, "loadshed-olap-read-default-priority", defaultConfig.LoadshedOlapReadDefaultPriority, "Default priority assigned to OLAP reads that lack priority information.")
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -416,6 +418,8 @@ type TabletConfig struct {
 
 	LoadshedOltpRead                LoadshedConfig `json:"-"`
 	LoadshedOltpReadDefaultPriority int            `json:"-"`
+	LoadshedOlapRead                LoadshedConfig `json:"-"`
+	LoadshedOlapReadDefaultPriority int            `json:"-"`
 	LoadshedTx                      LoadshedConfig `json:"-"`
 }
 
@@ -470,6 +474,8 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 		switch poolName {
 		case "ConnPool":
 			config = &c.LoadshedOltpRead
+		case "StreamConnPool":
+			config = &c.LoadshedOlapRead
 		case "TransactionPool", "FoundRowsPool":
 			config = &c.LoadshedTx
 		}
@@ -1066,6 +1072,9 @@ func (c *TabletConfig) Clone() *TabletConfig {
 	if tc.LoadshedOltpRead.mu != nil {
 		tc.LoadshedOltpRead.mu = &sync.RWMutex{}
 	}
+	if tc.LoadshedOlapRead.mu != nil {
+		tc.LoadshedOlapRead.mu = &sync.RWMutex{}
+	}
 	if tc.LoadshedTx.mu != nil {
 		tc.LoadshedTx.mu = &sync.RWMutex{}
 	}
@@ -1075,6 +1084,7 @@ func (c *TabletConfig) Clone() *TabletConfig {
 func (c *TabletConfig) lockLoadshedConfigs() func() {
 	mus := []*sync.RWMutex{
 		c.LoadshedOltpRead.mu,
+		c.LoadshedOlapRead.mu,
 		c.LoadshedTx.mu,
 	}
 	for _, mu := range mus {
@@ -1095,6 +1105,9 @@ func (c *TabletConfig) lockLoadshedConfigs() func() {
 func (c *TabletConfig) InitLoadshedConfig() {
 	if c.LoadshedOltpRead.mu == nil {
 		c.LoadshedOltpRead.mu = &sync.RWMutex{}
+	}
+	if c.LoadshedOlapRead.mu == nil {
+		c.LoadshedOlapRead.mu = &sync.RWMutex{}
 	}
 	if c.LoadshedTx.mu == nil {
 		c.LoadshedTx.mu = &sync.RWMutex{}
@@ -1139,6 +1152,9 @@ func (c *TabletConfig) Verify() error {
 	}
 	if v := c.LoadshedOltpReadDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-oltp-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
+	if v := c.LoadshedOlapReadDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-olap-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
 	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
@@ -1362,6 +1378,8 @@ var defaultConfig = TabletConfig{
 
 	LoadshedOltpRead:                defaultLoadshedConfig(),
 	LoadshedOltpReadDefaultPriority: sqlparser.MaxPriorityValue,
+	LoadshedOlapRead:                defaultLoadshedConfig(),
+	LoadshedOlapReadDefaultPriority: sqlparser.MaxPriorityValue,
 	LoadshedTx:                      defaultLoadshedConfig(),
 }
 
