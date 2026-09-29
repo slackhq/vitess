@@ -17,7 +17,6 @@ limitations under the License.
 package loadshed
 
 import (
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,32 +26,32 @@ import (
 type testDroppableIndex = droppableIndex[struct{}]
 
 // idxReq builds a droppable request at the given priority for index tests.
-func idxReq(priority float64) *testRequest {
+func idxReq(priority int) *testRequest {
 	return newRequest(struct{}{}, priority)
 }
 
-// TestDroppableIndex_Empty: min of an empty index returns nil.
+// TestDroppableIndex_Empty: max of an empty index returns nil.
 func TestDroppableIndex_Empty(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
-	assert.Nil(t, idx.min())
+	assert.Nil(t, idx.max())
 }
 
-// TestDroppableIndex_LowestPriorityWins: min returns the request in the
-// lowest-numbered non-empty bucket.
+// TestDroppableIndex_LowestPriorityWins: max returns the request with the
+// highest numeric priority.
 func TestDroppableIndex_LowestPriorityWins(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
 
-	idx.insert(idxReq(10))
-	r1 := idxReq(1)
-	idx.insert(r1)
+	r10 := idxReq(10)
+	idx.insert(r10)
+	idx.insert(idxReq(1))
 	idx.insert(idxReq(5))
 
-	assert.Same(t, r1, idx.min())
+	assert.Same(t, r10, idx.max())
 }
 
-// TestDroppableIndex_FIFOWithinBucket: among equal priorities, min returns the
+// TestDroppableIndex_FIFOWithinBucket: among equal priorities, max returns the
 // oldest (first inserted) — matching the front-most tie-break of the old scan.
 func TestDroppableIndex_FIFOWithinBucket(t *testing.T) {
 	var idx testDroppableIndex
@@ -63,28 +62,28 @@ func TestDroppableIndex_FIFOWithinBucket(t *testing.T) {
 	idx.insert(first)
 	idx.insert(second)
 
-	assert.Same(t, first, idx.min())
+	assert.Same(t, first, idx.max())
 	idx.remove(first)
-	assert.Same(t, second, idx.min(), "after removing the oldest, next-oldest at same priority is picked")
+	assert.Same(t, second, idx.max(), "after removing the oldest, next-oldest at same priority is picked")
 }
 
-// TestDroppableIndex_RemoveMiddle: removing a request that is not the min is
-// O(1) and leaves min unchanged.
+// TestDroppableIndex_RemoveMiddle: removing a request that is not the max is
+// O(1) and leaves max unchanged.
 func TestDroppableIndex_RemoveMiddle(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
 
-	lowest := idxReq(1)
+	highest := idxReq(1)
 	mid := idxReq(5)
-	idx.insert(lowest)
+	idx.insert(highest)
 	idx.insert(mid)
 
-	idx.remove(mid)
-	assert.Same(t, lowest, idx.min())
+	idx.remove(highest)
+	assert.Same(t, mid, idx.max())
 }
 
 // TestDroppableIndex_RemoveEmptiesBucket: removing the last entry of a bucket
-// clears its occupancy bit so min advances to the next non-empty bucket.
+// clears its occupancy bit so max advances to the next non-empty bucket.
 func TestDroppableIndex_RemoveEmptiesBucket(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
@@ -94,64 +93,27 @@ func TestDroppableIndex_RemoveEmptiesBucket(t *testing.T) {
 	idx.insert(low)
 	idx.insert(high)
 
-	require.Same(t, low, idx.min())
-	idx.remove(low)
-	assert.Same(t, high, idx.min())
+	require.Same(t, high, idx.max())
 	idx.remove(high)
-	assert.Nil(t, idx.min())
+	assert.Same(t, low, idx.max())
+	idx.remove(low)
+	assert.Nil(t, idx.max())
 }
 
-// TestDroppableIndex_Priority0 and Priority99 are the domain boundaries
-// (production Snake priorities are integers in [0,99]).
+// TestDroppableIndex_Priority1 and Priority100 are the droppable domain
+// boundaries.
 func TestDroppableIndex_DomainBoundaries(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
 
-	r99 := idxReq(99)
-	r0 := idxReq(0)
-	idx.insert(r99)
-	idx.insert(r0)
+	r100 := idxReq(100)
+	r1 := idxReq(1)
+	idx.insert(r100)
+	idx.insert(r1)
 
-	assert.Same(t, r0, idx.min())
-	idx.remove(r0)
-	assert.Same(t, r99, idx.min())
-	assert.Equal(t, overflowBucket, bucketFor(100))
-}
-
-// TestDroppableIndex_Overflow: non-integer, out-of-range, and +Inf priorities
-// land in the overflow list. They are only picked when no in-domain bucket has
-// entries, and among overflow entries the oldest wins.
-func TestDroppableIndex_Overflow(t *testing.T) {
-	var idx testDroppableIndex
-	idx.init()
-
-	inf := idxReq(math.Inf(1))
-	idx.insert(inf)
-	assert.Same(t, inf, idx.min(), "overflow entry is picked when it is the only one")
-
-	// An in-domain bucket always outranks overflow (overflow is treated as the
-	// highest/last priority).
-	r5 := idxReq(5)
-	idx.insert(r5)
-	assert.Same(t, r5, idx.min())
-	idx.remove(r5)
-	assert.Same(t, inf, idx.min())
-}
-
-// TestDroppableIndex_OverflowFIFO: multiple overflow entries preserve insertion
-// order.
-func TestDroppableIndex_OverflowFIFO(t *testing.T) {
-	var idx testDroppableIndex
-	idx.init()
-
-	first := idxReq(math.Inf(1))
-	second := idxReq(1000) // out of [0,99] range → overflow
-	idx.insert(first)
-	idx.insert(second)
-
-	assert.Same(t, first, idx.min())
-	idx.remove(first)
-	assert.Same(t, second, idx.min())
+	assert.Same(t, r100, idx.max())
+	idx.remove(r100)
+	assert.Same(t, r1, idx.max())
 }
 
 // TestDroppableIndex_SecondWordBoundary exercises the 64-bit word split in the
@@ -162,9 +124,9 @@ func TestDroppableIndex_SecondWordBoundary(t *testing.T) {
 
 	r64 := idxReq(64)
 	idx.insert(r64)
-	assert.Same(t, r64, idx.min())
+	assert.Same(t, r64, idx.max())
 
 	r63 := idxReq(63)
 	idx.insert(r63)
-	assert.Same(t, r63, idx.min(), "bucket 63 (word 0) outranks bucket 64 (word 1)")
+	assert.Same(t, r64, idx.max(), "priority 64 outranks priority 63")
 }
