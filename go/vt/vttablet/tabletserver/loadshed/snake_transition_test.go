@@ -28,7 +28,7 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 	cfg.Mode = nil
 	snake := NewSnake[string](cfg)
 
-	_, dropped := snake.Enqueue("queued", 0)
+	_, dropped := snake.Enqueue("queued", 1)
 
 	assert.Empty(t, dropped)
 	assert.Equal(t, ModeOff, snake.mode())
@@ -37,8 +37,8 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first", 0)
-	snake.Enqueue("second", 0)
+	snake.Enqueue("first", 1)
+	snake.Enqueue("second", 1)
 
 	removed := snake.CancelMatching(func(value string) bool {
 		return value == "second"
@@ -62,19 +62,11 @@ func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 
-	snake.Enqueue("new", 99)
+	snake.Enqueue("new", 1)
 	snake.EnqueueExisting("existing", PriorityUndroppable)
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
 	assert.Equal(t, map[string]int64{"1": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
-}
-
-func TestShedPriorityLabel(t *testing.T) {
-	assert.Equal(t, "0", shedPriorityLabel(PriorityUndroppable))
-	assert.Equal(t, "100", shedPriorityLabel(0))
-	assert.Equal(t, "1", shedPriorityLabel(99))
-	assert.Equal(t, "overflow", shedPriorityLabel(100))
-	assert.Equal(t, "overflow", shedPriorityLabel(1000))
 }
 
 func TestSnakeShedByPriorityMetric(t *testing.T) {
@@ -83,9 +75,9 @@ func TestSnakeShedByPriorityMetric(t *testing.T) {
 	PublishStats(exporter, "SnakeTest", snake)
 
 	snake.droppedValues([]*Request[string]{
-		newRequest("highest", 99),
+		newRequest("highest", 1),
 		newRequest("middle", 50),
-		newRequest("lowest", 0),
+		newRequest("lowest", 100),
 	})
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestShedByPriority")

@@ -20,33 +20,27 @@ import (
 	"math/bits"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/sqlparser"
 )
 
-// Production Snake priorities are integers in [0, 99], with 0 the
-// lowest/most-shed. We keep one FIFO bucket per integer priority so the
-// lowest-priority droppable request is found in O(1) instead of an O(n) list
-// scan. Anything outside this integer domain (non-integer, out-of-range, or
-// +Inf — which the tests exercise) falls into an overflow list treated as the
-// highest priority (shed last among droppables). Overflow is empty in
-// production, so it is scanned only when non-empty.
+// Snake priorities use the query-priority scale: 0 is undroppable, and
+// priorities 1 through 100 become progressively less important. We keep one
+// FIFO bucket per droppable priority so the least-important request is found in
+// O(1) instead of an O(n) list scan.
 const (
-	maxCallerPriority  = 100
-	maxPriorityBucket  = maxCallerPriority - 1
-	numPriorityBuckets = maxPriorityBucket + 1
-	overflowBucket     = -1
+	numPriorityBuckets = sqlparser.MaxPriorityValue
 )
 
 // droppableIndex indexes the droppable requests currently in the CoDel queue by
-// priority so the lowest-priority (oldest, on ties) can be found in O(1). Each
+// priority so the least-important (oldest, on ties) can be found in O(1). Each
 // bucket is a FIFO list; a 2-word occupancy bitset marks which buckets are
-// non-empty so min() is a trailing-zeros scan rather than a walk.
+// non-empty so max() is a leading-zeros scan rather than a walk.
 //
 // Not safe for concurrent use; the caller holds the queue mutex.
 type droppableIndex[T any] struct {
-	buckets  [numPriorityBuckets]list.List[*Request[T]]
-	overflow list.List[*Request[T]]
+	buckets [numPriorityBuckets]list.List[*Request[T]]
 	// occ is the occupancy bitset over buckets: bit i is set iff buckets[i] is
-	// non-empty. Two words cover 0..127, which spans the 0..99 domain.
+	// non-empty. Two words cover the 100 droppable priority levels.
 	occ [2]uint64
 }
 
@@ -56,32 +50,15 @@ func (idx *droppableIndex[T]) init() {
 	for i := range idx.buckets {
 		idx.buckets[i].Init()
 	}
-	idx.overflow.Init()
 	idx.occ = [2]uint64{}
-}
-
-// bucketFor returns the bucket index for a priority: its integer value when it
-// is an integer in [0, maxPriorityBucket], else overflowBucket.
-func bucketFor(priority float64) int {
-	if priority < 0 || priority > maxPriorityBucket {
-		return overflowBucket
-	}
-	if i := int(priority); float64(i) == priority {
-		return i
-	}
-	return overflowBucket
 }
 
 // insert adds a droppable request to its priority bucket (FIFO). Records the
 // bucket and list node on the request for O(1) removal. Must not be called for
 // an undroppable request.
 func (idx *droppableIndex[T]) insert(req *Request[T]) {
-	b := bucketFor(req.priority)
+	b := req.priority - 1
 	req.bucketIdx = b
-	if b == overflowBucket {
-		req.bucketElem = idx.overflow.PushBack(req)
-		return
-	}
 	req.bucketElem = idx.buckets[b].PushBack(req)
 	idx.occ[b>>6] |= 1 << (uint(b) & 63)
 }
@@ -93,39 +70,31 @@ func (idx *droppableIndex[T]) remove(req *Request[T]) {
 		return
 	}
 	b := req.bucketIdx
-	if b == overflowBucket {
-		idx.overflow.Remove(req.bucketElem)
-	} else {
-		idx.buckets[b].Remove(req.bucketElem)
-		if idx.buckets[b].Len() == 0 {
-			idx.occ[b>>6] &^= 1 << (uint(b) & 63)
-		}
+	idx.buckets[b].Remove(req.bucketElem)
+	if idx.buckets[b].Len() == 0 {
+		idx.occ[b>>6] &^= 1 << (uint(b) & 63)
 	}
 	req.bucketElem = nil
 }
 
-// min returns the lowest-priority droppable request — the oldest in the
-// lowest-numbered non-empty bucket — or nil if the index is empty. In-domain
-// buckets always outrank the overflow list.
-func (idx *droppableIndex[T]) min() *Request[T] {
-	if b := idx.lowestOccupiedBucket(); b >= 0 {
+// max returns the least-important droppable request — the oldest in the
+// highest-numbered non-empty bucket — or nil if the index is empty.
+func (idx *droppableIndex[T]) max() *Request[T] {
+	if b := idx.highestOccupiedBucket(); b >= 0 {
 		return idx.buckets[b].Front().Value
-	}
-	if e := idx.overflow.Front(); e != nil {
-		return e.Value
 	}
 	return nil
 }
 
-// lowestOccupiedBucket returns the lowest non-empty in-domain bucket index, or
-// -1 if all in-domain buckets are empty. O(1) via trailing-zeros on the
+// highestOccupiedBucket returns the highest non-empty bucket index, or -1 if
+// all buckets are empty. O(1) via leading-zeros on the
 // occupancy words.
-func (idx *droppableIndex[T]) lowestOccupiedBucket() int {
-	if idx.occ[0] != 0 {
-		return bits.TrailingZeros64(idx.occ[0])
-	}
+func (idx *droppableIndex[T]) highestOccupiedBucket() int {
 	if idx.occ[1] != 0 {
-		return 64 + bits.TrailingZeros64(idx.occ[1])
+		return 64 + 63 - bits.LeadingZeros64(idx.occ[1])
+	}
+	if idx.occ[0] != 0 {
+		return 63 - bits.LeadingZeros64(idx.occ[0])
 	}
 	return -1
 }

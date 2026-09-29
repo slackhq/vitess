@@ -158,7 +158,7 @@ type (
 		count        int
 		droppableLen int
 		// droppable indexes the droppable queue entries by priority so the
-		// lowest-priority one is found in O(1) rather than an O(n) scan. Kept in
+		// least-important one is found in O(1) rather than an O(n) scan. Kept in
 		// lockstep with droppableLen: every insert/remove pairs with a ++/--.
 		droppable droppableIndex[T]
 
@@ -293,11 +293,11 @@ func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
 	q.lockedRemove(r)
 }
 
-// lockedFindLowestPriorityDroppable finds the lowest-priority droppable
-// element in the queue — the oldest one at the lowest priority present — or nil
-// if none exists. O(1) via the droppable priority index (see droppableIndex).
+// lockedFindLowestPriorityDroppable finds the least-important droppable
+// element in the queue — the oldest one at the highest numeric priority — or
+// nil if none exists. O(1) via the droppable priority index.
 func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element[*Request[T]] {
-	req := q.droppable.min()
+	req := q.droppable.max()
 	if req == nil {
 		return nil
 	}
