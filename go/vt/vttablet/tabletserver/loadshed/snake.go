@@ -37,7 +37,7 @@ type (
 
 	// Snake owns queueing and shedding; its caller owns execution capacity and handoff.
 	Snake[T any] struct {
-		q              *CoDelQueue[T]
+		q              *ValvedCoDelQueue[T]
 		dropTimer      *time.Timer
 		dropTimerArmed bool
 		// Kept separately from dropNextNs to measure scheduler delay.
@@ -68,6 +68,7 @@ type (
 		interval     *stats.Histogram
 		dropCount    *stats.Histogram
 		timerLag     *stats.Histogram
+		valveDepth   *stats.Histogram
 
 		initialTargetShadow         initialTargetShadowTracker
 		initialTargetShadowRequired *stats.Histogram
@@ -82,8 +83,6 @@ const (
 	ModeOff     Mode = "off"
 	ModeShadow  Mode = "shadow"
 	ModeEnabled Mode = "enabled"
-
-	keepDroppableFloor = 4
 )
 
 var epoch = time.Now()
@@ -102,34 +101,42 @@ func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 		interval:     stats.NewHistogram("", "", intervalBucketCutoffs),
 		dropCount:    stats.NewHistogram("", "", lengthBucketCutoffs),
 		timerLag:     stats.NewHistogram("", "", loadshedBucketCutoffs),
+		valveDepth:   stats.NewHistogram("", "", lengthBucketCutoffs),
 
 		initialTargetShadowRequired: stats.NewHistogram("", "", initialTargetShadowMetricCutoffsMs),
 	}
-	s.q = newCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer)
+	s.q = newValvedCoDelQueue[T](cfg.CoDel, defaultClock, s.lockedScheduleDropTimer, s.lockedStopDropTimer, s.mode)
 	return s
 }
 
 func (s *Snake[T]) lockedObserveLengths() {
 	s.queueLen.Add(int64(s.q.lockedLen()))
-	s.droppableLen.Add(int64(s.q.droppableLen))
+	s.droppableLen.Add(int64(s.q.lockedDroppableLen()))
 }
 
-func (s *Snake[T]) Enqueue(value T, priority int, priorityInheritanceKey string) (*Request[T], []T) {
-	return s.enqueue(value, priority, priorityInheritanceKey, true)
+func (s *Snake[T]) lockedObserveValveDepth(valveID string) {
+	s.valveDepth.Add(int64(s.q.lockedValveDepth(valveID)))
 }
 
-func (s *Snake[T]) EnqueueExisting(value T, priority int) (*Request[T], []T) {
-	return s.enqueue(value, priority, "", false)
+func (s *Snake[T]) Enqueue(value T, valveID string, priority int, priorityInheritanceKey string) (*Request[T], []T) {
+	return s.enqueue(value, valveID, priority, priorityInheritanceKey, true)
 }
 
-func (s *Snake[T]) enqueue(value T, priority int, priorityInheritanceKey string, recordAcquire bool) (*Request[T], []T) {
+func (s *Snake[T]) EnqueueExisting(value T, valveID string, priority int) (*Request[T], []T) {
+	return s.enqueue(value, valveID, priority, "", false)
+}
+
+func (s *Snake[T]) enqueue(value T, valveID string, priority int, priorityInheritanceKey string, recordAcquire bool) (*Request[T], []T) {
 	if recordAcquire && s.acquireByPriority != nil {
 		s.acquireByPriority.Add([]string{strconv.Itoa(priority)}, 1)
 	}
-	req := newRequest(value, priority)
-	req.priorityInheritanceKey = priorityInheritanceKey
-	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
+
+	req := s.q.lockedEnqueue(valveID, priority, priorityInheritanceKey)
+	req.value = value
 	s.length.Add(1)
+	if valveID != "" {
+		s.lockedObserveValveDepth(valveID)
+	}
 	s.lockedObserveInitialTargetShadow(nil)
 	s.lockedStartInitialTargetShadow(req)
 	dropped := s.lockedEnqueueAdvance()
@@ -147,7 +154,10 @@ func (s *Snake[T]) DequeueMatching(match func(T) bool) (T, bool, []T) {
 }
 
 func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
-	pending := s.lockedEnqueueAdvance()
+	var pending []*Request[T]
+	if s.q.lockedNeedsAdvance() {
+		pending = s.lockedEnqueueAdvance()
+	}
 	req := s.q.lockedPeek()
 	if match != nil {
 		req = s.q.lockedFind(match)
@@ -156,6 +166,7 @@ func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	ok := false
 	if req != nil {
 		s.q.lockedDequeue(req)
+		req.markDone(outcomeDequeued)
 		s.length.Add(-1)
 		now := s.clockFunc()
 		s.lockedAccrueDropping(now)
@@ -179,10 +190,17 @@ func (s *Snake[T]) Len() int {
 // CountMatching requires the caller to hold the mutex protecting the Snake.
 func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	count := 0
-	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
+	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value
-		if match(req.value) {
+		if !req.done() && match(req.value) {
 			count++
+		}
+	}
+	for _, pending := range s.q.valves {
+		for _, req := range pending {
+			if req != nil && !req.done() && match(req.value) {
+				count++
+			}
 		}
 	}
 	return count
@@ -191,7 +209,7 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 // Drain bypasses shedding and requires the caller to hold the parent mutex.
 func (s *Snake[T]) Drain() []T {
 	s.lockedObserveInitialTargetShadow(nil)
-	s.q.lockedDisable()
+	s.q.lockedRunTimerIf(false)
 
 	values := make([]T, 0, s.Len())
 	for {
@@ -200,6 +218,7 @@ func (s *Snake[T]) Drain() []T {
 			break
 		}
 		s.q.lockedDequeue(req)
+		req.markDone(outcomeDrained)
 		s.length.Add(-1)
 		values = append(values, req.value)
 		var zero T
@@ -212,10 +231,10 @@ func (s *Snake[T]) Drain() []T {
 }
 
 func (s *Snake[T]) Cancel(req *Request[T]) bool {
-	if req.codelqElem == nil {
+	if req.done() {
 		return false
 	}
-	s.q.lockedRemove(req)
+	s.q.lockedCancel(req)
 	s.length.Add(-1)
 	var zero T
 	req.value = zero
@@ -231,51 +250,59 @@ func (s *Snake[T]) LockedMaybeInheritPriority(priorityInheritanceKey string, pri
 		return
 	}
 	if priority == PriorityUndroppable {
-		s.q.lockedRemoveDroppable(req)
+		if req.codelqElem != nil {
+			s.q.codelq.lockedRemoveDroppable(req)
+		}
 		req.priority = priority
 		s.lockedObserveDropping()
 	} else if priority < req.priority {
-		s.q.droppable.remove(req)
+		if req.codelqElem != nil {
+			s.q.codelq.droppable.remove(req)
+		}
 		req.priority = priority
-		s.q.droppable.insert(req)
+		if req.codelqElem != nil {
+			s.q.codelq.droppable.insert(req)
+		}
 	}
 }
 
 func (s *Snake[T]) CancelMatching(match func(T) bool) bool {
-	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
+	var matched *Request[T]
+	for elem := s.q.codelq.queue.Front(); elem != nil; elem = elem.Next() {
 		req := elem.Value
-		if match(req.value) {
-			return s.Cancel(req)
+		if !req.done() && match(req.value) {
+			matched = req
+			break
 		}
 	}
-	return false
+	if matched == nil {
+		for _, pending := range s.q.valves {
+			for _, req := range pending {
+				if req != nil && !req.done() && match(req.value) {
+					matched = req
+					break
+				}
+			}
+			if matched != nil {
+				break
+			}
+		}
+	}
+	if matched == nil {
+		return false
+	}
+	return s.Cancel(matched)
 }
 
 // lockedEnqueueAdvance lets arrivals drive shedding before the backstop timer.
 func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.lockedObserveInitialTargetShadow(nil)
-	if !s.loadsheddingAllowed() {
-		s.q.lockedDisable()
-		return nil
+	enabled := s.loadsheddingAllowed()
+	dropped := s.q.lockedRunTimerIf(enabled)
+	if enabled {
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
 	}
-
-	s.q.lockedEnable()
-	var dropped []*Request[T]
-	s.q.lockedRunTimer(func() bool {
-		if s.q.droppableLen <= keepDroppableFloor {
-			return false
-		}
-		elem := s.q.lockedFindLowestPriorityDroppable()
-		if elem == nil {
-			return false
-		}
-		req := elem.Value
-		s.q.lockedRemove(req)
-		dropped = append(dropped, req)
-		return true
-	})
-	s.interval.Add(s.q.lockedCurrentInterval())
-	s.dropCount.Add(int64(s.q.count))
 	return dropped
 }
 
@@ -372,7 +399,12 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 		s.timerLag.Add(0)
 	}
 	s.lockedObserveInitialTargetShadow(nil)
-	dropped := s.lockedEnqueueAdvance()
+	enabled := s.loadsheddingAllowed()
+	dropped := s.q.lockedRunTimerIf(enabled)
+	if enabled {
+		s.interval.Add(s.q.lockedCurrentInterval())
+		s.dropCount.Add(int64(s.q.lockedCount()))
+	}
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return s.droppedValues(dropped)
@@ -381,7 +413,7 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 func (s *Snake[T]) lockedStartInitialTargetShadow(req *Request[T]) {
 	if !req.isDroppable() ||
 		req.codelqElem == nil ||
-		s.q.droppableLen != 1 ||
+		s.q.lockedDroppableLen() != 1 ||
 		s.initialTargetShadow.active ||
 		s.initialTargetShadow.waitingForDrain ||
 		s.mode() != ModeShadow {
@@ -414,7 +446,7 @@ func (s *Snake[T]) lockedObserveInitialTargetShadowAt(nowNs int64, sojournNs *in
 	outcome := s.initialTargetShadow.observe(
 		nowNs,
 		sojournNs,
-		s.q.droppableLen == 0,
+		s.q.lockedDroppableLen() == 0,
 	)
 	if outcome.completed {
 		s.initialTargetShadowRequired.Add(initialTargetShadowMetricValueMs(outcome.requiredTargetNs))
@@ -428,7 +460,7 @@ func (s *Snake[T]) lockedLeaveInitialTargetShadow(nowNs int64) {
 	}
 
 	if s.initialTargetShadow.active &&
-		(s.q.droppableLen == 0 ||
+		(s.q.lockedDroppableLen() == 0 ||
 			nowNs >= s.initialTargetShadow.startedAtNs+initialTargetShadowMaxIntervalNs) {
 		s.lockedObserveInitialTargetShadowAt(nowNs, nil)
 		s.initialTargetShadow.reset(false)

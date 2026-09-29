@@ -31,6 +31,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -120,10 +121,10 @@ func (cp *Pool) Close() {
 // Get returns a connection.
 // You must call Recycle on DBConn once done.
 func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*PooledConn, error) {
-	return cp.GetWithPriority(ctx, setting, 0, "")
+	return cp.GetWithPriority(ctx, setting, "", loadshed.PriorityUndroppable, "")
 }
 
-func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority int, priorityInheritanceKey string) (*PooledConn, error) {
+func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, valveID string, priority int, priorityInheritanceKey string) (*PooledConn, error) {
 	span, ctx := trace.NewSpan(ctx, "Pool.Get")
 	defer span.Finish()
 
@@ -146,7 +147,7 @@ func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Sett
 	}
 
 	start := time.Now()
-	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, priority, priorityInheritanceKey)
+	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, valveID, priority, priorityInheritanceKey)
 	if err != nil {
 		return nil, err
 	}

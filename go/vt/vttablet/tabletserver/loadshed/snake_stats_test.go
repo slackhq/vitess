@@ -58,6 +58,21 @@ func (e *fakeExporter) NewCountersWithMultiLabels(name, help string, labels []st
 	return c
 }
 
+func TestSnakeValveDepthMetric(t *testing.T) {
+	snake := NewSnake[string](SnakeConfig{})
+	exporter := newFakeExporter()
+	PublishStats(exporter, "SnakeTest", snake)
+	histogram := exporter.histograms["SnakeTestValveDepthObserved"]
+	require.NotNil(t, histogram)
+
+	snake.Enqueue("first", "valve", 0, "")
+	snake.Enqueue("second", "valve", 0, "")
+	snake.Enqueue("third", "valve", 0, "")
+
+	assert.Equal(t, int64(3), histogram.Count())
+	assert.Equal(t, int64(3), histogram.Total())
+}
+
 func newStatsTestSnake() (*Snake[string], *testClock, *fakeExporter) {
 	clock := newTestClock()
 	clock.now = 1
@@ -68,7 +83,7 @@ func newStatsTestSnake() (*Snake[string], *testClock, *fakeExporter) {
 	cfg.CoDel.MinDropDelayNs = func() int64 { return 1 }
 	snake := NewSnake[string](cfg)
 	snake.clockFunc = clock.nowFunc
-	snake.q.nowNs = clock.nowFunc
+	snake.q.codelq.nowNs = clock.nowFunc
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 	return snake, clock, exporter
@@ -89,25 +104,26 @@ func TestPublishStatsRegistersIsolatedMetrics(t *testing.T) {
 			"DropCountObserved",
 			"DropTimerLagNs",
 			"InitialTargetShadow20xMs",
+			"ValveDepthObserved",
 		} {
 			assert.Contains(t, exporter.histograms, prefix+suffix)
 		}
 	}
 	assert.Len(t, exporter.counters, 6)
-	assert.Len(t, exporter.histograms, 14)
+	assert.Len(t, exporter.histograms, 16)
 }
 
 func TestPublishStatsShedCountTracksDropsNotCancellation(t *testing.T) {
 	snake, clock, exporter := newStatsTestSnake()
 	shedCount := exporter.counters["SnakeTestShedCount"]
 
-	cancelled, _ := snake.Enqueue("cancelled", 1, "")
+	cancelled, _ := snake.Enqueue("cancelled", "", 1, "")
 	removed := snake.Cancel(cancelled)
 	require.True(t, removed)
 	assert.Zero(t, shedCount())
 
 	for range keepDroppableFloor + 2 {
-		snake.Enqueue("", 1, "")
+		snake.Enqueue("", "", 1, "")
 	}
 	clock.advance(20)
 	dropped := snake.LockedDropTimerFired()
@@ -119,8 +135,8 @@ func TestPublishStatsShedCountTracksDropsNotCancellation(t *testing.T) {
 func TestPublishStatsRecordsQueueObservations(t *testing.T) {
 	snake, clock, exporter := newStatsTestSnake()
 
-	snake.EnqueueExisting("existing", PriorityUndroppable)
-	snake.Enqueue("droppable", 1, "")
+	snake.EnqueueExisting("existing", "", PriorityUndroppable)
+	snake.Enqueue("droppable", "", 1, "")
 	clock.advance(25)
 	value, ok, _ := snake.Dequeue()
 
@@ -143,6 +159,7 @@ func TestNewSnakeInitializesDistributionMetrics(t *testing.T) {
 		snake.dropCount,
 		snake.timerLag,
 		snake.initialTargetShadowRequired,
+		snake.valveDepth,
 	}, nil)
 }
 
@@ -162,21 +179,21 @@ func TestDroppingNanosIntegratesExactly(t *testing.T) {
 	snake, clock, _ := newStatsTestSnake()
 
 	clock.now = 100
-	snake.q.dropping = true
+	snake.q.codelq.dropping = true
 	snake.lockedObserveDropping()
 	clock.now = 250
 	assert.Equal(t, int64(150), snake.DroppingNanos())
 
 	clock.now = 400
-	snake.q.dropping = false
+	snake.q.codelq.dropping = false
 	snake.lockedObserveDropping()
 	assert.Equal(t, int64(300), snake.DroppingNanos())
 
 	clock.now = 1000
-	snake.q.dropping = true
+	snake.q.codelq.dropping = true
 	snake.lockedObserveDropping()
 	clock.now = 1100
-	snake.q.dropping = false
+	snake.q.codelq.dropping = false
 	snake.lockedObserveDropping()
 	assert.Equal(t, int64(400), snake.DroppingNanos())
 }

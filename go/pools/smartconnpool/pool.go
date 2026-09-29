@@ -28,6 +28,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -440,10 +441,10 @@ func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle
 func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C], error) {
-	return pool.GetWithPriority(ctx, setting, 0, "")
+	return pool.GetWithPriority(ctx, setting, "", loadshed.PriorityUndroppable, "")
 }
 
-func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
+func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, valveID string, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
@@ -451,9 +452,9 @@ func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, 
 		return nil, ErrConnPoolClosed
 	}
 	if setting == nil {
-		return pool.get(ctx, priority, priorityInheritanceKey)
+		return pool.get(ctx, valveID, priority, priorityInheritanceKey)
 	}
-	return pool.getWithSetting(ctx, setting, priority, priorityInheritanceKey)
+	return pool.getWithSetting(ctx, setting, valveID, priority, priorityInheritanceKey)
 }
 
 func (pool *ConnPool[C]) MaybeInheritPriority(priorityInheritanceKey string, priority int) {
@@ -657,7 +658,7 @@ func (pool *ConnPool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 }
 
 // get returns a pooled connection with no Setting applied
-func (pool *ConnPool[C]) get(ctx context.Context, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
+func (pool *ConnPool[C]) get(ctx context.Context, valveID string, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// best case: if there's a connection in the clean stack, return it right away
@@ -685,7 +686,7 @@ func (pool *ConnPool[C]) get(ctx context.Context, priority int, priorityInherita
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, uint(pool.config.maxWaiters.Load()), priority, priorityInheritanceKey, pool.config.waiterCapDryRun.Load())
+		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, uint(pool.config.maxWaiters.Load()), valveID, priority, priorityInheritanceKey, pool.config.waiterCapDryRun.Load())
 		if err != nil {
 			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
@@ -719,7 +720,7 @@ func (pool *ConnPool[C]) get(ctx context.Context, priority int, priorityInherita
 }
 
 // getWithSetting returns a connection from the pool with the given Setting applied
-func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
+func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, valveID string, priority int, priorityInheritanceKey string) (*Pooled[C], error) {
 	pool.Metrics.getWithSettingsCount.Add(1)
 
 	var err error
@@ -751,7 +752,7 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting, p
 			return nil, ErrConnPoolClosed
 		}
 
-		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, uint(pool.config.maxWaiters.Load()), priority, priorityInheritanceKey, pool.config.waiterCapDryRun.Load())
+		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, uint(pool.config.maxWaiters.Load()), valveID, priority, priorityInheritanceKey, pool.config.waiterCapDryRun.Load())
 		if err != nil {
 			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
