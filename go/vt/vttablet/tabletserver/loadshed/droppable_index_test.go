@@ -101,20 +101,21 @@ func TestDroppableIndex_RemoveEmptiesBucket(t *testing.T) {
 	assert.Nil(t, idx.min())
 }
 
-// TestDroppableIndex_Priority0 and Priority100 are the domain boundaries
-// (production priorities are integers in [0,100]).
+// TestDroppableIndex_Priority0 and Priority99 are the domain boundaries
+// (production Snake priorities are integers in [0,99]).
 func TestDroppableIndex_DomainBoundaries(t *testing.T) {
 	var idx testDroppableIndex
 	idx.init()
 
-	r100 := idxReq(100)
+	r99 := idxReq(99)
 	r0 := idxReq(0)
-	idx.insert(r100)
+	idx.insert(r99)
 	idx.insert(r0)
 
 	assert.Same(t, r0, idx.min())
 	idx.remove(r0)
-	assert.Same(t, r100, idx.min())
+	assert.Same(t, r99, idx.min())
+	assert.Equal(t, overflowBucket, bucketFor(100))
 }
 
 // TestDroppableIndex_Overflow: non-integer, out-of-range, and +Inf priorities
@@ -144,7 +145,7 @@ func TestDroppableIndex_OverflowFIFO(t *testing.T) {
 	idx.init()
 
 	first := idxReq(math.Inf(1))
-	second := idxReq(1000) // out of [0,100] range → overflow
+	second := idxReq(1000) // out of [0,99] range → overflow
 	idx.insert(first)
 	idx.insert(second)
 

@@ -263,7 +263,7 @@ func TestWaitlistShedsQueuedRequests(t *testing.T) {
 
 func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 	type result struct {
-		priority float64
+		priority int
 		err      error
 	}
 
@@ -272,7 +272,7 @@ func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	results := make(chan result, 7)
-	for _, priority := range []float64{0, 20, 40, 60, 70, 80, 100} {
+	for _, priority := range []int{0, 20, 40, 60, 70, 80, 100} {
 		go func() {
 			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), 0, priority, false)
 			results <- result{priority: priority, err: err}
@@ -285,13 +285,13 @@ func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	wl.runDropTimer()
 
-	dropped := make([]float64, 0, 2)
+	dropped := make([]int, 0, 2)
 	for range 2 {
 		result := <-results
 		require.ErrorIs(t, result.err, ErrPoolLoadShed)
 		dropped = append(dropped, result.priority)
 	}
-	assert.ElementsMatch(t, []float64{80, 100}, dropped)
+	assert.ElementsMatch(t, []int{80, 100}, dropped)
 
 	cancel()
 	for range 5 {
