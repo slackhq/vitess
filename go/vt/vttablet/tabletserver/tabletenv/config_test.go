@@ -347,10 +347,13 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	cfg := NewDefaultConfig()
 
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.ModeValue())
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOlapRead.ModeValue())
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
+	assert.NotZero(t, cfg.LoadshedOlapRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
 	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOltpReadDefaultPriority)
+	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOlapReadDefaultPriority)
 }
 
 func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
@@ -358,11 +361,14 @@ func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
 	cfg.InitLoadshedConfig()
 
 	oltp := cfg.LoadshedConfig("ConnPool")
+	olap := cfg.LoadshedConfig("StreamConnPool")
 	tx := cfg.LoadshedConfig("TransactionPool")
 
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOltpRead.ModeValue())
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOlapRead.ModeValue())
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.Equal(t, loadshed.ModeOff, oltp.Mode())
+	assert.Equal(t, loadshed.ModeOff, olap.Mode())
 	assert.Equal(t, loadshed.ModeOff, tx.Mode())
 }
 
@@ -377,6 +383,7 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.Equal(t, LoadshedModeShadow, cfg.LoadshedOltpRead.ModeValue())
 	assert.True(t, cfg.LoadshedOltpRead.IsShadow())
 	assert.False(t, cfg.LoadshedOltpRead.IsEnabled())
+	assert.Equal(t, LoadshedModeOff, cfg.LoadshedOlapRead.ModeValue())
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedTx.TargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTargetValue(), cfg.LoadshedTx.InitialTargetValue())
@@ -431,6 +438,9 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	require.NoError(t, fs.Set("loadshed-oltp-read-default-priority", "17"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
+	require.NoError(t, fs.Set("loadshed-olap-read-mode", "enabled"))
+	require.NoError(t, fs.Set("loadshed-olap-read-default-priority", "19"))
+	require.NoError(t, fs.Set("loadshed-olap-read-target", "9ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
@@ -438,6 +448,9 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	assert.Equal(t, 17, currentConfig.LoadshedOltpReadDefaultPriority)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
+	assert.Equal(t, LoadshedModeEnabled, currentConfig.LoadshedOlapRead.Mode)
+	assert.Equal(t, 19, currentConfig.LoadshedOlapReadDefaultPriority)
+	assert.Equal(t, 9*time.Millisecond, currentConfig.LoadshedOlapRead.Target)
 	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedTx.Mode)
 	assert.Equal(t, 11*time.Millisecond, currentConfig.LoadshedTx.Target)
 	assert.Equal(t, 23*time.Millisecond, currentConfig.LoadshedTx.InitialTarget)
@@ -446,6 +459,7 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 func TestLoadshedConfigWiring(t *testing.T) {
 	cfg := NewDefaultConfig()
 	oltp := cfg.LoadshedConfig("ConnPool")
+	olap := cfg.LoadshedConfig("StreamConnPool")
 	tx := cfg.LoadshedConfig("TransactionPool")
 	foundRows := cfg.LoadshedConfig("FoundRowsPool")
 	unknown := cfg.LoadshedConfig("UnknownPool")
@@ -455,6 +469,8 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, cfg.LoadshedOltpRead.EffectiveInitialTargetValue().Nanoseconds(), oltp.CoDel.InitialTargetNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.TargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.IntervalNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.EffectiveInitialTargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, loadshed.ModeOff, olap.Mode())
+	assert.Equal(t, cfg.LoadshedOlapRead.TargetValue().Nanoseconds(), olap.CoDel.TargetNs())
 	assert.Equal(t, loadshed.ModeOff, tx.Mode())
 	assert.Equal(t, cfg.LoadshedTx.TargetValue().Nanoseconds(), tx.CoDel.TargetNs())
 	assert.Equal(t, tx.Mode(), foundRows.Mode())
@@ -466,6 +482,8 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	cfg.LoadshedOltpRead.SetTarget(10 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetInitialTarget(15 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetIntervalRatio(5)
+	require.NoError(t, cfg.LoadshedOlapRead.SetMode("enabled"))
+	cfg.LoadshedOlapRead.SetTarget(12 * time.Millisecond)
 	require.NoError(t, cfg.LoadshedTx.SetMode("shadow"))
 	cfg.LoadshedTx.SetTarget(20 * time.Millisecond)
 
@@ -474,6 +492,8 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, (15 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialTargetNs())
 	assert.Equal(t, (50 * time.Millisecond).Nanoseconds(), oltp.CoDel.IntervalNs())
 	assert.Equal(t, (75 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, loadshed.ModeEnabled, olap.Mode())
+	assert.Equal(t, (12 * time.Millisecond).Nanoseconds(), olap.CoDel.TargetNs())
 	assert.Equal(t, loadshed.ModeShadow, tx.Mode())
 	assert.Equal(t, (20 * time.Millisecond).Nanoseconds(), tx.CoDel.TargetNs())
 	assert.Equal(t, loadshed.ModeShadow, foundRows.Mode())
@@ -482,6 +502,10 @@ func TestLoadshedConfigWiring(t *testing.T) {
 func TestVerifyLoadshedPriority(t *testing.T) {
 	cfg := NewDefaultConfig()
 	cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue + 1
+	require.Error(t, cfg.Verify())
+
+	cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue
+	cfg.LoadshedOlapReadDefaultPriority = -1
 	require.Error(t, cfg.Verify())
 }
 

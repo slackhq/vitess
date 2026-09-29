@@ -210,13 +210,13 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
-	case "LoadshedOltpReadMode", "LoadshedTxMode":
+	case "LoadshedOltpReadMode", "LoadshedOlapReadMode", "LoadshedTxMode":
 		err = setStringVal(loadshedConfig(tsv, varname).SetMode)
-	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
+	case "LoadshedOltpReadTarget", "LoadshedOlapReadTarget", "LoadshedTxTarget":
 		err = setDurationVal(loadshedConfig(tsv, varname).SetTarget)
-	case "LoadshedOltpReadInitialTarget", "LoadshedTxInitialTarget":
+	case "LoadshedOltpReadInitialTarget", "LoadshedOlapReadInitialTarget", "LoadshedTxInitialTarget":
 		err = setDurationVal(loadshedConfig(tsv, varname).SetInitialTarget)
-	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
+	case "LoadshedOltpReadIntervalRatio", "LoadshedOlapReadIntervalRatio", "LoadshedTxIntervalRatio":
 		err = setFloat64Val(loadshedConfig(tsv, varname).SetIntervalRatio)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
@@ -274,6 +274,7 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
+	addLoadshedVars("LoadshedOlapRead", &tsv.Config().LoadshedOlapRead)
 	addLoadshedVars("LoadshedTx", &tsv.Config().LoadshedTx)
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
@@ -288,10 +289,14 @@ func getVars(tsv *TabletServer) []envValue {
 }
 
 func loadshedConfig(tsv *TabletServer, varname string) *tabletenv.LoadshedConfig {
-	if strings.HasPrefix(varname, "LoadshedTx") {
+	switch {
+	case strings.HasPrefix(varname, "LoadshedOlapRead"):
+		return &tsv.Config().LoadshedOlapRead
+	case strings.HasPrefix(varname, "LoadshedTx"):
 		return &tsv.Config().LoadshedTx
+	default:
+		return &tsv.Config().LoadshedOltpRead
 	}
-	return &tsv.Config().LoadshedOltpRead
 }
 
 func respondWithJSON(w http.ResponseWriter, vars []envValue, msg string) {
