@@ -41,3 +41,21 @@ func TestGetConnPriority(t *testing.T) {
 	qre.plan = &TabletPlan{Plan: &planbuilder.Plan{UsesOnlyLocalTables: false}}
 	assert.Equal(t, loadshed.PriorityUndroppable, qre.getConnPriority())
 }
+
+func TestGetStreamConnPriority(t *testing.T) {
+	qre := &QueryExecutor{
+		options: &querypb.ExecuteOptions{Priority: "17"},
+		tsv: &TabletServer{
+			config: &tabletenv.TabletConfig{LoadshedOlapReadDefaultPriority: 100},
+		},
+	}
+
+	qre.plan = &TabletPlan{Plan: &planbuilder.Plan{UsesOnlyLocalTables: true}}
+	assert.Equal(t, 17, qre.getStreamConnPriority())
+
+	qre.plan = &TabletPlan{Plan: &planbuilder.Plan{UsesOnlyLocalTables: false}}
+	assert.Equal(t, loadshed.PriorityUndroppable, qre.getStreamConnPriority())
+
+	qre.plan = nil
+	assert.Equal(t, loadshed.PriorityUndroppable, qre.getStreamConnPriority())
+}

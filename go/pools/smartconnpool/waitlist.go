@@ -397,6 +397,8 @@ func (wl *waitlist[C]) registerStats(exporter *servenv.Exporter, poolName string
 	switch poolName {
 	case "ConnPool":
 		statsName = "SnakeOltpRead"
+	case "StreamConnPool":
+		statsName = "SnakeOlapRead"
 	case "TransactionPool":
 		statsName = "SnakeDml"
 	case "FoundRowsPool":
