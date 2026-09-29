@@ -1061,27 +1061,11 @@ func (c *TabletConfig) Clone() *TabletConfig {
 	if tc.DB != nil {
 		tc.DB = c.DB.Clone()
 	}
-	var oltpMu *sync.RWMutex
-	if c.LoadshedOltpRead.mu != nil {
-		oltpMu = &sync.RWMutex{}
+	if tc.LoadshedOltpRead.mu != nil {
+		tc.LoadshedOltpRead.mu = &sync.RWMutex{}
 	}
-	tc.LoadshedOltpRead = LoadshedConfig{
-		mu:            oltpMu,
-		Mode:          c.LoadshedOltpRead.Mode,
-		Target:        c.LoadshedOltpRead.Target,
-		InitialTarget: c.LoadshedOltpRead.InitialTarget,
-		IntervalRatio: c.LoadshedOltpRead.IntervalRatio,
-	}
-	var txMu *sync.RWMutex
-	if c.LoadshedTx.mu != nil {
-		txMu = &sync.RWMutex{}
-	}
-	tc.LoadshedTx = LoadshedConfig{
-		mu:            txMu,
-		Mode:          c.LoadshedTx.Mode,
-		Target:        c.LoadshedTx.Target,
-		InitialTarget: c.LoadshedTx.InitialTarget,
-		IntervalRatio: c.LoadshedTx.IntervalRatio,
+	if tc.LoadshedTx.mu != nil {
+		tc.LoadshedTx.mu = &sync.RWMutex{}
 	}
 	return &tc
 }
