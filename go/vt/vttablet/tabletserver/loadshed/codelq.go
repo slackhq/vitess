@@ -148,9 +148,7 @@ type (
 		EasingLogBase func() float64
 	}
 
-	// CoDelQueue implements the CoDel (Controlled Delay) load-shedding
-	// algorithm. All methods are prefixed locked* and assume the caller holds
-	// the mutex, which is defined in the files for the higher-level structure
+	// CoDelQueue methods prefixed locked* require the higher-level owner to hold its mutex.
 	CoDelQueue[T any] struct {
 		queue        *list.List[*Request[T]]
 		dropping     bool
@@ -247,7 +245,6 @@ func (q *CoDelQueue[T]) lockedEnable() {
 	q.lockedArmDropTimer()
 }
 
-// lockedPeek returns the first waiting request in the queue.
 func (q *CoDelQueue[T]) lockedPeek() *Request[T] {
 	first := q.queue.Front()
 	if first == nil {
@@ -266,7 +263,6 @@ func (q *CoDelQueue[T]) lockedFind(match func(T) bool) *Request[T] {
 	return q.lockedPeek()
 }
 
-// lockedRemove removes a specific request from the queue.
 func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	if r.codelqElem == nil {
 		return
@@ -407,7 +403,6 @@ func (q *CoDelQueue[T]) lockedTargetNs() int64 {
 	return q.cfg.TargetNs()
 }
 
-// lockedCurrentInterval returns the current interval for the control law.
 // The interval is compressed whenever count > 1 — both in the dropping state
 // and during easing (!dropping, count > 1), so that the ease-out timer fires
 // at progressively longer intervals as the count decays toward 1.

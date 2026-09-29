@@ -49,10 +49,7 @@ type Stats struct {
 
 	QueryTimingsByTabletType *servenv.TimingsWrapper // Query timings split by current tablet type
 
-	// QueryTimingsByErrorCode splits query timings by result vterrors code (e.g.
-	// OK for successful queries, RESOURCE_EXHAUSTED for load-shed rejections), so
-	// successful-request latency percentiles can be measured in isolation from
-	// fast-failing shed requests.
+	// Successful queries are recorded under OK.
 	QueryTimingsByErrorCode *servenv.TimingsWrapper
 
 	ConsolidatorWaiterCapRejectCount *stats.Counter
