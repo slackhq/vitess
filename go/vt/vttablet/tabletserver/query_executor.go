@@ -87,6 +87,8 @@ var (
 		},
 	}
 	errTxThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
+
+	// Reuse these errors because vterrors.Errorf captures a stack on every call.
 	errLoadShed    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "load shed")
 	errDMLLoadShed = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "dml load shed")
 )
@@ -140,6 +142,7 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 		var errCode string
 		vtErrorCode := vterrors.Code(err)
 		errCode = vtErrorCode.String()
+
 		qre.tsv.stats.QueryTimingsByErrorCode.Add(errCode, duration)
 
 		if reply == nil {

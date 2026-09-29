@@ -48,7 +48,9 @@ type Stats struct {
 	UserReservedTimesNs     *stats.CountersWithSingleLabel // Per CallerID reserved connection duration
 
 	QueryTimingsByTabletType *servenv.TimingsWrapper // Query timings split by current tablet type
-	QueryTimingsByErrorCode  *servenv.TimingsWrapper // Query timings split by result error code
+
+	// Successful queries are recorded under OK.
+	QueryTimingsByErrorCode *servenv.TimingsWrapper
 
 	ConsolidatorWaiterCapRejectCount *stats.Counter
 
