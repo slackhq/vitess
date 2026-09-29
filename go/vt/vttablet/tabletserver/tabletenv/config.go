@@ -1054,14 +1054,8 @@ func NewDefaultConfig() *TabletConfig {
 
 // Clone creates a clone of TabletConfig.
 func (c *TabletConfig) Clone() *TabletConfig {
-	if c.LoadshedOltpRead.mu != nil {
-		c.LoadshedOltpRead.mu.RLock()
-		defer c.LoadshedOltpRead.mu.RUnlock()
-	}
-	if c.LoadshedTx.mu != nil {
-		c.LoadshedTx.mu.RLock()
-		defer c.LoadshedTx.mu.RUnlock()
-	}
+	unlock := c.lockLoadshedConfigs()
+	defer unlock()
 
 	tc := *c
 	if tc.DB != nil {
@@ -1090,6 +1084,26 @@ func (c *TabletConfig) Clone() *TabletConfig {
 		IntervalRatio: c.LoadshedTx.IntervalRatio,
 	}
 	return &tc
+}
+
+func (c *TabletConfig) lockLoadshedConfigs() func() {
+	mus := []*sync.RWMutex{
+		c.LoadshedOltpRead.mu,
+		c.LoadshedTx.mu,
+	}
+	for _, mu := range mus {
+		if mu != nil {
+			mu.RLock()
+		}
+	}
+
+	return func() {
+		for i := len(mus) - 1; i >= 0; i-- {
+			if mus[i] != nil {
+				mus[i].RUnlock()
+			}
+		}
+	}
 }
 
 func (c *TabletConfig) InitLoadshedConfig() {
