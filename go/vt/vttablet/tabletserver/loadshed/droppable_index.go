@@ -22,15 +22,16 @@ import (
 	"vitess.io/vitess/go/list"
 )
 
-// Production priorities are integers in [0, sqlparser.MaxPriorityValue] (0..100,
-// with 0 the lowest/most-shed). We keep one FIFO bucket per integer priority so
-// the lowest-priority droppable request is found in O(1) instead of an O(n) list
+// Production Snake priorities are integers in [0, 99], with 0 the
+// lowest/most-shed. We keep one FIFO bucket per integer priority so the
+// lowest-priority droppable request is found in O(1) instead of an O(n) list
 // scan. Anything outside this integer domain (non-integer, out-of-range, or
 // +Inf — which the tests exercise) falls into an overflow list treated as the
 // highest priority (shed last among droppables). Overflow is empty in
 // production, so it is scanned only when non-empty.
 const (
-	maxPriorityBucket  = 100 // inclusive; sqlparser.MaxPriorityValue
+	maxCallerPriority  = 100
+	maxPriorityBucket  = maxCallerPriority - 1
 	numPriorityBuckets = maxPriorityBucket + 1
 	overflowBucket     = -1
 )
@@ -45,7 +46,7 @@ type droppableIndex[T any] struct {
 	buckets  [numPriorityBuckets]list.List[*Request[T]]
 	overflow list.List[*Request[T]]
 	// occ is the occupancy bitset over buckets: bit i is set iff buckets[i] is
-	// non-empty. Two words cover 0..127, which spans the 0..100 domain.
+	// non-empty. Two words cover 0..127, which spans the 0..99 domain.
 	occ [2]uint64
 }
 

@@ -71,7 +71,7 @@ type waitlist[C Connection] struct {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority float64, dryRun bool) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority int, dryRun bool) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -174,11 +174,11 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 	}
 }
 
-func snakePriority(priority float64) float64 {
+func snakePriority(priority int) float64 {
 	if priority == 0 {
 		return loadshed.PriorityUndroppable
 	}
-	return float64(sqlparser.MaxPriorityValue) - priority
+	return float64(sqlparser.MaxPriorityValue - priority)
 }
 
 func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {

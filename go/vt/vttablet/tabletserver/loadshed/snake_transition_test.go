@@ -62,17 +62,18 @@ func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 
-	snake.Enqueue("new", 100)
+	snake.Enqueue("new", 99)
 	snake.EnqueueExisting("existing", PriorityUndroppable)
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
-	assert.Equal(t, map[string]int64{"0": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
+	assert.Equal(t, map[string]int64{"1": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
 }
 
 func TestShedPriorityLabel(t *testing.T) {
 	assert.Equal(t, "0", shedPriorityLabel(PriorityUndroppable))
 	assert.Equal(t, "100", shedPriorityLabel(0))
-	assert.Equal(t, "0", shedPriorityLabel(100))
+	assert.Equal(t, "1", shedPriorityLabel(99))
+	assert.Equal(t, "overflow", shedPriorityLabel(100))
 	assert.Equal(t, "overflow", shedPriorityLabel(1000))
 }
 
@@ -82,14 +83,14 @@ func TestSnakeShedByPriorityMetric(t *testing.T) {
 	PublishStats(exporter, "SnakeTest", snake)
 
 	snake.droppedValues([]*Request[string]{
-		newRequest("highest", 100),
+		newRequest("highest", 99),
 		newRequest("middle", 50),
 		newRequest("lowest", 0),
 	})
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestShedByPriority")
 	assert.Equal(t, map[string]int64{
-		"0":   1,
+		"1":   1,
 		"50":  1,
 		"100": 1,
 	}, exporter.multiCounters["SnakeTestShedByPriority"].Counts())

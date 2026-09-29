@@ -1005,9 +1005,10 @@ func TestPoolLoadShedPropagation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	errs := make(chan error, 6)
+	priority := 100
 	for range 6 {
 		go func() {
-			conn, err := p.GetWithPriority(ctx, nil, 100)
+			conn, err := p.GetWithPriority(ctx, nil, priority)
 			if conn != nil {
 				conn.Recycle()
 			}

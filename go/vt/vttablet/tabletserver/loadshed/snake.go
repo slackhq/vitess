@@ -321,7 +321,7 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 // shedPriorityLabel maps a request's internal Snake priority to its shed-metric
 // label, reported as the ORIGINAL caller priority (the value passed to the query,
 // where 0 is most important) rather than the internal Snake value. The caller
-// inverts on the way in (snake = maxPriorityBucket - caller, so lower Snake value
+// inverts on the way in (snake = maxCallerPriority - caller, so lower Snake value
 // sheds first); we invert back here so the label matches what was passed in.
 // Other out-of-range and non-integer values fall in "overflow".
 func shedPriorityLabel(priority float64) string {
@@ -329,7 +329,7 @@ func shedPriorityLabel(priority float64) string {
 		return "0"
 	}
 	if b := bucketFor(priority); b >= 0 {
-		return strconv.Itoa(maxPriorityBucket - b)
+		return strconv.Itoa(maxCallerPriority - b)
 	}
 	return "overflow"
 }
