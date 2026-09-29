@@ -103,17 +103,16 @@ func TestPublishStatsShedCountTracksDropsNotCancellation(t *testing.T) {
 	snake, clock, exporter := newStatsTestSnake()
 	shedCount := exporter.counters["SnakeTestShedCount"]
 
-	cancelled, _ := snake.Enqueue("cancelled", 0)
-	removed, dropped := snake.Cancel(cancelled)
+	cancelled, _ := snake.Enqueue("cancelled", 1)
+	removed := snake.Cancel(cancelled)
 	require.True(t, removed)
-	assert.Empty(t, dropped)
 	assert.Zero(t, shedCount())
 
 	for range keepDroppableFloor + 2 {
-		snake.Enqueue("", 0)
+		snake.Enqueue("", 1)
 	}
 	clock.advance(20)
-	dropped = snake.LockedDropTimerFired()
+	dropped := snake.LockedDropTimerFired()
 
 	require.NotEmpty(t, dropped)
 	assert.Equal(t, int64(len(dropped)), shedCount())
@@ -123,7 +122,7 @@ func TestPublishStatsRecordsQueueObservations(t *testing.T) {
 	snake, clock, exporter := newStatsTestSnake()
 
 	snake.EnqueueExisting("existing", PriorityUndroppable)
-	snake.Enqueue("droppable", 0)
+	snake.Enqueue("droppable", 1)
 	clock.advance(25)
 	value, ok, _ := snake.Dequeue()
 

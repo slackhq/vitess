@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testRequest = Request[struct{}]
-type testCoDelQueue = CoDelQueue[struct{}]
+type (
+	testRequest    = Request[struct{}]
+	testCoDelQueue = CoDelQueue[struct{}]
+)
 
 func defaultTestConfig() CoDelConfig {
 	return CoDelConfig{
@@ -88,7 +90,7 @@ func newTestQueue(cfg CoDelConfig, clock *testClock) (*testCoDelQueue, *testDrop
 	return q, rec
 }
 
-func testEnqueue(q *testCoDelQueue, priority float64) *testRequest {
+func testEnqueue(q *testCoDelQueue, priority int) *testRequest {
 	req := newRequest(struct{}{}, priority)
 	q.lockedEnqueue(req)
 	return req
@@ -103,7 +105,7 @@ func TestCoDelQueue_Enqueue_Basic(t *testing.T) {
 	assert.Equal(t, 0, q.lockedLen())
 
 	clock.now = 1000
-	req := testEnqueue(q, 0)
+	req := testEnqueue(q, 1)
 
 	assert.Equal(t, 1, q.lockedLen())
 	assert.NotNil(t, req)
@@ -116,7 +118,7 @@ func TestCoDelQueue_Enqueue_RecordsEnqueueTime(t *testing.T) {
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	clock.now = 42_000_000
-	req := testEnqueue(q, 0)
+	req := testEnqueue(q, 1)
 
 	assert.Equal(t, int64(42_000_000), req.codelqEnqueuedAtNs)
 }
@@ -125,7 +127,7 @@ func TestCoDelQueue_Enqueue_DroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
 	assert.Equal(t, 1, q.droppableLen)
 
 	testEnqueue(q, PriorityUndroppable)
@@ -158,9 +160,9 @@ func TestCoDelQueue_FirstWaiting_FIFO(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
-	r2 := testEnqueue(q, 0)
-	r3 := testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
+	r2 := testEnqueue(q, 1)
+	r3 := testEnqueue(q, 1)
 
 	d1 := testDequeue(q)
 	d2 := testDequeue(q)
@@ -175,8 +177,8 @@ func TestCoDelQueue_Dequeue_DecrementsDroppableLen(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
+	testEnqueue(q, 1)
 	assert.Equal(t, 2, q.droppableLen)
 
 	testDequeue(q)
@@ -193,7 +195,7 @@ func TestCoDelQueue_Dequeue_ExitsDroppingOnTarget(t *testing.T) {
 	q.count = 5
 
 	clock.now = 0
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
 	clock.now = 100
 
 	testDequeue(q)
@@ -213,8 +215,8 @@ func TestCoDelQueue_Peek_ReturnsHead(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
+	testEnqueue(q, 1)
 
 	peeked := q.lockedPeek()
 	assert.Same(t, r1, peeked)
@@ -225,7 +227,7 @@ func TestCoDelQueue_Dequeue_EvictsFromListImmediately(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
 	require.NotNil(t, r1.codelqElem)
 
 	q.lockedDequeue(r1)
@@ -248,21 +250,21 @@ func TestCoDelQueue_FindLowestPriorityDroppable_Basic(t *testing.T) {
 	require.NotNil(t, elem)
 	dropped := elem.Value
 	q.lockedRemove(dropped)
-	assert.Equal(t, float64(1), dropped.priority)
+	assert.Equal(t, 10, dropped.priority)
 	assert.Equal(t, 2, q.lockedLen())
 }
 
-func TestCoDelQueue_FindLowestPriorityDroppable_ZeroInstantPick(t *testing.T) {
+func TestCoDelQueue_FindLowestPriorityDroppable_HighestNumericPriority(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
 	testEnqueue(q, 10)
-	r2 := testEnqueue(q, 0)
+	r2 := testEnqueue(q, 100)
 	testEnqueue(q, 5)
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	require.NotNil(t, elem)
-	assert.Same(t, r2, elem.Value.(*testRequest))
+	assert.Same(t, r2, elem.Value)
 }
 
 func TestCoDelQueue_DropSkipsUndroppable(t *testing.T) {
@@ -288,29 +290,6 @@ func TestCoDelQueue_DropAllUndroppable_ReturnsNil(t *testing.T) {
 
 	elem := q.lockedFindLowestPriorityDroppable()
 	assert.Nil(t, elem)
-}
-
-func TestCoDelQueue_DropUndroppableVsInf(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	testEnqueue(q, PriorityUndroppable)
-	inf := testEnqueue(q, math.Inf(1)) //nolint:modernize
-
-	elem := q.lockedFindLowestPriorityDroppable()
-	require.NotNil(t, elem)
-	assert.Same(t, inf, elem.Value.(*testRequest))
-}
-
-func TestCoDelQueue_DropAllInf_NoPanic(t *testing.T) {
-	clock := newTestClock()
-	q, _ := newTestQueue(defaultTestConfig(), clock)
-
-	testEnqueue(q, math.Inf(1)) //nolint:modernize
-	testEnqueue(q, math.Inf(1)) //nolint:modernize
-
-	elem := q.lockedFindLowestPriorityDroppable()
-	assert.NotNil(t, elem)
 }
 
 // --- CoDel state machine tests ---
@@ -361,8 +340,8 @@ func TestCoDelQueue_InitialTargetOnlyAppliesAtCountOne(t *testing.T) {
 			q, _ := newTestQueue(cfg, clock)
 			q.count = tc.count
 
-			r := testEnqueue(q, 0)
-			testEnqueue(q, 0)
+			r := testEnqueue(q, 1)
+			testEnqueue(q, 1)
 			q.dropping = true
 			clock.now = 100_000_000
 
@@ -397,8 +376,8 @@ func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
 	cfg.MinDropDelayNs = func() int64 { return 1 }
 	q, rec := newTestQueue(cfg, clock)
 
-	testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
+	testEnqueue(q, 1)
 	assert.Equal(t, int64(1_000), q.dropNextNs)
 
 	clock.now = q.dropNextNs
@@ -425,8 +404,8 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	cfg.EasingLogBase = func() float64 { return 2 }
 	q, rec := newTestQueue(cfg, clock)
 
-	testEnqueue(q, 0)
-	remaining := testEnqueue(q, 0)
+	testEnqueue(q, 1)
+	remaining := testEnqueue(q, 1)
 	assert.Equal(t, int64(100), q.lockedTargetNs())
 	assert.Equal(t, int64(1_000), q.dropNextNs)
 
@@ -452,7 +431,7 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	assert.False(t, rec.scheduled)
 
 	clock.now = 2_000
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
 	assert.Equal(t, int64(3_000), q.dropNextNs)
 }
 
@@ -476,8 +455,8 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	cfg.TargetNs = func() int64 { return 100_000 }
 	q, rec := newTestQueue(cfg, clock)
 
-	testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
+	testEnqueue(q, 1)
 
 	// Seed a dropping episode with count>1 and a due dropNextNs. Advance just
 	// past dropNextNs so exactly one drop fires before the next scheduled drop
@@ -529,8 +508,8 @@ func TestCoDelQueue_Remove_RemovesRequest(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
+	testEnqueue(q, 1)
 
 	q.lockedRemove(r1)
 
@@ -542,7 +521,7 @@ func TestCoDelQueue_Remove_AlreadyDone(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
 
 	q.lockedDequeue(r1)
 
@@ -556,7 +535,7 @@ func TestCoDelQueue_Dequeue(t *testing.T) {
 	clock := newTestClock()
 	q, _ := newTestQueue(defaultTestConfig(), clock)
 
-	r1 := testEnqueue(q, 0)
+	r1 := testEnqueue(q, 1)
 	assert.Equal(t, 1, q.droppableLen)
 
 	q.lockedDequeue(r1)
@@ -591,7 +570,7 @@ func TestCoDelQueue_FastMoving_NoDrop(t *testing.T) {
 	dequeued := 0
 	for range 40 {
 		clock.advance(5_000_000)
-		testEnqueue(q, 0)
+		testEnqueue(q, 1)
 		enqueued++
 
 		clock.advance(4_000_000)
@@ -639,8 +618,8 @@ func TestCoDelQueue_Sojourn_FastDequeueClearsDropping(t *testing.T) {
 	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
 
 	clock.now = 0
-	r := testEnqueue(q, 0)
-	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after dequeue
+	r := testEnqueue(q, 1)
+	testEnqueue(q, 1) // second droppable keeps droppableLen > 0 after dequeue
 	q.dropping = true
 
 	// Dequeue after a short queue-wait (< target) clears dropping.
@@ -655,8 +634,8 @@ func TestCoDelQueue_Sojourn_SlowDequeueKeepsDropping(t *testing.T) {
 	q, _ := newTestQueue(defaultTestConfig(), clock) // TargetNs = 50ms
 
 	clock.now = 0
-	r := testEnqueue(q, 0)
-	testEnqueue(q, 0) // second droppable keeps droppableLen > 0 after dequeue
+	r := testEnqueue(q, 1)
+	testEnqueue(q, 1) // second droppable keeps droppableLen > 0 after dequeue
 	q.dropping = true
 
 	// Dequeue after a long queue-wait (> target) must NOT clear dropping.
@@ -795,8 +774,8 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 	q, rec := newTestQueue(cfg, clock)
 
 	clock.now = 5_000_000
-	testEnqueue(q, 0)
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
+	testEnqueue(q, 1)
 
 	// Easing state with droppable entries present; dropNextNs = now so the
 	// easing loop fires exactly once before falling behind schedule.
@@ -832,7 +811,7 @@ func TestCoDelQueue_Easing_DequeueDoesNotResetCount(t *testing.T) {
 	q.count = 10
 
 	clock.now = 0
-	req := testEnqueue(q, 0)
+	req := testEnqueue(q, 1)
 	q.lockedDequeue(req)
 
 	assert.False(t, q.dropping, "should exit dropping")
@@ -920,7 +899,7 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 	enqueued := 0
 	for range 20 {
 		clock.advance(2_000_000)
-		testEnqueue(q, 0)
+		testEnqueue(q, 1)
 		enqueued++
 	}
 
@@ -954,7 +933,7 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 	q, rec := newTestQueue(defaultTestConfig(), clock)
 	clock.now = 5_000_000_000
 
-	testEnqueue(q, 0)
+	testEnqueue(q, 1)
 	assert.True(t, rec.scheduled, "slow-start: droppable enqueue arms the timer")
 	assert.Equal(t, int64(6_000_000_000), q.dropNextNs, "slow-start: first enqueue seeds dropNextNs = now + interval")
 }
@@ -962,7 +941,7 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
 
-	_, dropped := s.Enqueue("value", 0)
+	_, dropped := s.Enqueue("value", 1)
 	require.Empty(t, dropped)
 	dequeued, ok, dropped := s.Dequeue()
 	require.True(t, ok)
@@ -973,16 +952,14 @@ func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 
 func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
-	req, dropped := s.Enqueue("value", 0)
+	req, dropped := s.Enqueue("value", 1)
 	require.Empty(t, dropped)
 
-	cancelled, dropped := s.Cancel(req)
+	cancelled := s.Cancel(req)
 	require.True(t, cancelled)
-	require.Empty(t, dropped)
 	require.Equal(t, 0, s.q.lockedLen())
-	cancelled, dropped = s.Cancel(req)
+	cancelled = s.Cancel(req)
 	require.False(t, cancelled)
-	require.Empty(t, dropped)
 }
 
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
@@ -992,7 +969,7 @@ func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	}
 	s := NewSnake[struct{}](config)
 	for range 6 {
-		_, dropped := s.Enqueue(struct{}{}, 0)
+		_, dropped := s.Enqueue(struct{}{}, 1)
 		require.Empty(t, dropped)
 	}
 	s.q.dropNextNs = 1

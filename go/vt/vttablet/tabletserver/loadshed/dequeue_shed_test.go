@@ -51,7 +51,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	// Build a droppable backlog. The first enqueue arms an episode (slow mode).
 	const backlog = 6
 	for range backlog {
-		testEnqueue(q, 0)
+		testEnqueue(q, 1)
 	}
 	assert.True(t, q.dropping, "first droppable enqueue should arm an episode")
 
