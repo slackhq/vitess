@@ -24,11 +24,9 @@ import (
 )
 
 type (
-	// Mode selects which load-shedding mechanism is active.
 	Mode string
 
-	// SnakeConfig configures a Snake. Functions are used to allow dynamic runtime
-	// tuning.
+	// SnakeConfig uses callbacks so runtime changes do not require rebuilding the queue.
 	SnakeConfig struct {
 		CoDel            CoDelConfig
 		Mode             func() Mode
@@ -36,14 +34,12 @@ type (
 		ShadowTimerFired func()
 	}
 
-	// Snake is a CoDel-based load-shedding queue. It decides which waiting
-	// request may proceed; the caller owns execution capacity and handoff.
+	// Snake owns queueing and shedding; its caller owns execution capacity and handoff.
 	Snake[T any] struct {
 		q              *CoDelQueue[T]
 		dropTimer      *time.Timer
 		dropTimerArmed bool
-		// dropTimerExpectedNs is the clock time the drop timer was scheduled to
-		// fire (arm time + delay), used to measure how late it actually fires.
+		// Kept separately from dropNextNs to measure scheduler delay.
 		dropTimerExpectedNs int64
 		shadowTimer         *time.Timer
 		shadowTimerArmed    bool
@@ -83,7 +79,6 @@ func defaultClock() int64 {
 	return time.Since(epoch).Nanoseconds()
 }
 
-// NewSnake creates a new CoDel-based load-shedding queue.
 func NewSnake[T any](cfg SnakeConfig) *Snake[T] {
 	s := &Snake[T]{
 		cfg:          cfg,
@@ -164,8 +159,7 @@ func (s *Snake[T]) Len() int {
 	return int(s.length.Load())
 }
 
-// CountMatching counts active requests matching the predicate. The caller must
-// hold the mutex protecting the Snake.
+// CountMatching requires the caller to hold the mutex protecting the Snake.
 func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	count := 0
 	for elem := s.q.queue.Front(); elem != nil; elem = elem.Next() {
@@ -177,8 +171,7 @@ func (s *Snake[T]) CountMatching(match func(T) bool) int {
 	return count
 }
 
-// Drain removes and returns every queued value without shedding it. The caller
-// must hold the mutex protecting the Snake.
+// Drain bypasses shedding and requires the caller to hold the parent mutex.
 func (s *Snake[T]) Drain() []T {
 	s.lockedObserveInitialTargetShadow(nil)
 	s.q.lockedDisable()
@@ -225,9 +218,7 @@ func (s *Snake[T]) CancelMatching(match func(T) bool) bool {
 	return false
 }
 
-// lockedEnqueueAdvance runs the CoDel control-law advance on every enqueue so
-// an arrival can drive shedding, not just the dequeue path and the backstop
-// timer.
+// lockedEnqueueAdvance lets arrivals drive shedding before the backstop timer.
 func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.lockedObserveInitialTargetShadow(nil)
 	if !s.loadsheddingAllowed() {
@@ -299,8 +290,7 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	return values
 }
 
-// ShedCount returns the cumulative number of requests this Snake has shed.
-// Context cancellations are not counted — only queue-driven drops.
+// ShedCount excludes context cancellations.
 func (s *Snake[T]) ShedCount() int64 {
 	return s.shedCount.Load()
 }
@@ -312,8 +302,6 @@ func (s *Snake[T]) DroppingNanos() int64 {
 	}
 	return total
 }
-
-// --- timer management (must be called with the parent mutex held) ---
 
 func (s *Snake[T]) lockedScheduleDropTimer(delayNs int64) {
 	if s.dropTimerArmed {
@@ -341,9 +329,7 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 		return nil
 	}
 	s.dropTimerArmed = false
-	// Record how late this fire is versus when it was scheduled. Under CPU
-	// contention the timer goroutine can fire well past its
-	// deadline, which delays shedding; this surfaces that lag.
+	// Timer lag exposes CPU contention that delays shedding.
 	if lag := s.clockFunc() - s.dropTimerExpectedNs; lag > 0 {
 		s.timerLag.Add(lag)
 	} else {
@@ -355,8 +341,6 @@ func (s *Snake[T]) LockedDropTimerFired() []T {
 	s.lockedObserveDropping()
 	return s.droppedValues(dropped)
 }
-
-// --- initial-target shadow backtesting (must be called with the parent mutex held) ---
 
 func (s *Snake[T]) lockedStartInitialTargetShadow(req *Request[T]) {
 	if !req.isDroppable() ||
@@ -442,8 +426,6 @@ func (s *Snake[T]) lockedStopShadowTimer() {
 	}
 }
 
-// LockedShadowTimerFired advances the initial-target shadow backtest when its
-// backstop timer fires. Called by the caller under the parent mutex.
 func (s *Snake[T]) LockedShadowTimerFired() {
 	if !s.shadowTimerArmed {
 		return
