@@ -28,7 +28,6 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 var (
@@ -441,7 +440,7 @@ func (pool *ConnPool[C]) recordWaitDuration(start time.Time) {
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle
 func (pool *ConnPool[C]) Get(ctx context.Context, setting *Setting) (*Pooled[C], error) {
-	return pool.GetWithPriority(ctx, setting, loadshed.PriorityUndroppable)
+	return pool.GetWithPriority(ctx, setting, 0)
 }
 
 func (pool *ConnPool[C]) GetWithPriority(ctx context.Context, setting *Setting, priority float64) (*Pooled[C], error) {
