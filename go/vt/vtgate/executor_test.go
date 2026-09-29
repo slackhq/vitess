@@ -1841,6 +1841,30 @@ func TestGetPlanPriority(t *testing.T) {
 
 }
 
+func TestGetPlanLoadshedValveId(t *testing.T) {
+	testCases := []struct {
+		name            string
+		sql             string
+		expectedValveID string
+	}{
+		{name: "valve ID set", sql: "select /*vt+ LOADSHED_VALVE_ID=req123 */ * from music_user_map", expectedValveID: "req123"},
+		{name: "no valve ID", sql: "select * from music_user_map"},
+	}
+
+	session := econtext.NewSafeSession(&vtgatepb.Session{TargetString: "@unknown", Options: &querypb.ExecuteOptions{}})
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			executor, _, _, _, ctx := createExecutorEnvWithConfig(t, createExecutorConfigWithNormalizer())
+			logStats := logstats.NewLogStats(ctx, "Test", "", "", nil, streamlog.NewQueryLogConfigForTest())
+
+			plan, _, _, err := executor.fetchOrCreatePlan(t.Context(), session, testCase.sql, map[string]*querypb.BindVariable{}, executor.config.Normalize, false, logStats, true)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedValveID, plan.QueryHints.LoadshedValveId)
+			assert.Equal(t, testCase.expectedValveID, session.Options.LoadshedValveId)
+		})
+	}
+}
+
 func TestPassthroughDDL(t *testing.T) {
 	executor, sbc1, sbc2, _, ctx := createExecutorEnvWithConfig(t, createExecutorConfigWithNormalizer())
 	session := &vtgatepb.Session{

@@ -175,12 +175,13 @@ func (sf *StatefulConnectionPool) GetAndLock(id int64, reason string) (*Stateful
 func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.ExecuteOptions, setting *smartconnpool.Setting) (*StatefulConnection, error) {
 	var conn *connpool.PooledConn
 	var err error
+	valveID := options.GetLoadshedValveId()
 	priority := priorityFromOptions(options, sf.env.Config().TxThrottlerDefaultPriority)
 
 	if options.GetClientFoundRows() {
-		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, priority, "")
+		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, valveID, priority, "")
 	} else {
-		conn, err = sf.conns.GetWithPriority(ctx, setting, priority, "")
+		conn, err = sf.conns.GetWithPriority(ctx, setting, valveID, priority, "")
 	}
 	if err != nil {
 		if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
