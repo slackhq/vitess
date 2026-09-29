@@ -63,6 +63,17 @@ type waitlist[C Connection] struct {
 	onWaiterCapReached func()
 }
 
+func (wl *waitlist[C]) maybeInheritPriority(priorityInheritanceKey string, priority int) {
+	// Optimization to reduce mutex contention. Deliberately racy: a stale 0
+	// only misses a leader mid-enqueue, same as a follower arriving before it.
+	if wl.snake.Len() == 0 {
+		return
+	}
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+	wl.snake.LockedMaybeInheritPriority(priorityInheritanceKey, priority)
+}
+
 // waitForConn blocks until a connection with the given Setting is returned by another client,
 // or until the given context expires.
 // If maxWaiters is > 0 and the waitlist already has that many waiters, it returns
@@ -70,7 +81,7 @@ type waitlist[C Connection] struct {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority int, dryRun bool) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority int, priorityInheritanceKey string, dryRun bool) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -122,7 +133,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.list.PushBackValue(elem)
 	} else {
 		var newlyDropped []*list.Element[waiter[C]]
-		request, newlyDropped = wl.snake.Enqueue(elem, priority)
+		request, newlyDropped = wl.snake.Enqueue(elem, priority, priorityInheritanceKey)
 		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()

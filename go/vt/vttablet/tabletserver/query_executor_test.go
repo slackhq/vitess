@@ -1746,6 +1746,99 @@ func TestQueryExecutorConsolidatorResponseMemoryFlag(t *testing.T) {
 	}
 }
 
+func TestQueryExecutorConsolidatorLeaderInheritsFollowerPriority(t *testing.T) {
+	const (
+		leaderSQL    = "select * from t limit 10001"
+		numFollowers = 3
+		numFillers   = 5
+	)
+	testCases := []struct {
+		name        string
+		followerSQL string
+	}{
+		{name: "identical sql", followerSQL: leaderSQL},
+		{name: "different comments", followerSQL: "/* follower */ " + leaderSQL + " /* trailing */"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setUpQueryExecutorTest(t)
+			defer db.Close()
+
+			want := &sqltypes.Result{Fields: getTestTableFields()}
+			db.AddQuery(leaderSQL, want)
+
+			ctx := t.Context()
+			tsv := newTestTabletServer(ctx, enableConsolidator, db)
+			defer tsv.StopService()
+
+			require.NoError(t, tsv.qe.conns.SetCapacity(ctx, 1))
+			tsv.config.LoadshedOltpRead.SetTarget(time.Millisecond)
+			tsv.config.LoadshedOltpRead.SetIntervalRatio(1)
+			require.NoError(t, tsv.config.LoadshedOltpRead.SetMode(string(tabletenv.LoadshedModeEnabled)))
+
+			held, err := tsv.qe.conns.Get(ctx, nil)
+			require.NoError(t, err)
+			released := false
+			defer func() {
+				if !released {
+					held.Recycle()
+				}
+			}()
+
+			execute := func(ctx context.Context, sql, priority string, errs chan<- error) {
+				query, comments := sqlparser.SplitMarginComments(sql)
+				qre := newTestQueryExecutor(ctx, tsv, query, 0)
+				qre.plan.UsesOnlyLocalTables = true
+				qre.marginComments = comments
+				qre.options = &querypb.ExecuteOptions{Priority: priority}
+				go func() {
+					_, err := qre.Execute()
+					errs <- err
+				}()
+			}
+
+			leaderErr := make(chan error, 1)
+			execute(ctx, leaderSQL, "100", leaderErr)
+			require.Eventually(t, func() bool { return tsv.qe.conns.WaitersQueued() == 1 }, 5*time.Second, time.Millisecond)
+
+			followerErrs := make(chan error, numFollowers)
+			for range numFollowers {
+				execute(ctx, tc.followerSQL, "0", followerErrs)
+			}
+			require.Eventually(t, func() bool { return tsv.qe.consolidator.TotalWaiterCount() == numFollowers }, 5*time.Second, time.Millisecond)
+			require.EqualValues(t, 1, tsv.qe.conns.WaitersQueued())
+
+			fillerCtx, cancelFillers := context.WithCancel(ctx)
+			fillerErrs := make(chan error, numFillers)
+			for i := range numFillers {
+				execute(fillerCtx, fmt.Sprintf("select * from t limit %d", 20001+i), "50", fillerErrs)
+			}
+
+			select {
+			case err := <-fillerErrs:
+				require.ErrorIs(t, err, errLoadShed)
+			case err := <-leaderErr:
+				require.Failf(t, "consolidator leader returned before any filler was shed", "err: %v", err)
+			case <-time.After(30 * time.Second):
+				require.Fail(t, "timed out waiting for Snake to shed a filler")
+			}
+
+			cancelFillers()
+			for range numFillers - 1 {
+				<-fillerErrs
+			}
+			require.Eventually(t, func() bool { return tsv.qe.conns.WaitersQueued() == 1 }, 5*time.Second, time.Millisecond)
+
+			released = true
+			held.Recycle()
+			require.NoError(t, <-leaderErr)
+			for range numFollowers {
+				require.NoError(t, <-followerErrs)
+			}
+		})
+	}
+}
+
 func TestGetConnectionLogStats(t *testing.T) {
 	db := setUpQueryExecutorTest(t)
 	defer db.Close()
@@ -1756,7 +1849,7 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() happy path
 	qre := newTestQueryExecutor(ctx, tsv, input, 0)
-	conn, err := qre.getConn()
+	conn, err := qre.getConn("")
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
@@ -1773,7 +1866,7 @@ func TestGetConnectionLogStats(t *testing.T) {
 
 	// getConn() error path
 	qre = newTestQueryExecutor(ctx, tsv, input, 0)
-	_, err = qre.getConn()
+	_, err = qre.getConn("")
 	assert.Error(t, err)
 	assert.True(t, qre.logStats.WaitingForConnection > 0)
 
