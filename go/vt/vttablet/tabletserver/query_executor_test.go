@@ -1788,6 +1788,10 @@ func TestQueryExecutorConsolidatorLeaderInheritsFollowerPriority(t *testing.T) {
 			execute := func(ctx context.Context, sql, priority string, errs chan<- error) {
 				query, comments := sqlparser.SplitMarginComments(sql)
 				qre := newTestQueryExecutor(ctx, tsv, query, 0)
+				tabletPlan := *qre.plan
+				plan := *tabletPlan.Plan
+				tabletPlan.Plan = &plan
+				qre.plan = &tabletPlan
 				qre.plan.UsesOnlyLocalTables = true
 				qre.marginComments = comments
 				qre.options = &querypb.ExecuteOptions{Priority: priority}
