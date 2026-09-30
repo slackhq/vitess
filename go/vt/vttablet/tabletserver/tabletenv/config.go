@@ -1180,7 +1180,7 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTxThrottlerConfig(); err != nil {
 		return err
 	}
-	if v := c.LoadshedOltpReadDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
+	if v := c.LoadshedOltpReadDefaultPriority; !loadshed.IsValidPriority(v) {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-oltp-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
 	}
 	if err := c.verifyLoadshedConfig(); err != nil {
@@ -1300,6 +1300,9 @@ func (c *TabletConfig) verifyTransactionLimitConfig() error {
 
 // verifyTxThrottlerConfig checks the TxThrottler related config for sanity.
 func (c *TabletConfig) verifyTxThrottlerConfig() error {
+	if v := c.TxThrottlerDefaultPriority; !loadshed.IsValidPriority(v) {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
 	if !c.EnableTxThrottler {
 		return nil
 	}
@@ -1307,10 +1310,6 @@ func (c *TabletConfig) verifyTxThrottlerConfig() error {
 	err := throttler.MaxReplicationLagModuleConfig{Configuration: c.TxThrottlerConfig.Get()}.Verify()
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "failed to parse throttlerdatapb.Configuration config: %v", err)
-	}
-
-	if v := c.TxThrottlerDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
-		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be > 0 and < 100 (specified value: %d)", v)
 	}
 
 	if c.TxThrottlerTabletTypes == nil || len(*c.TxThrottlerTabletTypes) == 0 {

@@ -552,10 +552,42 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, loadshed.ModeShadow, foundRows.Mode())
 }
 
-func TestVerifyLoadshedPriority(t *testing.T) {
-	cfg := NewDefaultConfig()
-	cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue + 1
-	require.Error(t, cfg.Verify())
+func TestVerifyLoadshedPriorities(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*TabletConfig)
+	}{
+		{
+			name: "negative OLTP read priority",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpReadDefaultPriority = -1
+			},
+		},
+		{
+			name: "OLTP read priority above maximum",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue + 1
+			},
+		},
+		{
+			name: "negative transaction priority",
+			mutate: func(cfg *TabletConfig) {
+				cfg.TxThrottlerDefaultPriority = -1
+			},
+		},
+		{
+			name: "transaction priority above maximum",
+			mutate: func(cfg *TabletConfig) {
+				cfg.TxThrottlerDefaultPriority = sqlparser.MaxPriorityValue + 1
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := NewDefaultConfig()
+			test.mutate(cfg)
+			require.Error(t, cfg.Verify())
+		})
+	}
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {
