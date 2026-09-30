@@ -18,6 +18,7 @@ package tabletenv
 
 import (
 	"encoding/json"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -394,6 +395,78 @@ func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
 
 	cfg.LoadshedOltpRead.SetInitialTarget(17 * time.Millisecond)
 	assert.Equal(t, 17*time.Millisecond, cfg.LoadshedOltpRead.EffectiveInitialTargetValue())
+}
+
+func TestLoadshedConfigValidation(t *testing.T) {
+	tests := []struct {
+		name          string
+		target        time.Duration
+		initialTarget time.Duration
+		intervalRatio float64
+	}{
+		{name: "zero target", target: 0, intervalRatio: 20},
+		{name: "negative target", target: -time.Nanosecond, intervalRatio: 20},
+		{name: "negative initial target", target: time.Millisecond, initialTarget: -time.Nanosecond, intervalRatio: 20},
+		{name: "zero interval ratio", target: time.Millisecond, intervalRatio: 0},
+		{name: "negative interval ratio", target: time.Millisecond, intervalRatio: -1},
+		{name: "NaN interval ratio", target: time.Millisecond, intervalRatio: math.NaN()},
+		{name: "infinite interval ratio", target: time.Millisecond, intervalRatio: math.Inf(1)},
+		{name: "target interval below one nanosecond", target: time.Nanosecond, intervalRatio: 0.5},
+		{name: "initial interval below one nanosecond", target: 2 * time.Nanosecond, initialTarget: time.Nanosecond, intervalRatio: 0.5},
+		{name: "target interval overflow", target: time.Duration(math.MaxInt64), intervalRatio: 2},
+		{name: "initial interval overflow", target: time.Nanosecond, initialTarget: time.Duration(math.MaxInt64), intervalRatio: 2},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Error(t, validateLoadshedConfig(test.target, test.initialTarget, test.intervalRatio))
+		})
+	}
+
+	assert.NoError(t, validateLoadshedConfig(time.Nanosecond, 0, 1))
+	assert.NoError(t, validateLoadshedConfig(5*time.Millisecond, 10*time.Millisecond, 20))
+}
+
+func TestTabletConfigVerifyLoadshedConfig(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*TabletConfig)
+	}{
+		{
+			name: "OLTP read",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpRead.Target = 0
+			},
+		},
+		{
+			name: "transaction",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedTx.IntervalRatio = math.NaN()
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := NewDefaultConfig()
+			test.mutate(cfg)
+			assert.Error(t, cfg.Verify())
+		})
+	}
+}
+
+func TestLoadshedConfigSettersPreserveValidConfig(t *testing.T) {
+	cfg := NewDefaultConfig()
+	loadshedConfig := &cfg.LoadshedOltpRead
+	target := loadshedConfig.TargetValue()
+	initialTarget := loadshedConfig.InitialTargetValue()
+	intervalRatio := loadshedConfig.IntervalRatioValue()
+
+	assert.Error(t, loadshedConfig.SetTarget(0))
+	assert.Error(t, loadshedConfig.SetInitialTarget(-time.Nanosecond))
+	assert.Error(t, loadshedConfig.SetIntervalRatio(math.NaN()))
+
+	assert.Equal(t, target, loadshedConfig.TargetValue())
+	assert.Equal(t, initialTarget, loadshedConfig.InitialTargetValue())
+	assert.Equal(t, intervalRatio, loadshedConfig.IntervalRatioValue())
 }
 
 func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
