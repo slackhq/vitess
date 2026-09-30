@@ -454,7 +454,7 @@ func (m LoadshedMode) EffectiveMode(tabletType topodatapb.TabletType) loadshed.M
 	case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
 		return loadshed.ModeEnabled
 	default:
-		return loadshed.ModeShadow
+		return loadshed.ModeOff
 	}
 }
 
