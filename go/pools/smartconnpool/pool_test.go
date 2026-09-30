@@ -170,7 +170,7 @@ func TestOpen(t *testing.T) {
 	}()
 	for i := 0; i < 5; i++ {
 		// block until we have a client wait for a connection, then offer it
-		for p.wait.waiting() == 0 {
+		for p.wait.numWaiting() == 0 {
 			time.Sleep(time.Millisecond)
 		}
 		p.put(resources[i])

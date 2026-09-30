@@ -126,7 +126,7 @@ func TestWaitlistOffUsesLegacyQueue(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		return wl.waiting() == 1
+		return wl.numWaiting() == 1
 	}, 30*time.Second, time.Millisecond)
 	assert.Equal(t, 1, wl.list.Len())
 	assert.Zero(t, wl.snake.Len())
@@ -150,13 +150,13 @@ func TestWaitlistWaiterCap(t *testing.T) {
 		}()
 
 		assert.Eventually(t, func() bool {
-			return wl.waiting() == i
+			return wl.numWaiting() == i
 		}, 30*time.Second, 5*time.Millisecond)
 	}
 
 	_, err := wl.waitForConn(t.Context(), nil, poolClose, maxWaiters, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
-	assert.Equal(t, maxWaiters, wl.waiting())
+	assert.Equal(t, maxWaiters, wl.numWaiting())
 
 	close(poolClose)
 	for range maxWaiters {
@@ -188,7 +188,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
 		errs <- err
 	}()
 	require.Eventually(t, func() bool {
-		return wl.waiting() == maxWaiters
+		return wl.numWaiting() == maxWaiters
 	}, time.Second, 5*time.Millisecond)
 
 	config.setMode(loadshed.ModeEnabled)
@@ -198,7 +198,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		return wl.waiting() == waiters
+		return wl.numWaiting() == waiters
 	}, time.Second, 5*time.Millisecond)
 	assert.Zero(t, capReachedCount.Load())
 
@@ -234,7 +234,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return wl.waiting() == waiters
+		return wl.numWaiting() == waiters
 	}, time.Second, 5*time.Millisecond)
 
 	cancel()
@@ -348,7 +348,7 @@ func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
 			}()
 		}
 		require.Eventually(t, func() bool {
-			return wl.waiting() == 8
+			return wl.numWaiting() == 8
 		}, time.Second, time.Millisecond)
 
 		time.Sleep(2 * time.Millisecond)
@@ -368,7 +368,7 @@ func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
 			err := <-errs
 			assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, ErrPoolLoadShed), "unexpected error: %v", err)
 		}
-		assert.Zero(t, wl.waiting())
+		assert.Zero(t, wl.numWaiting())
 	}
 }
 
@@ -387,7 +387,7 @@ func TestWaitlistMovesQueuedRequestsBetweenLegacyAndSnake(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return wl.waiting() == 3
+		return wl.numWaiting() == 3
 	}, 30*time.Second, time.Millisecond)
 	assert.Equal(t, 3, wl.list.Len())
 	assert.Zero(t, wl.snake.Len())
@@ -453,13 +453,13 @@ func TestWaitlistCancellationAcrossQueueTransitions(t *testing.T) {
 			}()
 
 			require.Eventually(t, func() bool {
-				return wl.waiting() == 1
+				return wl.numWaiting() == 1
 			}, 30*time.Second, time.Millisecond)
 
 			config.setMode(tt.to)
 			cancel()
 			assert.ErrorIs(t, <-errs, context.Canceled)
-			assert.Zero(t, wl.waiting())
+			assert.Zero(t, wl.numWaiting())
 			assert.Zero(t, wl.list.Len())
 			assert.Zero(t, wl.snake.Len())
 		})
@@ -484,7 +484,7 @@ func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
 		}()
 
 		require.Eventually(t, func() bool {
-			return wl.waiting() == 1
+			return wl.numWaiting() == 1
 		}, time.Second, time.Millisecond)
 
 		conn := &Pooled[*TestConn]{Conn: &TestConn{}}
@@ -512,7 +512,7 @@ func TestWaitlistSnakeCancelVsConnectionHandoff(t *testing.T) {
 			assert.Nil(t, got.conn)
 			assert.ErrorIs(t, got.err, context.Canceled)
 		}
-		assert.Zero(t, wl.waiting())
+		assert.Zero(t, wl.numWaiting())
 	}
 }
 
@@ -536,7 +536,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 		}()
 
 		assert.Eventually(t, func() bool {
-			return wl.waiting() == i
+			return wl.numWaiting() == i
 		}, 30*time.Second, 5*time.Millisecond)
 	}
 
@@ -546,7 +546,7 @@ func TestWaitlistWaiterCapDryRun(t *testing.T) {
 	}()
 
 	assert.Eventually(t, func() bool {
-		return wl.waiting() == maxWaiters+1
+		return wl.numWaiting() == maxWaiters+1
 	}, 30*time.Second, 5*time.Millisecond)
 	assert.Equal(t, int32(1), capReachedCount.Load())
 
