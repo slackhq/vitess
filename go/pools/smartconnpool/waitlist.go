@@ -174,11 +174,11 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 }
 
 func (wl *waitlist[C]) aboveWaiterCap(maxWaiters uint) bool {
-	return maxWaiters > 0 && wl.waiting() >= int(maxWaiters)
+	return maxWaiters > 0 && wl.numWaiting() >= int(maxWaiters)
 }
 
 func (wl *waitlist[C]) maybeStarvingCount() (maybeStarving int) {
-	if wl.waiting() == 0 {
+	if wl.numWaiting() == 0 {
 		return
 	}
 
@@ -214,13 +214,8 @@ func (wl *waitlist[D]) tryReturnConn(conn *Pooled[D]) bool {
 }
 
 func (wl *waitlist[C]) shouldTryReturnConn() bool {
-	if wl.waiting() != 0 {
-		return true
-	}
-	if wl.transitioning.Load() {
-		return true
-	}
-	return wl.waiting() != 0
+	// Bracket the transition flag with counts so moving waiters cannot be temporarily hidden.
+	return wl.numWaiting() != 0 || wl.transitioning.Load() || wl.numWaiting() != 0
 }
 
 func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
@@ -400,6 +395,6 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
 }
 
-func (wl *waitlist[C]) waiting() int {
+func (wl *waitlist[C]) numWaiting() int {
 	return wl.list.Len() + wl.snake.Len()
 }
