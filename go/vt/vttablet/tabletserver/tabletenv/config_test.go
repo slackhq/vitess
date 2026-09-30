@@ -381,6 +381,30 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.NotEqual(t, cfg.LoadshedOltpRead.IntervalRatioValue(), cfg.LoadshedTx.IntervalRatioValue())
 }
 
+func TestLoadshedModeEffectiveMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       LoadshedMode
+		tabletType topodatapb.TabletType
+		want       loadshed.Mode
+	}{
+		{name: "off primary", mode: LoadshedModeOff, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeOff},
+		{name: "shadow replica", mode: LoadshedModeShadow, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeShadow},
+		{name: "enabled primary", mode: LoadshedModeEnabled, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeEnabled},
+		{name: "enabled replicas primary", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeShadow},
+		{name: "enabled replicas replica", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeEnabled},
+		{name: "enabled replicas rdonly", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_RDONLY, want: loadshed.ModeEnabled},
+		{name: "enabled replicas unknown", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_UNKNOWN, want: loadshed.ModeShadow},
+		{name: "enabled replicas spare", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_SPARE, want: loadshed.ModeShadow},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.mode.EffectiveMode(tt.tabletType))
+		})
+	}
+}
+
 func TestLoadshedInitialTargetFallsBackToTarget(t *testing.T) {
 	cfg := NewDefaultConfig()
 
@@ -425,13 +449,13 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	fs := pflag.NewFlagSet("TestLoadshedFlags", pflag.ContinueOnError)
 	registerTabletEnvFlags(fs)
 
-	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "shadow"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "enabled-replicas"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
-	assert.Equal(t, LoadshedModeShadow, currentConfig.LoadshedOltpRead.Mode)
+	assert.Equal(t, LoadshedModeEnabledReplicas, currentConfig.LoadshedOltpRead.Mode)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
 	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedTx.Mode)
