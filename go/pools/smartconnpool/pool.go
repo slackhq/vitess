@@ -393,7 +393,7 @@ func (pool *ConnPool[C]) Active() int64 {
 
 // WaitersQueued returns the number of clients currently waiting for a connection.
 func (pool *ConnPool[C]) WaitersQueued() int64 {
-	return int64(pool.wait.waiting())
+	return int64(pool.wait.numWaiting())
 }
 
 func (pool *ConnPool[D]) IdleTimeout() time.Duration {
