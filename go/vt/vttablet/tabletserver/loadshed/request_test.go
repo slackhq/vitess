@@ -28,7 +28,12 @@ func TestPriorityZeroIsUndroppable(t *testing.T) {
 	assert.True(t, newRequest(struct{}{}, 100).isDroppable())
 }
 
-func TestRequestRejectsInvalidPriority(t *testing.T) {
-	assert.Panics(t, func() { newRequest(struct{}{}, -1) })
-	assert.Panics(t, func() { newRequest(struct{}{}, 101) })
+func TestSnakeUsesDefaultPriorityForInvalidPriority(t *testing.T) {
+	snake := NewSnake[struct{}](SnakeConfig{DefaultPriority: 42})
+
+	negative, _ := snake.Enqueue(struct{}{}, -1)
+	tooLarge, _ := snake.Enqueue(struct{}{}, 101)
+
+	assert.Equal(t, 42, negative.priority)
+	assert.Equal(t, 42, tooLarge.priority)
 }
