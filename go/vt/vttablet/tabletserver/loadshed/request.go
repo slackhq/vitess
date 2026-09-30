@@ -17,7 +17,10 @@ limitations under the License.
 package loadshed
 
 import (
+	"fmt"
+
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/sqlparser"
 )
 
 type (
@@ -41,7 +44,14 @@ type (
 // never be dropped by CoDel.
 const PriorityUndroppable = 0
 
+func IsValidPriority(priority int) bool {
+	return priority >= PriorityUndroppable && priority <= sqlparser.MaxPriorityValue
+}
+
 func newRequest[T any](value T, priority int) *Request[T] {
+	if !IsValidPriority(priority) {
+		panic(fmt.Sprintf("invalid Snake priority %d", priority))
+	}
 	return &Request[T]{
 		priority: priority,
 		value:    value,
