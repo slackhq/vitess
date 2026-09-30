@@ -23,11 +23,24 @@ import (
 	"sync/atomic"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
 type PoolConfig interface {
 	LoadshedConfig(string) loadshed.SnakeConfig
+}
+
+type waitlistStatsExporter interface {
+	Name() string
+	NewGaugesWithMultiLabels(name, help string, labels []string) *stats.GaugesWithMultiLabels
+}
+
+var snakeModeGauges = struct {
+	sync.Mutex
+	byExporter map[string]*stats.GaugesWithMultiLabels
+}{
+	byExporter: make(map[string]*stats.GaugesWithMultiLabels),
 }
 
 // waiter represents a client waiting for a connection in the waitlist
@@ -61,6 +74,9 @@ type waitlist[C Connection] struct {
 	onWait func()
 	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
 	onWaiterCapReached func()
+
+	modeGauge     *stats.GaugesWithMultiLabels
+	modeGaugePool string
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -362,6 +378,7 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 		}
 	}
 	wl.activeMode = desiredMode
+	wl.updateModeGaugeLocked()
 	if desiredMode != loadshed.ModeEnabled {
 		wl.waiterCapOn.Store(true)
 	}
@@ -393,6 +410,53 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 	wl.waiterCapOn.Store(activeMode != loadshed.ModeEnabled)
 	wl.list.Init()
 	wl.snake = loadshed.NewSnake[*list.Element[waiter[C]]](snakeConfig)
+}
+
+func (wl *waitlist[C]) registerStats(exporter waitlistStatsExporter, poolName string) {
+	var poolLabel string
+	switch poolName {
+	case "ConnPool":
+		poolLabel = "oltp_read"
+	case "TransactionPool":
+		poolLabel = "dml"
+	case "FoundRowsPool":
+		poolLabel = "dml_found_rows"
+	default:
+		return
+	}
+
+	modeGauge := snakeModeGauge(exporter)
+
+	wl.mu.Lock()
+	wl.modeGauge = modeGauge
+	wl.modeGaugePool = poolLabel
+	wl.updateModeGaugeLocked()
+	wl.mu.Unlock()
+}
+
+func snakeModeGauge(exporter waitlistStatsExporter) *stats.GaugesWithMultiLabels {
+	snakeModeGauges.Lock()
+	defer snakeModeGauges.Unlock()
+
+	if gauge := snakeModeGauges.byExporter[exporter.Name()]; gauge != nil {
+		return gauge
+	}
+	gauge := exporter.NewGaugesWithMultiLabels("SnakeMode", "Active Snake load-shedding mode", []string{"pool", "mode"})
+	snakeModeGauges.byExporter[exporter.Name()] = gauge
+	return gauge
+}
+
+func (wl *waitlist[C]) updateModeGaugeLocked() {
+	if wl.modeGauge == nil {
+		return
+	}
+	for _, mode := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
+		value := int64(0)
+		if mode == wl.activeMode {
+			value = 1
+		}
+		wl.modeGauge.Set([]string{wl.modeGaugePool, string(mode)}, value)
+	}
 }
 
 func (wl *waitlist[C]) numWaiting() int {
