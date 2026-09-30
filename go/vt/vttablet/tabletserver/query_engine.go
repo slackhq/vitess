@@ -527,7 +527,7 @@ func (qe *QueryEngine) getStreamPlan(curSchema *currentSchema, sql string) (*Tab
 		return nil, err
 	}
 
-	splan, err := planbuilder.BuildStreaming(statement, curSchema.tables)
+	splan, err := planbuilder.BuildStreaming(statement, curSchema.tables, qe.env.Config().DB.DBName)
 
 	if err != nil {
 		return nil, err
