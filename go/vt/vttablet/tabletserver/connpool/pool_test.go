@@ -53,7 +53,7 @@ func TestLoadshedModeFollowsTabletType(t *testing.T) {
 	}
 	mode := loadshedPoolConfig{env: env}.LoadshedConfig("ConnPool").Mode
 
-	assert.Equal(t, loadshed.ModeShadow, mode())
+	assert.Equal(t, loadshed.ModeOff, mode())
 
 	env.tabletType = topodatapb.TabletType_REPLICA
 	assert.Equal(t, loadshed.ModeEnabled, mode())
@@ -62,7 +62,7 @@ func TestLoadshedModeFollowsTabletType(t *testing.T) {
 	assert.Equal(t, loadshed.ModeEnabled, mode())
 
 	env.tabletType = topodatapb.TabletType_UNKNOWN
-	assert.Equal(t, loadshed.ModeShadow, mode())
+	assert.Equal(t, loadshed.ModeOff, mode())
 }
 
 func TestConnPoolGet(t *testing.T) {

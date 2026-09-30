@@ -391,11 +391,11 @@ func TestLoadshedModeEffectiveMode(t *testing.T) {
 		{name: "off primary", mode: LoadshedModeOff, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeOff},
 		{name: "shadow replica", mode: LoadshedModeShadow, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeShadow},
 		{name: "enabled primary", mode: LoadshedModeEnabled, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeEnabled},
-		{name: "enabled replicas primary", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeShadow},
+		{name: "enabled replicas primary", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_PRIMARY, want: loadshed.ModeOff},
 		{name: "enabled replicas replica", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_REPLICA, want: loadshed.ModeEnabled},
 		{name: "enabled replicas rdonly", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_RDONLY, want: loadshed.ModeEnabled},
-		{name: "enabled replicas unknown", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_UNKNOWN, want: loadshed.ModeShadow},
-		{name: "enabled replicas spare", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_SPARE, want: loadshed.ModeShadow},
+		{name: "enabled replicas unknown", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_UNKNOWN, want: loadshed.ModeOff},
+		{name: "enabled replicas spare", mode: LoadshedModeEnabledReplicas, tabletType: topodatapb.TabletType_SPARE, want: loadshed.ModeOff},
 	}
 
 	for _, tt := range tests {
