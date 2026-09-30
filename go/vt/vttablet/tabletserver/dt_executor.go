@@ -18,6 +18,7 @@ package tabletserver
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"vitess.io/vitess/go/trace"
@@ -27,6 +28,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
@@ -337,7 +339,7 @@ func (dte *DTExecutor) ReadTwopcInflight() (distributed []*tx.DistributedTx, pre
 }
 
 func (dte *DTExecutor) inTransaction(f func(*StatefulConnection) error) error {
-	conn, _, _, err := dte.te.txPool.Begin(dte.ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+	conn, _, _, err := dte.te.txPool.Begin(dte.ctx, &querypb.ExecuteOptions{Priority: strconv.Itoa(loadshed.PriorityUndroppable)}, false, 0, nil)
 	if err != nil {
 		return err
 	}

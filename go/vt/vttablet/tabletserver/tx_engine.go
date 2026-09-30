@@ -19,6 +19,7 @@ package tabletserver
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/txlimiter"
@@ -530,7 +532,7 @@ func (te *TxEngine) checkErrorAndMarkFailed(ctx context.Context, dtid string, re
 	// Update the state of the transaction in the redo log.
 	// Retryable Error: Update the message with error message.
 	// Non-retryable Error: Along with message, update the state as RedoStateFailed.
-	conn, _, _, err := te.txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+	conn, _, _, err := te.txPool.Begin(ctx, &querypb.ExecuteOptions{Priority: strconv.Itoa(loadshed.PriorityUndroppable)}, false, 0, nil)
 	if err != nil {
 		log.Errorf("markFailed: Begin failed for dtid %s: %v", dtid, err)
 		return
