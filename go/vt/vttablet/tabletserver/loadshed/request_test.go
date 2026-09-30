@@ -27,3 +27,8 @@ func TestPriorityZeroIsUndroppable(t *testing.T) {
 	assert.True(t, newRequest(struct{}{}, 1).isDroppable())
 	assert.True(t, newRequest(struct{}{}, 100).isDroppable())
 }
+
+func TestRequestRejectsInvalidPriority(t *testing.T) {
+	assert.Panics(t, func() { newRequest(struct{}{}, -1) })
+	assert.Panics(t, func() { newRequest(struct{}{}, 101) })
+}
