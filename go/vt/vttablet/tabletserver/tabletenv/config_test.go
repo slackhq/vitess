@@ -518,6 +518,8 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 
 func TestLoadshedConfigWiring(t *testing.T) {
 	cfg := NewDefaultConfig()
+	cfg.LoadshedOltpReadDefaultPriority = 17
+	cfg.TxThrottlerDefaultPriority = 23
 	oltp := cfg.LoadshedConfig("ConnPool")
 	tx := cfg.LoadshedConfig("TransactionPool")
 	foundRows := cfg.LoadshedConfig("FoundRowsPool")
@@ -528,11 +530,14 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, cfg.LoadshedOltpRead.EffectiveInitialTargetValue().Nanoseconds(), oltp.CoDel.InitialTargetNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.TargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.IntervalNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.EffectiveInitialTargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, cfg.LoadshedOltpReadDefaultPriority, oltp.DefaultPriority)
 	assert.Equal(t, loadshed.ModeOff, tx.Mode())
 	assert.Equal(t, cfg.LoadshedTx.TargetValue().Nanoseconds(), tx.CoDel.TargetNs())
+	assert.Equal(t, cfg.TxThrottlerDefaultPriority, tx.DefaultPriority)
 	assert.Equal(t, tx.Mode(), foundRows.Mode())
 	assert.Equal(t, tx.CoDel.TargetNs(), foundRows.CoDel.TargetNs())
 	assert.Equal(t, tx.CoDel.IntervalNs(), foundRows.CoDel.IntervalNs())
+	assert.Equal(t, tx.DefaultPriority, foundRows.DefaultPriority)
 	assert.Nil(t, unknown.Mode)
 
 	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled"))

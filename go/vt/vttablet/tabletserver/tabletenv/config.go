@@ -467,19 +467,23 @@ func (m LoadshedMode) Type() string {
 
 func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	var config *LoadshedConfig
+	var defaultPriority int
 	if c != nil {
 		switch poolName {
 		case "ConnPool":
 			config = &c.LoadshedOltpRead
+			defaultPriority = c.LoadshedOltpReadDefaultPriority
 		case "TransactionPool", "FoundRowsPool":
 			config = &c.LoadshedTx
+			defaultPriority = c.TxThrottlerDefaultPriority
 		}
 	}
 	if config == nil {
 		return loadshed.SnakeConfig{}
 	}
 	return loadshed.SnakeConfig{
-		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
+		DefaultPriority: defaultPriority,
+		Mode:            func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
 		CoDel: loadshed.CoDelConfig{
 			IntervalNs: func() int64 {
 				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
