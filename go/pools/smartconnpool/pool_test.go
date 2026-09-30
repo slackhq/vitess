@@ -172,7 +172,7 @@ func TestOpen(t *testing.T) {
 	}()
 	for i := 0; i < 5; i++ {
 		// block until we have a client wait for a connection, then offer it
-		for p.wait.waiting() == 0 {
+		for p.wait.numWaiting() == 0 {
 			time.Sleep(time.Millisecond)
 		}
 		p.put(resources[i])
@@ -1066,7 +1066,7 @@ func TestPoolValveProgressAfterDiscard(t *testing.T) {
 		}()
 	}
 	require.Eventually(t, func() bool {
-		return pool.wait.waiting() == 3
+		return pool.wait.numWaiting() == 3
 	}, time.Second, time.Millisecond)
 
 	held.Close()
@@ -1074,7 +1074,7 @@ func TestPoolValveProgressAfterDiscard(t *testing.T) {
 	for range 3 {
 		assert.NoError(t, <-results)
 	}
-	assert.Zero(t, pool.wait.waiting())
+	assert.Zero(t, pool.wait.numWaiting())
 }
 
 func TestExpired(t *testing.T) {

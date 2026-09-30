@@ -244,5 +244,5 @@ func TestValveWaitlistStress(t *testing.T) {
 	assert.Positive(t, succeeded)
 	assert.Positive(t, cancelled)
 	assert.Positive(t, shed)
-	assert.Zero(t, pool.wait.waiting())
+	assert.Zero(t, pool.wait.numWaiting())
 }
