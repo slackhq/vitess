@@ -934,6 +934,7 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	}
 
 	pool.Name = name
+	pool.wait.registerStats(stats, name)
 
 	stats.NewGaugeFunc(name+"Capacity", "Tablet server conn pool capacity", func() int64 {
 		return pool.Capacity()
