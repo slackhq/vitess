@@ -61,6 +61,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/onlineddl"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/gc"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
@@ -616,13 +617,10 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	}
 
 	optionsPriority, err := strconv.Atoi(options.Priority)
-	// This should never error out, as the value for Priority has been validated in the vtgate already.
-	// Still, handle it just to make sure.
-	if err != nil {
+	if err != nil || !loadshed.IsValidPriority(optionsPriority) {
 		log.Errorf(
-			"The value of the %s query directive could not be converted to integer, using the "+
-				"default value. Error was: %s",
-			sqlparser.DirectivePriority, priority, err)
+			"The value %q of the %s query directive is invalid, using the default value %d",
+			options.Priority, sqlparser.DirectivePriority, priority)
 
 		return priority
 	}

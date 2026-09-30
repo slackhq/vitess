@@ -2977,6 +2977,16 @@ func TestPriorityFromOptions(t *testing.T) {
 			options: &querypb.ExecuteOptions{Priority: "not-a-number"},
 			want:    defaultPriority,
 		},
+		{
+			name:    "negative priority falls back to default",
+			options: &querypb.ExecuteOptions{Priority: "-1"},
+			want:    defaultPriority,
+		},
+		{
+			name:    "priority above maximum falls back to default",
+			options: &querypb.ExecuteOptions{Priority: "101"},
+			want:    defaultPriority,
+		},
 	}
 
 	for _, tt := range tests {
