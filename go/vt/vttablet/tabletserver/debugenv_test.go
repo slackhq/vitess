@@ -46,12 +46,17 @@ func newDebugEnvTabletServer(t *testing.T) *TabletServer {
 
 func postVar(t *testing.T, tsv *TabletServer, name, value string) {
 	t.Helper()
+	w := postVarResponse(tsv, name, value)
+	require.Equalf(t, http.StatusOK, w.Code, "POST %s=%s: %s", name, value, w.Body.String())
+}
+
+func postVarResponse(tsv *TabletServer, name, value string) *httptest.ResponseRecorder {
 	form := url.Values{"varname": {name}, "value": {value}}
 	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handlePost(tsv, w, r)
-	require.Equalf(t, http.StatusOK, w.Code, "POST %s=%s: %s", name, value, w.Body.String())
+	return w
 }
 
 func TestDebugEnvConsolidatorResponseMemoryLimit(t *testing.T) {
@@ -106,6 +111,31 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
+}
+
+func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	config := &tsv.Config().LoadshedOltpRead
+
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "LoadshedOltpReadTarget", value: "0s"},
+		{name: "LoadshedOltpReadInitialTarget", value: "-1ns"},
+		{name: "LoadshedOltpReadIntervalRatio", value: "NaN"},
+	} {
+		target := config.TargetValue()
+		initialTarget := config.InitialTargetValue()
+		intervalRatio := config.IntervalRatioValue()
+
+		w := postVarResponse(tsv, test.name, test.value)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, target, config.TargetValue())
+		assert.Equal(t, initialTarget, config.InitialTargetValue())
+		assert.Equal(t, intervalRatio, config.IntervalRatioValue())
+	}
 }
 
 func TestDebugEnvLoadshedParamsListed(t *testing.T) {
