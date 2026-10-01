@@ -109,10 +109,11 @@ type SandboxConn struct {
 	MessageIDs []*querypb.Value
 
 	// vstream expectations.
-	StartPos      string
-	VStreamEvents [][]*binlogdatapb.VEvent
-	VStreamErrors []error
-	VStreamCh     chan *binlogdatapb.VEvent
+	StartPos        string
+	vstreamEventsMu sync.Mutex // protects VStreamEvents and VStreamErrors
+	VStreamEvents   [][]*binlogdatapb.VEvent
+	VStreamErrors   []error
+	VStreamCh       chan *binlogdatapb.VEvent
 
 	// transaction id generator
 	TransactionID atomic.Int64
@@ -566,8 +567,22 @@ func (sbc *SandboxConn) ExpectVStreamStartPos(startPos string) {
 
 // AddVStreamEvents adds a set of VStream events to be returned.
 func (sbc *SandboxConn) AddVStreamEvents(events []*binlogdatapb.VEvent, err error) {
+	sbc.vstreamEventsMu.Lock()
+	defer sbc.vstreamEventsMu.Unlock()
 	sbc.VStreamEvents = append(sbc.VStreamEvents, events)
 	sbc.VStreamErrors = append(sbc.VStreamErrors, err)
+}
+
+func (sbc *SandboxConn) popVStreamEvents() ([]*binlogdatapb.VEvent, bool, error) {
+	sbc.vstreamEventsMu.Lock()
+	defer sbc.vstreamEventsMu.Unlock()
+	if len(sbc.VStreamEvents) == 0 {
+		return nil, false, nil
+	}
+	ev, err := sbc.VStreamEvents[0], sbc.VStreamErrors[0]
+	sbc.VStreamEvents = sbc.VStreamEvents[1:]
+	sbc.VStreamErrors = sbc.VStreamErrors[1:]
+	return ev, true, err
 }
 
 // VStream is part of the QueryService interface.
@@ -616,11 +631,11 @@ func (sbc *SandboxConn) VStream(ctx context.Context, request *binlogdatapb.VStre
 		}
 	} else {
 		// this path is followed for all vstream tests other than the skew tests
-		for len(sbc.VStreamEvents) != 0 {
-			ev := sbc.VStreamEvents[0]
-			err := sbc.VStreamErrors[0]
-			sbc.VStreamEvents = sbc.VStreamEvents[1:]
-			sbc.VStreamErrors = sbc.VStreamErrors[1:]
+		for {
+			ev, ok, err := sbc.popVStreamEvents()
+			if !ok {
+				break
+			}
 			if ev == nil {
 				return err
 			}

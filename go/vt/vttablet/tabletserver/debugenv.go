@@ -218,6 +218,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(loadshedConfig(tsv, varname).SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
 		err = setFloat64Val(loadshedConfig(tsv, varname).SetIntervalRatio)
+	case "TopoCellInfoCacheTTL":
+		err = setDurationVal(tsv.topoServer.SetCellInfoCacheTTL)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -275,6 +277,7 @@ func getVars(tsv *TabletServer) []envValue {
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
 	addLoadshedVars("LoadshedTx", &tsv.Config().LoadshedTx)
+	vars = addVar(vars, "TopoCellInfoCacheTTL", tsv.topoServer.CellInfoCacheTTL)
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),

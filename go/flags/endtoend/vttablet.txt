@@ -394,12 +394,14 @@ Flags:
       --tablet_manager_protocol string                                   Protocol to use to make tabletmanager RPCs to vttablets. (default "grpc")
       --tablet_protocol string                                           Protocol to use to make queryservice RPCs to vttablets. (default "grpc")
       --throttle_tablet_types string                                     Comma separated VTTablet types to be considered by the throttler. default: 'replica'. example: 'replica,rdonly'. 'replica' always implicitly included (default "replica")
+      --topo-cell-info-cache-ttl duration                                How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse the list of cells and a cell's CellInfo before reading them from the global topo again; 0 reads them on every call. Until they are read again, these reads do not notice a cell added, re-pointed or deleted by another process, and keep reading from the cell's old topo server.
       --topo_consul_idle_conn_timeout duration                           Maximum amount of time to pool idle connections. (default 1m30s)
       --topo_consul_lock_delay duration                                  LockDelay for consul session. (default 15s)
       --topo_consul_lock_session_checks string                           List of checks for consul session. (default "serfHealth")
       --topo_consul_lock_session_ttl string                              TTL for consul session.
       --topo_consul_max_conns_per_host int                               Maximum number of consul connections per host.
       --topo_consul_max_idle_conns int                                   Maximum number of idle consul connections. (default 100)
+      --topo_consul_orphan_lock_min_age duration                         Minimum age of a lock file without a consul session before TryLock acquires it (0 acquires it immediately). (default 10m0s)
       --topo_consul_retry_base_delay duration                            Base delay between consul retry attempts (exponential backoff). (default 250ms)
       --topo_consul_retry_count int                                      Maximum number of attempts for consul operations on transient errors (set to 1 to disable retries). (default 5)
       --topo_consul_retry_enabled                                        Enable retry logic for transient consul errors. (default true)
@@ -461,6 +463,7 @@ Flags:
       --vreplication_store_compressed_gtid                               Store compressed gtids in the pos column of the sidecar database's vreplication table
       --vstream-binlog-rotation-threshold int                            Byte size at which a VStreamer will attempt to rotate the source's open binary log before starting a GTID snapshot based stream (e.g. a ResultStreamer or RowStreamer) (default 67108864)
       --vstream_dynamic_packet_size                                      Enable dynamic packet sizing for VReplication. This will adjust the packet size during replication to improve performance. (default true)
+      --vstream_memory_bounds                                            Bound the memory a VStreamRows or VStreamTables stream holds for its lifetime: drop the reused row pools when they retain more than about four times the live packet, and cap dynamic packet sizing at 16 times --vstream_packet_size. On this release the vstream-memory-bounds workflow override does not reach the copy, so this flag alone applies, on the serving and the receiving tablet.
       --vstream_packet_size int                                          Suggested packet size for VReplication streamer. This is used only as a recommendation. The actual packet size may be more or less than this amount. (default 250000)
       --vttablet_skip_buildinfo_tags string                              comma-separated list of buildinfo tags to skip from merging with --init_tags. each tag is either an exact match or a regular expression of the form '/regexp/'. (default "/.*/")
       --wait_for_backup_interval duration                                (init restore parameter) if this is greater than 0, instead of starting up empty when no backups are found, keep checking at this interval for a backup to appear

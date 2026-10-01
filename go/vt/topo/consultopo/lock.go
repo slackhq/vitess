@@ -18,6 +18,7 @@ package consultopo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"time"
@@ -42,12 +43,8 @@ type consulLockDescriptor struct {
 func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	// We list the directory first to make sure it exists.
 	if _, err := s.ListDir(ctx, dirPath, false /*full*/); err != nil {
-		// We need to return the right error codes, like
-		// topo.ErrNoNode and topo.ErrInterrupted, and the
-		// easiest way to do this is to return convertError(err).
-		// It may lose some of the context, if this is an issue,
-		// maybe logging the error would work here.
-		return nil, convertError(err, dirPath)
+		// ListDir already returns topo.NoNode, or a topo error when ctx is done.
+		return nil, err
 	}
 
 	return s.lock(ctx, dirPath, contents, s.lockTTL)
@@ -57,12 +54,8 @@ func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockD
 func (s *Server) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
 	// We list the directory first to make sure it exists.
 	if _, err := s.ListDir(ctx, dirPath, false /*full*/); err != nil {
-		// We need to return the right error codes, like
-		// topo.ErrNoNode and topo.ErrInterrupted, and the
-		// easiest way to do this is to return convertError(err).
-		// It may lose some of the context, if this is an issue,
-		// maybe logging the error would work here.
-		return nil, convertError(err, dirPath)
+		// ListDir already returns topo.NoNode, or a topo error when ctx is done.
+		return nil, err
 	}
 
 	return s.lock(ctx, dirPath, contents, ttl.String())
@@ -78,24 +71,74 @@ func (s *Server) TryLock(ctx context.Context, dirPath, contents string) (topo.Lo
 	// We list all the entries under dirPath
 	entries, err := s.ListDir(ctx, dirPath, true)
 	if err != nil {
-		// We need to return the right error codes, like
-		// topo.ErrNoNode and topo.ErrInterrupted, and the
-		// easiest way to do this is to return convertError(err).
-		// It may lose some of the context, if this is an issue,
-		// maybe logging the error would work here.
-		return nil, convertError(err, dirPath)
+		// ListDir already returns topo.NoNode, or a topo error when ctx is done.
+		return nil, err
 	}
 
-	// If there is a file 'lock' in it then we can assume that someone else already has a lock.
-	// Throw error in this case
+	// If there is a file 'lock' in it then someone else already has the lock,
+	// unless it is a stale orphan (see canAcquireLockFile). Throw error in this case.
 	for _, e := range entries {
 		if e.Name == locksFilename && e.Type == topo.TypeFile && e.Ephemeral {
-			return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+			ok, err := s.canAcquireLockFile(ctx, dirPath)
+			if err != nil {
+				return nil, convertError(ctx, err, dirPath)
+			}
+			if !ok {
+				return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+			}
+			break
 		}
 	}
 
 	// everything is good let's acquire the lock.
+	//
+	// The checks above and the acquire below are not atomic. If another client
+	// acquires the lock in between (e.g. several VTOrcs racing for the same
+	// stale orphan), s.lock() does not fail fast: api.Lock.Lock() waits for the
+	// lock to be released, so TryLock can block until the winner unlocks or ctx
+	// expires (topo.LockTimeout, 45s by default). Mutual exclusion still holds;
+	// only the non-blocking behavior is lost in that window.
 	return s.lock(ctx, dirPath, contents, s.lockTTL)
+}
+
+// canAcquireLockFile returns true if TryLock may acquire the lock file under
+// dirPath: it no longer exists, or it is orphaned (has no consul session, e.g.
+// Destroy failed after Unlock) and was locked at least orphanLockMinAge ago.
+// Younger session-less lock files are treated as held: their holder may have
+// just lost its session (e.g. during a consul leader election) and still be
+// running, such as an in-flight reparent that has not checked its lock yet.
+func (s *Server) canAcquireLockFile(ctx context.Context, dirPath string) (bool, error) {
+	lockPath := path.Join(s.root, dirPath, locksFilename)
+	pair, _, err := s.kv.Get(lockPath, (&api.QueryOptions{}).WithContext(ctx))
+	if err != nil {
+		return false, err
+	}
+	if pair == nil {
+		return true, nil
+	}
+	if pair.Session != "" {
+		return false, nil
+	}
+
+	var contents struct {
+		Time string
+	}
+	if err := json.Unmarshal(pair.Value, &contents); err != nil {
+		log.Warningf("Not acquiring orphaned lock file at path %s: cannot parse its contents: %v", dirPath, err)
+		return false, nil
+	}
+	lockedAt, err := time.Parse(time.RFC3339, contents.Time)
+	if err != nil {
+		log.Warningf("Not acquiring orphaned lock file at path %s: cannot parse its lock time %q: %v", dirPath, contents.Time, err)
+		return false, nil
+	}
+	age := time.Since(lockedAt)
+	if age < s.orphanLockMinAge {
+		return false, nil
+	}
+
+	log.Infof("Found orphaned lock file at path %s without a session, locked %v ago, acquiring it", dirPath, age.Round(time.Second))
+	return true, nil
 }
 
 // Lock is part of the topo.Conn interface.
@@ -139,7 +182,7 @@ func (s *Server) lock(ctx context.Context, dirPath, contents, ttl string) (topo.
 		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			return nil, convertError(ctx.Err(), dirPath)
+			return nil, convertError(ctx, ctx.Err(), dirPath)
 		case <-li.done:
 		}
 
@@ -212,14 +255,47 @@ func (s *Server) unlock(ctx context.Context, lockPath string) error {
 	close(li.done)
 
 	// Then try to remove the lock entirely. This will only work if
-	// no one else has the lock.
-	if err := li.lock.Destroy(); err != nil {
-		// If someone else has the lock, we can't remove it,
-		// but we don't need to.
-		if err != api.ErrLockInUse {
-			log.Warningf("failed to clean up lock file %v: %v", lockPath, err)
-		}
+	// no one else has the lock. Use a fresh context: the caller's has
+	// often expired by now, and a lock file left behind blocks TryLock.
+	destroyCtx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+	defer cancel()
+	if err := s.destroyLockFile(destroyCtx, lockPath); err != nil {
+		log.Warningf("failed to clean up lock file %v: %v", lockPath, err)
 	}
 
 	return unlockErr
+}
+
+// destroyLockFile deletes the lock file at lockPath if no session holds it.
+// It mirrors api.Lock.Destroy but goes through s.kv, so transient errors
+// (e.g. during a consul leader election) are retried.
+func (s *Server) destroyLockFile(ctx context.Context, lockPath string) error {
+	pair, _, err := s.kv.Get(lockPath, (&api.QueryOptions{}).WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to read lock: %w", err)
+	}
+	if pair == nil {
+		return nil
+	}
+	if pair.Flags != api.LockFlagValue {
+		return api.ErrLockConflict
+	}
+	// If someone else has the lock, we can't remove it, but we don't need to.
+	if pair.Session != "" {
+		return nil
+	}
+
+	ops := api.KVTxnOps{
+		&api.KVTxnOp{
+			Verb:  api.KVDeleteCAS,
+			Key:   lockPath,
+			Index: pair.ModifyIndex,
+		},
+	}
+	// A failed CAS means someone else modified the lock file in between,
+	// so it is no longer ours to remove.
+	if _, _, _, err := s.kv.Txn(ops, (&api.QueryOptions{}).WithContext(ctx)); err != nil {
+		return fmt.Errorf("failed to remove lock: %w", err)
+	}
+	return nil
 }

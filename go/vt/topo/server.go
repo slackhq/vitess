@@ -47,6 +47,7 @@ import (
 	"fmt"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/semaphore"
@@ -148,11 +149,48 @@ type Server struct {
 	// will read the list of addresses for that cell from the
 	// global cluster and create clients as needed.
 	cellConns map[string]cellConn
+	// cellInfoCacheTTL starts as CellInfoCacheTTL when the Server is created; SetCellInfoCacheTTL changes it
+	// (vttablet exposes it on /debug/env as TopoCellInfoCacheTTL).
+	cellInfoCacheTTL time.Duration
+	// cellInfoReads holds, per cell, the last CellInfo that cellReaderFor read, which it trusts for
+	// cellInfoCacheTTL. ConnForCell does not use it.
+	cellInfoReads map[string]cellInfoRead
+	// cellInfoGenerations counts each cell's expireCellInfo calls, so that a cellReaderFor whose CellInfo read
+	// started before an expiry does not mark its result as fresh.
+	cellInfoGenerations map[string]uint64
+	// cellInfoRefreshes lets one cellReaderFor at a time read each cell's CellInfo, so that each read starts
+	// after the last one was applied and sees a CellInfo at least as new.
+	cellInfoRefreshes map[string]*semaphore.Weighted
+	// cellNames is the last list of cells that cellNamesFor read, which it trusts for cellInfoCacheTTL.
+	// GetCellInfoNames does not use it.
+	cellNames cellNamesRead
+	// cellNamesGeneration counts expireCellNames calls, so that a cellNamesFor whose read started before an
+	// expiry does not mark its result as fresh.
+	cellNamesGeneration uint64
+	// closed is set by Close, after which cellReaderFor and cellNamesFor fail instead of reading from the
+	// closed global connection.
+	closed bool
 }
 
 type cellConn struct {
 	cellInfo *topodata.CellInfo
 	conn     Conn
+}
+
+type cellInfoRead struct {
+	cellInfo *topodata.CellInfo
+	// readStart is when the read of cellInfo started, which the TTL counts from.
+	readStart time.Time
+	// expired makes the next cellReaderFor read the cell's CellInfo again, regardless of readStart.
+	expired bool
+}
+
+type cellNamesRead struct {
+	names []string
+	// readStart is when the read of names started, which the TTL counts from. It is zero before the first read.
+	readStart time.Time
+	// expired makes the next cellNamesFor read the list of cells again, regardless of readStart.
+	expired bool
 }
 
 type cellsToAliasesMap struct {
@@ -185,6 +223,15 @@ var (
 
 	// Default read concurrency to use in order to avoid overhwelming the topo server.
 	DefaultReadConcurrency int64 = 32
+
+	// CellInfoCacheTTL is how long reads that tolerate a stale cell location, such as the tablet throttler's
+	// inventory reads through StaleTolerantView, reuse the list of cells and a cell's CellInfo before reading
+	// them from the global topo again; 0 reads them on every call. ConnForCell and GetCellInfoNames always read
+	// them. Both only change when a cell is added, removed, or pointed at a different topo server, so re-reading
+	// them costs a global read per cell-local read, and a global list per inventory refresh, for a change that
+	// is almost never there. With a TTL, these reads notice a cell added, re-pointed or deleted by another
+	// process up to this long later, and until then miss the new cell or read from the cell's old topo server.
+	CellInfoCacheTTL time.Duration
 )
 
 func init() {
@@ -198,6 +245,24 @@ func registerTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&topoGlobalServerAddress, "topo_global_server_address", topoGlobalServerAddress, "the address of the global topology server")
 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
 	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
+	fs.DurationVar(&CellInfoCacheTTL, "topo-cell-info-cache-ttl", CellInfoCacheTTL, "How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse the list of cells and a cell's CellInfo before reading them from the global topo again; 0 reads them on every call. Until they are read again, these reads do not notice a cell added, re-pointed or deleted by another process, and keep reading from the cell's old topo server.")
+}
+
+// CellInfoCacheTTL returns how long ts's StaleTolerantView reuses a cell's CellInfo; 0 means it reads the
+// CellInfo from the global topo on every call.
+func (ts *Server) CellInfoCacheTTL() time.Duration {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.cellInfoCacheTTL
+}
+
+// SetCellInfoCacheTTL changes how long ts's StaleTolerantView reuses a cell's CellInfo, for reads that start
+// after the call. CellInfo already cached keeps its read time, so lowering the TTL expires it sooner and
+// raising the TTL keeps it longer; 0 or less turns the cache off without clearing it.
+func (ts *Server) SetCellInfoCacheTTL(ttl time.Duration) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.cellInfoCacheTTL = ttl
 }
 
 // RegisterFactory registers a Factory for an implementation for a Server.
@@ -232,10 +297,14 @@ func NewWithFactory(factory Factory, serverAddress, root string) (*Server, error
 	}
 
 	return &Server{
-		globalCell:         conn,
-		globalReadOnlyCell: connReadOnly,
-		factory:            factory,
-		cellConns:          make(map[string]cellConn),
+		globalCell:          conn,
+		globalReadOnlyCell:  connReadOnly,
+		factory:             factory,
+		cellConns:           make(map[string]cellConn),
+		cellInfoCacheTTL:    CellInfoCacheTTL,
+		cellInfoReads:       make(map[string]cellInfoRead),
+		cellInfoGenerations: make(map[string]uint64),
+		cellInfoRefreshes:   make(map[string]*semaphore.Weighted),
 	}, nil
 }
 
@@ -287,21 +356,20 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// Return a cached client if present.
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	cc, ok := ts.cellConns[cell]
-	if ok {
-		// Client exists in cache.
-		// Let's verify that it is the same cell as we are looking for.
-		// The cell name can be re-used with a different ServerAddress and/or Root
-		// in which case we should get a new connection and update the cache
-		if ci.ServerAddress == cc.cellInfo.ServerAddress && ci.Root == cc.cellInfo.Root {
-			return cc.conn, nil
-		}
-		// Close the cached connection, we don't need it anymore
-		if cc.conn != nil {
-			cc.conn.Close()
-		}
+	return ts.connForCellInfoLocked(cell, ci)
+}
+
+// connForCellInfoLocked returns the cell's cached connection if it is to the topo server ci points at, and
+// otherwise connects to that server and caches the new connection. ts.mu must be held.
+func (ts *Server) connForCellInfoLocked(cell string, ci *topodata.CellInfo) (Conn, error) {
+	cc, cached := ts.cellConns[cell]
+	if cached && ci.ServerAddress == cc.cellInfo.ServerAddress && ci.Root == cc.cellInfo.Root {
+		// Client exists in cache, for the same ServerAddress and Root as the cell has now.
+		return cc.conn, nil
 	}
 
+	// Either we have no client for the cell yet, or the cell name was re-used with a different ServerAddress
+	// and/or Root, in which case we should get a new connection and update the cache.
 	// Connect to the cell topo server, while holding the lock.
 	// This ensures only one connection is established at any given time.
 	// Create the connection and cache it
@@ -309,9 +377,20 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	switch {
 	case err == nil:
 		cellReadSem := semaphore.NewWeighted(DefaultReadConcurrency)
-		conn = NewStatsConn(cell, conn, cellReadSem)
-		ts.cellConns[cell] = cellConn{ci, conn}
-		return conn, nil
+		statsConn := NewStatsConn(cell, conn, cellReadSem)
+		if globalCellConn, ok := ts.globalCell.(*StatsConn); ok {
+			// The global cell connection and the cell connections share one read-only state, see SetReadOnly.
+			statsConn.readOnly = globalCellConn.readOnly
+		}
+		if cached && cc.conn != nil {
+			// Close the cached connection only now that Create has succeeded. If Create fails, the connection stays
+			// cached: the watches on it keep running, and once the cell is pointed back at the topo server it is
+			// connected to, ConnForCell returns it again rather than a closed connection. Only etcd2topo's Create
+			// reaches the server; consultopo's and zk2topo's don't, so on those a bad address still gets this far.
+			cc.conn.Close()
+		}
+		ts.cellConns[cell] = cellConn{ci, statsConn}
+		return statsConn, nil
 	case IsErrType(err, NoNode):
 		err = vterrors.Wrap(err, fmt.Sprintf("failed to create topo connection to %v, %v", ci.ServerAddress, ci.Root))
 		return nil, NewError(NoNode, err.Error())
@@ -351,6 +430,9 @@ func GetAliasByCell(ctx context.Context, ts *Server, cell string) string {
 // Close will close all connections to underlying topo Server.
 // It will nil all member variables, so any further access will panic.
 func (ts *Server) Close() {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.closed = true
 	if ts.globalCell != nil {
 		ts.globalCell.Close()
 	}
@@ -359,8 +441,6 @@ func (ts *Server) Close() {
 	}
 	ts.globalCell = nil
 	ts.globalReadOnlyCell = nil
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
 	for _, cc := range ts.cellConns {
 		cc.conn.Close()
 	}
@@ -393,22 +473,15 @@ func (ts *Server) OpenExternalVitessClusterServer(ctx context.Context, clusterNa
 	return externalTopo, nil
 }
 
-// SetReadOnly is initially ONLY implemented by StatsConn and used in ReadOnlyServer
+// SetReadOnly is initially ONLY implemented by StatsConn and used in ReadOnlyServer.
+// The global cell connection and every cell connection ConnForCell creates share one read-only state, so this
+// covers them all, including the cells the Server connects to afterwards.
 func (ts *Server) SetReadOnly(readOnly bool) error {
 	globalCellConn, ok := ts.globalCell.(*StatsConn)
 	if !ok {
 		return fmt.Errorf("invalid global cell connection type, expected StatsConn but found: %T", ts.globalCell)
 	}
 	globalCellConn.SetReadOnly(readOnly)
-
-	for _, cc := range ts.cellConns {
-		localCellConn, ok := cc.conn.(*StatsConn)
-		if !ok {
-			return fmt.Errorf("invalid local cell connection type, expected StatsConn but found: %T", cc.conn)
-		}
-		localCellConn.SetReadOnly(true)
-	}
-
 	return nil
 }
 
@@ -418,21 +491,7 @@ func (ts *Server) IsReadOnly() (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("invalid global cell connection type, expected StatsConn but found: %T", ts.globalCell)
 	}
-	if !globalCellConn.IsReadOnly() {
-		return false, nil
-	}
-
-	for _, cc := range ts.cellConns {
-		localCellConn, ok := cc.conn.(*StatsConn)
-		if !ok {
-			return false, fmt.Errorf("invalid local cell connection type, expected StatsConn but found: %T", cc.conn)
-		}
-		if !localCellConn.IsReadOnly() {
-			return false, nil
-		}
-	}
-
-	return true, nil
+	return globalCellConn.IsReadOnly(), nil
 }
 
 // GetKeyspaceRoutingRulesPath returns the path to the keyspace routing rules file in the topo.

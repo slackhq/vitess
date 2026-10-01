@@ -99,7 +99,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 			if err != nil {
 				// Serious error or context timeout/cancelled.
 				notifications <- &topo.WatchData{
-					Err: convertError(err, nodePath),
+					Err: convertError(getCtx, err, nodePath),
 				}
 				cancelGetCtx()
 				return
@@ -126,7 +126,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 			select {
 			case <-ctx.Done():
 				notifications <- &topo.WatchData{
-					Err: convertError(ctx.Err(), nodePath),
+					Err: convertError(ctx, ctx.Err(), nodePath),
 				}
 				cancelGetCtx()
 				return

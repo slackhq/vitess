@@ -49,7 +49,12 @@ func (ts *Server) GetCellInfoNames(ctx context.Context) ([]string, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	entries, err := ts.globalCell.ListDir(ctx, CellsPath, false /*full*/)
+	return getCellInfoNames(ctx, ts.globalCell)
+}
+
+// getCellInfoNames lists the cells through conn, sorted by name.
+func getCellInfoNames(ctx context.Context, conn Conn) ([]string, error) {
+	entries, err := conn.ListDir(ctx, CellsPath, false /*full*/)
 	switch {
 	case IsErrType(err, NoNode):
 		return nil, nil
@@ -69,6 +74,11 @@ func (ts *Server) GetCellInfo(ctx context.Context, cell string, strongRead bool)
 	if !strongRead {
 		conn = ts.globalReadOnlyCell
 	}
+	return getCellInfo(ctx, conn, cell)
+}
+
+// getCellInfo reads a CellInfo through conn.
+func getCellInfo(ctx context.Context, conn Conn, cell string) (*topodatapb.CellInfo, error) {
 	// Read the file.
 	filePath := pathForCellInfo(cell)
 	contents, _, err := conn.Get(ctx, filePath)
@@ -97,8 +107,14 @@ func (ts *Server) CreateCellInfo(ctx context.Context, cell string, ci *topodatap
 
 	// Save it.
 	filePath := pathForCellInfo(cell)
-	_, err = ts.globalCell.Create(ctx, filePath, contents)
-	return err
+	if _, err = ts.globalCell.Create(ctx, filePath, contents); err != nil {
+		return err
+	}
+	// A cell name can be reused after a delete, so a CellInfo cached for an earlier cell of this name must
+	// not be reused.
+	ts.expireCellInfo(cell)
+	ts.expireCellNames()
+	return nil
 }
 
 // UpdateCellInfoFields is a high level helper method to read a CellInfo
@@ -141,7 +157,11 @@ func (ts *Server) UpdateCellInfoFields(ctx context.Context, cell string, update 
 		if err != nil {
 			return err
 		}
-		if _, err = ts.globalCell.Update(ctx, filePath, contents, version); !IsErrType(err, BadVersion) {
+		_, err = ts.globalCell.Update(ctx, filePath, contents, version)
+		if err == nil {
+			ts.expireCellInfo(cell)
+		}
+		if !IsErrType(err, BadVersion) {
 			// This includes the 'err=nil' case.
 			return err
 		}
@@ -185,7 +205,12 @@ func (ts *Server) DeleteCellInfo(ctx context.Context, cell string, force bool) e
 	}
 
 	filePath := pathForCellInfo(cell)
-	return ts.globalCell.Delete(ctx, filePath, nil)
+	if err := ts.globalCell.Delete(ctx, filePath, nil); err != nil {
+		return err
+	}
+	ts.expireCellInfo(cell)
+	ts.expireCellNames()
+	return nil
 }
 
 // GetKnownCells returns the list of known cells.

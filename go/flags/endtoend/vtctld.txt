@@ -163,12 +163,14 @@ Flags:
       --tablet_refresh_interval duration                                 Tablet refresh interval. (default 1m0s)
       --tablet_refresh_known_tablets                                     Whether to reload the tablet's address/port map from topo in case they change. (default true)
       --tablet_url_template string                                       Format string describing debug tablet url formatting. See getTabletDebugURL() for how to customize this. (default "http://{{ "{{.GetTabletHostPort}}" }}")
+      --topo-cell-info-cache-ttl duration                                How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse the list of cells and a cell's CellInfo before reading them from the global topo again; 0 reads them on every call. Until they are read again, these reads do not notice a cell added, re-pointed or deleted by another process, and keep reading from the cell's old topo server.
       --topo_consul_idle_conn_timeout duration                           Maximum amount of time to pool idle connections. (default 1m30s)
       --topo_consul_lock_delay duration                                  LockDelay for consul session. (default 15s)
       --topo_consul_lock_session_checks string                           List of checks for consul session. (default "serfHealth")
       --topo_consul_lock_session_ttl string                              TTL for consul session.
       --topo_consul_max_conns_per_host int                               Maximum number of consul connections per host.
       --topo_consul_max_idle_conns int                                   Maximum number of idle consul connections. (default 100)
+      --topo_consul_orphan_lock_min_age duration                         Minimum age of a lock file without a consul session before TryLock acquires it (0 acquires it immediately). (default 10m0s)
       --topo_consul_retry_base_delay duration                            Base delay between consul retry attempts (exponential backoff). (default 250ms)
       --topo_consul_retry_count int                                      Maximum number of attempts for consul operations on transient errors (set to 1 to disable retries). (default 5)
       --topo_consul_retry_enabled                                        Enable retry logic for transient consul errors. (default true)

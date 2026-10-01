@@ -125,8 +125,30 @@ var (
 // it can be mocked in unit tests
 type throttlerTopoService interface {
 	GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*topo.TabletInfo, error)
+	GetShard(ctx context.Context, keyspace, shard string) (*topo.ShardInfo, error)
 	FindAllTabletAliasesInShard(ctx context.Context, keyspace, shard string) ([]*topodatapb.TabletAlias, error)
 	GetSrvKeyspace(ctx context.Context, cell, keyspace string) (*topodatapb.SrvKeyspace, error)
+}
+
+// throttlerTopoServer is the throttlerTopoService of a topo.Server. It reads tablet records through the
+// server's StaleTolerantView: the tablets they list only decide which tablets the throttler probes, and
+// --topo-cell-info-cache-ttl then saves a global CellInfo read per cell and per tablet on each inventory
+// refresh.
+type throttlerTopoServer struct {
+	*topo.Server
+	view *topo.StaleTolerantView
+}
+
+func newThrottlerTopoServer(ts *topo.Server) throttlerTopoServer {
+	return throttlerTopoServer{Server: ts, view: ts.StaleTolerantView()}
+}
+
+func (s throttlerTopoServer) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*topo.TabletInfo, error) {
+	return s.view.GetTablet(ctx, alias)
+}
+
+func (s throttlerTopoServer) FindAllTabletAliasesInShard(ctx context.Context, keyspace, shard string) ([]*topodatapb.TabletAlias, error) {
+	return s.view.FindAllTabletAliasesInShard(ctx, keyspace, shard)
 }
 
 // Throttler is the main entity in the throttling mechanism. This service runs, probes, collects data,
@@ -222,7 +244,7 @@ func NewThrottler(env tabletenv.Env, srvTopoServer srvtopo.Server, ts *topo.Serv
 		env:             env,
 		tabletTypeFunc:  tabletTypeFunc,
 		srvTopoServer:   srvTopoServer,
-		ts:              ts,
+		ts:              newThrottlerTopoServer(ts),
 		heartbeatWriter: heartbeatWriter,
 		pool: connpool.NewPool(env, "ThrottlerPool", tabletenv.ConnPoolConfig{
 			Size:        2,
@@ -675,26 +697,30 @@ func (throttler *Throttler) stimulatePrimaryThrottler(ctx context.Context, tmCli
 	ctx, cancel := context.WithTimeout(ctx, throttler.dormantPeriod)
 	defer cancel()
 
-	tabletAliases, err := throttler.ts.FindAllTabletAliasesInShard(ctx, throttler.keyspace, throttler.shard)
+	// The shard record names the primary, so there is no need to list and read every tablet in the
+	// shard: that costs a topo read per cell and per tablet, on every replica that gets checked.
+	si, err := throttler.ts.GetShard(ctx, throttler.keyspace, throttler.shard)
 	if err != nil {
 		return err
 	}
-	for _, tabletAlias := range tabletAliases {
-		tablet, err := throttler.ts.GetTablet(ctx, tabletAlias)
-		if err != nil {
-			return err
-		}
-		if tablet.Type != topodatapb.TabletType_PRIMARY {
-			continue
-		}
-		req := &tabletmanagerdatapb.CheckThrottlerRequest{AppName: throttlerapp.ThrottlerStimulatorName.String()}
-		_, err = tmClient.CheckThrottler(ctx, tablet.Tablet, req)
-		if err != nil {
-			log.Errorf("stimulatePrimaryThrottler: %+v", err)
-		}
+	if !si.HasPrimary() {
+		return nil
+	}
+	tablet, err := throttler.ts.GetTablet(ctx, si.PrimaryAlias)
+	if err != nil {
 		return err
 	}
-	return nil
+	if tablet.Type != topodatapb.TabletType_PRIMARY {
+		// The shard record and the tablet record disagree, e.g. mid-reparent. We will try again
+		// on the next stimulation.
+		return nil
+	}
+	req := &tabletmanagerdatapb.CheckThrottlerRequest{AppName: throttlerapp.ThrottlerStimulatorName.String()}
+	_, err = tmClient.CheckThrottler(ctx, tablet.Tablet, req)
+	if err != nil {
+		log.Errorf("stimulatePrimaryThrottler: %+v", err)
+	}
+	return err
 }
 
 // throttledAppsSnapshot returns a snapshot (a copy) of current throttled apps
