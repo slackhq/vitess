@@ -42,6 +42,7 @@ var (
 	consulLockSessionChecks = "serfHealth"
 	consulLockSessionTTL    string
 	consulLockDelay         = 15 * time.Second
+	consulOrphanLockMinAge  = 10 * time.Minute
 )
 
 func init() {
@@ -53,6 +54,7 @@ func registerServerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&consulLockSessionChecks, "topo_consul_lock_session_checks", consulLockSessionChecks, "List of checks for consul session.")
 	fs.StringVar(&consulLockSessionTTL, "topo_consul_lock_session_ttl", consulLockSessionTTL, "TTL for consul session.")
 	fs.DurationVar(&consulLockDelay, "topo_consul_lock_delay", consulLockDelay, "LockDelay for consul session.")
+	fs.DurationVar(&consulOrphanLockMinAge, "topo_consul_orphan_lock_min_age", consulOrphanLockMinAge, "Minimum age of a lock file without a consul session before TryLock acquires it (0 acquires it immediately).")
 	fs.IntVar(&consulConfig.Transport.MaxConnsPerHost, "topo_consul_max_conns_per_host", consulConfig.Transport.MaxConnsPerHost, "Maximum number of consul connections per host.")
 	fs.IntVar(&consulConfig.Transport.MaxIdleConns, "topo_consul_max_idle_conns", consulConfig.Transport.MaxIdleConns, "Maximum number of idle consul connections.")
 	fs.DurationVar(&consulConfig.Transport.IdleConnTimeout, "topo_consul_idle_conn_timeout", consulConfig.Transport.IdleConnTimeout, "Maximum amount of time to pool idle connections.")
@@ -121,6 +123,10 @@ type Server struct {
 	lockChecks []string
 	lockTTL    string // This is the default used for all non-named locks
 	lockDelay  time.Duration
+
+	// orphanLockMinAge is how old a lock file without a session must be
+	// before TryLock acquires it.
+	orphanLockMinAge time.Duration
 }
 
 // lockInstance keeps track of one lock held by this client.
@@ -161,6 +167,8 @@ func NewServer(cell, serverAddr, root string) (*Server, error) {
 		lockChecks: parseConsulLockSessionChecks(consulLockSessionChecks),
 		lockTTL:    consulLockSessionTTL,
 		lockDelay:  consulLockDelay,
+
+		orphanLockMinAge: consulOrphanLockMinAge,
 	}, nil
 }
 
