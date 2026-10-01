@@ -202,11 +202,11 @@ Flags:
       --loadshed-oltp-read-default-priority int                          Default priority assigned to OLTP reads that lack priority information. (default 100)
       --loadshed-oltp-read-initial-target duration                       Initial CoDel target delay for the oltp-read load shedder. 0 uses its normal target.
       --loadshed-oltp-read-interval-ratio float                          CoDel observation interval for the oltp-read load shedder, as a multiple of its target. (default 20)
-      --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, or enabled. (default off)
+      --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, enabled, or enabled-replicas. (default off)
       --loadshed-oltp-read-target duration                               CoDel target delay for the oltp-read load shedder. (default 5ms)
       --loadshed-tx-initial-target duration                              Initial CoDel target delay for the tx load shedder. 0 uses its normal target.
       --loadshed-tx-interval-ratio float                                 CoDel observation interval for the tx load shedder, as a multiple of its target. (default 20)
-      --loadshed-tx-mode loadshed-mode                                   Load shedding mode for the tx pool: off, shadow, or enabled. (default off)
+      --loadshed-tx-mode loadshed-mode                                   Load shedding mode for the tx pool: off, shadow, enabled, or enabled-replicas. (default off)
       --loadshed-tx-target duration                                      CoDel target delay for the tx load shedder. (default 5ms)
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_heartbeat_time duration                                     If there is lock function used. This will keep the lock connection active by using this heartbeat (default 5s)
@@ -395,12 +395,14 @@ Flags:
       --tablet_types_to_wait strings                                     Wait till connected for specified tablet types during Gateway initialization. Should be provided as a comma-separated set of tablet types.
       --tablet_url_template string                                       Format string describing debug tablet url formatting. See getTabletDebugURL() for how to customize this. (default "http://{{ "{{.GetTabletHostPort}}" }}")
       --throttle_tablet_types string                                     Comma separated VTTablet types to be considered by the throttler. default: 'replica'. example: 'replica,rdonly'. 'replica' always implicitly included (default "replica")
+      --topo-cell-info-cache-ttl duration                                How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse the list of cells and a cell's CellInfo before reading them from the global topo again; 0 reads them on every call. Until they are read again, these reads do not notice a cell added, re-pointed or deleted by another process, and keep reading from the cell's old topo server.
       --topo_consul_idle_conn_timeout duration                           Maximum amount of time to pool idle connections. (default 1m30s)
       --topo_consul_lock_delay duration                                  LockDelay for consul session. (default 15s)
       --topo_consul_lock_session_checks string                           List of checks for consul session. (default "serfHealth")
       --topo_consul_lock_session_ttl string                              TTL for consul session.
       --topo_consul_max_conns_per_host int                               Maximum number of consul connections per host.
       --topo_consul_max_idle_conns int                                   Maximum number of idle consul connections. (default 100)
+      --topo_consul_orphan_lock_min_age duration                         Minimum age of a lock file without a consul session before TryLock acquires it (0 acquires it immediately). (default 10m0s)
       --topo_consul_retry_base_delay duration                            Base delay between consul retry attempts (exponential backoff). (default 250ms)
       --topo_consul_retry_count int                                      Maximum number of attempts for consul operations on transient errors (set to 1 to disable retries). (default 5)
       --topo_consul_retry_enabled                                        Enable retry logic for transient consul errors. (default true)
@@ -464,6 +466,7 @@ Flags:
       --vschema-persistence-dir string                                   If set, per-keyspace vschema will be persisted in this directory and reloaded into the in-memory topology server across restarts. Bookkeeping is performed using a simple watcher goroutine. This is useful when running vtcombo as an application development container (e.g. vttestserver) where you want to keep the same vschema even if developer's machine reboots. This works in tandem with vttestserver's --persistent_mode flag. Needless to say, this is neither a perfect nor a production solution for vschema persistence. Consider using the --external_topo_server flag if you require a more complete solution. This flag is ignored if --external_topo_server is set.
       --vschema_ddl_authorized_users string                              List of users authorized to execute vschema ddl operations, or '%' to allow all users.
       --vstream-binlog-rotation-threshold int                            Byte size at which a VStreamer will attempt to rotate the source's open binary log before starting a GTID snapshot based stream (e.g. a ResultStreamer or RowStreamer) (default 67108864)
+      --vstream-metrics-include-caller                                   Add a CallerID label to VStream metrics, set to the client-supplied effective caller principal, or the MySQL user for SQL VSTREAM. Each distinct principal adds a series per keyspace, shard, and tablet type, and the counters keep their series until VTGate restarts. Streams without a principal get an empty CallerID.
       --vstream_dynamic_packet_size                                      Enable dynamic packet sizing for VReplication. This will adjust the packet size during replication to improve performance. (default true)
       --vstream_packet_size int                                          Suggested packet size for VReplication streamer. This is used only as a recommendation. The actual packet size may be more or less than this amount. (default 250000)
       --vtctld_sanitize_log_messages                                     When true, vtctld sanitizes logging.
