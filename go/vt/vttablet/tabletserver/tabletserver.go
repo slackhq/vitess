@@ -170,12 +170,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	srvTopoServer := srvtopo.NewResilientServer(ctx, topoServer, srvTopoCounts)
 
-	tabletTypeFunc := func() topodatapb.TabletType {
-		if tsv.sm == nil || tsv.sm.Target() == nil {
-			return topodatapb.TabletType_UNKNOWN
-		}
-		return tsv.sm.Target().TabletType
-	}
+	tabletTypeFunc := tsv.TabletType
 
 	tsv.statelessql = NewQueryList("oltp-stateless", env.Parser())
 	tsv.statefulql = NewQueryList("oltp-stateful", env.Parser())
@@ -336,6 +331,18 @@ func (tsv *TabletServer) Stats() *tabletenv.Stats {
 // Environment satisfies tabletenv.Env.
 func (tsv *TabletServer) Environment() *vtenv.Environment {
 	return tsv.env
+}
+
+// TabletType satisfies tabletenv.Env.
+func (tsv *TabletServer) TabletType() topodatapb.TabletType {
+	if tsv.sm == nil {
+		return topodatapb.TabletType_UNKNOWN
+	}
+	target := tsv.sm.Target()
+	if target == nil {
+		return topodatapb.TabletType_UNKNOWN
+	}
+	return target.TabletType
 }
 
 // LogError satisfies tabletenv.Env.

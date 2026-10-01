@@ -29,9 +29,41 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/dbconfigs"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vtenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
+
+type mutableTabletTypeEnv struct {
+	tabletenv.Env
+	tabletType topodatapb.TabletType
+}
+
+func (e *mutableTabletTypeEnv) TabletType() topodatapb.TabletType {
+	return e.tabletType
+}
+
+func TestLoadshedModeFollowsTabletType(t *testing.T) {
+	cfg := tabletenv.NewDefaultConfig()
+	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled-replicas"))
+	env := &mutableTabletTypeEnv{
+		Env:        tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, t.Name()),
+		tabletType: topodatapb.TabletType_PRIMARY,
+	}
+	mode := loadshedPoolConfig{env: env}.LoadshedConfig("ConnPool").Mode
+
+	assert.Equal(t, loadshed.ModeOff, mode())
+
+	env.tabletType = topodatapb.TabletType_REPLICA
+	assert.Equal(t, loadshed.ModeEnabled, mode())
+
+	env.tabletType = topodatapb.TabletType_RDONLY
+	assert.Equal(t, loadshed.ModeEnabled, mode())
+
+	env.tabletType = topodatapb.TabletType_UNKNOWN
+	assert.Equal(t, loadshed.ModeOff, mode())
+}
 
 func TestConnPoolGet(t *testing.T) {
 	db := fakesqldb.New(t)
