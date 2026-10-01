@@ -234,6 +234,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
+	case "TopoCellInfoCacheTTL":
+		err = setDurationVal(tsv.topoServer.SetCellInfoCacheTTL)
 	case "LoadshedOltpReadMode", "LoadshedTxMode":
 		err = setStringVal(loadshedConfig(tsv, varname).SetMode)
 	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
@@ -291,6 +293,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "RowStreamerMaxMySQLReplLagSecs", func() int64 { return tsv.Config().RowStreamer.MaxMySQLReplLagSecs })
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
+	vars = addVar(vars, "TopoCellInfoCacheTTL", tsv.topoServer.CellInfoCacheTTL)
 	addLoadshedVars := func(prefix string, cfg *tabletenv.LoadshedConfig) {
 		vars = addVar(vars, prefix+"Mode", cfg.ModeValue)
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
