@@ -853,7 +853,20 @@ func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
-	return qre.tsv.qe.streamConns.Get(ctx, qre.setting)
+	priority := qre.getStreamConnPriority()
+	conn, err := qre.tsv.qe.streamConns.GetWithPriority(ctx, qre.setting, priority)
+	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
+		return nil, errLoadShed
+	}
+	return conn, err
+}
+
+func (qre *QueryExecutor) getStreamConnPriority() int {
+	priority := priorityFromOptions(qre.options, qre.tsv.config.LoadshedOlapReadDefaultPriority)
+	if qre.plan == nil || !qre.plan.UsesOnlyLocalTables {
+		return loadshed.PriorityUndroppable
+	}
+	return priority
 }
 
 // txFetch fetches from a TxConnection.

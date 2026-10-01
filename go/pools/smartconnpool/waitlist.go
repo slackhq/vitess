@@ -421,6 +421,9 @@ func (wl *waitlist[C]) registerStats(exporter waitlistStatsExporter, poolName st
 	case "ConnPool":
 		statsName = "SnakeOltpRead"
 		poolLabel = "oltp_read"
+	case "StreamConnPool":
+		statsName = "SnakeOlapRead"
+		poolLabel = "olap_read"
 	case "TransactionPool":
 		statsName = "SnakeDml"
 		poolLabel = "dml"
