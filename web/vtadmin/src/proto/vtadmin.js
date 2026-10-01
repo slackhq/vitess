@@ -92312,6 +92312,8 @@ export const binlogdata = $root.binlogdata = (() => {
          * @property {Array.<string>|null} [internal_tables] VStreamOptions internal_tables
          * @property {Object.<string,string>|null} [config_overrides] VStreamOptions config_overrides
          * @property {Array.<string>|null} [tables_to_copy] VStreamOptions tables_to_copy
+         * @property {boolean|null} [no_timeouts] VStreamOptions no_timeouts
+         * @property {Array.<binlogdata.VEventType>|null} [event_types] VStreamOptions event_types
          */
 
         /**
@@ -92326,6 +92328,7 @@ export const binlogdata = $root.binlogdata = (() => {
             this.internal_tables = [];
             this.config_overrides = {};
             this.tables_to_copy = [];
+            this.event_types = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -92355,6 +92358,22 @@ export const binlogdata = $root.binlogdata = (() => {
          * @instance
          */
         VStreamOptions.prototype.tables_to_copy = $util.emptyArray;
+
+        /**
+         * VStreamOptions no_timeouts.
+         * @member {boolean} no_timeouts
+         * @memberof binlogdata.VStreamOptions
+         * @instance
+         */
+        VStreamOptions.prototype.no_timeouts = false;
+
+        /**
+         * VStreamOptions event_types.
+         * @member {Array.<binlogdata.VEventType>} event_types
+         * @memberof binlogdata.VStreamOptions
+         * @instance
+         */
+        VStreamOptions.prototype.event_types = $util.emptyArray;
 
         /**
          * Creates a new VStreamOptions instance using the specified properties.
@@ -92389,6 +92408,14 @@ export const binlogdata = $root.binlogdata = (() => {
             if (message.tables_to_copy != null && message.tables_to_copy.length)
                 for (let i = 0; i < message.tables_to_copy.length; ++i)
                     writer.uint32(/* id 3, wireType 2 =*/26).string(message.tables_to_copy[i]);
+            if (message.no_timeouts != null && Object.hasOwnProperty.call(message, "no_timeouts"))
+                writer.uint32(/* id 4, wireType 0 =*/32).bool(message.no_timeouts);
+            if (message.event_types != null && message.event_types.length) {
+                writer.uint32(/* id 5, wireType 2 =*/42).fork();
+                for (let i = 0; i < message.event_types.length; ++i)
+                    writer.int32(message.event_types[i]);
+                writer.ldelim();
+            }
             return writer;
         };
 
@@ -92458,6 +92485,21 @@ export const binlogdata = $root.binlogdata = (() => {
                         message.tables_to_copy.push(reader.string());
                         break;
                     }
+                case 4: {
+                        message.no_timeouts = reader.bool();
+                        break;
+                    }
+                case 5: {
+                        if (!(message.event_types && message.event_types.length))
+                            message.event_types = [];
+                        if ((tag & 7) === 2) {
+                            let end2 = reader.uint32() + reader.pos;
+                            while (reader.pos < end2)
+                                message.event_types.push(reader.int32());
+                        } else
+                            message.event_types.push(reader.int32());
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -92515,6 +92557,40 @@ export const binlogdata = $root.binlogdata = (() => {
                     if (!$util.isString(message.tables_to_copy[i]))
                         return "tables_to_copy: string[] expected";
             }
+            if (message.no_timeouts != null && message.hasOwnProperty("no_timeouts"))
+                if (typeof message.no_timeouts !== "boolean")
+                    return "no_timeouts: boolean expected";
+            if (message.event_types != null && message.hasOwnProperty("event_types")) {
+                if (!Array.isArray(message.event_types))
+                    return "event_types: array expected";
+                for (let i = 0; i < message.event_types.length; ++i)
+                    switch (message.event_types[i]) {
+                    default:
+                        return "event_types: enum value[] expected";
+                    case 0:
+                    case 1:
+                    case 2:
+                    case 3:
+                    case 4:
+                    case 5:
+                    case 6:
+                    case 7:
+                    case 8:
+                    case 9:
+                    case 10:
+                    case 11:
+                    case 12:
+                    case 13:
+                    case 14:
+                    case 15:
+                    case 16:
+                    case 17:
+                    case 18:
+                    case 19:
+                    case 20:
+                        break;
+                    }
+            }
             return null;
         };
 
@@ -92551,6 +92627,105 @@ export const binlogdata = $root.binlogdata = (() => {
                 for (let i = 0; i < object.tables_to_copy.length; ++i)
                     message.tables_to_copy[i] = String(object.tables_to_copy[i]);
             }
+            if (object.no_timeouts != null)
+                message.no_timeouts = Boolean(object.no_timeouts);
+            if (object.event_types) {
+                if (!Array.isArray(object.event_types))
+                    throw TypeError(".binlogdata.VStreamOptions.event_types: array expected");
+                message.event_types = [];
+                for (let i = 0; i < object.event_types.length; ++i)
+                    switch (object.event_types[i]) {
+                    default:
+                        if (typeof object.event_types[i] === "number") {
+                            message.event_types[i] = object.event_types[i];
+                            break;
+                        }
+                    case "UNKNOWN":
+                    case 0:
+                        message.event_types[i] = 0;
+                        break;
+                    case "GTID":
+                    case 1:
+                        message.event_types[i] = 1;
+                        break;
+                    case "BEGIN":
+                    case 2:
+                        message.event_types[i] = 2;
+                        break;
+                    case "COMMIT":
+                    case 3:
+                        message.event_types[i] = 3;
+                        break;
+                    case "ROLLBACK":
+                    case 4:
+                        message.event_types[i] = 4;
+                        break;
+                    case "DDL":
+                    case 5:
+                        message.event_types[i] = 5;
+                        break;
+                    case "INSERT":
+                    case 6:
+                        message.event_types[i] = 6;
+                        break;
+                    case "REPLACE":
+                    case 7:
+                        message.event_types[i] = 7;
+                        break;
+                    case "UPDATE":
+                    case 8:
+                        message.event_types[i] = 8;
+                        break;
+                    case "DELETE":
+                    case 9:
+                        message.event_types[i] = 9;
+                        break;
+                    case "SET":
+                    case 10:
+                        message.event_types[i] = 10;
+                        break;
+                    case "OTHER":
+                    case 11:
+                        message.event_types[i] = 11;
+                        break;
+                    case "ROW":
+                    case 12:
+                        message.event_types[i] = 12;
+                        break;
+                    case "FIELD":
+                    case 13:
+                        message.event_types[i] = 13;
+                        break;
+                    case "HEARTBEAT":
+                    case 14:
+                        message.event_types[i] = 14;
+                        break;
+                    case "VGTID":
+                    case 15:
+                        message.event_types[i] = 15;
+                        break;
+                    case "JOURNAL":
+                    case 16:
+                        message.event_types[i] = 16;
+                        break;
+                    case "VERSION":
+                    case 17:
+                        message.event_types[i] = 17;
+                        break;
+                    case "LASTPK":
+                    case 18:
+                        message.event_types[i] = 18;
+                        break;
+                    case "SAVEPOINT":
+                    case 19:
+                        message.event_types[i] = 19;
+                        break;
+                    case "COPY_COMPLETED":
+                    case 20:
+                        message.event_types[i] = 20;
+                        break;
+                    }
+            }
             return message;
         };
 
@@ -92570,9 +92745,12 @@ export const binlogdata = $root.binlogdata = (() => {
             if (options.arrays || options.defaults) {
                 object.internal_tables = [];
                 object.tables_to_copy = [];
+                object.event_types = [];
             }
             if (options.objects || options.defaults)
                 object.config_overrides = {};
+            if (options.defaults)
+                object.no_timeouts = false;
             if (message.internal_tables && message.internal_tables.length) {
                 object.internal_tables = [];
                 for (let j = 0; j < message.internal_tables.length; ++j)
@@ -92588,6 +92766,13 @@ export const binlogdata = $root.binlogdata = (() => {
                 object.tables_to_copy = [];
                 for (let j = 0; j < message.tables_to_copy.length; ++j)
                     object.tables_to_copy[j] = message.tables_to_copy[j];
+            }
+            if (message.no_timeouts != null && message.hasOwnProperty("no_timeouts"))
+                object.no_timeouts = message.no_timeouts;
+            if (message.event_types && message.event_types.length) {
+                object.event_types = [];
+                for (let j = 0; j < message.event_types.length; ++j)
+                    object.event_types[j] = options.enums === String ? $root.binlogdata.VEventType[message.event_types[j]] === undefined ? message.event_types[j] : $root.binlogdata.VEventType[message.event_types[j]] : message.event_types[j];
             }
             return object;
         };

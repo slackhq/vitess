@@ -240,7 +240,7 @@ func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, 
 	if cfg.Mode == "" {
 		cfg.Mode = defaultCfg.Mode
 	}
-	fs.Var(&cfg.Mode, "loadshed-"+pool+"-mode", "Load shedding mode for the "+pool+" pool: off, shadow, or enabled.")
+	fs.Var(&cfg.Mode, "loadshed-"+pool+"-mode", "Load shedding mode for the "+pool+" pool: off, shadow, enabled, or enabled-replicas.")
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
 	fs.DurationVar(&cfg.InitialTarget, "loadshed-"+pool+"-initial-target", defaultCfg.InitialTarget, "Initial CoDel target delay for the "+pool+" load shedder. 0 uses its normal target.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
@@ -437,18 +437,31 @@ type (
 )
 
 const (
-	LoadshedModeOff     LoadshedMode = "off"
-	LoadshedModeShadow  LoadshedMode = "shadow"
-	LoadshedModeEnabled LoadshedMode = "enabled"
+	LoadshedModeOff             LoadshedMode = "off"
+	LoadshedModeShadow          LoadshedMode = "shadow"
+	LoadshedModeEnabled         LoadshedMode = "enabled"
+	LoadshedModeEnabledReplicas LoadshedMode = "enabled-replicas"
 )
 
 func parseLoadshedMode(value string) (LoadshedMode, error) {
 	mode := LoadshedMode(value)
 	switch mode {
-	case LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled:
+	case LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled, LoadshedModeEnabledReplicas:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("load shedding mode must be one of %q, %q, or %q", LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled)
+		return "", fmt.Errorf("load shedding mode must be one of %q, %q, %q, or %q", LoadshedModeOff, LoadshedModeShadow, LoadshedModeEnabled, LoadshedModeEnabledReplicas)
+	}
+}
+
+func (m LoadshedMode) EffectiveMode(tabletType topodatapb.TabletType) loadshed.Mode {
+	if m != LoadshedModeEnabledReplicas {
+		return loadshed.Mode(m)
+	}
+	switch tabletType {
+	case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
+		return loadshed.ModeEnabled
+	default:
+		return loadshed.ModeOff
 	}
 }
 
