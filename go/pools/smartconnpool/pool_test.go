@@ -619,7 +619,6 @@ func TestConnReopen(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	// no active connection should be left.
 	assert.Zero(t, p.Active())
-
 }
 
 func TestIdleTimeout(t *testing.T) {
@@ -682,7 +681,7 @@ func TestIdleTimeout(t *testing.T) {
 
 func TestIdleTimeoutCreateFail(t *testing.T) {
 	var state TestState
-	var connector = newConnector(&state)
+	connector := newConnector(&state)
 
 	ctx := context.Background()
 	p := NewPool(&Config[*TestConn]{
@@ -776,8 +775,8 @@ func TestMaxLifetime(t *testing.T) {
 
 func TestExtendedLifetimeTimeout(t *testing.T) {
 	var state TestState
-	var connector = newConnector(&state)
-	var config = &Config[*TestConn]{
+	connector := newConnector(&state)
+	config := &Config[*TestConn]{
 		Capacity:    1,
 		IdleTimeout: time.Second,
 		MaxLifetime: 0,
@@ -877,7 +876,7 @@ func TestCreateFail(t *testing.T) {
 
 func TestCreateFailOnPut(t *testing.T) {
 	var state TestState
-	var connector = newConnector(&state)
+	connector := newConnector(&state)
 
 	ctx := context.Background()
 	p := NewPool(&Config[*TestConn]{
@@ -974,6 +973,47 @@ func TestTimeout(t *testing.T) {
 
 	// put the connection take was taken initially.
 	p.put(r)
+}
+
+func TestPoolLoadShedPropagation(t *testing.T) {
+	var state TestState
+
+	p := NewPool(&Config[*TestConn]{
+		Capacity:    1,
+		IdleTimeout: time.Second,
+		LogWait:     state.LogWait,
+		PoolName:    "ConnPool",
+		PoolConfig:  testPoolConfig{},
+	}).Open(newConnector(&state), nil)
+	t.Cleanup(p.Close)
+
+	conn, err := p.Get(t.Context(), nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	errs := make(chan error, 6)
+	for range 6 {
+		go func() {
+			conn, err := p.Get(ctx, nil)
+			if conn != nil {
+				conn.Recycle()
+			}
+			errs <- err
+		}()
+	}
+
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, ErrPoolLoadShed)
+	case <-time.After(30 * time.Second):
+		require.Fail(t, "timed out waiting for Snake to shed a waiter")
+	}
+
+	cancel()
+	conn.Recycle()
+	for range 5 {
+		<-errs
+	}
 }
 
 func TestExpired(t *testing.T) {
