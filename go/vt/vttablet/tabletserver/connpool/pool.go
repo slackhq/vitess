@@ -31,6 +31,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -40,6 +41,22 @@ const (
 )
 
 type PooledConn = smartconnpool.Pooled[*Conn]
+
+type loadshedPoolConfig struct {
+	env tabletenv.Env
+}
+
+func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
+	config := c.env.Config().LoadshedConfig(poolName)
+	if config.Mode == nil {
+		return config
+	}
+	configuredMode := config.Mode
+	config.Mode = func() loadshed.Mode {
+		return tabletenv.LoadshedMode(configuredMode()).EffectiveMode(c.env.TabletType())
+	}
+	return config
+}
 
 // Pool implements a custom connection pool for tabletserver.
 // It's similar to dbconnpool.ConnPool, but the connections it creates
@@ -74,7 +91,7 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		MaxWaiters:      cfg.MaxWaiters,
 		WaiterCapDryRun: cfg.WaiterCapDryRun,
 		PoolName:        name,
-		PoolConfig:      env.Config(),
+		PoolConfig:      loadshedPoolConfig{env: env},
 	}
 
 	if name != "" {
