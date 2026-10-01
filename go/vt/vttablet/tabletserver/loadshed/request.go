@@ -18,6 +18,7 @@ package loadshed
 
 import (
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/sqlparser"
 )
 
 type (
@@ -56,6 +57,10 @@ const (
 // PriorityUndroppable is a sentinel priority indicating a request that must
 // never be dropped by CoDel.
 const PriorityUndroppable = 0
+
+func IsValidPriority(priority int) bool {
+	return priority >= PriorityUndroppable && priority <= sqlparser.MaxPriorityValue
+}
 
 func newRequest[T any](value T, priority int) *Request[T] {
 	return &Request[T]{
