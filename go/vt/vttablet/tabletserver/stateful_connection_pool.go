@@ -27,6 +27,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
 
@@ -177,6 +178,9 @@ func (sf *StatefulConnectionPool) NewConn(ctx context.Context, options *querypb.
 	var err error
 	valveID := options.GetLoadshedValveId()
 	priority := priorityFromOptions(options, sf.env.Config().TxThrottlerDefaultPriority)
+	if tabletenv.IsLocalContext(ctx) {
+		priority = loadshed.PriorityUndroppable
+	}
 
 	if options.GetClientFoundRows() {
 		conn, err = sf.foundRowsPool.GetWithPriority(ctx, setting, valveID, priority, "")
