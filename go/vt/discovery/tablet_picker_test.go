@@ -15,6 +15,7 @@ package discovery
 
 import (
 	"context"
+	"expvar"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/test/utils"
 
 	"vitess.io/vitess/go/vt/topo"
@@ -385,6 +387,48 @@ func TestPickCellPreferenceLocalAlias(t *testing.T) {
 	tablet, err := tp.PickForStreaming(ctx)
 	require.NoError(t, err)
 	assert.True(t, proto.Equal(want, tablet), "Pick: %v, want %v", tablet, want)
+}
+
+// TestPickCellPreferenceLocalAliasNoGlobalGetErrors confirms that the local
+// cell's alias, which NewTabletPicker adds to the cell list, is not probed as
+// a cell. Doing so fails with NoNode and is counted as a global topo error.
+func TestPickCellPreferenceLocalAliasNoGlobalGetErrors(t *testing.T) {
+	ctx := utils.LeakCheckContext(t)
+
+	// test env puts all cells into an alias called "cella"
+	te := newPickerTestEnv(t, ctx, []string{"cell", "otherCell"})
+	want := addTablet(ctx, te, 101, topodatapb.TabletType_REPLICA, "otherCell", true, true)
+	defer deleteTablet(t, te, want)
+
+	tp, err := NewTabletPicker(ctx, te.topoServ, []string{"cell"}, "cell", te.keyspace, te.shard, "replica", TabletPickerOptions{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"cell", "cella"}, tp.cells)
+
+	before := globalGetErrors(t)
+	tablet, err := tp.PickForStreaming(ctx)
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(want, tablet), "Pick: %v, want %v", tablet, want)
+	assert.Equal(t, before, globalGetErrors(t), "picking a tablet should not cause global topo Get errors")
+}
+
+// TestGetMatchingTabletsDedupesResolvedCells confirms that a cell reached both
+// directly and through an alias is only searched once, so its tablets are not
+// returned twice.
+func TestGetMatchingTabletsDedupesResolvedCells(t *testing.T) {
+	ctx := utils.LeakCheckContext(t)
+
+	// test env puts all cells into an alias called "cella"
+	te := newPickerTestEnv(t, ctx, []string{"cell", "otherCell"})
+	want := addTablet(ctx, te, 101, topodatapb.TabletType_REPLICA, "cell", true, true)
+	defer deleteTablet(t, te, want)
+
+	tp, err := NewTabletPicker(ctx, te.topoServ, []string{"cell"}, "cell", te.keyspace, te.shard, "replica", TabletPickerOptions{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"cell", "cella"}, tp.cells)
+
+	tablets := tp.GetMatchingTablets(ctx)
+	require.Len(t, tablets, 1)
+	assert.True(t, proto.Equal(want, tablets[0].Tablet), "GetMatchingTablets: %v, want %v", tablets[0].Tablet, want)
 }
 
 // TestPickUsingCellAsAlias confirms that when the tablet picker is
@@ -772,6 +816,13 @@ func newPickerTestEnv(t *testing.T, ctx context.Context, cells []string, extraCe
 	err = te.topoServ.CreateShard(ctx, te.keyspace, te.shard)
 	require.NoError(t, err)
 	return te
+}
+
+// globalGetErrors returns the TopologyConnErrors count for Get on the global cell.
+func globalGetErrors(t *testing.T) int64 {
+	errs, ok := expvar.Get("TopologyConnErrors").(*stats.CountersWithMultiLabels)
+	require.True(t, ok, "TopologyConnErrors stat not found")
+	return errs.Counts()["Get."+topo.GlobalCell]
 }
 
 func addTablet(ctx context.Context, te *pickerTestEnv, id int, tabletType topodatapb.TabletType, cell string, serving, healthy bool) *topodatapb.Tablet {

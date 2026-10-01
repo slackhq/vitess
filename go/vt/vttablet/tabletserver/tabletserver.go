@@ -114,7 +114,6 @@ type TabletServer struct {
 	rt           *repltracker.ReplTracker
 	vstreamer    *vstreamer.Engine
 	tracker      *schema.Tracker
-	watcher      *BinlogWatcher
 	qe           *QueryEngine
 	txThrottler  txthrottler.TxThrottler
 	te           *TxEngine
@@ -181,7 +180,6 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
 	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, tsv.lagThrottler, alias.Cell)
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
-	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
 	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
@@ -199,7 +197,6 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		rt:                tsv.rt,
 		vstreamer:         tsv.vstreamer,
 		tracker:           tsv.tracker,
-		watcher:           tsv.watcher,
 		qe:                tsv.qe,
 		txThrottler:       tsv.txThrottler,
 		te:                tsv.te,

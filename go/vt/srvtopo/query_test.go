@@ -70,3 +70,50 @@ func TestResilientQueryGetCurrentValueInitialization(t *testing.T) {
 	// Wait for the wait group to be empty, otherwise the test is marked a success before any of the go routines finish completion!
 	wg.Wait()
 }
+
+// TestResilientQueryRefreshSurvivesCallerCancel tests that cancelling the caller's context
+// does not cancel the background refresh that the caller triggered.
+func TestResilientQueryRefreshSurvivesCallerCancel(t *testing.T) {
+	queryStarted := make(chan struct{})
+	releaseQuery := make(chan struct{})
+	queryCtxErr := make(chan error, 1)
+	query := func(ctx context.Context, entry *queryEntry) (any, error) {
+		close(queryStarted)
+		<-releaseQuery
+		queryCtxErr <- ctx.Err()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return entry.key.(cellName), nil
+	}
+	counts := stats.NewCountersWithSingleLabel("TestResilientQueryRefreshSurvivesCallerCancel", "Test for resilient query", "type")
+
+	rq := &resilientQuery{
+		query:                query,
+		counts:               counts,
+		cacheRefreshInterval: 5 * time.Second,
+		cacheTTL:             5 * time.Second,
+		entries:              make(map[string]*queryEntry),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cell := cellName("cell-1")
+
+	callerErr := make(chan error, 1)
+	go func() {
+		_, err := rq.getCurrentValue(ctx, cell, false)
+		callerErr <- err
+	}()
+
+	<-queryStarted
+	cancel()
+	assert.ErrorIs(t, <-callerErr, context.Canceled)
+
+	close(releaseQuery)
+	assert.NoError(t, <-queryCtxErr, "refresh query context should not be cancelled by the caller")
+
+	assert.Eventually(t, func() bool {
+		res, err := rq.getCurrentValue(context.Background(), cell, false)
+		return err == nil && res == cell
+	}, 5*time.Second, 10*time.Millisecond)
+}
