@@ -21,6 +21,7 @@ package tabletenv
 import (
 	"vitess.io/vitess/go/tb"
 	"vitess.io/vitess/go/vt/log"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vtenv"
 )
@@ -34,6 +35,7 @@ type Env interface {
 	Stats() *Stats
 	LogError()
 	Environment() *vtenv.Environment
+	TabletType() topodatapb.TabletType
 }
 
 type testEnv struct {
@@ -63,6 +65,7 @@ func (te *testEnv) Config() *TabletConfig           { return te.config }
 func (te *testEnv) Exporter() *servenv.Exporter     { return te.exporter }
 func (te *testEnv) Stats() *Stats                   { return te.stats }
 func (te *testEnv) Environment() *vtenv.Environment { return te.env }
+func (*testEnv) TabletType() topodatapb.TabletType  { return topodatapb.TabletType_UNKNOWN }
 
 func (te *testEnv) LogError() {
 	if x := recover(); x != nil {
