@@ -115,15 +115,15 @@ func (s *Snake[T]) lockedObserveLengths() {
 	s.droppableLen.Add(int64(s.q.droppableLen))
 }
 
-func (s *Snake[T]) Enqueue(value T, priority int) (*Request[T], []T) {
-	return s.enqueue(value, priority, true)
+func (s *Snake[T]) Enqueue(value T, priority int, priorityInheritanceKey string) (*Request[T], []T) {
+	return s.enqueue(value, priority, priorityInheritanceKey, true)
 }
 
 func (s *Snake[T]) EnqueueExisting(value T, priority int) (*Request[T], []T) {
-	return s.enqueue(value, priority, false)
+	return s.enqueue(value, priority, "", false)
 }
 
-func (s *Snake[T]) enqueue(value T, priority int, recordAcquire bool) (*Request[T], []T) {
+func (s *Snake[T]) enqueue(value T, priority int, priorityInheritanceKey string, recordAcquire bool) (*Request[T], []T) {
 	if !IsValidPriority(priority) {
 		priority = s.cfg.DefaultPriority
 	}
@@ -131,6 +131,7 @@ func (s *Snake[T]) enqueue(value T, priority int, recordAcquire bool) (*Request[
 		s.acquireByPriority.Add([]string{strconv.Itoa(priority)}, 1)
 	}
 	req := newRequest(value, priority)
+	req.priorityInheritanceKey = priorityInheritanceKey
 	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
 	s.length.Add(1)
 	s.lockedObserveInitialTargetShadow(nil)
@@ -226,6 +227,22 @@ func (s *Snake[T]) Cancel(req *Request[T]) bool {
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return true
+}
+
+func (s *Snake[T]) LockedMaybeInheritPriority(priorityInheritanceKey string, priority int) {
+	req := s.q.priorityInheritors[priorityInheritanceKey]
+	if req == nil || !req.isDroppable() {
+		return
+	}
+	if priority == PriorityUndroppable {
+		s.q.lockedRemoveDroppable(req)
+		req.priority = priority
+		s.lockedObserveDropping()
+	} else if priority < req.priority {
+		s.q.droppable.remove(req)
+		req.priority = priority
+		s.q.droppable.insert(req)
+	}
 }
 
 func (s *Snake[T]) CancelMatching(match func(T) bool) bool {
