@@ -39028,6 +39028,12 @@ export namespace binlogdata {
 
         /** VStreamOptions tables_to_copy */
         tables_to_copy?: (string[]|null);
+
+        /** VStreamOptions no_timeouts */
+        no_timeouts?: (boolean|null);
+
+        /** VStreamOptions event_types */
+        event_types?: (binlogdata.VEventType[]|null);
     }
 
     /** Represents a VStreamOptions. */
@@ -39047,6 +39053,12 @@ export namespace binlogdata {
 
         /** VStreamOptions tables_to_copy. */
         public tables_to_copy: string[];
+
+        /** VStreamOptions no_timeouts. */
+        public no_timeouts: boolean;
+
+        /** VStreamOptions event_types. */
+        public event_types: binlogdata.VEventType[];
 
         /**
          * Creates a new VStreamOptions instance using the specified properties.
