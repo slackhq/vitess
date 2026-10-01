@@ -1618,6 +1618,71 @@ func TestMessageAck(t *testing.T) {
 	require.EqualValues(t, 1, count)
 }
 
+func TestMessageAckIsUndroppable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, tsv, db, closer := newTestTxExecutor(t, ctx)
+	defer closer()
+	target := querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}
+
+	require.NoError(t, tsv.config.LoadshedTx.SetMode("enabled"))
+	require.NoError(t, tsv.config.LoadshedTx.SetTarget(time.Millisecond))
+	require.NoError(t, tsv.config.LoadshedTx.SetInitialTarget(time.Millisecond))
+	require.NoError(t, tsv.config.LoadshedTx.SetIntervalRatio(1))
+
+	held := make([]*StatefulConnection, 0, tsv.config.TxPool.Size)
+	defer func() {
+		for _, conn := range held {
+			if conn != nil {
+				conn.Release(tx.ConnRelease)
+			}
+		}
+	}()
+	for range tsv.config.TxPool.Size {
+		conn, _, _, err := tsv.te.txPool.Begin(ctx, &querypb.ExecuteOptions{Priority: "0"}, false, 0, nil)
+		require.NoError(t, err)
+		held = append(held, conn)
+	}
+
+	db.AddQueryPattern("update msg set time_acked = .*", &sqltypes.Result{RowsAffected: 1})
+	results := make(chan error, 1)
+	go func() {
+		_, err := tsv.MessageAck(ctx, &target, "msg", []*querypb.Value{{
+			Type:  sqltypes.VarChar,
+			Value: []byte("1"),
+		}})
+		results <- err
+	}()
+
+	require.Eventually(t, func() bool {
+		return tsv.te.txPool.scp.conns.WaitersQueued() == 1
+	}, time.Second, time.Millisecond)
+
+	shed := make(chan struct{}, 1)
+	for range 6 {
+		go func() {
+			conn, _, _, err := tsv.te.txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+			if conn != nil {
+				conn.Release(tx.ConnRelease)
+			}
+			if errors.Is(err, errDMLLoadShed) {
+				select {
+				case shed <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return len(shed) != 0
+	}, time.Second, time.Millisecond)
+	assert.Empty(t, results)
+
+	held[0].Release(tx.ConnRelease)
+	held[0] = nil
+	require.NoError(t, <-results)
+}
+
 func TestRescheduleMessages(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
