@@ -61,6 +61,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/onlineddl"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/gc"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
@@ -114,7 +115,6 @@ type TabletServer struct {
 	rt           *repltracker.ReplTracker
 	vstreamer    *vstreamer.Engine
 	tracker      *schema.Tracker
-	watcher      *BinlogWatcher
 	qe           *QueryEngine
 	txThrottler  txthrottler.TxThrottler
 	te           *TxEngine
@@ -170,12 +170,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	srvTopoServer := srvtopo.NewResilientServer(ctx, topoServer, srvTopoCounts)
 
-	tabletTypeFunc := func() topodatapb.TabletType {
-		if tsv.sm == nil || tsv.sm.Target() == nil {
-			return topodatapb.TabletType_UNKNOWN
-		}
-		return tsv.sm.Target().TabletType
-	}
+	tabletTypeFunc := tsv.TabletType
 
 	tsv.statelessql = NewQueryList("oltp-stateless", env.Parser())
 	tsv.statefulql = NewQueryList("oltp-stateful", env.Parser())
@@ -186,7 +181,6 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
 	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, tsv.lagThrottler, alias.Cell)
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
-	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
 	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
@@ -204,7 +198,6 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		rt:                tsv.rt,
 		vstreamer:         tsv.vstreamer,
 		tracker:           tsv.tracker,
-		watcher:           tsv.watcher,
 		qe:                tsv.qe,
 		txThrottler:       tsv.txThrottler,
 		te:                tsv.te,
@@ -336,6 +329,18 @@ func (tsv *TabletServer) Stats() *tabletenv.Stats {
 // Environment satisfies tabletenv.Env.
 func (tsv *TabletServer) Environment() *vtenv.Environment {
 	return tsv.env
+}
+
+// TabletType satisfies tabletenv.Env.
+func (tsv *TabletServer) TabletType() topodatapb.TabletType {
+	if tsv.sm == nil {
+		return topodatapb.TabletType_UNKNOWN
+	}
+	target := tsv.sm.Target()
+	if target == nil {
+		return topodatapb.TabletType_UNKNOWN
+	}
+	return target.TabletType
 }
 
 // LogError satisfies tabletenv.Env.
@@ -616,13 +621,10 @@ func priorityFromOptions(options *querypb.ExecuteOptions, defaultPriority int) i
 	}
 
 	optionsPriority, err := strconv.Atoi(options.Priority)
-	// This should never error out, as the value for Priority has been validated in the vtgate already.
-	// Still, handle it just to make sure.
-	if err != nil {
+	if err != nil || !loadshed.IsValidPriority(optionsPriority) {
 		log.Errorf(
-			"The value of the %s query directive could not be converted to integer, using the "+
-				"default value. Error was: %s",
-			sqlparser.DirectivePriority, priority, err)
+			"The value %q of the %s query directive is invalid, using the default value %d",
+			options.Priority, sqlparser.DirectivePriority, priority)
 
 		return priority
 	}

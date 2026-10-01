@@ -42,6 +42,22 @@ const (
 
 type PooledConn = smartconnpool.Pooled[*Conn]
 
+type loadshedPoolConfig struct {
+	env tabletenv.Env
+}
+
+func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
+	config := c.env.Config().LoadshedConfig(poolName)
+	if config.Mode == nil {
+		return config
+	}
+	configuredMode := config.Mode
+	config.Mode = func() loadshed.Mode {
+		return tabletenv.LoadshedMode(configuredMode()).EffectiveMode(c.env.TabletType())
+	}
+	return config
+}
+
 // Pool implements a custom connection pool for tabletserver.
 // It's similar to dbconnpool.ConnPool, but the connections it creates
 // come with built-in ability to kill in-flight queries. These connections
@@ -75,7 +91,7 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		MaxWaiters:      cfg.MaxWaiters,
 		WaiterCapDryRun: cfg.WaiterCapDryRun,
 		PoolName:        name,
-		PoolConfig:      env.Config(),
+		PoolConfig:      loadshedPoolConfig{env: env},
 	}
 
 	if name != "" {
