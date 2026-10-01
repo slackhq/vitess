@@ -1256,7 +1256,9 @@ func (tsv *TabletServer) execDML(ctx context.Context, target *querypb.Target, qu
 		return 0, err
 	}
 
-	state, err := tsv.Begin(ctx, target, nil)
+	state, err := tsv.Begin(ctx, target, &querypb.ExecuteOptions{
+		Priority: strconv.Itoa(loadshed.PriorityUndroppable),
+	})
 	if err != nil {
 		return 0, err
 	}
