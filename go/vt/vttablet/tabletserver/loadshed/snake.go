@@ -30,6 +30,7 @@ type (
 	// SnakeConfig uses callbacks so runtime changes do not require rebuilding the queue.
 	SnakeConfig struct {
 		CoDel            CoDelConfig
+		DefaultPriority  int
 		Mode             func() Mode
 		DropTimerFired   func()
 		ShadowTimerFired func()
@@ -123,6 +124,9 @@ func (s *Snake[T]) EnqueueExisting(value T, priority int) (*Request[T], []T) {
 }
 
 func (s *Snake[T]) enqueue(value T, priority int, priorityInheritanceKey string, recordAcquire bool) (*Request[T], []T) {
+	if !IsValidPriority(priority) {
+		priority = s.cfg.DefaultPriority
+	}
 	if recordAcquire && s.acquireByPriority != nil {
 		s.acquireByPriority.Add([]string{strconv.Itoa(priority)}, 1)
 	}

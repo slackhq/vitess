@@ -28,8 +28,42 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
+
+type fakeWaitlistStatsExporter struct {
+	exporterName string
+	metricName   string
+	gauge        *stats.GaugesWithMultiLabels
+	creates      int
+}
+
+func (e *fakeWaitlistStatsExporter) Name() string {
+	return e.exporterName
+}
+
+func (e *fakeWaitlistStatsExporter) NewGaugesWithMultiLabels(name, help string, labels []string) *stats.GaugesWithMultiLabels {
+	e.creates++
+	if e.creates > 1 {
+		panic("duplicate metric registration")
+	}
+	e.metricName = name
+	e.gauge = stats.NewGaugesWithMultiLabels("", help, labels)
+	return e.gauge
+}
+
+func (e *fakeWaitlistStatsExporter) NewCounterFunc(string, string, func() int64) *stats.CounterFunc {
+	return nil
+}
+
+func (e *fakeWaitlistStatsExporter) NewCountersWithMultiLabels(_ string, help string, labels []string) *stats.CountersWithMultiLabels {
+	return stats.NewCountersWithMultiLabels("", help, labels)
+}
+
+func (e *fakeWaitlistStatsExporter) NewHistogram(_ string, help string, cutoffs []int64) *stats.Histogram {
+	return stats.NewHistogram("", help, cutoffs)
+}
 
 type testPoolConfig struct {
 	minDropDelay time.Duration
@@ -241,6 +275,56 @@ func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
 	for range waiters {
 		assert.NotErrorIs(t, <-errs, ErrPoolWaiterCapReached)
 	}
+}
+
+func TestWaitlistActiveModeMetric(t *testing.T) {
+	exporterName := t.Name()
+	t.Cleanup(func() {
+		snakeModeGauges.Lock()
+		delete(snakeModeGauges.byExporter, exporterName)
+		snakeModeGauges.Unlock()
+	})
+	exporter := &fakeWaitlistStatsExporter{exporterName: exporterName}
+	for _, tt := range []struct {
+		poolName  string
+		poolLabel string
+	}{
+		{poolName: "ConnPool", poolLabel: "oltp_read"},
+		{poolName: "StreamConnPool", poolLabel: "olap_read"},
+		{poolName: "TransactionPool", poolLabel: "dml"},
+		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
+	} {
+		t.Run(tt.poolName, func(t *testing.T) {
+			config := newMutableTestPoolConfig(loadshed.ModeOff)
+			wl := waitlist[*TestConn]{}
+			wl.init("", config)
+
+			wl.registerStats(exporter, tt.poolName)
+
+			require.NotNil(t, exporter.gauge)
+			assert.Equal(t, "SnakeMode", exporter.metricName)
+			assert.Equal(t, []string{"pool", "mode"}, exporter.gauge.Labels())
+			assert.Equal(t, int64(1), exporter.gauge.Counts()[tt.poolLabel+".off"])
+			assert.Zero(t, exporter.gauge.Counts()[tt.poolLabel+".shadow"])
+			assert.Zero(t, exporter.gauge.Counts()[tt.poolLabel+".enabled"])
+
+			for _, mode := range []loadshed.Mode{loadshed.ModeShadow, loadshed.ModeEnabled} {
+				config.setMode(mode)
+				wl.mu.Lock()
+				wl.transitionLocked()
+				wl.mu.Unlock()
+
+				for _, candidate := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
+					expected := int64(0)
+					if candidate == mode {
+						expected = 1
+					}
+					assert.Equal(t, expected, exporter.gauge.Counts()[tt.poolLabel+"."+string(candidate)])
+				}
+			}
+		})
+	}
+	assert.Equal(t, 1, exporter.creates)
 }
 
 func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
