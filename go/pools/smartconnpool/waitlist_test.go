@@ -57,6 +57,10 @@ func (e *fakeWaitlistStatsExporter) NewCounterFunc(string, string, func() int64)
 	return nil
 }
 
+func (e *fakeWaitlistStatsExporter) NewCountersWithMultiLabels(_ string, help string, labels []string) *stats.CountersWithMultiLabels {
+	return stats.NewCountersWithMultiLabels("", help, labels)
+}
+
 func (e *fakeWaitlistStatsExporter) NewHistogram(_ string, help string, cutoffs []int64) *stats.Histogram {
 	return stats.NewHistogram("", help, cutoffs)
 }
@@ -286,6 +290,7 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		poolLabel string
 	}{
 		{poolName: "ConnPool", poolLabel: "oltp_read"},
+		{poolName: "StreamConnPool", poolLabel: "olap_read"},
 		{poolName: "TransactionPool", poolLabel: "dml"},
 		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
 	} {
