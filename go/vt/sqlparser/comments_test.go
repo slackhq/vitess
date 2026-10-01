@@ -698,3 +698,29 @@ func TestQueryTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadshedValveId(t *testing.T) {
+	testCases := []struct {
+		query      string
+		expectedID string
+	}{
+		{
+			query: "select * from a_table",
+		},
+		{
+			query:      "select /*vt+ LOADSHED_VALVE_ID=req123 */ * from another_table",
+			expectedID: "req123",
+		},
+	}
+
+	parser := NewTestParser()
+	for _, tc := range testCases {
+		t.Run(tc.query, func(t *testing.T) {
+			stmt, err := parser.Parse(tc.query)
+			require.NoError(t, err)
+			qh, err := BuildQueryHints(stmt)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedID, qh.LoadshedValveId)
+		})
+	}
+}
