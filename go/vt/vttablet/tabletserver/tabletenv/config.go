@@ -230,6 +230,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.Unmanaged, "unmanaged", false, "Indicates an unmanaged tablet, i.e. using an external mysql-compatible database")
 
 	registerLoadshedFlags(fs, "oltp-read", &currentConfig.LoadshedOltpRead, defaultConfig.LoadshedOltpRead)
+	fs.IntVar(&currentConfig.LoadshedOltpReadDefaultPriority, "loadshed-oltp-read-default-priority", defaultConfig.LoadshedOltpReadDefaultPriority, "Default priority assigned to OLTP reads that lack priority information.")
 	registerLoadshedFlags(fs, "tx", &currentConfig.LoadshedTx, defaultConfig.LoadshedTx)
 }
 
@@ -414,8 +415,9 @@ type TabletConfig struct {
 
 	EnablePerWorkloadTableMetrics bool `json:"-"`
 
-	LoadshedOltpRead LoadshedConfig `json:"-"`
-	LoadshedTx       LoadshedConfig `json:"-"`
+	LoadshedOltpRead                LoadshedConfig `json:"-"`
+	LoadshedOltpReadDefaultPriority int            `json:"-"`
+	LoadshedTx                      LoadshedConfig `json:"-"`
 }
 
 type (
@@ -478,19 +480,23 @@ func (m LoadshedMode) Type() string {
 
 func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	var config *LoadshedConfig
+	var defaultPriority int
 	if c != nil {
 		switch poolName {
 		case "ConnPool":
 			config = &c.LoadshedOltpRead
+			defaultPriority = c.LoadshedOltpReadDefaultPriority
 		case "TransactionPool", "FoundRowsPool":
 			config = &c.LoadshedTx
+			defaultPriority = c.TxThrottlerDefaultPriority
 		}
 	}
 	if config == nil {
 		return loadshed.SnakeConfig{}
 	}
 	return loadshed.SnakeConfig{
-		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
+		DefaultPriority: defaultPriority,
+		Mode:            func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
 		CoDel: loadshed.CoDelConfig{
 			IntervalNs: func() int64 {
 				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
@@ -1191,6 +1197,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTxThrottlerConfig(); err != nil {
 		return err
 	}
+	if v := c.LoadshedOltpReadDefaultPriority; !loadshed.IsValidPriority(v) {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--loadshed-oltp-read-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
 	if err := c.verifyLoadshedConfig(); err != nil {
 		return err
 	}
@@ -1308,6 +1317,9 @@ func (c *TabletConfig) verifyTransactionLimitConfig() error {
 
 // verifyTxThrottlerConfig checks the TxThrottler related config for sanity.
 func (c *TabletConfig) verifyTxThrottlerConfig() error {
+	if v := c.TxThrottlerDefaultPriority; !loadshed.IsValidPriority(v) {
+		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be >= 0 and <= 100 (specified value: %d)", v)
+	}
 	if !c.EnableTxThrottler {
 		return nil
 	}
@@ -1315,10 +1327,6 @@ func (c *TabletConfig) verifyTxThrottlerConfig() error {
 	err := throttler.MaxReplicationLagModuleConfig{Configuration: c.TxThrottlerConfig.Get()}.Verify()
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "failed to parse throttlerdatapb.Configuration config: %v", err)
-	}
-
-	if v := c.TxThrottlerDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
-		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be > 0 and < 100 (specified value: %d)", v)
 	}
 
 	if c.TxThrottlerTabletTypes == nil || len(*c.TxThrottlerTabletTypes) == 0 {
@@ -1432,8 +1440,9 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: defaultLoadshedConfig(),
-	LoadshedTx:       defaultLoadshedConfig(),
+	LoadshedOltpRead:                defaultLoadshedConfig(),
+	LoadshedOltpReadDefaultPriority: sqlparser.MaxPriorityValue,
+	LoadshedTx:                      defaultLoadshedConfig(),
 }
 
 func defaultLoadshedConfig() LoadshedConfig {

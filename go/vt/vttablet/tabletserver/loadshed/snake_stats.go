@@ -26,6 +26,7 @@ import (
 type statsExporter interface {
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
+	NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels
 }
 
 var loadshedBucketCutoffs = durationNanos(
@@ -59,6 +60,8 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"ShedCount", "Cumulative requests shed by the Snake load shedder", func() int64 {
 		return s.ShedCount()
 	})
+	s.shedByPriority = exporter.NewCountersWithMultiLabels(prefix+"ShedByPriority", "Cumulative requests shed by the Snake load shedder, labeled by query priority (\"0\" undroppable, \"1\" most important .. \"100\" least); sum equals ShedCount", []string{"priority"})
+	s.acquireByPriority = exporter.NewCountersWithMultiLabels(prefix+"AcquireByPriority", "Cumulative Acquire attempts (offered load) labeled by query priority (\"0\" undroppable, \"1\" most important .. \"100\" least); ShedByPriority/AcquireByPriority is the per-priority shed rate", []string{"priority"})
 	exporter.NewCounterFunc(prefix+"DroppingNanosTotal", "Cumulative nanoseconds Snake CoDel spent in the dropping state; rate() yields the fraction of time shedding", func() int64 {
 		return s.DroppingNanos()
 	})
