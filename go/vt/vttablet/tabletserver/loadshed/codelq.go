@@ -146,6 +146,14 @@ type (
 		// base yields a smaller step (gentler ease-out). Defaults to 3 when
 		// unset or <= 1.
 		EasingLogBase func() float64
+
+		// KeepDroppableFloor overrides keepDroppableFloor when set.
+		KeepDroppableFloor func() int
+
+		// PriorityDequeueMaxSkips is how many times an over-target head may be
+		// bypassed for a more important over-target request before it is
+		// granted. 0 (or unset) disables priority dequeue.
+		PriorityDequeueMaxSkips func() int
 	}
 
 	// CoDelQueue methods prefixed locked* require the higher-level owner to hold its mutex.
@@ -155,10 +163,10 @@ type (
 		dropNextNs   int64
 		count        int
 		droppableLen int
-		// droppable indexes the droppable queue entries by priority so the
-		// least-important one is found in O(1) rather than an O(n) scan. Kept in
-		// lockstep with droppableLen: every insert/remove pairs with a ++/--.
-		droppable droppableIndex[T]
+		// byPriority indexes every queue entry by priority so the least-important
+		// droppable one, and the most important over-target one, are found
+		// without an O(n) scan.
+		byPriority priorityIndex[T]
 
 		cfg               CoDelConfig
 		nowNs             func() int64
@@ -180,7 +188,7 @@ func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer
 		scheduleDropTimer: scheduleDropTimer,
 		stopDropTimer:     stopDropTimer,
 	}
-	q.droppable.init()
+	q.byPriority.init()
 	return q
 }
 
@@ -205,10 +213,9 @@ func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 
 	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
-
+	q.byPriority.insert(req)
 	if req.isDroppable() {
 		q.droppableLen++
-		q.droppable.insert(req)
 		if !enabled {
 			q.lockedDisable()
 			return
@@ -270,9 +277,9 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
 
+	q.byPriority.remove(r)
 	if r.isDroppable() {
 		q.droppableLen--
-		q.droppable.remove(r)
 		if q.droppableLen == 0 && q.dropping {
 			q.dropping = false
 		}
@@ -293,7 +300,7 @@ func (q *CoDelQueue[T]) lockedDequeue(r *Request[T]) {
 // element in the queue — the oldest one at the highest numeric priority — or
 // nil if none exists. O(1) via the droppable priority index.
 func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element[*Request[T]] {
-	req := q.droppable.max()
+	req := q.byPriority.max()
 	if req == nil {
 		return nil
 	}

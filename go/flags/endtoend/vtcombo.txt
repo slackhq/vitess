@@ -197,16 +197,22 @@ Flags:
       --loadshed-olap-read-default-priority int                          Default priority assigned to OLAP reads that lack priority information. (default 100)
       --loadshed-olap-read-initial-target duration                       Initial CoDel target delay for the olap-read load shedder. 0 uses its normal target.
       --loadshed-olap-read-interval-ratio float                          CoDel observation interval for the olap-read load shedder, as a multiple of its target. (default 20)
+      --loadshed-olap-read-keep-droppable-floor int                      Minimum droppable requests the olap-read load shedder keeps queued instead of dropping. (default 4)
       --loadshed-olap-read-mode loadshed-mode                            Load shedding mode for the olap-read pool: off, shadow, or enabled. (default off)
+      --loadshed-olap-read-priority-dequeue-max-skips int                When the olap-read queue head is over target, grant a more important over-target request instead, at most this many times per head. 0 disables.
       --loadshed-olap-read-target duration                               CoDel target delay for the olap-read load shedder. (default 5ms)
       --loadshed-oltp-read-default-priority int                          Default priority assigned to OLTP reads that lack priority information. (default 100)
       --loadshed-oltp-read-initial-target duration                       Initial CoDel target delay for the oltp-read load shedder. 0 uses its normal target.
       --loadshed-oltp-read-interval-ratio float                          CoDel observation interval for the oltp-read load shedder, as a multiple of its target. (default 20)
+      --loadshed-oltp-read-keep-droppable-floor int                      Minimum droppable requests the oltp-read load shedder keeps queued instead of dropping. (default 4)
       --loadshed-oltp-read-mode loadshed-mode                            Load shedding mode for the oltp-read pool: off, shadow, enabled, or enabled-replicas. (default off)
+      --loadshed-oltp-read-priority-dequeue-max-skips int                When the oltp-read queue head is over target, grant a more important over-target request instead, at most this many times per head. 0 disables.
       --loadshed-oltp-read-target duration                               CoDel target delay for the oltp-read load shedder. (default 5ms)
       --loadshed-tx-initial-target duration                              Initial CoDel target delay for the tx load shedder. 0 uses its normal target.
       --loadshed-tx-interval-ratio float                                 CoDel observation interval for the tx load shedder, as a multiple of its target. (default 20)
+      --loadshed-tx-keep-droppable-floor int                             Minimum droppable requests the tx load shedder keeps queued instead of dropping. (default 4)
       --loadshed-tx-mode loadshed-mode                                   Load shedding mode for the tx pool: off, shadow, enabled, or enabled-replicas. (default off)
+      --loadshed-tx-priority-dequeue-max-skips int                       When the tx queue head is over target, grant a more important over-target request instead, at most this many times per head. 0 disables.
       --loadshed-tx-target duration                                      CoDel target delay for the tx load shedder. (default 5ms)
       --lock-timeout duration                                            Maximum time to wait when attempting to acquire a lock from the topo server (default 45s)
       --lock_heartbeat_time duration                                     If there is lock function used. This will keep the lock connection active by using this heartbeat (default 5s)

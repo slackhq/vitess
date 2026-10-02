@@ -68,6 +68,12 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"InitialTargetShadow20xCensoredCount", "Cumulative fixed-20x initial-target shadow bursts censored because shadow mode ended before an outcome was known", func() int64 {
 		return s.initialTargetShadowCensored.Load()
 	})
+	exporter.NewCounterFunc(prefix+"PriorityDequeueReorderedCount", "Cumulative dequeues that granted a more important over-target request ahead of the head", func() int64 {
+		return s.priorityDequeueReordered.Load()
+	})
+	exporter.NewCounterFunc(prefix+"PriorityDequeueForcedHeadCount", "Cumulative dequeues that granted the over-target head because it reached the priority dequeue skip limit", func() int64 {
+		return s.priorityDequeueForcedHead.Load()
+	})
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake queue wait before dequeue, in nanoseconds", loadshedBucketCutoffs)
 	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
 	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)

@@ -111,6 +111,18 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setIntValWithError := func(f func(int) error) error {
+		ival, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid int value for %v: %v", varname, err)
+		}
+		if err := f(ival); err != nil {
+			return err
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	setIntValCtx := func(f func(context.Context, int) error) error {
 		ival, err := strconv.Atoi(value)
 		if err == nil {
@@ -242,6 +254,10 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationValWithError(loadshedConfig(tsv, varname).SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedOlapReadIntervalRatio", "LoadshedTxIntervalRatio":
 		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetIntervalRatio)
+	case "LoadshedOltpReadPriorityDequeueMaxSkips", "LoadshedOlapReadPriorityDequeueMaxSkips", "LoadshedTxPriorityDequeueMaxSkips":
+		err = setIntValWithError(loadshedConfig(tsv, varname).SetPriorityDequeueMaxSkips)
+	case "LoadshedOltpReadKeepDroppableFloor", "LoadshedOlapReadKeepDroppableFloor", "LoadshedTxKeepDroppableFloor":
+		err = setIntValWithError(loadshedConfig(tsv, varname).SetKeepDroppableFloor)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -296,6 +312,8 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
 		vars = addVar(vars, prefix+"InitialTarget", cfg.InitialTargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
+		vars = addVar(vars, prefix+"PriorityDequeueMaxSkips", cfg.PriorityDequeueMaxSkipsValue)
+		vars = addVar(vars, prefix+"KeepDroppableFloor", cfg.KeepDroppableFloorValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
 	addLoadshedVars("LoadshedOlapRead", &tsv.Config().LoadshedOlapRead)

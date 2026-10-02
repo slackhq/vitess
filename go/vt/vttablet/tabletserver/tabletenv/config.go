@@ -244,6 +244,8 @@ func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, 
 	fs.DurationVar(&cfg.Target, "loadshed-"+pool+"-target", defaultCfg.Target, "CoDel target delay for the "+pool+" load shedder.")
 	fs.DurationVar(&cfg.InitialTarget, "loadshed-"+pool+"-initial-target", defaultCfg.InitialTarget, "Initial CoDel target delay for the "+pool+" load shedder. 0 uses its normal target.")
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
+	fs.IntVar(&cfg.PriorityDequeueMaxSkips, "loadshed-"+pool+"-priority-dequeue-max-skips", defaultCfg.PriorityDequeueMaxSkips, "When the "+pool+" queue head is over target, grant a more important over-target request instead, at most this many times per head. 0 disables.")
+	fs.IntVar(&cfg.KeepDroppableFloor, "loadshed-"+pool+"-keep-droppable-floor", defaultCfg.KeepDroppableFloor, "Minimum droppable requests the "+pool+" load shedder keeps queued instead of dropping.")
 }
 
 var (
@@ -433,6 +435,9 @@ type (
 		Target        time.Duration
 		InitialTarget time.Duration
 		IntervalRatio float64
+
+		PriorityDequeueMaxSkips int
+		KeepDroppableFloor      int
 	}
 )
 
@@ -511,10 +516,12 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 			InitialIntervalNs: func() int64 {
 				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
 			},
-			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
-			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
-			Exponent:        func() float64 { return 1 },
-			MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+			TargetNs:                func() int64 { return config.TargetValue().Nanoseconds() },
+			InitialTargetNs:         func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
+			Exponent:                func() float64 { return 1 },
+			MinDropDelayNs:          func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+			PriorityDequeueMaxSkips: config.PriorityDequeueMaxSkipsValue,
+			KeepDroppableFloor:      config.KeepDroppableFloorValue,
 		},
 	}
 }
@@ -601,6 +608,38 @@ func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) error {
 		return err
 	}
 	c.IntervalRatio = intervalRatio
+	return nil
+}
+
+func (c *LoadshedConfig) PriorityDequeueMaxSkipsValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PriorityDequeueMaxSkips
+}
+
+func (c *LoadshedConfig) SetPriorityDequeueMaxSkips(maxSkips int) error {
+	if maxSkips < 0 {
+		return fmt.Errorf("priority dequeue max skips must be greater than or equal to 0 (specified value: %d)", maxSkips)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.PriorityDequeueMaxSkips = maxSkips
+	return nil
+}
+
+func (c *LoadshedConfig) KeepDroppableFloorValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.KeepDroppableFloor
+}
+
+func (c *LoadshedConfig) SetKeepDroppableFloor(floor int) error {
+	if floor < 0 {
+		return fmt.Errorf("keep droppable floor must be greater than or equal to 0 (specified value: %d)", floor)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.KeepDroppableFloor = floor
 	return nil
 }
 
@@ -1250,6 +1289,12 @@ func (c *TabletConfig) verifyLoadshedConfig() error {
 		if err := validateLoadshedConfig(value.config.Target, value.config.InitialTarget, value.config.IntervalRatio); err != nil {
 			return fmt.Errorf("%s config: %w", value.name, err)
 		}
+		if v := value.config.PriorityDequeueMaxSkips; v < 0 {
+			return fmt.Errorf("%s config: priority dequeue max skips must be greater than or equal to 0 (specified value: %d)", value.name, v)
+		}
+		if v := value.config.KeepDroppableFloor; v < 0 {
+			return fmt.Errorf("%s config: keep droppable floor must be greater than or equal to 0 (specified value: %d)", value.name, v)
+		}
 	}
 	return nil
 }
@@ -1472,6 +1517,8 @@ func defaultLoadshedConfig() LoadshedConfig {
 		Target:        5 * time.Millisecond,
 		InitialTarget: 0,
 		IntervalRatio: 20,
+
+		KeepDroppableFloor: 4,
 	}
 }
 

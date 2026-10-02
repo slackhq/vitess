@@ -78,7 +78,7 @@ func TestPublishStatsRegistersIsolatedMetrics(t *testing.T) {
 	exporter := newFakeExporter()
 	for _, prefix := range []string{"SnakeOltpRead", "SnakeDml"} {
 		PublishStats(exporter, prefix, NewSnake[string](defaultSnakeConfig()))
-		for _, suffix := range []string{"ShedCount", "DroppingNanosTotal", "InitialTargetShadow20xCensoredCount"} {
+		for _, suffix := range []string{"ShedCount", "DroppingNanosTotal", "InitialTargetShadow20xCensoredCount", "PriorityDequeueReorderedCount", "PriorityDequeueForcedHeadCount"} {
 			assert.Contains(t, exporter.counters, prefix+suffix)
 		}
 		for _, suffix := range []string{
@@ -93,7 +93,7 @@ func TestPublishStatsRegistersIsolatedMetrics(t *testing.T) {
 			assert.Contains(t, exporter.histograms, prefix+suffix)
 		}
 	}
-	assert.Len(t, exporter.counters, 6)
+	assert.Len(t, exporter.counters, 10)
 	assert.Len(t, exporter.histograms, 14)
 }
 

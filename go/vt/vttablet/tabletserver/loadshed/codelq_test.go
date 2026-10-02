@@ -922,3 +922,15 @@ func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	_, _, dropped := s.Dequeue()
 	require.Empty(t, dropped)
 }
+
+func TestCoDelQueue_IndexesUndroppable(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock)
+
+	undroppable := testEnqueue(q, PriorityUndroppable)
+	assert.Same(t, undroppable, q.byPriority.firstOverTarget(clock.now, nil))
+	assert.Zero(t, q.droppableLen)
+
+	q.lockedRemove(undroppable)
+	assert.Nil(t, q.byPriority.firstOverTarget(clock.now, nil))
+}

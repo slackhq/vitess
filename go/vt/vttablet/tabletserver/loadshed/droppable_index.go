@@ -25,39 +25,37 @@ import (
 
 // Snake priorities use the query-priority scale: 0 is undroppable, and
 // priorities 1 through 100 become progressively less important. We keep one
-// FIFO bucket per droppable priority so the least-important request is found in
-// O(1) instead of an O(n) list scan.
+// FIFO bucket per priority so the least-important request is found in O(1)
+// instead of an O(n) list scan.
 const (
-	numPriorityBuckets = sqlparser.MaxPriorityValue
+	numPriorityBuckets = sqlparser.MaxPriorityValue + 1
 )
 
-// droppableIndex indexes the droppable requests currently in the CoDel queue by
-// priority so the least-important (oldest, on ties) can be found in O(1). Each
-// bucket is a FIFO list; a 2-word occupancy bitset marks which buckets are
-// non-empty so max() is a leading-zeros scan rather than a walk.
+// priorityIndex indexes the requests currently in the CoDel queue by priority.
+// Each bucket is a FIFO list; a 2-word occupancy bitset marks which buckets are
+// non-empty so lookups scan bits rather than walk the queue.
 //
 // Not safe for concurrent use; the caller holds the queue mutex.
-type droppableIndex[T any] struct {
+type priorityIndex[T any] struct {
 	buckets [numPriorityBuckets]list.List[*Request[T]]
 	// occ is the occupancy bitset over buckets: bit i is set iff buckets[i] is
-	// non-empty. Two words cover the 100 droppable priority levels.
+	// non-empty. Two words cover the 101 priority levels.
 	occ [2]uint64
 }
 
 // init prepares the index for use. The zero list.List is a valid empty list, so
 // this only needs to run once (idempotent) and mainly documents intent.
-func (idx *droppableIndex[T]) init() {
+func (idx *priorityIndex[T]) init() {
 	for i := range idx.buckets {
 		idx.buckets[i].Init()
 	}
 	idx.occ = [2]uint64{}
 }
 
-// insert adds a droppable request to its priority bucket (FIFO). Records the
-// bucket and list node on the request for O(1) removal. Must not be called for
-// an undroppable request.
-func (idx *droppableIndex[T]) insert(req *Request[T]) {
-	b := req.priority - 1
+// insert adds a request to its priority bucket (FIFO). Records the bucket and
+// list node on the request for O(1) removal.
+func (idx *priorityIndex[T]) insert(req *Request[T]) {
+	b := req.priority
 	req.bucketIdx = b
 	req.bucketElem = idx.buckets[b].PushBack(req)
 	idx.occ[b>>6] |= 1 << (uint(b) & 63)
@@ -65,7 +63,7 @@ func (idx *droppableIndex[T]) insert(req *Request[T]) {
 
 // remove unlinks a request from its bucket in O(1). No-op if the request is not
 // currently indexed. Clears the bucket's occupancy bit if it becomes empty.
-func (idx *droppableIndex[T]) remove(req *Request[T]) {
+func (idx *priorityIndex[T]) remove(req *Request[T]) {
 	if req.bucketElem == nil {
 		return
 	}
@@ -78,23 +76,51 @@ func (idx *droppableIndex[T]) remove(req *Request[T]) {
 }
 
 // max returns the least-important droppable request — the oldest in the
-// highest-numbered non-empty bucket — or nil if the index is empty.
-func (idx *droppableIndex[T]) max() *Request[T] {
-	if b := idx.highestOccupiedBucket(); b >= 0 {
+// highest-numbered non-empty droppable bucket — or nil if there is none.
+func (idx *priorityIndex[T]) max() *Request[T] {
+	if b := idx.highestOccupiedDroppableBucket(); b > PriorityUndroppable {
 		return idx.buckets[b].Front().Value
 	}
 	return nil
 }
 
-// highestOccupiedBucket returns the highest non-empty bucket index, or -1 if
-// all buckets are empty. O(1) via leading-zeros on the
-// occupancy words.
-func (idx *droppableIndex[T]) highestOccupiedBucket() int {
+// highestOccupiedDroppableBucket returns the highest non-empty bucket index
+// above PriorityUndroppable, or -1 if there is none. O(1) via leading-zeros on
+// the occupancy words.
+func (idx *priorityIndex[T]) highestOccupiedDroppableBucket() int {
 	if idx.occ[1] != 0 {
 		return 64 + 63 - bits.LeadingZeros64(idx.occ[1])
 	}
-	if idx.occ[0] != 0 {
-		return 63 - bits.LeadingZeros64(idx.occ[0])
+	if w := idx.occ[0] &^ (1 << PriorityUndroppable); w != 0 {
+		return 63 - bits.LeadingZeros64(w)
 	}
 	return -1
+}
+
+// firstOverTarget returns a request enqueued at or before cutoffNs from the
+// most important bucket whose front qualifies: the first such request in that
+// bucket accepted by match, else the bucket's front. Returns nil if no bucket
+// front qualifies. Priority inheritance appends to a bucket's back, so a bucket
+// may not be in enqueue order; the walk stops at the first request after
+// cutoffNs, which can miss a candidate but never returns one after cutoffNs.
+func (idx *priorityIndex[T]) firstOverTarget(cutoffNs int64, match func(T) bool) *Request[T] {
+	for w := range idx.occ {
+		for word := idx.occ[w]; word != 0; word &= word - 1 {
+			b := w<<6 + bits.TrailingZeros64(word)
+			front := idx.buckets[b].Front()
+			if front.Value.codelqEnqueuedAtNs > cutoffNs {
+				continue
+			}
+			if match == nil {
+				return front.Value
+			}
+			for e := front; e != nil && e.Value.codelqEnqueuedAtNs <= cutoffNs; e = e.Next() {
+				if match(e.Value.value) {
+					return e.Value
+				}
+			}
+			return front.Value
+		}
+	}
+	return nil
 }

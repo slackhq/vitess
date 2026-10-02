@@ -63,3 +63,24 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 	assert.Less(t, q.droppableLen, before, "dequeue path must shed stale waiters without a timer fire")
 	assert.Zero(t, q.droppableLen, "sustained dequeue under overload should drain the stale backlog")
 }
+
+func TestSnake_KeepDroppableFloorConfigurable(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		floor     func() int
+		wantDrops int
+	}{
+		{name: "default", floor: nil, wantDrops: 0},
+		{name: "zero", floor: func() int { return 0 }, wantDrops: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snake, clock, _ := newStatsTestSnake()
+			snake.cfg.CoDel.KeepDroppableFloor = tc.floor
+
+			snake.Enqueue("", 1)
+			clock.advance(20)
+
+			assert.Len(t, snake.LockedDropTimerFired(), tc.wantDrops)
+		})
+	}
+}

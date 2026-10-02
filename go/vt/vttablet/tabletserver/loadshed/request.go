@@ -28,13 +28,16 @@ type (
 		codelqElem         *list.Element[*Request[T]]
 		value              T
 
-		// bucketElem locates this request in the droppableIndex while it is a
-		// droppable queue entry: it is the request's node in its priority
-		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
-		// node lives in. bucketElem is nil when the request is not indexed
-		// (undroppable, dequeued, or removed).
+		// bucketElem locates this request in the priorityIndex while it is a
+		// queue entry: it is the request's node in its priority bucket's FIFO
+		// list, enabling O(1) removal. bucketIdx is the bucket that node lives
+		// in. bucketElem is nil when the request is not queued.
 		bucketElem *list.Element[*Request[T]]
 		bucketIdx  int
+
+		// skips counts dequeues that bypassed this request while it was the
+		// over-target head; bounds its wait under priority dequeue.
+		skips int
 	}
 )
 

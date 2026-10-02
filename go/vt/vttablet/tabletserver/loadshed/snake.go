@@ -76,6 +76,9 @@ type (
 
 		droppingNanos   atomic.Int64
 		droppingSinceNs atomic.Int64
+
+		priorityDequeueReordered  atomic.Int64
+		priorityDequeueForcedHead atomic.Int64
 	}
 )
 
@@ -151,10 +154,7 @@ func (s *Snake[T]) DequeueMatching(match func(T) bool) (T, bool, []T) {
 
 func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	pending := s.lockedEnqueueAdvance()
-	req := s.q.lockedPeek()
-	if match != nil {
-		req = s.q.lockedFind(match)
-	}
+	req := s.lockedSelect(match)
 	var value T
 	ok := false
 	if req != nil {
@@ -173,6 +173,55 @@ func (s *Snake[T]) dequeue(match func(T) bool) (T, bool, []T) {
 	s.lockedObserveLengths()
 	s.lockedObserveDropping()
 	return value, ok, s.droppedValues(pending)
+}
+
+// lockedSelect picks the request to grant. While the head is over target, it
+// grants the most important over-target request instead: any over-target pick
+// yields the same CoDel health decision as the head, and leaves lower-priority
+// requests queued as drop candidates. The head is granted after maxSkips
+// bypasses so it cannot starve.
+func (s *Snake[T]) lockedSelect(match func(T) bool) *Request[T] {
+	head := s.q.lockedPeek()
+	maxSkips := s.cfg.CoDel.priorityDequeueMaxSkips()
+	if maxSkips <= 0 || head == nil || !s.loadsheddingAllowed() {
+		return s.lockedSelectFIFO(match)
+	}
+	cutoffNs := s.q.nowNs() - s.q.lockedTargetNs()
+	if head.codelqEnqueuedAtNs > cutoffNs {
+		return s.lockedSelectFIFO(match)
+	}
+	if head.skips >= maxSkips {
+		s.priorityDequeueForcedHead.Add(1)
+		return head
+	}
+	req := s.q.byPriority.firstOverTarget(cutoffNs, match)
+	if req == nil || req == head {
+		return head
+	}
+	head.skips++
+	s.priorityDequeueReordered.Add(1)
+	return req
+}
+
+func (s *Snake[T]) lockedSelectFIFO(match func(T) bool) *Request[T] {
+	if match != nil {
+		return s.q.lockedFind(match)
+	}
+	return s.q.lockedPeek()
+}
+
+func (cfg CoDelConfig) keepDroppableFloor() int {
+	if cfg.KeepDroppableFloor == nil {
+		return keepDroppableFloor
+	}
+	return cfg.KeepDroppableFloor()
+}
+
+func (cfg CoDelConfig) priorityDequeueMaxSkips() int {
+	if cfg.PriorityDequeueMaxSkips == nil {
+		return 0
+	}
+	return cfg.PriorityDequeueMaxSkips()
 }
 
 func (s *Snake[T]) Len() int {
@@ -249,7 +298,7 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.q.lockedEnable()
 	var dropped []*Request[T]
 	s.q.lockedRunTimer(func() bool {
-		if s.q.droppableLen <= keepDroppableFloor {
+		if s.q.droppableLen <= s.cfg.CoDel.keepDroppableFloor() {
 			return false
 		}
 		elem := s.q.lockedFindLowestPriorityDroppable()
