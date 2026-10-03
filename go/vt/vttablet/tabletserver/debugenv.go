@@ -258,6 +258,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setIntValWithError(loadshedConfig(tsv, varname).SetPriorityDequeueMaxSkips)
 	case "LoadshedOltpReadKeepDroppableFloor", "LoadshedOlapReadKeepDroppableFloor", "LoadshedTxKeepDroppableFloor":
 		err = setIntValWithError(loadshedConfig(tsv, varname).SetKeepDroppableFloor)
+	case "LoadshedOltpReadKeepDroppableFloorMaxHolds", "LoadshedOlapReadKeepDroppableFloorMaxHolds", "LoadshedTxKeepDroppableFloorMaxHolds":
+		err = setIntValWithError(loadshedConfig(tsv, varname).SetKeepDroppableFloorMaxHolds)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -314,6 +316,7 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
 		vars = addVar(vars, prefix+"PriorityDequeueMaxSkips", cfg.PriorityDequeueMaxSkipsValue)
 		vars = addVar(vars, prefix+"KeepDroppableFloor", cfg.KeepDroppableFloorValue)
+		vars = addVar(vars, prefix+"KeepDroppableFloorMaxHolds", cfg.KeepDroppableFloorMaxHoldsValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
 	addLoadshedVars("LoadshedOlapRead", &tsv.Config().LoadshedOlapRead)

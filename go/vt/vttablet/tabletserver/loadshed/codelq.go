@@ -131,6 +131,8 @@ type (
 	// queue due to persistent queue buildup.
 	DroppedRequestError struct{}
 
+	dropResult int
+
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
@@ -149,6 +151,11 @@ type (
 
 		// KeepDroppableFloor overrides keepDroppableFloor when set.
 		KeepDroppableFloor func() int
+
+		// KeepDroppableFloorMaxHolds is how many consecutive drop opportunities
+		// the floor may hold before one drop goes through. 0 (or unset) holds
+		// indefinitely.
+		KeepDroppableFloorMaxHolds func() int
 
 		// PriorityDequeueMaxSkips is how many times an over-target head may be
 		// bypassed for a more important over-target request before it is
@@ -173,6 +180,13 @@ type (
 		scheduleDropTimer func(delayNs int64)
 		stopDropTimer     func()
 	}
+)
+
+const (
+	dropNone dropResult = iota
+	dropDone
+	// dropHeld skips a due drop without easing count.
+	dropHeld
 )
 
 func (e *DroppedRequestError) Error() string {
@@ -224,7 +238,7 @@ func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 		if q.dropNextNs == 0 || q.droppableLen == 1 {
 			// make sure we're all caught up
 			if q.dropNextNs > 0 {
-				q.lockedAdvance(now, func() bool { return false })
+				q.lockedAdvance(now, func() dropResult { return dropNone })
 			}
 			q.dropNextNs = q.lockedControlLaw(now)
 			q.lockedArmDropTimer()
@@ -310,11 +324,11 @@ func (q *CoDelQueue[T]) lockedFindLowestPriorityDroppable() *list.Element[*Reque
 // lockedRunTimer runs the CoDel drop logic. It is invoked both by the backstop
 // timer and synchronously from the dequeue path, so shedding is driven
 // as slots free rather than waiting for the (possibly late) timer to fire.
-func (q *CoDelQueue[T]) lockedRunTimer(dropFn func() bool) {
+func (q *CoDelQueue[T]) lockedRunTimer(dropFn func() dropResult) {
 	q.lockedRunTimerLimited(dropFn, -1)
 }
 
-func (q *CoDelQueue[T]) lockedRunTimerLimited(dropFn func() bool, maxDrops int) {
+func (q *CoDelQueue[T]) lockedRunTimerLimited(dropFn func() dropResult, maxDrops int) {
 	now := q.nowNs()
 
 	// Paced work: only advance the drop/ease control law and re-arm when a drop
@@ -338,11 +352,11 @@ func (q *CoDelQueue[T]) lockedRunTimerLimited(dropFn func() bool, maxDrops int) 
 // `now`, so calling it is idempotent and safe outside the timer — the dequeue
 // path invokes it to shed stale requests in real time rather than
 // waiting on the possibly-late backstop timer. It does NOT arm/disarm the timer.
-func (q *CoDelQueue[T]) lockedAdvance(now int64, dropFn func() bool) {
+func (q *CoDelQueue[T]) lockedAdvance(now int64, dropFn func() dropResult) {
 	q.lockedAdvanceLimited(now, dropFn, -1)
 }
 
-func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxDrops int) {
+func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() dropResult, maxDrops int) {
 	drops := 0
 	// Step the control law per interval while a drop is due AND there is still
 	// work to do: either a droppable backlog to shed, or an elevated count that
@@ -351,20 +365,19 @@ func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxD
 	// count and end the episode, otherwise the queue never returns to healthy.
 	for now >= q.dropNextNs && (q.droppableLen > 0 || q.count > 1) && (maxDrops < 0 || drops < maxDrops) {
 		// Dropping: actively shed load.
-		dropped := false
+		result := dropNone
 		if q.dropping {
-			dropped = dropFn()
-			if dropped {
-				drops++
-				q.count++
-				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
-			}
+			result = dropFn()
 		}
-		if !dropped {
+		switch result {
+		case dropDone:
+			drops++
+			q.count++
+		case dropNone:
 			// System is healthy this interval — continue easing down.
 			q.count = q.lockedEaseCount()
-			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
+		q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 
 		q.dropping = false
 

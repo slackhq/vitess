@@ -20,16 +20,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func dropAllFn(q *testCoDelQueue) func() bool {
-	return func() bool {
+func dropAllFn(q *testCoDelQueue) func() dropResult {
+	return func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
-			return false
+			return dropNone
 		}
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	}
 }
 
@@ -83,4 +84,37 @@ func TestSnake_KeepDroppableFloorConfigurable(t *testing.T) {
 			assert.Len(t, snake.LockedDropTimerFired(), tc.wantDrops)
 		})
 	}
+}
+
+func TestSnake_KeepDroppableFloorMaxHolds(t *testing.T) {
+	snake, clock, exporter := newStatsTestSnake()
+	snake.cfg.CoDel.KeepDroppableFloorMaxHolds = func() int { return 2 }
+	held := exporter.counters["SnakeTestKeepDroppableFloorHeldCount"]
+
+	snake.Enqueue("a", 1)
+	var heldAtDrop []int64
+	for range 20 {
+		clock.advance(10)
+		if len(snake.LockedDropTimerFired()) > 0 {
+			heldAtDrop = append(heldAtDrop, held())
+			snake.Enqueue("b", 1)
+		}
+	}
+
+	require.GreaterOrEqual(t, len(heldAtDrop), 2)
+	assert.Equal(t, []int64{2, 4}, heldAtDrop[:2])
+}
+
+func TestSnake_KeepDroppableFloorHardHoldFreezesCount(t *testing.T) {
+	snake, clock, exporter := newStatsTestSnake()
+
+	snake.Enqueue("a", 1)
+	snake.q.count = 5
+	for range 4 {
+		clock.advance(10)
+		assert.Empty(t, snake.LockedDropTimerFired())
+	}
+
+	assert.Equal(t, 5, snake.q.count)
+	assert.Positive(t, exporter.counters["SnakeTestKeepDroppableFloorHeldCount"]())
 }

@@ -371,11 +371,11 @@ func TestCoDelQueue_FirstDropSwitchesToNormalInterval(t *testing.T) {
 
 	clock.now = q.dropNextNs
 	rec.reset()
-	q.lockedRunTimer(func() bool {
+	q.lockedRunTimer(func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	})
 
 	assert.Equal(t, 2, q.count)
@@ -400,11 +400,11 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 
 	clock.now = q.dropNextNs
 	rec.reset()
-	q.lockedRunTimer(func() bool {
+	q.lockedRunTimer(func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		require.NotNil(t, elem)
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	})
 	assert.Equal(t, 2, q.count)
 	assert.Equal(t, int64(10), q.lockedTargetNs())
@@ -413,7 +413,7 @@ func TestCoDelQueue_InitialConfigRestoredAfterEasingToOne(t *testing.T) {
 	q.lockedDequeue(remaining)
 	clock.now = q.dropNextNs
 	rec.reset()
-	q.lockedRunTimer(func() bool { return false })
+	q.lockedRunTimer(func() dropResult { return dropNone })
 	assert.Equal(t, 1, q.count)
 	assert.Equal(t, int64(100), q.lockedTargetNs())
 	assert.Equal(t, int64(1_000), q.lockedCurrentInterval())
@@ -452,13 +452,13 @@ func TestCoDelQueue_RunScheduledDrop_EntersDropping(t *testing.T) {
 	q.dropNextNs = clock.now
 	clock.advance(1)
 
-	dropFn := func() bool {
+	dropFn := func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
-			return false
+			return dropNone
 		}
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	}
 	rec.reset()
 	q.lockedRunTimer(dropFn)
@@ -474,13 +474,13 @@ func TestCoDelQueue_RunScheduledDrop_NothingDroppable(t *testing.T) {
 	clock.advance(2_000_000_000)
 
 	rec.reset()
-	dropFn := func() bool {
+	dropFn := func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
-			return false
+			return dropNone
 		}
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	}
 	q.lockedRunTimer(dropFn)
 	assert.False(t, rec.scheduled)
@@ -626,7 +626,7 @@ func TestCoDelQueue_Easing_TimerDecaysCount(t *testing.T) {
 	q.count = 100
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool { return false }
+	dropFn := func() dropResult { return dropNone }
 
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
@@ -646,7 +646,7 @@ func TestCoDelQueue_Easing_LogBase(t *testing.T) {
 		q.dropping = false
 		q.count = count
 		q.dropNextNs = clock.now
-		q.lockedRunTimer(func() bool { return false })
+		q.lockedRunTimer(func() dropResult { return dropNone })
 		return q.count
 	}
 
@@ -666,7 +666,7 @@ func TestCoDelQueue_Easing_DefaultBase(t *testing.T) {
 	q.count = 100
 	q.dropNextNs = clock.now
 
-	q.lockedRunTimer(func() bool { return false })
+	q.lockedRunTimer(func() dropResult { return dropNone })
 
 	assert.Equal(t, 99, q.count, "default base 3: floor(log3(100)/3) = floor(1.40) = 1")
 }
@@ -683,7 +683,7 @@ func TestCoDelQueue_Easing_FloorsAtOne(t *testing.T) {
 	q.dropNextNs = clock.now
 
 	rec.scheduled = false
-	q.lockedRunTimer(func() bool { return false })
+	q.lockedRunTimer(func() dropResult { return dropNone })
 
 	assert.Equal(t, 1, q.count, "count should reach the floor of 1")
 	assert.False(t, rec.scheduled, "timer should NOT re-arm once count reaches 1")
@@ -698,7 +698,7 @@ func TestCoDelQueue_Easing_TimerStopsAtCountOne(t *testing.T) {
 	q.count = 2
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool { return false }
+	dropFn := func() dropResult { return dropNone }
 
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
@@ -718,7 +718,7 @@ func TestCoDelQueue_Easing_TimerDelayShrinkWithCount(t *testing.T) {
 	q.count = 8
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool { return false }
+	dropFn := func() dropResult { return dropNone }
 	q.lockedRunTimer(dropFn)
 
 	assert.Equal(t, 7, q.count, "count should decay by floor(log2(8)/2) = 1")
@@ -741,13 +741,13 @@ func TestCoDelQueue_Easing_DroppableLen_ReentersDroppingWithCurrentCount(t *test
 	q.count = 6
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool {
+	dropFn := func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
-			return false
+			return dropNone
 		}
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	}
 
 	rec.reset()
@@ -787,7 +787,7 @@ func TestCoDelQueue_Easing_DroppingToHealthy_TimerStillFires(t *testing.T) {
 	q.count = 16
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool { return false }
+	dropFn := func() dropResult { return dropNone }
 	rec.scheduled = false
 	q.lockedRunTimer(dropFn)
 
@@ -807,7 +807,7 @@ func TestCoDelQueue_Easing_FullSequence(t *testing.T) {
 	clock.now = 1_000_000_000
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool { return false }
+	dropFn := func() dropResult { return dropNone }
 
 	// Assert invariants because the exact sequence depends on logarithmic decay.
 	prev := q.count
@@ -855,13 +855,13 @@ func TestCoDelQueue_SlowMoving_Drops(t *testing.T) {
 	q.count = max(int(math.Log2(float64(q.droppableLen))), 1)
 	q.dropNextNs = clock.now
 
-	dropFn := func() bool {
+	dropFn := func() dropResult {
 		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
-			return false
+			return dropNone
 		}
 		q.lockedRemove(elem.Value)
-		return true
+		return dropDone
 	}
 	q.lockedRunTimer(dropFn)
 	assert.True(t, q.dropping, "should remain in dropping state with backlog")
@@ -933,4 +933,44 @@ func TestCoDelQueue_IndexesUndroppable(t *testing.T) {
 
 	q.lockedRemove(undroppable)
 	assert.Nil(t, q.byPriority.firstOverTarget(clock.now, nil))
+}
+
+func TestCoDelQueue_DropOpportunityOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		result         dropResult
+		wantCount      int
+		wantLen        int
+		wantDropNextNs int64
+	}{
+		{name: "dropped", result: dropDone, wantCount: 5, wantLen: 1, wantDropNextNs: 300},
+		{name: "held freezes count", result: dropHeld, wantCount: 4, wantLen: 2, wantDropNextNs: 350},
+		{name: "none eases count", result: dropNone, wantCount: 3, wantLen: 2, wantDropNextNs: 433},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newTestClock()
+			cfg := defaultTestConfig()
+			cfg.IntervalNs = func() int64 { return 1_000 }
+			cfg.MinDropDelayNs = func() int64 { return 1 }
+			q, _ := newTestQueue(cfg, clock)
+
+			testEnqueue(q, 1)
+			testEnqueue(q, 1)
+			clock.now = 100
+			q.count = 4
+			q.dropping = true
+			q.dropNextNs = clock.now
+
+			q.lockedRunTimerLimited(func() dropResult {
+				if tc.result == dropDone {
+					q.lockedRemove(q.lockedFindLowestPriorityDroppable().Value)
+				}
+				return tc.result
+			}, 1)
+
+			assert.Equal(t, tc.wantCount, q.count)
+			assert.Equal(t, tc.wantLen, q.lockedLen())
+			assert.Equal(t, tc.wantDropNextNs, q.dropNextNs)
+		})
+	}
 }

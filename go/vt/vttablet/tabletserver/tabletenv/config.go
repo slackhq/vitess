@@ -246,6 +246,7 @@ func registerLoadshedFlags(fs *pflag.FlagSet, pool string, cfg *LoadshedConfig, 
 	fs.Float64Var(&cfg.IntervalRatio, "loadshed-"+pool+"-interval-ratio", defaultCfg.IntervalRatio, "CoDel observation interval for the "+pool+" load shedder, as a multiple of its target.")
 	fs.IntVar(&cfg.PriorityDequeueMaxSkips, "loadshed-"+pool+"-priority-dequeue-max-skips", defaultCfg.PriorityDequeueMaxSkips, "When the "+pool+" queue head is over target, grant a more important over-target request instead, at most this many times per head. 0 disables.")
 	fs.IntVar(&cfg.KeepDroppableFloor, "loadshed-"+pool+"-keep-droppable-floor", defaultCfg.KeepDroppableFloor, "Minimum droppable requests the "+pool+" load shedder keeps queued instead of dropping.")
+	fs.IntVar(&cfg.KeepDroppableFloorMaxHolds, "loadshed-"+pool+"-keep-droppable-floor-max-holds", defaultCfg.KeepDroppableFloorMaxHolds, "Consecutive drop opportunities the "+pool+" keep-droppable floor may hold before one drop goes through. 0 holds indefinitely.")
 }
 
 var (
@@ -436,8 +437,9 @@ type (
 		InitialTarget time.Duration
 		IntervalRatio float64
 
-		PriorityDequeueMaxSkips int
-		KeepDroppableFloor      int
+		PriorityDequeueMaxSkips    int
+		KeepDroppableFloor         int
+		KeepDroppableFloorMaxHolds int
 	}
 )
 
@@ -516,12 +518,13 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 			InitialIntervalNs: func() int64 {
 				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
 			},
-			TargetNs:                func() int64 { return config.TargetValue().Nanoseconds() },
-			InitialTargetNs:         func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
-			Exponent:                func() float64 { return 1 },
-			MinDropDelayNs:          func() int64 { return (100 * time.Millisecond).Nanoseconds() },
-			PriorityDequeueMaxSkips: config.PriorityDequeueMaxSkipsValue,
-			KeepDroppableFloor:      config.KeepDroppableFloorValue,
+			TargetNs:                   func() int64 { return config.TargetValue().Nanoseconds() },
+			InitialTargetNs:            func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
+			Exponent:                   func() float64 { return 1 },
+			MinDropDelayNs:             func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+			PriorityDequeueMaxSkips:    config.PriorityDequeueMaxSkipsValue,
+			KeepDroppableFloor:         config.KeepDroppableFloorValue,
+			KeepDroppableFloorMaxHolds: config.KeepDroppableFloorMaxHoldsValue,
 		},
 	}
 }
@@ -640,6 +643,22 @@ func (c *LoadshedConfig) SetKeepDroppableFloor(floor int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.KeepDroppableFloor = floor
+	return nil
+}
+
+func (c *LoadshedConfig) KeepDroppableFloorMaxHoldsValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.KeepDroppableFloorMaxHolds
+}
+
+func (c *LoadshedConfig) SetKeepDroppableFloorMaxHolds(maxHolds int) error {
+	if maxHolds < 0 {
+		return fmt.Errorf("keep droppable floor max holds must be greater than or equal to 0 (specified value: %d)", maxHolds)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.KeepDroppableFloorMaxHolds = maxHolds
 	return nil
 }
 
@@ -1294,6 +1313,9 @@ func (c *TabletConfig) verifyLoadshedConfig() error {
 		}
 		if v := value.config.KeepDroppableFloor; v < 0 {
 			return fmt.Errorf("%s config: keep droppable floor must be greater than or equal to 0 (specified value: %d)", value.name, v)
+		}
+		if v := value.config.KeepDroppableFloorMaxHolds; v < 0 {
+			return fmt.Errorf("%s config: keep droppable floor max holds must be greater than or equal to 0 (specified value: %d)", value.name, v)
 		}
 	}
 	return nil

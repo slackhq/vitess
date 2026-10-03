@@ -121,6 +121,9 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedOlapReadKeepDroppableFloor", "0")
 	assert.Zero(t, tsv.Config().LoadshedOlapRead.KeepDroppableFloorValue())
+
+	postVar(t, tsv, "LoadshedTxKeepDroppableFloorMaxHolds", "3")
+	assert.Equal(t, 3, tsv.Config().LoadshedTx.KeepDroppableFloorMaxHoldsValue())
 }
 
 func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
@@ -136,6 +139,7 @@ func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 		{name: "LoadshedOltpReadPriorityDequeueMaxSkips", value: "-1"},
 		{name: "LoadshedTxKeepDroppableFloor", value: "-1"},
 		{name: "LoadshedTxKeepDroppableFloor", value: "x"},
+		{name: "LoadshedOltpReadKeepDroppableFloorMaxHolds", value: "-1"},
 	} {
 		config := loadshedConfig(tsv, test.name)
 		target := config.TargetValue()
@@ -143,6 +147,7 @@ func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 		intervalRatio := config.IntervalRatioValue()
 		maxSkips := config.PriorityDequeueMaxSkipsValue()
 		floor := config.KeepDroppableFloorValue()
+		maxHolds := config.KeepDroppableFloorMaxHoldsValue()
 
 		w := postVarResponse(tsv, test.name, test.value)
 
@@ -152,6 +157,7 @@ func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 		assert.Equal(t, intervalRatio, config.IntervalRatioValue())
 		assert.Equal(t, maxSkips, config.PriorityDequeueMaxSkipsValue())
 		assert.Equal(t, floor, config.KeepDroppableFloorValue())
+		assert.Equal(t, maxHolds, config.KeepDroppableFloorMaxHoldsValue())
 	}
 }
 
@@ -170,18 +176,21 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		"LoadshedOltpReadIntervalRatio",
 		"LoadshedOltpReadPriorityDequeueMaxSkips",
 		"LoadshedOltpReadKeepDroppableFloor",
+		"LoadshedOltpReadKeepDroppableFloorMaxHolds",
 		"LoadshedOlapReadMode",
 		"LoadshedOlapReadTarget",
 		"LoadshedOlapReadInitialTarget",
 		"LoadshedOlapReadIntervalRatio",
 		"LoadshedOlapReadPriorityDequeueMaxSkips",
 		"LoadshedOlapReadKeepDroppableFloor",
+		"LoadshedOlapReadKeepDroppableFloorMaxHolds",
 		"LoadshedTxMode",
 		"LoadshedTxTarget",
 		"LoadshedTxInitialTarget",
 		"LoadshedTxIntervalRatio",
 		"LoadshedTxPriorityDequeueMaxSkips",
 		"LoadshedTxKeepDroppableFloor",
+		"LoadshedTxKeepDroppableFloorMaxHolds",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)
