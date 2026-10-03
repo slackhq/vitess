@@ -86,16 +86,35 @@ func (s *Server) TryLock(ctx context.Context, dirPath, contents string) (topo.Lo
 		return nil, convertError(err, dirPath)
 	}
 
-	// If there is a file 'lock' in it then we can assume that someone else already has a lock.
-	// Throw error in this case
+	// If there is a file 'lock' in it and it is owned by a session, then someone
+	// else already has the lock. Throw error in this case. A lock file without a
+	// session is orphaned (e.g. Destroy failed after Unlock) and can be acquired.
 	for _, e := range entries {
 		if e.Name == locksFilename && e.Type == topo.TypeFile && e.Ephemeral {
-			return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+			held, err := s.isLockHeld(ctx, dirPath)
+			if err != nil {
+				return nil, convertError(err, dirPath)
+			}
+			if held {
+				return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+			}
+			log.Infof("Found orphaned lock file at path %s without a session, acquiring it", dirPath)
+			break
 		}
 	}
 
 	// everything is good let's acquire the lock.
 	return s.lock(ctx, dirPath, contents, s.lockTTL)
+}
+
+// isLockHeld returns true if the lock file under dirPath is owned by a consul session.
+func (s *Server) isLockHeld(ctx context.Context, dirPath string) (bool, error) {
+	lockPath := path.Join(s.root, dirPath, locksFilename)
+	pair, _, err := s.kv.Get(lockPath, (&api.QueryOptions{}).WithContext(ctx))
+	if err != nil {
+		return false, err
+	}
+	return pair != nil && pair.Session != "", nil
 }
 
 // Lock is part of the topo.Conn interface.
