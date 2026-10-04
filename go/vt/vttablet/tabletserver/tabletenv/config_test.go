@@ -829,22 +829,24 @@ func TestLoadshedPriorityDequeueConfig(t *testing.T) {
 	cfg := NewDefaultConfig()
 	assert.Zero(t, cfg.LoadshedTx.PriorityDequeueMaxSkipsValue())
 	assert.Equal(t, 4, cfg.LoadshedTx.KeepDroppableFloorValue())
-	assert.Zero(t, cfg.LoadshedTx.KeepDroppableFloorMaxHoldsValue())
+	assert.Zero(t, cfg.LoadshedTx.DropMinHeadSojournRatioValue())
 
 	assert.Error(t, cfg.LoadshedTx.SetPriorityDequeueMaxSkips(-1))
 	assert.Error(t, cfg.LoadshedTx.SetKeepDroppableFloor(-1))
-	assert.Error(t, cfg.LoadshedTx.SetKeepDroppableFloorMaxHolds(-1))
+	assert.Error(t, cfg.LoadshedTx.SetDropMinHeadSojournRatio(-1))
+	assert.Error(t, cfg.LoadshedTx.SetDropMinHeadSojournRatio(math.NaN()))
+	assert.Error(t, cfg.LoadshedTx.SetDropMinHeadSojournRatio(math.Inf(1)))
 	assert.Zero(t, cfg.LoadshedTx.PriorityDequeueMaxSkipsValue())
 	assert.Equal(t, 4, cfg.LoadshedTx.KeepDroppableFloorValue())
-	assert.Zero(t, cfg.LoadshedTx.KeepDroppableFloorMaxHoldsValue())
+	assert.Zero(t, cfg.LoadshedTx.DropMinHeadSojournRatioValue())
 
 	tx := cfg.LoadshedConfig("TransactionPool")
 	require.NoError(t, cfg.LoadshedTx.SetPriorityDequeueMaxSkips(8))
 	require.NoError(t, cfg.LoadshedTx.SetKeepDroppableFloor(0))
-	require.NoError(t, cfg.LoadshedTx.SetKeepDroppableFloorMaxHolds(3))
+	require.NoError(t, cfg.LoadshedTx.SetDropMinHeadSojournRatio(0.5))
 	assert.Equal(t, 8, tx.CoDel.PriorityDequeueMaxSkips())
 	assert.Equal(t, 0, tx.CoDel.KeepDroppableFloor())
-	assert.Equal(t, 3, tx.CoDel.KeepDroppableFloorMaxHolds())
+	assert.Equal(t, 0.5, tx.CoDel.DropMinHeadSojournRatio())
 	assert.Zero(t, cfg.LoadshedOltpRead.PriorityDequeueMaxSkipsValue())
 }
 
@@ -855,7 +857,8 @@ func TestTabletConfigVerifyLoadshedPriorityDequeueConfig(t *testing.T) {
 	}{
 		{name: "negative max skips", mutate: func(cfg *TabletConfig) { cfg.LoadshedOltpRead.PriorityDequeueMaxSkips = -1 }},
 		{name: "negative keep droppable floor", mutate: func(cfg *TabletConfig) { cfg.LoadshedTx.KeepDroppableFloor = -1 }},
-		{name: "negative keep droppable floor max holds", mutate: func(cfg *TabletConfig) { cfg.LoadshedOlapRead.KeepDroppableFloorMaxHolds = -1 }},
+		{name: "negative drop min head sojourn ratio", mutate: func(cfg *TabletConfig) { cfg.LoadshedOlapRead.DropMinHeadSojournRatio = -1 }},
+		{name: "NaN drop min head sojourn ratio", mutate: func(cfg *TabletConfig) { cfg.LoadshedTx.DropMinHeadSojournRatio = math.NaN() }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := NewDefaultConfig()
@@ -875,12 +878,12 @@ func TestLoadshedPriorityDequeueFlags(t *testing.T) {
 
 	require.NoError(t, fs.Set("loadshed-tx-priority-dequeue-max-skips", "8"))
 	require.NoError(t, fs.Set("loadshed-olap-read-keep-droppable-floor", "0"))
-	require.NoError(t, fs.Set("loadshed-tx-keep-droppable-floor-max-holds", "3"))
+	require.NoError(t, fs.Set("loadshed-tx-drop-min-head-sojourn-ratio", "1"))
 
 	assert.Equal(t, 8, currentConfig.LoadshedTx.PriorityDequeueMaxSkips)
 	assert.Zero(t, currentConfig.LoadshedOltpRead.PriorityDequeueMaxSkips)
 	assert.Zero(t, currentConfig.LoadshedOlapRead.KeepDroppableFloor)
 	assert.Equal(t, 4, currentConfig.LoadshedTx.KeepDroppableFloor)
-	assert.Equal(t, 3, currentConfig.LoadshedTx.KeepDroppableFloorMaxHolds)
-	assert.Zero(t, currentConfig.LoadshedOltpRead.KeepDroppableFloorMaxHolds)
+	assert.Equal(t, 1.0, currentConfig.LoadshedTx.DropMinHeadSojournRatio)
+	assert.Zero(t, currentConfig.LoadshedOltpRead.DropMinHeadSojournRatio)
 }

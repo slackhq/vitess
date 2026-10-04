@@ -79,9 +79,6 @@ type (
 
 		priorityDequeueReordered  atomic.Int64
 		priorityDequeueForcedHead atomic.Int64
-
-		floorHolds             int
-		keepDroppableFloorHeld atomic.Int64
 	}
 )
 
@@ -220,11 +217,11 @@ func (cfg CoDelConfig) keepDroppableFloor() int {
 	return cfg.KeepDroppableFloor()
 }
 
-func (cfg CoDelConfig) keepDroppableFloorMaxHolds() int {
-	if cfg.KeepDroppableFloorMaxHolds == nil {
+func (cfg CoDelConfig) dropMinHeadSojournRatio() float64 {
+	if cfg.DropMinHeadSojournRatio == nil {
 		return 0
 	}
-	return cfg.KeepDroppableFloorMaxHolds()
+	return cfg.DropMinHeadSojournRatio()
 }
 
 func (cfg CoDelConfig) priorityDequeueMaxSkips() int {
@@ -308,13 +305,8 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 	s.q.lockedEnable()
 	var dropped []*Request[T]
 	s.q.lockedRunTimer(func() dropResult {
-		if s.q.droppableLen <= s.cfg.CoDel.keepDroppableFloor() {
-			maxHolds := s.cfg.CoDel.keepDroppableFloorMaxHolds()
-			if maxHolds == 0 || s.floorHolds < maxHolds {
-				s.floorHolds++
-				s.keepDroppableFloorHeld.Add(1)
-				return dropHeld
-			}
+		if s.q.droppableLen <= s.cfg.CoDel.keepDroppableFloor() || s.lockedHeadUnderMinSojourn() {
+			return dropHeld
 		}
 		elem := s.q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
@@ -323,12 +315,21 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 		req := elem.Value
 		s.q.lockedRemove(req)
 		dropped = append(dropped, req)
-		s.floorHolds = 0
 		return dropDone
 	})
 	s.interval.Add(s.q.lockedCurrentInterval())
 	s.dropCount.Add(int64(s.q.count))
 	return dropped
+}
+
+func (s *Snake[T]) lockedHeadUnderMinSojourn() bool {
+	ratio := s.cfg.CoDel.dropMinHeadSojournRatio()
+	if ratio <= 0 {
+		return false
+	}
+	head := s.q.lockedPeek()
+	minSojournNs := int64(ratio * float64(s.q.lockedTargetNs()))
+	return head != nil && s.q.nowNs()-head.codelqEnqueuedAtNs < minSojournNs
 }
 
 func (s *Snake[T]) lockedObserveDropping() {

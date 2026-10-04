@@ -152,10 +152,9 @@ type (
 		// KeepDroppableFloor overrides keepDroppableFloor when set.
 		KeepDroppableFloor func() int
 
-		// KeepDroppableFloorMaxHolds is how many consecutive drop opportunities
-		// the floor may hold before one drop goes through. 0 (or unset) holds
-		// indefinitely.
-		KeepDroppableFloorMaxHolds func() int
+		// DropMinHeadSojournRatio holds drops while the head has waited less
+		// than this multiple of the target. 0 (or unset) disables.
+		DropMinHeadSojournRatio func() float64
 
 		// PriorityDequeueMaxSkips is how many times an over-target head may be
 		// bypassed for a more important over-target request before it is

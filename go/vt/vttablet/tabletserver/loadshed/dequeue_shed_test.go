@@ -86,27 +86,74 @@ func TestSnake_KeepDroppableFloorConfigurable(t *testing.T) {
 	}
 }
 
-func TestSnake_KeepDroppableFloorMaxHolds(t *testing.T) {
-	snake, clock, exporter := newStatsTestSnake()
-	snake.cfg.CoDel.KeepDroppableFloorMaxHolds = func() int { return 2 }
-	held := exporter.counters["SnakeTestKeepDroppableFloorHeldCount"]
-
-	snake.Enqueue("a", 1)
-	var heldAtDrop []int64
-	for range 20 {
-		clock.advance(10)
-		if len(snake.LockedDropTimerFired()) > 0 {
-			heldAtDrop = append(heldAtDrop, held())
-			snake.Enqueue("b", 1)
-		}
-	}
-
-	require.GreaterOrEqual(t, len(heldAtDrop), 2)
-	assert.Equal(t, []int64{2, 4}, heldAtDrop[:2])
+func newHeadSojournTestSnake(ratio *float64) (*Snake[string], *testClock) {
+	snake, clock, _ := newStatsTestSnake()
+	snake.cfg.CoDel.KeepDroppableFloor = func() int { return 0 }
+	snake.q.cfg.TargetNs = func() int64 { return 100 }
+	snake.cfg.CoDel.DropMinHeadSojournRatio = func() float64 { return *ratio }
+	return snake, clock
 }
 
-func TestSnake_KeepDroppableFloorHardHoldFreezesCount(t *testing.T) {
-	snake, clock, exporter := newStatsTestSnake()
+func fireUntilDrop(snake *Snake[string], clock *testClock) []string {
+	for range 10 {
+		clock.advance(10)
+		if dropped := snake.LockedDropTimerFired(); len(dropped) > 0 {
+			return dropped
+		}
+	}
+	return nil
+}
+
+func TestSnake_DropMinHeadSojournBlocksYoungHead(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ratio     float64
+		wantDrops int
+		wantCount int
+	}{
+		{name: "off", ratio: 0, wantDrops: 1, wantCount: 6},
+		{name: "young head holds and freezes count", ratio: 1, wantDrops: 0, wantCount: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snake, clock := newHeadSojournTestSnake(&tc.ratio)
+
+			snake.Enqueue("a", 50)
+			snake.q.count = 5
+			clock.advance(10)
+
+			assert.Len(t, snake.LockedDropTimerFired(), tc.wantDrops)
+			assert.Equal(t, tc.wantCount, snake.q.count)
+		})
+	}
+}
+
+func TestSnake_DropMinHeadSojournOldHeadDropsLeastImportant(t *testing.T) {
+	ratio := 100.0
+	snake, clock := newHeadSojournTestSnake(&ratio)
+
+	snake.Enqueue("old", 10)
+	clock.advance(150)
+	_, dropped := snake.Enqueue("young", 50)
+	require.Empty(t, dropped)
+
+	ratio = 1
+	assert.Equal(t, []string{"young"}, fireUntilDrop(snake, clock))
+}
+
+func TestSnake_DropMinHeadSojournOldUndroppableHead(t *testing.T) {
+	ratio := 1.0
+	snake, clock := newHeadSojournTestSnake(&ratio)
+
+	snake.Enqueue("undroppable", PriorityUndroppable)
+	clock.advance(150)
+	_, dropped := snake.Enqueue("droppable", 50)
+	require.Empty(t, dropped)
+
+	assert.Equal(t, []string{"droppable"}, fireUntilDrop(snake, clock))
+}
+
+func TestSnake_KeepDroppableFloorHoldFreezesCount(t *testing.T) {
+	snake, clock, _ := newStatsTestSnake()
 
 	snake.Enqueue("a", 1)
 	snake.q.count = 5
@@ -116,5 +163,4 @@ func TestSnake_KeepDroppableFloorHardHoldFreezesCount(t *testing.T) {
 	}
 
 	assert.Equal(t, 5, snake.q.count)
-	assert.Positive(t, exporter.counters["SnakeTestKeepDroppableFloorHeldCount"]())
 }

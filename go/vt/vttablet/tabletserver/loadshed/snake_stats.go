@@ -74,9 +74,6 @@ func PublishStats[T any](exporter statsExporter, prefix string, s *Snake[T]) {
 	exporter.NewCounterFunc(prefix+"PriorityDequeueForcedHeadCount", "Cumulative dequeues that granted the over-target head because it reached the priority dequeue skip limit", func() int64 {
 		return s.priorityDequeueForcedHead.Load()
 	})
-	exporter.NewCounterFunc(prefix+"KeepDroppableFloorHeldCount", "Cumulative drop opportunities skipped because the droppable queue was at or below the keep-droppable floor", func() int64 {
-		return s.keepDroppableFloorHeld.Load()
-	})
 	s.sojourn = exporter.NewHistogram(prefix+"SojournNs", "Distribution of Snake queue wait before dequeue, in nanoseconds", loadshedBucketCutoffs)
 	s.queueLen = exporter.NewHistogram(prefix+"QueueLenObserved", "Distribution of Snake CoDel queue length, sampled at each change", lengthBucketCutoffs)
 	s.droppableLen = exporter.NewHistogram(prefix+"DroppableLenObserved", "Distribution of Snake CoDel droppable queue length, sampled at each change", lengthBucketCutoffs)
