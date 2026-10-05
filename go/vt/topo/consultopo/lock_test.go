@@ -19,7 +19,9 @@ package consultopo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/assert"
@@ -54,31 +56,69 @@ func (m *lockTestKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTx
 
 const testLockPath = "global/keyspaces/ks/shards/0/Lock"
 
-func TestIsLockHeld(t *testing.T) {
+// lockValue returns vitess lock contents that were locked at the given time.
+func lockValue(lockedAt time.Time) []byte {
+	return []byte(fmt.Sprintf(`{"Action":"VTOrc Recovery","HostName":"vtorc-1","UserName":"vitess","Time":%q,"Status":"Running"}`,
+		lockedAt.Format(time.RFC3339)))
+}
+
+func TestCanAcquireLockFile(t *testing.T) {
+	old := lockValue(time.Now().Add(-time.Hour))
+	young := lockValue(time.Now().Add(-time.Minute))
+
 	tests := []struct {
 		name    string
+		minAge  time.Duration
 		pair    *api.KVPair
 		getErr  error
 		want    bool
 		wantErr string
 	}{
 		{
-			name: "lock owned by a session",
-			pair: &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Session: "session-1"},
-			want: true,
+			name:   "lock owned by a session",
+			minAge: 10 * time.Minute,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Session: "session-1", Value: old},
+			want:   false,
 		},
 		{
-			name: "orphaned lock without a session",
-			pair: &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue},
-			want: false,
+			name:   "stale orphaned lock",
+			minAge: 10 * time.Minute,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: old},
+			want:   true,
 		},
 		{
-			name: "lock file deleted after listing",
-			pair: nil,
-			want: false,
+			name:   "young orphaned lock may still be in use by a holder that lost its session",
+			minAge: 10 * time.Minute,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: young},
+			want:   false,
+		},
+		{
+			name:   "young orphaned lock with min age disabled",
+			minAge: 0,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: young},
+			want:   true,
+		},
+		{
+			name:   "orphaned lock with unparsable contents",
+			minAge: 10 * time.Minute,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: []byte("not json")},
+			want:   false,
+		},
+		{
+			name:   "orphaned lock without a lock time",
+			minAge: 10 * time.Minute,
+			pair:   &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: []byte(`{"Action":"VTOrc Recovery"}`)},
+			want:   false,
+		},
+		{
+			name:   "lock file deleted after listing",
+			minAge: 10 * time.Minute,
+			pair:   nil,
+			want:   true,
 		},
 		{
 			name:    "consul error",
+			minAge:  10 * time.Minute,
 			getErr:  errors.New("Unexpected response code: 500 (No cluster leader)"),
 			wantErr: "No cluster leader",
 		},
@@ -87,18 +127,29 @@ func TestIsLockHeld(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kv := &lockTestKV{pair: tt.pair, getErr: tt.getErr}
-			s := &Server{root: "global", kv: kv}
+			s := &Server{root: "global", kv: kv, orphanLockMinAge: tt.minAge}
 
-			held, err := s.isLockHeld(context.Background(), "keyspaces/ks/shards/0")
+			ok, err := s.canAcquireLockFile(context.Background(), "keyspaces/ks/shards/0")
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, held)
+			assert.Equal(t, tt.want, ok)
 			assert.Equal(t, []string{testLockPath}, kv.getKeys)
 		})
 	}
+}
+
+func TestTryLock_YoungOrphanedLockReturnsNodeExists(t *testing.T) {
+	kv := &lockTestKV{
+		keys: []string{"global/keyspaces/ks/shards/0/Lock", "global/keyspaces/ks/shards/0/Shard"},
+		pair: &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Value: lockValue(time.Now())},
+	}
+	s := &Server{root: "global", kv: kv, orphanLockMinAge: 10 * time.Minute}
+
+	_, err := s.TryLock(context.Background(), "keyspaces/ks/shards/0", "contents")
+	assert.True(t, topo.IsErrType(err, topo.NodeExists), "expected NodeExists, got %v", err)
 }
 
 func TestTryLock_HeldLockReturnsNodeExists(t *testing.T) {
@@ -106,7 +157,7 @@ func TestTryLock_HeldLockReturnsNodeExists(t *testing.T) {
 		keys: []string{"global/keyspaces/ks/shards/0/Lock", "global/keyspaces/ks/shards/0/Shard"},
 		pair: &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Session: "session-1"},
 	}
-	s := &Server{root: "global", kv: kv}
+	s := &Server{root: "global", kv: kv, orphanLockMinAge: 10 * time.Minute}
 
 	_, err := s.TryLock(context.Background(), "keyspaces/ks/shards/0", "contents")
 	assert.True(t, topo.IsErrType(err, topo.NodeExists), "expected NodeExists, got %v", err)

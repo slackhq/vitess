@@ -18,6 +18,7 @@ package consultopo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"time"
@@ -86,35 +87,70 @@ func (s *Server) TryLock(ctx context.Context, dirPath, contents string) (topo.Lo
 		return nil, convertError(err, dirPath)
 	}
 
-	// If there is a file 'lock' in it and it is owned by a session, then someone
-	// else already has the lock. Throw error in this case. A lock file without a
-	// session is orphaned (e.g. Destroy failed after Unlock) and can be acquired.
+	// If there is a file 'lock' in it then someone else already has the lock,
+	// unless it is a stale orphan (see canAcquireLockFile). Throw error in this case.
 	for _, e := range entries {
 		if e.Name == locksFilename && e.Type == topo.TypeFile && e.Ephemeral {
-			held, err := s.isLockHeld(ctx, dirPath)
+			ok, err := s.canAcquireLockFile(ctx, dirPath)
 			if err != nil {
 				return nil, convertError(err, dirPath)
 			}
-			if held {
+			if !ok {
 				return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
 			}
-			log.Infof("Found orphaned lock file at path %s without a session, acquiring it", dirPath)
 			break
 		}
 	}
 
 	// everything is good let's acquire the lock.
+	//
+	// The checks above and the acquire below are not atomic. If another client
+	// acquires the lock in between (e.g. several VTOrcs racing for the same
+	// stale orphan), s.lock() does not fail fast: api.Lock.Lock() waits for the
+	// lock to be released, so TryLock can block until the winner unlocks or ctx
+	// expires (topo.LockTimeout, 45s by default). Mutual exclusion still holds;
+	// only the non-blocking behavior is lost in that window.
 	return s.lock(ctx, dirPath, contents, s.lockTTL)
 }
 
-// isLockHeld returns true if the lock file under dirPath is owned by a consul session.
-func (s *Server) isLockHeld(ctx context.Context, dirPath string) (bool, error) {
+// canAcquireLockFile returns true if TryLock may acquire the lock file under
+// dirPath: it no longer exists, or it is orphaned (has no consul session, e.g.
+// Destroy failed after Unlock) and was locked at least orphanLockMinAge ago.
+// Younger session-less lock files are treated as held: their holder may have
+// just lost its session (e.g. during a consul leader election) and still be
+// running, such as an in-flight reparent that has not checked its lock yet.
+func (s *Server) canAcquireLockFile(ctx context.Context, dirPath string) (bool, error) {
 	lockPath := path.Join(s.root, dirPath, locksFilename)
 	pair, _, err := s.kv.Get(lockPath, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		return false, err
 	}
-	return pair != nil && pair.Session != "", nil
+	if pair == nil {
+		return true, nil
+	}
+	if pair.Session != "" {
+		return false, nil
+	}
+
+	var contents struct {
+		Time string
+	}
+	if err := json.Unmarshal(pair.Value, &contents); err != nil {
+		log.Warningf("Not acquiring orphaned lock file at path %s: cannot parse its contents: %v", dirPath, err)
+		return false, nil
+	}
+	lockedAt, err := time.Parse(time.RFC3339, contents.Time)
+	if err != nil {
+		log.Warningf("Not acquiring orphaned lock file at path %s: cannot parse its lock time %q: %v", dirPath, contents.Time, err)
+		return false, nil
+	}
+	age := time.Since(lockedAt)
+	if age < s.orphanLockMinAge {
+		return false, nil
+	}
+
+	log.Infof("Found orphaned lock file at path %s without a session, locked %v ago, acquiring it", dirPath, age.Round(time.Second))
+	return true, nil
 }
 
 // Lock is part of the topo.Conn interface.
