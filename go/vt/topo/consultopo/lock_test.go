@@ -175,3 +175,196 @@ func TestTryLock_SessionCheckErrorIsReturned(t *testing.T) {
 	assert.ErrorContains(t, err, "No cluster leader")
 	assert.False(t, topo.IsErrType(err, topo.NodeExists))
 }
+
+type destroyTestKV struct {
+	getFunc  func(call int) (*api.KVPair, error)
+	txnFunc  func(call int) (bool, error)
+	getCalls int
+	txnOps   []api.KVTxnOps
+	ctxErrs  []error
+}
+
+func (m *destroyTestKV) Get(key string, q *api.QueryOptions) (*api.KVPair, *api.QueryMeta, error) {
+	m.getCalls++
+	m.ctxErrs = append(m.ctxErrs, q.Context().Err())
+	pair, err := m.getFunc(m.getCalls)
+	return pair, nil, err
+}
+
+func (m *destroyTestKV) List(prefix string, q *api.QueryOptions) (api.KVPairs, *api.QueryMeta, error) {
+	return nil, nil, nil
+}
+
+func (m *destroyTestKV) Keys(prefix string, separator string, q *api.QueryOptions) ([]string, *api.QueryMeta, error) {
+	return nil, nil, nil
+}
+
+func (m *destroyTestKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnResponse, *api.QueryMeta, error) {
+	m.txnOps = append(m.txnOps, txn)
+	m.ctxErrs = append(m.ctxErrs, q.Context().Err())
+	ok, err := m.txnFunc(len(m.txnOps))
+	return ok, nil, nil, err
+}
+
+var errNoClusterLeader = errors.New("Unexpected response code: 500 (No cluster leader)")
+
+func orphanedLockPair() *api.KVPair {
+	return &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, ModifyIndex: 42, Value: lockValue(time.Now())}
+}
+
+func deleteCASOps() api.KVTxnOps {
+	return api.KVTxnOps{&api.KVTxnOp{Verb: api.KVDeleteCAS, Key: testLockPath, Index: 42}}
+}
+
+func TestDestroyLockFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		pair    *api.KVPair
+		getErr  error
+		txnOK   bool
+		txnErr  error
+		wantOps []api.KVTxnOps
+		wantErr string
+	}{
+		{
+			name: "lock file already deleted",
+			pair: nil,
+		},
+		{
+			name: "lock file re-acquired by another session",
+			pair: &api.KVPair{Key: testLockPath, Flags: api.LockFlagValue, Session: "session-2", ModifyIndex: 42},
+		},
+		{
+			name:    "key is not a lock file",
+			pair:    &api.KVPair{Key: testLockPath, ModifyIndex: 42},
+			wantErr: api.ErrLockConflict.Error(),
+		},
+		{
+			name:    "orphaned lock file is deleted",
+			pair:    orphanedLockPair(),
+			txnOK:   true,
+			wantOps: []api.KVTxnOps{deleteCASOps()},
+		},
+		{
+			name:    "lock file modified before delete",
+			pair:    orphanedLockPair(),
+			txnOK:   false,
+			wantOps: []api.KVTxnOps{deleteCASOps()},
+		},
+		{
+			name:    "get error",
+			getErr:  errors.New("connection refused"),
+			wantErr: "failed to read lock",
+		},
+		{
+			name:    "delete error",
+			pair:    orphanedLockPair(),
+			txnErr:  errors.New("connection refused"),
+			wantOps: []api.KVTxnOps{deleteCASOps()},
+			wantErr: "failed to remove lock",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := &destroyTestKV{
+				getFunc: func(int) (*api.KVPair, error) { return tt.pair, tt.getErr },
+				txnFunc: func(int) (bool, error) { return tt.txnOK, tt.txnErr },
+			}
+			s := &Server{kv: kv}
+
+			err := s.destroyLockFile(context.Background(), testLockPath)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantOps, kv.txnOps)
+		})
+	}
+}
+
+func TestDestroyLockFile_RetriesTransientErrors(t *testing.T) {
+	kv := &destroyTestKV{
+		getFunc: func(call int) (*api.KVPair, error) {
+			if call == 1 {
+				return nil, errNoClusterLeader
+			}
+			return orphanedLockPair(), nil
+		},
+		txnFunc: func(call int) (bool, error) {
+			if call == 1 {
+				return false, errNoClusterLeader
+			}
+			return true, nil
+		},
+	}
+	s := &Server{kv: newRetryKV(kv, 3, time.Millisecond, time.Millisecond, true, nil)}
+
+	err := s.destroyLockFile(context.Background(), testLockPath)
+	require.NoError(t, err)
+	assert.Equal(t, 2, kv.getCalls)
+	assert.Equal(t, []api.KVTxnOps{deleteCASOps(), deleteCASOps()}, kv.txnOps)
+}
+
+func TestUnlock_DestroysLockFileWithFreshContext(t *testing.T) {
+	client, err := api.NewClient(api.DefaultConfig())
+	require.NoError(t, err)
+	l, err := client.LockKey(testLockPath)
+	require.NoError(t, err)
+
+	kv := &destroyTestKV{
+		getFunc: func(int) (*api.KVPair, error) { return orphanedLockPair(), nil },
+		txnFunc: func(int) (bool, error) { return true, nil },
+	}
+	li := &lockInstance{lock: l, done: make(chan struct{})}
+	s := &Server{kv: kv, locks: map[string]*lockInstance{testLockPath: li}}
+
+	// The caller's context has often expired by the time it unlocks.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = s.unlock(ctx, testLockPath)
+
+	// l was never acquired, so releasing it fails, but cleanup still runs.
+	assert.ErrorIs(t, err, api.ErrLockNotHeld)
+	assert.NotContains(t, s.locks, testLockPath)
+	assert.Equal(t, []api.KVTxnOps{deleteCASOps()}, kv.txnOps)
+	assert.Equal(t, []error{nil, nil}, kv.ctxErrs)
+}
+
+func TestUnlock_RetriesDestroyOnTransientErrors(t *testing.T) {
+	client, err := api.NewClient(api.DefaultConfig())
+	require.NoError(t, err)
+	l, err := client.LockKey(testLockPath)
+	require.NoError(t, err)
+
+	kv := &destroyTestKV{
+		getFunc: func(call int) (*api.KVPair, error) {
+			if call == 1 {
+				return nil, errNoClusterLeader
+			}
+			return orphanedLockPair(), nil
+		},
+		txnFunc: func(call int) (bool, error) {
+			if call == 1 {
+				return false, errNoClusterLeader
+			}
+			return true, nil
+		},
+	}
+	li := &lockInstance{lock: l, done: make(chan struct{})}
+	s := &Server{
+		kv:    newRetryKV(kv, 3, time.Millisecond, time.Millisecond, true, nil),
+		locks: map[string]*lockInstance{testLockPath: li},
+	}
+
+	// The caller's context has often expired by the time it unlocks, which
+	// would stop retryKV from retrying.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = s.unlock(ctx, testLockPath)
+
+	assert.ErrorIs(t, err, api.ErrLockNotHeld)
+	assert.Equal(t, 2, kv.getCalls)
+	assert.Equal(t, []api.KVTxnOps{deleteCASOps(), deleteCASOps()}, kv.txnOps)
+}
