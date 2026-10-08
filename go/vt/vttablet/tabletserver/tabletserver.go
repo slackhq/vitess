@@ -1643,12 +1643,15 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 	}
 
 	logMethod := log.Errorf
+	// Avoid expensive query and bind-variable formatting for potentially-high-volume, expected errors.
+	skipQueryString := false
 	// Suppress or demote some errors in logs.
 	switch errCode {
 	case vtrpcpb.Code_FAILED_PRECONDITION, vtrpcpb.Code_ALREADY_EXISTS:
 		logMethod = nil
 	case vtrpcpb.Code_RESOURCE_EXHAUSTED:
 		logMethod = logPoolFull.Errorf
+		skipQueryString = true
 	case vtrpcpb.Code_ABORTED:
 		logMethod = log.Warningf
 	case vtrpcpb.Code_INVALID_ARGUMENT, vtrpcpb.Code_DEADLINE_EXCEEDED:
@@ -1680,10 +1683,18 @@ func (tsv *TabletServer) convertAndLogError(ctx context.Context, sql string, bin
 				message = fmt.Sprintf("%s (errno %d) (sqlstate %s)%s: %s", sqlErr.Message, errnum, sqlState, callerID, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
 			}
 		}
+	} else if skipQueryString {
+		if logMethod != nil {
+			message = fmt.Sprintf("%v%s", err, callerID)
+		}
 	} else {
 		err = vterrors.Errorf(errCode, "%v%s", err.Error(), callerID)
 		if logMethod != nil {
-			message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			if skipQueryString {
+				message = fmt.Sprintf("%v", err)
+			} else {
+				message = fmt.Sprintf("%v: %v", err, queryAsString(sql, bindVariables, tsv.Config().SanitizeLogMessages, true, tsv.env.Parser()))
+			}
 		}
 	}
 

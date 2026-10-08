@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -539,10 +540,14 @@ func (c *LoadshedConfig) TargetValue() time.Duration {
 	return c.Target
 }
 
-func (c *LoadshedConfig) SetTarget(target time.Duration) {
+func (c *LoadshedConfig) SetTarget(target time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := validateLoadshedConfig(target, c.InitialTarget, c.IntervalRatio); err != nil {
+		return err
+	}
 	c.Target = target
+	return nil
 }
 
 func (c *LoadshedConfig) InitialTargetValue() time.Duration {
@@ -560,10 +565,14 @@ func (c *LoadshedConfig) EffectiveInitialTargetValue() time.Duration {
 	return c.InitialTarget
 }
 
-func (c *LoadshedConfig) SetInitialTarget(initialTarget time.Duration) {
+func (c *LoadshedConfig) SetInitialTarget(initialTarget time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := validateLoadshedConfig(c.Target, initialTarget, c.IntervalRatio); err != nil {
+		return err
+	}
 	c.InitialTarget = initialTarget
+	return nil
 }
 
 func (c *LoadshedConfig) IntervalRatioValue() float64 {
@@ -572,10 +581,44 @@ func (c *LoadshedConfig) IntervalRatioValue() float64 {
 	return c.IntervalRatio
 }
 
-func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) {
+func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := validateLoadshedConfig(c.Target, c.InitialTarget, intervalRatio); err != nil {
+		return err
+	}
 	c.IntervalRatio = intervalRatio
+	return nil
+}
+
+func validateLoadshedConfig(target, initialTarget time.Duration, intervalRatio float64) error {
+	if target <= 0 {
+		return fmt.Errorf("target must be greater than 0 (specified value: %v)", target)
+	}
+	if initialTarget < 0 {
+		return fmt.Errorf("initial target must be greater than or equal to 0 (specified value: %v)", initialTarget)
+	}
+	if intervalRatio <= 0 || math.IsNaN(intervalRatio) || math.IsInf(intervalRatio, 0) {
+		return fmt.Errorf("interval ratio must be finite and greater than 0 (specified value: %v)", intervalRatio)
+	}
+
+	effectiveInitialTarget := initialTarget
+	if effectiveInitialTarget == 0 {
+		effectiveInitialTarget = target
+	}
+	for _, value := range []struct {
+		name   string
+		target time.Duration
+	}{
+		{name: "target", target: target},
+		{name: "initial target", target: effectiveInitialTarget},
+	} {
+		interval := float64(value.target) * intervalRatio
+		if interval < 1 || interval >= float64(math.MaxInt64) {
+			return fmt.Errorf("%s and interval ratio must produce an interval between 1ns and %v (specified values: %v, %v)", value.name, time.Duration(math.MaxInt64), value.target, intervalRatio)
+		}
+	}
+	return nil
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -1148,6 +1191,9 @@ func (c *TabletConfig) Verify() error {
 	if err := c.verifyTxThrottlerConfig(); err != nil {
 		return err
 	}
+	if err := c.verifyLoadshedConfig(); err != nil {
+		return err
+	}
 	if v := c.HotRowProtection.MaxQueueSize; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_max_queue_size must be > 0 (specified value: %v)", v)
 	}
@@ -1159,6 +1205,24 @@ func (c *TabletConfig) Verify() error {
 	}
 	if v := c.HotRowProtection.MaxConcurrency; v <= 0 {
 		return fmt.Errorf("--hot_row_protection_concurrent_transactions must be > 0 (specified value: %v)", v)
+	}
+	return nil
+}
+
+func (c *TabletConfig) verifyLoadshedConfig() error {
+	unlock := c.lockLoadshedConfigs()
+	defer unlock()
+
+	for _, value := range []struct {
+		name   string
+		config *LoadshedConfig
+	}{
+		{name: "loadshed-oltp-read", config: &c.LoadshedOltpRead},
+		{name: "loadshed-tx", config: &c.LoadshedTx},
+	} {
+		if err := validateLoadshedConfig(value.config.Target, value.config.InitialTarget, value.config.IntervalRatio); err != nil {
+			return fmt.Errorf("%s config: %w", value.name, err)
+		}
 	}
 	return nil
 }
