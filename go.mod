@@ -14,6 +14,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/buger/jsonparser v1.1.1
 	github.com/cespare/xxhash/v2 v2.3.0
+	github.com/cncf/xds/go v0.0.0-20250121191232-2f005788dc42
 	github.com/corpix/uarand v0.1.1 // indirect
 	github.com/dave/jennifer v1.7.1
 	github.com/evanphx/json-patch v5.9.11+incompatible
@@ -159,7 +160,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cilium/ebpf v0.16.0 // indirect
-	github.com/cncf/xds/go v0.0.0-20250121191232-2f005788dc42 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
