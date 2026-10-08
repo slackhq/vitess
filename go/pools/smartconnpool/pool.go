@@ -43,6 +43,9 @@ var (
 	// ErrPoolWaiterCapReached is returned when the waiter cap has been reached
 	ErrPoolWaiterCapReached = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool waiter cap reached")
 
+	// ErrPoolLoadShed is returned when the connection pool sheds a waiter.
+	ErrPoolLoadShed = vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "connection pool load shed")
+
 	// PoolCloseTimeout is how long to wait for all connections to be returned to the pool during close
 	PoolCloseTimeout = 10 * time.Second
 )
@@ -107,6 +110,8 @@ type Config[C Connection] struct {
 	MaxWaiters      uint
 	WaiterCapDryRun bool
 	LogWait         func(time.Time)
+	PoolName        string
+	PoolConfig      PoolConfig
 }
 
 // stackMask is the number of connection setting stacks minus one;
@@ -183,7 +188,7 @@ func NewPool[C Connection](config *Config[C]) *ConnPool[C] {
 	pool.config.logWait = config.LogWait
 	pool.config.maxWaiters.Store(uint32(config.MaxWaiters))
 	pool.config.waiterCapDryRun.Store(config.WaiterCapDryRun)
-	pool.wait.init()
+	pool.wait.init(config.PoolName, config.PoolConfig)
 	pool.wait.onWait = func() {
 		pool.Metrics.waitCount.Add(1)
 	}
@@ -384,7 +389,7 @@ func (pool *ConnPool[C]) Active() int64 {
 
 // WaitersQueued returns the number of clients currently waiting for a connection.
 func (pool *ConnPool[C]) WaitersQueued() int64 {
-	return int64(pool.wait.waiting())
+	return int64(pool.wait.numWaiting())
 }
 
 func (pool *ConnPool[D]) IdleTimeout() time.Duration {
@@ -658,7 +663,7 @@ func (pool *ConnPool[C]) get(ctx context.Context) (*Pooled[C], error) {
 
 		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan, uint(pool.config.maxWaiters.Load()), pool.config.waiterCapDryRun.Load())
 		if err != nil {
-			if errors.Is(err, ErrPoolWaiterCapReached) {
+			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
 			}
 			return nil, ErrTimeout
@@ -724,7 +729,7 @@ func (pool *ConnPool[C]) getWithSetting(ctx context.Context, setting *Setting) (
 
 		conn, err = pool.wait.waitForConn(ctx, setting, *closeChan, uint(pool.config.maxWaiters.Load()), pool.config.waiterCapDryRun.Load())
 		if err != nil {
-			if errors.Is(err, ErrPoolWaiterCapReached) {
+			if errors.Is(err, ErrPoolWaiterCapReached) || errors.Is(err, ErrPoolLoadShed) {
 				return nil, err
 			}
 			return nil, ErrTimeout
@@ -929,6 +934,7 @@ func (pool *ConnPool[C]) RegisterStats(stats *servenv.Exporter, name string) {
 	}
 
 	pool.Name = name
+	pool.wait.registerStats(stats, name)
 
 	stats.NewGaugeFunc(name+"Capacity", "Tablet server conn pool capacity", func() int64 {
 		return pool.Capacity()
