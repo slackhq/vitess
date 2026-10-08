@@ -17,6 +17,7 @@ limitations under the License.
 package loadshed
 
 import (
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,7 @@ type (
 	// SnakeConfig uses callbacks so runtime changes do not require rebuilding the queue.
 	SnakeConfig struct {
 		CoDel            CoDelConfig
+		DefaultPriority  int
 		Mode             func() Mode
 		DropTimerFired   func()
 		ShadowTimerFired func()
@@ -48,6 +50,18 @@ type (
 		length              atomic.Int64
 
 		shedCount atomic.Int64
+		// shedByPriority breaks shedCount down by the shed request's priority label
+		// ("0" undroppable, "1" most important .. "100" least), so operators can
+		// see whether the queue is correctly shedding low-priority traffic first
+		// rather than eating high-priority requests. Nil until PublishStats
+		// registers it (tests build a Snake without it); the shed path nil-checks.
+		// Its sum equals shedCount.
+		shedByPriority *stats.CountersWithMultiLabels
+		// acquireByPriority counts every enqueue, labeled by the same caller
+		// priority as shedByPriority, so shed rate per priority class can be
+		// computed exactly (shedByPriority / acquireByPriority) rather than from
+		// assumed offered-load weights. Nil until PublishStats registers it.
+		acquireByPriority *stats.CountersWithMultiLabels
 
 		sojourn      *stats.Histogram
 		queueLen     *stats.Histogram
@@ -101,16 +115,22 @@ func (s *Snake[T]) lockedObserveLengths() {
 	s.droppableLen.Add(int64(s.q.droppableLen))
 }
 
-func (s *Snake[T]) Enqueue(value T) (*Request[T], []T) {
-	return s.enqueue(value, true)
+func (s *Snake[T]) Enqueue(value T, priority int) (*Request[T], []T) {
+	return s.enqueue(value, priority, true)
 }
 
-func (s *Snake[T]) EnqueueExisting(value T) (*Request[T], []T) {
-	return s.enqueue(value, false)
+func (s *Snake[T]) EnqueueExisting(value T, priority int) (*Request[T], []T) {
+	return s.enqueue(value, priority, false)
 }
 
-func (s *Snake[T]) enqueue(value T, droppable bool) (*Request[T], []T) {
-	req := newRequest(value, droppable)
+func (s *Snake[T]) enqueue(value T, priority int, recordAcquire bool) (*Request[T], []T) {
+	if !IsValidPriority(priority) {
+		priority = s.cfg.DefaultPriority
+	}
+	if recordAcquire && s.acquireByPriority != nil {
+		s.acquireByPriority.Add([]string{strconv.Itoa(priority)}, 1)
+	}
+	req := newRequest(value, priority)
 	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
 	s.length.Add(1)
 	s.lockedObserveInitialTargetShadow(nil)
@@ -232,7 +252,7 @@ func (s *Snake[T]) lockedEnqueueAdvance() []*Request[T] {
 		if s.q.droppableLen <= keepDroppableFloor {
 			return false
 		}
-		elem := s.q.lockedFindDroppable()
+		elem := s.q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
 		}
@@ -283,6 +303,9 @@ func (s *Snake[T]) droppedValues(requests []*Request[T]) []T {
 	for i, req := range requests {
 		s.length.Add(-1)
 		s.shedCount.Add(1)
+		if s.shedByPriority != nil {
+			s.shedByPriority.Add([]string{strconv.Itoa(req.priority)}, 1)
+		}
 		values[i] = req.value
 		var zero T
 		req.value = zero
