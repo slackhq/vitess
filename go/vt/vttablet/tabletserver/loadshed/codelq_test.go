@@ -886,7 +886,7 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
 
-	_, dropped := s.Enqueue("value", 1)
+	_, dropped := s.Enqueue("value", 1, "")
 	require.Empty(t, dropped)
 	dequeued, ok, dropped := s.Dequeue()
 	require.True(t, ok)
@@ -897,7 +897,7 @@ func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 
 func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
-	req, dropped := s.Enqueue("value", 1)
+	req, dropped := s.Enqueue("value", 1, "")
 	require.Empty(t, dropped)
 
 	cancelled := s.Cancel(req)
@@ -914,7 +914,7 @@ func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	}
 	s := NewSnake[struct{}](config)
 	for range 6 {
-		_, dropped := s.Enqueue(struct{}{}, 1)
+		_, dropped := s.Enqueue(struct{}{}, 1, "")
 		require.Empty(t, dropped)
 	}
 	s.q.dropNextNs = 1
