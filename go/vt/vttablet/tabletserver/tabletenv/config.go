@@ -428,11 +428,15 @@ type (
 	LoadshedMode string
 
 	LoadshedConfig struct {
-		mu            *sync.RWMutex
-		Mode          LoadshedMode
-		Target        time.Duration
-		InitialTarget time.Duration
-		IntervalRatio float64
+		mu                          *sync.RWMutex
+		Mode                        LoadshedMode
+		Target                      time.Duration
+		InitialTarget               time.Duration
+		IntervalRatio               float64
+		EasingLogBase               float64
+		EasingFractionalStrength    float64
+		EasingFractionalCreditDecay float64
+		EasingReplayRetention       float64
 	}
 )
 
@@ -511,10 +515,14 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 			InitialIntervalNs: func() int64 {
 				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
 			},
-			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
-			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
-			Exponent:        func() float64 { return 1 },
-			MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+			TargetNs:                    func() int64 { return config.TargetValue().Nanoseconds() },
+			InitialTargetNs:             func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
+			Exponent:                    func() float64 { return 1 },
+			MinDropDelayNs:              func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+			EasingLogBase:               config.EasingLogBaseValue,
+			EasingFractionalStrength:    config.EasingFractionalStrengthValue,
+			EasingFractionalCreditDecay: config.EasingFractionalCreditDecayValue,
+			EasingReplayRetention:       config.EasingReplayRetentionValue,
 		},
 	}
 }
@@ -601,6 +609,84 @@ func (c *LoadshedConfig) SetIntervalRatio(intervalRatio float64) error {
 		return err
 	}
 	c.IntervalRatio = intervalRatio
+	return nil
+}
+
+func (c *LoadshedConfig) EasingLogBaseValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.EasingLogBase <= 1 {
+		return 3
+	}
+	return c.EasingLogBase
+}
+
+func (c *LoadshedConfig) SetEasingLogBase(easingLogBase float64) error {
+	if err := validateLoadshedEasingValue("easing log base", easingLogBase, 1, math.Inf(1), false); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EasingLogBase = easingLogBase
+	return nil
+}
+
+func (c *LoadshedConfig) EasingFractionalStrengthValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EasingFractionalStrength
+}
+
+func (c *LoadshedConfig) SetEasingFractionalStrength(strength float64) error {
+	if err := validateLoadshedEasingValue("easing fractional strength", strength, 0, 1, true); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EasingFractionalStrength = strength
+	return nil
+}
+
+func (c *LoadshedConfig) EasingFractionalCreditDecayValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EasingFractionalCreditDecay
+}
+
+func (c *LoadshedConfig) SetEasingFractionalCreditDecay(decay float64) error {
+	if err := validateLoadshedEasingValue("easing fractional credit decay", decay, 0, 1, true); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EasingFractionalCreditDecay = decay
+	return nil
+}
+
+func (c *LoadshedConfig) EasingReplayRetentionValue() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EasingReplayRetention
+}
+
+func (c *LoadshedConfig) SetEasingReplayRetention(retention float64) error {
+	if err := validateLoadshedEasingValue("easing replay retention", retention, 0, 1, true); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EasingReplayRetention = retention
+	return nil
+}
+
+func validateLoadshedEasingValue(name string, value, minValue, maxValue float64, includeMin bool) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value > maxValue || value < minValue || (!includeMin && value == minValue) {
+		minOperator := "greater than"
+		if includeMin {
+			minOperator = "greater than or equal to"
+		}
+		return fmt.Errorf("%s must be finite, %s %v, and less than or equal to %v (specified value: %v)", name, minOperator, minValue, maxValue, value)
+	}
 	return nil
 }
 
@@ -1250,6 +1336,20 @@ func (c *TabletConfig) verifyLoadshedConfig() error {
 		if err := validateLoadshedConfig(value.config.Target, value.config.InitialTarget, value.config.IntervalRatio); err != nil {
 			return fmt.Errorf("%s config: %w", value.name, err)
 		}
+		if value.config.EasingLogBase != 0 {
+			if err := validateLoadshedEasingValue("easing log base", value.config.EasingLogBase, 1, math.Inf(1), false); err != nil {
+				return fmt.Errorf("%s config: %w", value.name, err)
+			}
+		}
+		if err := validateLoadshedEasingValue("easing fractional strength", value.config.EasingFractionalStrength, 0, 1, true); err != nil {
+			return fmt.Errorf("%s config: %w", value.name, err)
+		}
+		if err := validateLoadshedEasingValue("easing fractional credit decay", value.config.EasingFractionalCreditDecay, 0, 1, true); err != nil {
+			return fmt.Errorf("%s config: %w", value.name, err)
+		}
+		if err := validateLoadshedEasingValue("easing replay retention", value.config.EasingReplayRetention, 0, 1, true); err != nil {
+			return fmt.Errorf("%s config: %w", value.name, err)
+		}
 	}
 	return nil
 }
@@ -1467,11 +1567,15 @@ var defaultConfig = TabletConfig{
 
 func defaultLoadshedConfig() LoadshedConfig {
 	return LoadshedConfig{
-		mu:            &sync.RWMutex{},
-		Mode:          LoadshedModeOff,
-		Target:        5 * time.Millisecond,
-		InitialTarget: 0,
-		IntervalRatio: 20,
+		mu:                          &sync.RWMutex{},
+		Mode:                        LoadshedModeOff,
+		Target:                      5 * time.Millisecond,
+		InitialTarget:               0,
+		IntervalRatio:               20,
+		EasingLogBase:               3,
+		EasingFractionalStrength:    0,
+		EasingFractionalCreditDecay: 0.9,
+		EasingReplayRetention:       0,
 	}
 }
 

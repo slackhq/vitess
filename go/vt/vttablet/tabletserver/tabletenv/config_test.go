@@ -355,6 +355,10 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
 	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOltpReadDefaultPriority)
 	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOlapReadDefaultPriority)
+	assert.Equal(t, 3.0, cfg.LoadshedOltpRead.EasingLogBaseValue())
+	assert.Zero(t, cfg.LoadshedOltpRead.EasingFractionalStrengthValue())
+	assert.Equal(t, 0.9, cfg.LoadshedOltpRead.EasingFractionalCreditDecayValue())
+	assert.Zero(t, cfg.LoadshedOltpRead.EasingReplayRetentionValue())
 }
 
 func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
@@ -371,6 +375,9 @@ func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, loadshed.ModeOff, oltp.Mode())
 	assert.Equal(t, loadshed.ModeOff, olap.Mode())
 	assert.Equal(t, loadshed.ModeOff, tx.Mode())
+	assert.Equal(t, 3.0, oltp.CoDel.EasingLogBase())
+	assert.Zero(t, oltp.CoDel.EasingFractionalStrength())
+	assert.Zero(t, oltp.CoDel.EasingReplayRetention())
 }
 
 func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
@@ -380,6 +387,10 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	cfg.LoadshedOltpRead.SetTarget(time.Second)
 	cfg.LoadshedOltpRead.SetInitialTarget(2 * time.Second)
 	cfg.LoadshedOltpRead.SetIntervalRatio(10)
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingLogBase(2.5))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingFractionalStrength(0.1))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingFractionalCreditDecay(0.8))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingReplayRetention(0.2))
 
 	assert.Equal(t, LoadshedModeShadow, cfg.LoadshedOltpRead.ModeValue())
 	assert.True(t, cfg.LoadshedOltpRead.IsShadow())
@@ -389,6 +400,10 @@ func TestLoadshedConfigIsIndependentPerPool(t *testing.T) {
 	assert.NotEqual(t, cfg.LoadshedOltpRead.TargetValue(), cfg.LoadshedTx.TargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.InitialTargetValue(), cfg.LoadshedTx.InitialTargetValue())
 	assert.NotEqual(t, cfg.LoadshedOltpRead.IntervalRatioValue(), cfg.LoadshedTx.IntervalRatioValue())
+	assert.NotEqual(t, cfg.LoadshedOltpRead.EasingLogBaseValue(), cfg.LoadshedTx.EasingLogBaseValue())
+	assert.NotEqual(t, cfg.LoadshedOltpRead.EasingFractionalStrengthValue(), cfg.LoadshedTx.EasingFractionalStrengthValue())
+	assert.NotEqual(t, cfg.LoadshedOltpRead.EasingFractionalCreditDecayValue(), cfg.LoadshedTx.EasingFractionalCreditDecayValue())
+	assert.NotEqual(t, cfg.LoadshedOltpRead.EasingReplayRetentionValue(), cfg.LoadshedTx.EasingReplayRetentionValue())
 }
 
 func TestLoadshedModeEffectiveMode(t *testing.T) {
@@ -481,6 +496,30 @@ func TestTabletConfigVerifyLoadshedConfig(t *testing.T) {
 				cfg.LoadshedTx.IntervalRatio = math.NaN()
 			},
 		},
+		{
+			name: "easing log base",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpRead.EasingLogBase = 1
+			},
+		},
+		{
+			name: "easing fractional strength",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOlapRead.EasingFractionalStrength = 1.1
+			},
+		},
+		{
+			name: "easing fractional credit decay",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedTx.EasingFractionalCreditDecay = math.NaN()
+			},
+		},
+		{
+			name: "easing replay retention",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedTx.EasingReplayRetention = -0.1
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := NewDefaultConfig()
@@ -490,20 +529,39 @@ func TestTabletConfigVerifyLoadshedConfig(t *testing.T) {
 	}
 }
 
+func TestTabletConfigVerifyLoadshedConfigAllowsUnsetEasingLogBase(t *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.LoadshedOltpRead.EasingLogBase = 0
+
+	assert.NoError(t, cfg.Verify())
+}
+
 func TestLoadshedConfigSettersPreserveValidConfig(t *testing.T) {
 	cfg := NewDefaultConfig()
 	loadshedConfig := &cfg.LoadshedOltpRead
 	target := loadshedConfig.TargetValue()
 	initialTarget := loadshedConfig.InitialTargetValue()
 	intervalRatio := loadshedConfig.IntervalRatioValue()
+	easingLogBase := loadshedConfig.EasingLogBaseValue()
+	fractionalStrength := loadshedConfig.EasingFractionalStrengthValue()
+	fractionalCreditDecay := loadshedConfig.EasingFractionalCreditDecayValue()
+	replayRetention := loadshedConfig.EasingReplayRetentionValue()
 
 	assert.Error(t, loadshedConfig.SetTarget(0))
 	assert.Error(t, loadshedConfig.SetInitialTarget(-time.Nanosecond))
 	assert.Error(t, loadshedConfig.SetIntervalRatio(math.NaN()))
+	assert.Error(t, loadshedConfig.SetEasingLogBase(1))
+	assert.Error(t, loadshedConfig.SetEasingFractionalStrength(1.1))
+	assert.Error(t, loadshedConfig.SetEasingFractionalCreditDecay(math.NaN()))
+	assert.Error(t, loadshedConfig.SetEasingReplayRetention(-0.1))
 
 	assert.Equal(t, target, loadshedConfig.TargetValue())
 	assert.Equal(t, initialTarget, loadshedConfig.InitialTargetValue())
 	assert.Equal(t, intervalRatio, loadshedConfig.IntervalRatioValue())
+	assert.Equal(t, easingLogBase, loadshedConfig.EasingLogBaseValue())
+	assert.Equal(t, fractionalStrength, loadshedConfig.EasingFractionalStrengthValue())
+	assert.Equal(t, fractionalCreditDecay, loadshedConfig.EasingFractionalCreditDecayValue())
+	assert.Equal(t, replayRetention, loadshedConfig.EasingReplayRetentionValue())
 }
 
 func TestLoadshedConfigConcurrentSnapshot(t *testing.T) {
@@ -575,6 +633,10 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, cfg.LoadshedOltpRead.EffectiveInitialTargetValue().Nanoseconds(), oltp.CoDel.InitialTargetNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.TargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.IntervalNs())
 	assert.Equal(t, time.Duration(float64(cfg.LoadshedOltpRead.EffectiveInitialTargetValue())*cfg.LoadshedOltpRead.IntervalRatioValue()).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, cfg.LoadshedOltpRead.EasingLogBaseValue(), oltp.CoDel.EasingLogBase())
+	assert.Equal(t, cfg.LoadshedOltpRead.EasingFractionalStrengthValue(), oltp.CoDel.EasingFractionalStrength())
+	assert.Equal(t, cfg.LoadshedOltpRead.EasingFractionalCreditDecayValue(), oltp.CoDel.EasingFractionalCreditDecay())
+	assert.Equal(t, cfg.LoadshedOltpRead.EasingReplayRetentionValue(), oltp.CoDel.EasingReplayRetention())
 	assert.Equal(t, cfg.LoadshedOltpReadDefaultPriority, oltp.DefaultPriority)
 	assert.Equal(t, loadshed.ModeOff, olap.Mode())
 	assert.Equal(t, cfg.LoadshedOlapRead.TargetValue().Nanoseconds(), olap.CoDel.TargetNs())
@@ -592,6 +654,10 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	cfg.LoadshedOltpRead.SetTarget(10 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetInitialTarget(15 * time.Millisecond)
 	cfg.LoadshedOltpRead.SetIntervalRatio(5)
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingLogBase(2.5))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingFractionalStrength(0.1))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingFractionalCreditDecay(0.8))
+	require.NoError(t, cfg.LoadshedOltpRead.SetEasingReplayRetention(0.2))
 	require.NoError(t, cfg.LoadshedOlapRead.SetMode("enabled"))
 	cfg.LoadshedOlapRead.SetTarget(12 * time.Millisecond)
 	require.NoError(t, cfg.LoadshedTx.SetMode("shadow"))
@@ -602,6 +668,10 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, (15 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialTargetNs())
 	assert.Equal(t, (50 * time.Millisecond).Nanoseconds(), oltp.CoDel.IntervalNs())
 	assert.Equal(t, (75 * time.Millisecond).Nanoseconds(), oltp.CoDel.InitialIntervalNs())
+	assert.Equal(t, 2.5, oltp.CoDel.EasingLogBase())
+	assert.Equal(t, 0.1, oltp.CoDel.EasingFractionalStrength())
+	assert.Equal(t, 0.8, oltp.CoDel.EasingFractionalCreditDecay())
+	assert.Equal(t, 0.2, oltp.CoDel.EasingReplayRetention())
 	assert.Equal(t, loadshed.ModeEnabled, olap.Mode())
 	assert.Equal(t, (12 * time.Millisecond).Nanoseconds(), olap.CoDel.TargetNs())
 	assert.Equal(t, loadshed.ModeShadow, tx.Mode())

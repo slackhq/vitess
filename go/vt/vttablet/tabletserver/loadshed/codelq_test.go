@@ -671,6 +671,151 @@ func TestCoDelQueue_Easing_DefaultBase(t *testing.T) {
 	assert.Equal(t, 99, q.count, "default base 3: floor(log3(100)/3) = floor(1.40) = 1")
 }
 
+func TestCoDelQueue_Easing_FractionalCreditAccumulates(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingFractionalStrength = func() float64 { return 0.5 }
+	q, _ := newTestQueue(cfg, clock)
+	q.count = 100
+
+	q.count = q.lockedEaseCount()
+	assert.Equal(t, 99, q.count)
+	assert.InDelta(t, 0.962, q.fractionalEasingCredit, 0.001)
+	assert.Zero(t, q.excessEasing)
+
+	q.count = q.lockedEaseCount()
+	assert.Equal(t, 97, q.count)
+	assert.InDelta(t, 0.922, q.fractionalEasingCredit, 0.001)
+	assert.Equal(t, 1, q.excessEasing)
+}
+
+func TestCoDelQueue_Easing_ZeroFractionalStrengthPreservesIntegerEasing(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingFractionalStrength = func() float64 { return 0 }
+	q, _ := newTestQueue(cfg, clock)
+	q.count = 100
+	q.fractionalEasingCredit = 0.75
+
+	assert.Equal(t, 97, q.lockedEaseCount())
+	assert.Zero(t, q.fractionalEasingCredit)
+}
+
+func TestCoDelQueue_Easing_UnhealthyObservationDecaysFractionalCredit(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingFractionalStrength = func() float64 { return 0.5 }
+	cfg.EasingFractionalCreditDecay = func() float64 { return 0.25 }
+	q, _ := newTestQueue(cfg, clock)
+	clock.now = 1_000_000_000
+	q.dropping = true
+	q.dropNextNs = clock.now
+	q.droppableLen = 1
+	q.fractionalEasingCredit = 0.8
+
+	q.lockedAdvanceLimited(clock.now, func() bool { return true }, 1)
+
+	assert.InDelta(t, 0.2, q.fractionalEasingCredit, 0.001)
+}
+
+func TestCoDelQueue_Easing_GatedReplayRestoresRecentIncrease(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingReplayRetention = func() float64 { return 0.5 }
+	q, _ := newTestQueue(cfg, clock)
+	clock.now = 1_000_000_000
+	q.count = 25
+	q.dropping = true
+	q.dropNextNs = clock.now
+	q.droppableLen = 1
+	q.recentEpisodeStart = 25
+	q.recentEpisodeIncrease = 75
+	q.excessEasing = 1
+
+	q.lockedAdvanceLimited(clock.now, func() bool { return true }, 1)
+
+	assert.Equal(t, 63, q.count)
+	assert.True(t, q.episodeActive)
+	assert.Equal(t, 62, q.episodeStart)
+	assert.Zero(t, q.excessEasing)
+}
+
+func TestCoDelQueue_Easing_GatedReplayRequiresExcessEasing(t *testing.T) {
+	clock := newTestClock()
+	cfg := defaultTestConfig()
+	cfg.EasingReplayRetention = func() float64 { return 0.5 }
+	q, _ := newTestQueue(cfg, clock)
+	clock.now = 1_000_000_000
+	q.count = 25
+	q.dropping = true
+	q.dropNextNs = clock.now
+	q.droppableLen = 1
+	q.recentEpisodeStart = 25
+	q.recentEpisodeIncrease = 75
+
+	q.lockedAdvanceLimited(clock.now, func() bool { return true }, 1)
+
+	assert.Equal(t, 26, q.count)
+	assert.Equal(t, 25, q.episodeStart)
+}
+
+func TestCoDelQueue_Easing_TracksRecentEpisodeIncreaseBeforeEasing(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock)
+	clock.now = 1_000_000_000
+	q.count = 100
+	q.dropNextNs = clock.now
+	q.episodeActive = true
+	q.episodeStart = 25
+
+	q.lockedAdvanceLimited(clock.now, func() bool { return false }, -1)
+
+	assert.False(t, q.episodeActive)
+	assert.Equal(t, 25, q.recentEpisodeStart)
+	assert.Equal(t, 75, q.recentEpisodeIncrease)
+	assert.Zero(t, q.easingMemoryAge)
+	assert.Equal(t, 97, q.count)
+}
+
+func TestCoDelQueue_Easing_RecentEpisodeExpires(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock)
+	clock.now = 1_000_000_000
+	q.count = 2
+	q.dropNextNs = clock.now
+	q.recentEpisodeStart = 25
+	q.recentEpisodeIncrease = 75
+	q.easingMemoryAge = 15
+
+	assert.True(t, q.lockedRecentEpisodeValid())
+	q.lockedAdvanceLimited(clock.now, func() bool { return false }, -1)
+
+	assert.Equal(t, 16, q.easingMemoryAge)
+	assert.False(t, q.lockedRecentEpisodeValid())
+}
+
+func TestCoDelQueue_DisableClearsEasingRecoveryState(t *testing.T) {
+	clock := newTestClock()
+	q, _ := newTestQueue(defaultTestConfig(), clock)
+	q.fractionalEasingCredit = 0.75
+	q.excessEasing = 4
+	q.episodeActive = true
+	q.episodeStart = 25
+	q.recentEpisodeStart = 25
+	q.recentEpisodeIncrease = 75
+	q.easingMemoryAge = 3
+
+	q.lockedDisable()
+
+	assert.Zero(t, q.fractionalEasingCredit)
+	assert.Zero(t, q.excessEasing)
+	assert.False(t, q.episodeActive)
+	assert.Zero(t, q.episodeStart)
+	assert.Zero(t, q.recentEpisodeStart)
+	assert.Zero(t, q.recentEpisodeIncrease)
+	assert.Zero(t, q.easingMemoryAge)
+}
+
 func TestCoDelQueue_Easing_FloorsAtOne(t *testing.T) {
 	clock := newTestClock()
 	cfg := defaultTestConfig()

@@ -242,6 +242,14 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationValWithError(loadshedConfig(tsv, varname).SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedOlapReadIntervalRatio", "LoadshedTxIntervalRatio":
 		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetIntervalRatio)
+	case "LoadshedOltpReadEasingLogBase", "LoadshedOlapReadEasingLogBase", "LoadshedTxEasingLogBase":
+		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetEasingLogBase)
+	case "LoadshedOltpReadEasingFractionalStrength", "LoadshedOlapReadEasingFractionalStrength", "LoadshedTxEasingFractionalStrength":
+		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetEasingFractionalStrength)
+	case "LoadshedOltpReadEasingFractionalCreditDecay", "LoadshedOlapReadEasingFractionalCreditDecay", "LoadshedTxEasingFractionalCreditDecay":
+		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetEasingFractionalCreditDecay)
+	case "LoadshedOltpReadEasingReplayRetention", "LoadshedOlapReadEasingReplayRetention", "LoadshedTxEasingReplayRetention":
+		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetEasingReplayRetention)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -296,6 +304,10 @@ func getVars(tsv *TabletServer) []envValue {
 		vars = addVar(vars, prefix+"Target", cfg.TargetValue)
 		vars = addVar(vars, prefix+"InitialTarget", cfg.InitialTargetValue)
 		vars = addVar(vars, prefix+"IntervalRatio", cfg.IntervalRatioValue)
+		vars = addVar(vars, prefix+"EasingLogBase", cfg.EasingLogBaseValue)
+		vars = addVar(vars, prefix+"EasingFractionalStrength", cfg.EasingFractionalStrengthValue)
+		vars = addVar(vars, prefix+"EasingFractionalCreditDecay", cfg.EasingFractionalCreditDecayValue)
+		vars = addVar(vars, prefix+"EasingReplayRetention", cfg.EasingReplayRetentionValue)
 	}
 	addLoadshedVars("LoadshedOltpRead", &tsv.Config().LoadshedOltpRead)
 	addLoadshedVars("LoadshedOlapRead", &tsv.Config().LoadshedOlapRead)

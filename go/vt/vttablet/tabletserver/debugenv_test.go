@@ -115,6 +115,18 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 
 	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
+
+	postVar(t, tsv, "LoadshedOlapReadEasingLogBase", "2.5")
+	assert.Equal(t, 2.5, tsv.Config().LoadshedOlapRead.EasingLogBaseValue())
+
+	postVar(t, tsv, "LoadshedOlapReadEasingFractionalStrength", "0.1")
+	assert.Equal(t, 0.1, tsv.Config().LoadshedOlapRead.EasingFractionalStrengthValue())
+
+	postVar(t, tsv, "LoadshedOlapReadEasingFractionalCreditDecay", "0.8")
+	assert.Equal(t, 0.8, tsv.Config().LoadshedOlapRead.EasingFractionalCreditDecayValue())
+
+	postVar(t, tsv, "LoadshedOlapReadEasingReplayRetention", "0.2")
+	assert.Equal(t, 0.2, tsv.Config().LoadshedOlapRead.EasingReplayRetentionValue())
 }
 
 func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
@@ -127,11 +139,19 @@ func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 		{name: "LoadshedOltpReadTarget", value: "0s"},
 		{name: "LoadshedOlapReadInitialTarget", value: "-1ns"},
 		{name: "LoadshedTxIntervalRatio", value: "NaN"},
+		{name: "LoadshedOltpReadEasingLogBase", value: "1"},
+		{name: "LoadshedOlapReadEasingFractionalStrength", value: "1.1"},
+		{name: "LoadshedTxEasingFractionalCreditDecay", value: "NaN"},
+		{name: "LoadshedTxEasingReplayRetention", value: "-0.1"},
 	} {
 		config := loadshedConfig(tsv, test.name)
 		target := config.TargetValue()
 		initialTarget := config.InitialTargetValue()
 		intervalRatio := config.IntervalRatioValue()
+		easingLogBase := config.EasingLogBaseValue()
+		fractionalStrength := config.EasingFractionalStrengthValue()
+		fractionalCreditDecay := config.EasingFractionalCreditDecayValue()
+		replayRetention := config.EasingReplayRetentionValue()
 
 		w := postVarResponse(tsv, test.name, test.value)
 
@@ -139,6 +159,10 @@ func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 		assert.Equal(t, target, config.TargetValue())
 		assert.Equal(t, initialTarget, config.InitialTargetValue())
 		assert.Equal(t, intervalRatio, config.IntervalRatioValue())
+		assert.Equal(t, easingLogBase, config.EasingLogBaseValue())
+		assert.Equal(t, fractionalStrength, config.EasingFractionalStrengthValue())
+		assert.Equal(t, fractionalCreditDecay, config.EasingFractionalCreditDecayValue())
+		assert.Equal(t, replayRetention, config.EasingReplayRetentionValue())
 	}
 }
 
@@ -155,14 +179,26 @@ func TestDebugEnvLoadshedParamsListed(t *testing.T) {
 		"LoadshedOltpReadTarget",
 		"LoadshedOltpReadInitialTarget",
 		"LoadshedOltpReadIntervalRatio",
+		"LoadshedOltpReadEasingLogBase",
+		"LoadshedOltpReadEasingFractionalStrength",
+		"LoadshedOltpReadEasingFractionalCreditDecay",
+		"LoadshedOltpReadEasingReplayRetention",
 		"LoadshedOlapReadMode",
 		"LoadshedOlapReadTarget",
 		"LoadshedOlapReadInitialTarget",
 		"LoadshedOlapReadIntervalRatio",
+		"LoadshedOlapReadEasingLogBase",
+		"LoadshedOlapReadEasingFractionalStrength",
+		"LoadshedOlapReadEasingFractionalCreditDecay",
+		"LoadshedOlapReadEasingReplayRetention",
 		"LoadshedTxMode",
 		"LoadshedTxTarget",
 		"LoadshedTxInitialTarget",
 		"LoadshedTxIntervalRatio",
+		"LoadshedTxEasingLogBase",
+		"LoadshedTxEasingFractionalStrength",
+		"LoadshedTxEasingFractionalCreditDecay",
+		"LoadshedTxEasingReplayRetention",
 	} {
 		_, ok := names[want]
 		assert.Truef(t, ok, "getVars should list %s", want)

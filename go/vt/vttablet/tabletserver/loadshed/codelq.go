@@ -146,6 +146,10 @@ type (
 		// base yields a smaller step (gentler ease-out). Defaults to 3 when
 		// unset or <= 1.
 		EasingLogBase func() float64
+
+		EasingFractionalStrength    func() float64
+		EasingFractionalCreditDecay func() float64
+		EasingReplayRetention       func() float64
 	}
 
 	// CoDelQueue methods prefixed locked* require the higher-level owner to hold its mutex.
@@ -164,8 +168,18 @@ type (
 		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
 		stopDropTimer     func()
+
+		fractionalEasingCredit float64
+		excessEasing           int
+		episodeActive          bool
+		episodeStart           int
+		recentEpisodeStart     int
+		recentEpisodeIncrease  int
+		easingMemoryAge        int
 	}
 )
+
+const easingMemoryHorizon = 16
 
 func (e *DroppedRequestError) Error() string {
 	return "request dropped by CoDel queue"
@@ -231,6 +245,13 @@ func (q *CoDelQueue[T]) lockedDisable() {
 	q.dropping = false
 	q.dropNextNs = 0
 	q.count = 1
+	q.fractionalEasingCredit = 0
+	q.excessEasing = 0
+	q.episodeActive = false
+	q.episodeStart = 0
+	q.recentEpisodeStart = 0
+	q.recentEpisodeIncrease = 0
+	q.easingMemoryAge = 0
 	q.stopDropTimer()
 }
 
@@ -349,12 +370,14 @@ func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxD
 			dropped = dropFn()
 			if dropped {
 				drops++
+				q.lockedObserveUnhealthy()
 				q.count++
 				q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 			}
 		}
 		if !dropped {
 			// System is healthy this interval — continue easing down.
+			q.lockedObserveHealthy()
 			q.count = q.lockedEaseCount()
 			q.dropNextNs = q.lockedControlLaw(q.dropNextNs)
 		}
@@ -371,19 +394,119 @@ func (q *CoDelQueue[T]) lockedAdvanceLimited(now int64, dropFn func() bool, maxD
 	}
 }
 
+func (q *CoDelQueue[T]) lockedObserveHealthy() {
+	if q.episodeActive {
+		q.recentEpisodeStart = q.episodeStart
+		q.recentEpisodeIncrease = max(q.count-q.episodeStart, 0)
+		q.easingMemoryAge = 0
+		q.episodeActive = false
+		return
+	}
+	if q.recentEpisodeIncrease > 0 {
+		q.easingMemoryAge++
+	}
+}
+
+func (q *CoDelQueue[T]) lockedObserveUnhealthy() {
+	strength := q.lockedEasingFractionalStrength()
+	if strength > 0 {
+		q.fractionalEasingCredit *= q.lockedEasingFractionalCreditDecay()
+	} else {
+		q.fractionalEasingCredit = 0
+	}
+	if q.episodeActive {
+		return
+	}
+
+	retention := q.lockedEasingReplayRetention()
+	if retention > 0 && q.excessEasing > 0 && q.lockedRecentEpisodeValid() {
+		restore := q.recentEpisodeStart + int(retention*float64(q.recentEpisodeIncrease))
+		q.count = max(q.count, restore)
+	}
+	q.excessEasing = 0
+	q.episodeStart = q.count
+	q.episodeActive = true
+}
+
+func (q *CoDelQueue[T]) lockedRecentEpisodeValid() bool {
+	return q.recentEpisodeIncrease > 1 && q.easingMemoryAge < easingMemoryHorizon
+}
+
 // lockedEaseCount returns the next drop count during easing:
 // count -= floor(log_base(count) / base), floored at 1. A larger base yields a
 // smaller step (gentler ease-out); base defaults to 3 when unset or <= 1.
 func (q *CoDelQueue[T]) lockedEaseCount() int {
+	base := q.lockedEasingLogBase()
+	strength := q.lockedEasingFractionalStrength()
+	if strength <= 0 {
+		q.fractionalEasingCredit = 0
+		eased := easeCount(q.count, base)
+		q.excessEasing += max((q.count-eased)-(q.count-easeCount(q.count, 3)), 0)
+		return eased
+	}
+
+	baselineEased := easeCount(q.count, 3)
+	q.fractionalEasingCredit += strength * max(rawEaseStep(q.count, base)-rawEaseStep(q.count, 3), 0)
+	extra := min(int(math.Floor(q.fractionalEasingCredit)), max(baselineEased-1, 0))
+	q.fractionalEasingCredit -= float64(extra)
+	q.excessEasing += extra
+	return baselineEased - extra
+}
+
+func (q *CoDelQueue[T]) lockedEasingLogBase() float64 {
 	base := 3.0
 	if q.cfg.EasingLogBase != nil {
 		base = q.cfg.EasingLogBase()
 	}
-	if base <= 1 {
-		base = 3.0
+	if base <= 1 || math.IsNaN(base) || math.IsInf(base, 0) {
+		return 3
 	}
-	step := int(math.Log(float64(q.count)) / math.Log(base) / base)
-	return max(q.count-max(step, 1), 1)
+	return base
+}
+
+func (q *CoDelQueue[T]) lockedEasingFractionalStrength() float64 {
+	if q.cfg.EasingFractionalStrength == nil {
+		return 0
+	}
+	strength := q.cfg.EasingFractionalStrength()
+	if strength <= 0 || math.IsNaN(strength) {
+		return 0
+	}
+	return min(strength, 1)
+}
+
+func (q *CoDelQueue[T]) lockedEasingFractionalCreditDecay() float64 {
+	if q.cfg.EasingFractionalCreditDecay == nil {
+		return 0.9
+	}
+	decay := q.cfg.EasingFractionalCreditDecay()
+	if decay <= 0 || math.IsNaN(decay) {
+		return 0
+	}
+	return min(decay, 1)
+}
+
+func (q *CoDelQueue[T]) lockedEasingReplayRetention() float64 {
+	if q.cfg.EasingReplayRetention == nil {
+		return 0
+	}
+	retention := q.cfg.EasingReplayRetention()
+	if retention <= 0 || math.IsNaN(retention) {
+		return 0
+	}
+	return min(retention, 1)
+}
+
+func easeCount(count int, base float64) int {
+	step := int(rawEaseStep(count, base))
+	return max(count-max(step, 1), 1)
+}
+
+func rawEaseStep(count int, base float64) float64 {
+	if count <= 1 {
+		return 0
+	}
+	return math.Log(float64(count)) / math.Log(base) / base
 }
 
 // lockedControlLaw computes the next drop time. The interval shrinks in
