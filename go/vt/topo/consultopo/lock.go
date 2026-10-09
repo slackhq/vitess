@@ -267,14 +267,47 @@ func (s *Server) unlock(ctx context.Context, lockPath string) error {
 	close(li.done)
 
 	// Then try to remove the lock entirely. This will only work if
-	// no one else has the lock.
-	if err := li.lock.Destroy(); err != nil {
-		// If someone else has the lock, we can't remove it,
-		// but we don't need to.
-		if err != api.ErrLockInUse {
-			log.Warningf("failed to clean up lock file %v: %v", lockPath, err)
-		}
+	// no one else has the lock. Use a fresh context: the caller's has
+	// often expired by now, and a lock file left behind blocks TryLock.
+	destroyCtx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+	defer cancel()
+	if err := s.destroyLockFile(destroyCtx, lockPath); err != nil {
+		log.Warningf("failed to clean up lock file %v: %v", lockPath, err)
 	}
 
 	return unlockErr
+}
+
+// destroyLockFile deletes the lock file at lockPath if no session holds it.
+// It mirrors api.Lock.Destroy but goes through s.kv, so transient errors
+// (e.g. during a consul leader election) are retried.
+func (s *Server) destroyLockFile(ctx context.Context, lockPath string) error {
+	pair, _, err := s.kv.Get(lockPath, (&api.QueryOptions{}).WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to read lock: %w", err)
+	}
+	if pair == nil {
+		return nil
+	}
+	if pair.Flags != api.LockFlagValue {
+		return api.ErrLockConflict
+	}
+	// If someone else has the lock, we can't remove it, but we don't need to.
+	if pair.Session != "" {
+		return nil
+	}
+
+	ops := api.KVTxnOps{
+		&api.KVTxnOp{
+			Verb:  api.KVDeleteCAS,
+			Key:   lockPath,
+			Index: pair.ModifyIndex,
+		},
+	}
+	// A failed CAS means someone else modified the lock file in between,
+	// so it is no longer ours to remove.
+	if _, _, _, err := s.kv.Txn(ops, (&api.QueryOptions{}).WithContext(ctx)); err != nil {
+		return fmt.Errorf("failed to remove lock: %w", err)
+	}
+	return nil
 }
