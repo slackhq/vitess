@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -1251,8 +1252,7 @@ func (ts *trafficSwitcher) restoreReverseVReplication(ctx context.Context) error
 			wantStreams[bls.Shard]++
 		}
 	}
-	var mu sync.Mutex
-	missing := false
+	var missing atomic.Bool
 	if err := ts.ForAllSources(func(source *MigrationSource) error {
 		res, err := ts.TabletManagerClient().ReadVReplicationWorkflow(ctx, source.GetPrimary().Tablet,
 			&tabletmanagerdatapb.ReadVReplicationWorkflowRequest{Workflow: ts.reverseWorkflow})
@@ -1260,15 +1260,13 @@ func (ts *trafficSwitcher) restoreReverseVReplication(ctx context.Context) error
 			return err
 		}
 		if len(res.GetStreams()) != wantStreams[source.GetShard().ShardName()] {
-			mu.Lock()
-			missing = true
-			mu.Unlock()
+			missing.Store(true)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	if missing {
+	if missing.Load() {
 		if err := ts.createReverseVReplication(ctx); err != nil {
 			return err
 		}
