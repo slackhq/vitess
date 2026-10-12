@@ -101,6 +101,8 @@ const (
 
 var (
 	throttleTabletTypes = "replica"
+
+	throttlerInventoryRefreshInterval = inventoryRefreshInterval
 )
 
 var (
@@ -115,6 +117,18 @@ func init() {
 
 func registerThrottlerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&throttleTabletTypes, "throttle_tablet_types", throttleTabletTypes, "Comma separated VTTablet types to be considered by the throttler. default: 'replica'. example: 'replica,rdonly'. 'replica' always implicitly included")
+	fs.DurationVar(&throttlerInventoryRefreshInterval, "throttler-inventory-refresh-interval", throttlerInventoryRefreshInterval, "How often the primary's throttler re-reads its shard's tablet records from the topo to find the tablets to probe. Each refresh reads the shard record, the replication graph in every cell, and every tablet record in the shard, so a longer interval reduces topo load. Tablets that join or leave the shard, or change type, are noticed up to this much later. A tablet that becomes primary refreshes immediately. Values below 10s are raised to 10s.")
+}
+
+// inventoryRefreshIntervalFromFlag returns --throttler-inventory-refresh-interval, raised to the default
+// if it is below it. Each refresh runs in its own goroutine and may take up to inventoryRefreshInterval,
+// so a shorter interval would overlap refreshes and multiply the topo load this flag exists to reduce.
+func inventoryRefreshIntervalFromFlag() time.Duration {
+	if throttlerInventoryRefreshInterval < inventoryRefreshInterval {
+		log.Warningf("Throttler: --throttler-inventory-refresh-interval %v is below the minimum, using %v", throttlerInventoryRefreshInterval, inventoryRefreshInterval)
+		return inventoryRefreshInterval
+	}
+	return throttlerInventoryRefreshInterval
 }
 
 var (
@@ -250,7 +264,7 @@ func NewThrottler(env tabletenv.Env, srvTopoServer srvtopo.Server, ts *topo.Serv
 	throttler.leaderCheckInterval = leaderCheckInterval
 	throttler.activeCollectInterval = activeCollectInterval
 	throttler.dormantCollectInterval = dormantCollectInterval
-	throttler.inventoryRefreshInterval = inventoryRefreshInterval
+	throttler.inventoryRefreshInterval = inventoryRefreshIntervalFromFlag()
 	throttler.metricsAggregateInterval = metricsAggregateInterval
 	throttler.throttledAppsSnapshotInterval = throttledAppsSnapshotInterval
 	throttler.dormantPeriod = dormantPeriod
