@@ -134,6 +134,7 @@ func parseTabletPickerTabletOrderString(str string) (TabletPickerTabletOrder, er
 
 type localCellInfo struct {
 	localCell    string
+	alias        string
 	cellsInAlias map[string]string
 }
 
@@ -207,6 +208,7 @@ func NewTabletPicker(
 	}
 
 	aliasCellMap := make(map[string]string)
+	var localAlias string
 	if cellPref == TabletPickerCellPreference_PreferLocalWithAlias {
 		if localCell == "" {
 			return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "cannot have local cell preference without local cell")
@@ -224,8 +226,9 @@ func NewTabletPicker(
 				return nil, vterrors.Wrap(err, "error fetching local cell alias")
 			}
 
-			// Add the cells in the alias to the list of cells for tablet picking.
-			cells = append(cells, alias.Cells...)
+			// Add the aliasName to the list of cells for tablet picking.
+			cells = append(cells, aliasName)
+			localAlias = aliasName
 
 			// Create a map of the cells in the alias to make lookup faster later when we're giving preference to these.
 			// see prioritizeTablets()
@@ -238,7 +241,7 @@ func NewTabletPicker(
 	tp := &TabletPicker{
 		ts:            ts,
 		cells:         dedupeCells(cells),
-		localCellInfo: localCellInfo{localCell: localCell, cellsInAlias: aliasCellMap},
+		localCellInfo: localCellInfo{localCell: localCell, alias: localAlias, cellsInAlias: aliasCellMap},
 		keyspace:      keyspace,
 		shard:         shard,
 		tabletTypes:   tabletTypes,
@@ -373,6 +376,38 @@ func (tp *TabletPicker) PickForStreaming(ctx context.Context) (*topodatapb.Table
 	}
 }
 
+// resolveCell returns the cells that cell refers to: itself if it is a cell,
+// or its member cells if it is a cell alias.
+func (tp *TabletPicker) resolveCell(ctx context.Context, cell string) []string {
+	// The local cell's alias was already resolved in NewTabletPicker, so
+	// don't look it up as a cell, which would fail with NoNode.
+	if cell != tp.localCellInfo.alias {
+		// Check if cell is actually an alias; using a
+		// non-blocking read so that this is fast.
+		shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+		defer cancel()
+		_, err := tp.ts.GetCellInfo(shortCtx, cell, false)
+		if err == nil {
+			return []string{cell}
+		}
+		if topo.IsErrType(err, topo.NoNode) {
+			log.Infof("Cell %s not found in topo, checking whether it is a cell alias: %v", cell, err)
+		}
+	}
+
+	// Not a valid cell, check whether it is a cell alias...
+	shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	defer cancel()
+	alias, err := tp.ts.GetCellsAlias(shortCtx, cell, false)
+	// If we get an error, either cellAlias doesn't exist or
+	// it isn't a cell alias at all; ignore and continue.
+	if err != nil {
+		log.Infof("Unable to resolve cell %s, ignoring", cell)
+		return nil
+	}
+	return alias.Cells
+}
+
 // GetMatchingTablets returns a list of TabletInfo for healthy
 // serving tablets that match the cells, keyspace, shard and
 // tabletTypes for this TabletPicker.
@@ -399,30 +434,7 @@ func (tp *TabletPicker) GetMatchingTablets(ctx context.Context) []*topo.TabletIn
 	} else {
 		actualCells := make([]string, 0)
 		for _, cell := range tp.cells {
-			// Check if cell is actually an alias; using a
-			// non-blocking read so that this is fast.
-			shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-			defer cancel()
-			_, err := tp.ts.GetCellInfo(shortCtx, cell, false)
-			if err != nil {
-				if topo.IsErrType(err, topo.NoNode) {
-					log.Infof("Cell %s not found in topo, checking whether it is a cell alias: %v", cell, err)
-				}
-				// Not a valid cell, check whether it is a cell alias...
-				shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-				defer cancel()
-				alias, err := tp.ts.GetCellsAlias(shortCtx, cell, false)
-				// If we get an error, either cellAlias doesn't exist or
-				// it isn't a cell alias at all; ignore and continue.
-				if err == nil {
-					actualCells = append(actualCells, alias.Cells...)
-				} else {
-					log.Infof("Unable to resolve cell %s, ignoring", cell)
-				}
-			} else {
-				// Valid cell, add it to our list.
-				actualCells = append(actualCells, cell)
-			}
+			actualCells = append(actualCells, tp.resolveCell(ctx, cell)...)
 		}
 
 		for _, cell := range actualCells {

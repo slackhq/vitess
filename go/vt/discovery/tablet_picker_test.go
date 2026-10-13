@@ -122,7 +122,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "pick from two healthy",
@@ -135,7 +135,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica,rdonly",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{100, 101},
 		}, {
 			name: "pick in order replica",
@@ -148,7 +148,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "in_order:replica,rdonly",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "pick in order rdonly",
@@ -161,7 +161,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "in_order:rdonly,replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{101},
 		}, {
 			name: "pick in order multiple in group",
@@ -176,7 +176,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "in_order:rdonly,replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{101, 102, 103},
 		}, {
 			// Same test as above, except the in order preference is passed via the new TabletPickerOptions param.
@@ -193,7 +193,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "rdonly,replica",
 			options:       TabletPickerOptions{TabletOrder: "InOrder"},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{101, 102, 103},
 		}, {
 			name: "picker respects tablet type",
@@ -206,7 +206,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica,rdonly",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "pick multi cell",
@@ -218,7 +218,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell", "otherCell"},
+			tpCells:       []string{"cell", "otherCell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "pick from other cell",
@@ -230,7 +230,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell", "otherCell"},
+			tpCells:       []string{"cell", "otherCell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "don't pick from other cell",
@@ -243,7 +243,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell", "otherCell"},
+			tpCells:       []string{"cell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "multi cell two tablets, local preference default",
@@ -256,7 +256,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell", "otherCell"},
+			tpCells:       []string{"cell", "otherCell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "multi cell two tablets, only specified cells",
@@ -282,7 +282,7 @@ func TestPickLocalPreferences(t *testing.T) {
 			localCell:     "cell",
 			inTabletTypes: "replica,rdonly",
 			options:       TabletPickerOptions{},
-			tpCells:       []string{"cell", "otherCell"},
+			tpCells:       []string{"cell", "otherCell", "cella"},
 			wantTablets:   []uint32{100},
 		}, {
 			name: "multi cell two tablet types, only specified cells",
@@ -402,7 +402,7 @@ func TestPickCellPreferenceLocalAliasNoGlobalGetErrors(t *testing.T) {
 
 	tp, err := NewTabletPicker(ctx, te.topoServ, []string{"cell"}, "cell", te.keyspace, te.shard, "replica", TabletPickerOptions{})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"cell", "otherCell"}, tp.cells)
+	require.ElementsMatch(t, []string{"cell", "cella"}, tp.cells)
 
 	before := globalGetErrors(t)
 	tablet, err := tp.PickForStreaming(ctx)
@@ -569,8 +569,8 @@ func TestPickErrorLocalPreferenceDefault(t *testing.T) {
 	defer timeoutCancel()
 	_, err = tp.PickForStreaming(timeoutCtx)
 	require.EqualError(t, err, "context has expired")
-	// if local preference is selected, tp cells include the cells in the local cell's alias
-	require.Greater(t, globalTPStats.noTabletFoundError.Counts()["cell.ks.0.replica"], int64(0))
+	// if local preference is selected, tp cells include's the local cell's alias
+	require.Greater(t, globalTPStats.noTabletFoundError.Counts()["cell_cella.ks.0.replica"], int64(0))
 }
 
 func TestPickErrorOnlySpecified(t *testing.T) {
