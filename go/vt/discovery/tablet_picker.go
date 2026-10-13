@@ -134,6 +134,7 @@ func parseTabletPickerTabletOrderString(str string) (TabletPickerTabletOrder, er
 
 type localCellInfo struct {
 	localCell    string
+	alias        string
 	cellsInAlias map[string]string
 }
 
@@ -207,6 +208,7 @@ func NewTabletPicker(
 	}
 
 	aliasCellMap := make(map[string]string)
+	var localAlias string
 	if cellPref == TabletPickerCellPreference_PreferLocalWithAlias {
 		if localCell == "" {
 			return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "cannot have local cell preference without local cell")
@@ -226,6 +228,7 @@ func NewTabletPicker(
 
 			// Add the aliasName to the list of cells for tablet picking.
 			cells = append(cells, aliasName)
+			localAlias = aliasName
 
 			// Create a map of the cells in the alias to make lookup faster later when we're giving preference to these.
 			// see prioritizeTablets()
@@ -238,7 +241,7 @@ func NewTabletPicker(
 	tp := &TabletPicker{
 		ts:            ts,
 		cells:         dedupeCells(cells),
-		localCellInfo: localCellInfo{localCell: localCell, cellsInAlias: aliasCellMap},
+		localCellInfo: localCellInfo{localCell: localCell, alias: localAlias, cellsInAlias: aliasCellMap},
 		keyspace:      keyspace,
 		shard:         shard,
 		tabletTypes:   tabletTypes,
@@ -403,8 +406,14 @@ func (tp *TabletPicker) GetMatchingTablets(ctx context.Context) []*topo.TabletIn
 			// non-blocking read so that this is fast.
 			shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 			defer cancel()
-			_, err := tp.ts.GetCellInfo(shortCtx, cell, false)
-			if err != nil {
+			// The local cell's alias is already known to be an alias, so
+			// skip the cell lookup, which would fail with NoNode.
+			isLocalAlias := cell == tp.localCellInfo.alias
+			var err error
+			if !isLocalAlias {
+				_, err = tp.ts.GetCellInfo(shortCtx, cell, false)
+			}
+			if isLocalAlias || err != nil {
 				// Not a valid cell, check whether it is a cell alias...
 				shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 				defer cancel()
