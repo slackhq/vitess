@@ -412,6 +412,9 @@ func (tp *TabletPicker) GetMatchingTablets(ctx context.Context) []*topo.TabletIn
 			var err error
 			if !isLocalAlias {
 				_, err = tp.ts.GetCellInfo(shortCtx, cell, false)
+				if topo.IsErrType(err, topo.NoNode) {
+					log.Infof("Cell %s not found in topo, checking whether it is a cell alias: %v", cell, err)
+				}
 			}
 			if isLocalAlias || err != nil {
 				// Not a valid cell, check whether it is a cell alias...
