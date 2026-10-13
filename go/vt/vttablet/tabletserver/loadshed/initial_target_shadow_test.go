@@ -35,6 +35,19 @@ func lockedEnqueueShadowTestRequest(s *Snake[struct{}], priority int) *Request[s
 	return req
 }
 
+func newInitialTargetShadowTestSnake() (*atomic.Int64, *Snake[struct{}], *fakeExporter) {
+	now := &atomic.Int64{}
+	cfg := defaultSnakeConfig()
+	cfg.Mode = func() Mode { return ModeShadow }
+	s := NewSnake[struct{}](cfg)
+	s.clockFunc = now.Load
+	s.q.nowNs = now.Load
+
+	exp := newFakeExporter()
+	PublishStats(exp, "SnakeOltpRead", s)
+	return now, s, exp
+}
+
 func TestInitialTargetShadow_SmallestHittingCandidate(t *testing.T) {
 	var tracker initialTargetShadowTracker
 	require.True(t, tracker.start(0))
@@ -131,15 +144,7 @@ func TestInitialTargetShadow_DeadlineCompletesAtMaximumWindow(t *testing.T) {
 }
 
 func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
-	var now atomic.Int64
-	cfg := defaultSnakeConfig()
-	cfg.Mode = func() Mode { return ModeShadow }
-	s := NewSnake[struct{}](cfg)
-	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
-
-	exp := newFakeExporter()
-	PublishStats(exp, "SnakeOltpRead", s)
+	now, s, exp := newInitialTargetShadowTestSnake()
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
@@ -306,15 +311,7 @@ func TestInitialTargetShadow_LeavingShadowClearsWaitingForDrain(t *testing.T) {
 }
 
 func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) {
-	var now atomic.Int64
-	cfg := defaultSnakeConfig()
-	cfg.Mode = func() Mode { return ModeShadow }
-	s := NewSnake[struct{}](cfg)
-	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
-
-	exp := newFakeExporter()
-	PublishStats(exp, "SnakeOltpRead", s)
+	now, s, exp := newInitialTargetShadowTestSnake()
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
@@ -329,16 +326,65 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 	assert.Equal(t, int64(1), histogram.Counts()["inf"])
 }
 
-func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
-	var now atomic.Int64
-	cfg := defaultSnakeConfig()
-	cfg.Mode = func() Mode { return ModeShadow }
-	s := NewSnake[struct{}](cfg)
-	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+func TestInitialTargetShadow_ContinuousHealthyBacklogWaitsForDrain(t *testing.T) {
+	now, s, exp := newInitialTargetShadowTestSnake()
+	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
+	require.NotNil(t, histogram)
 
-	exp := newFakeExporter()
-	PublishStats(exp, "SnakeOltpRead", s)
+	_, dropped := s.Enqueue(struct{}{}, 1)
+	require.Empty(t, dropped)
+	_, dropped = s.Enqueue(struct{}{}, 1)
+	require.Empty(t, dropped)
+
+	now.Store(int64(time.Millisecond))
+	_, ok, dropped := s.Dequeue()
+	require.True(t, ok)
+	require.Empty(t, dropped)
+
+	assert.Equal(t, int64(1), histogram.Count())
+	assert.Equal(t, int64(1), histogram.Counts()["5"])
+	assert.True(t, s.initialTargetShadow.waitingForDrain)
+	assert.False(t, s.initialTargetShadow.active)
+	assert.False(t, s.shadowTimerArmed)
+
+	threeCandidateIntervalsNs := 3 * initialTargetShadowCandidates[0] * initialTargetShadowIntervalRatio
+	for elapsedNs := int64(2 * time.Millisecond); elapsedNs <= threeCandidateIntervalsNs; elapsedNs += int64(time.Millisecond) {
+		now.Store(elapsedNs)
+		_, dropped = s.Enqueue(struct{}{}, 1)
+		require.Empty(t, dropped)
+		_, ok, dropped = s.Dequeue()
+		require.True(t, ok)
+		require.Empty(t, dropped)
+	}
+
+	assert.Equal(t, 1, s.Len())
+	assert.Equal(t, int64(1), histogram.Count())
+	assert.True(t, s.initialTargetShadow.waitingForDrain)
+	assert.False(t, s.initialTargetShadow.active)
+	assert.False(t, s.shadowTimerArmed)
+
+	_, ok, dropped = s.Dequeue()
+	require.True(t, ok)
+	require.Empty(t, dropped)
+	assert.False(t, s.initialTargetShadow.waitingForDrain)
+	assert.Equal(t, int64(1), histogram.Count())
+
+	_, dropped = s.Enqueue(struct{}{}, 1)
+	require.Empty(t, dropped)
+	require.True(t, s.initialTargetShadow.active)
+	require.True(t, s.shadowTimerArmed)
+
+	now.Add(int64(time.Millisecond))
+	_, ok, dropped = s.Dequeue()
+	require.True(t, ok)
+	require.Empty(t, dropped)
+
+	assert.Equal(t, int64(2), histogram.Count())
+	assert.Equal(t, int64(2), histogram.Counts()["5"])
+}
+
+func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
+	now, s, exp := newInitialTargetShadowTestSnake()
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
