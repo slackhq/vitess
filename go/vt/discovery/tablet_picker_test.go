@@ -411,6 +411,26 @@ func TestPickCellPreferenceLocalAliasNoGlobalGetErrors(t *testing.T) {
 	assert.Equal(t, before, globalGetErrors(t), "picking a tablet should not cause global topo Get errors")
 }
 
+// TestGetMatchingTabletsDedupesResolvedCells confirms that a cell reached both
+// directly and through an alias is only searched once, so its tablets are not
+// returned twice.
+func TestGetMatchingTabletsDedupesResolvedCells(t *testing.T) {
+	ctx := utils.LeakCheckContext(t)
+
+	// test env puts all cells into an alias called "cella"
+	te := newPickerTestEnv(t, ctx, []string{"cell", "otherCell"})
+	want := addTablet(ctx, te, 101, topodatapb.TabletType_REPLICA, "cell", true, true)
+	defer deleteTablet(t, te, want)
+
+	tp, err := NewTabletPicker(ctx, te.topoServ, []string{"cell"}, "cell", te.keyspace, te.shard, "replica", TabletPickerOptions{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"cell", "cella"}, tp.cells)
+
+	tablets := tp.GetMatchingTablets(ctx)
+	require.Len(t, tablets, 1)
+	assert.True(t, proto.Equal(want, tablets[0].Tablet), "GetMatchingTablets: %v, want %v", tablets[0].Tablet, want)
+}
+
 // TestPickUsingCellAsAlias confirms that when the tablet picker is
 // given a cell name that is an alias, it will choose a tablet that
 // exists within a cell that is part of the alias.

@@ -437,7 +437,7 @@ func (tp *TabletPicker) GetMatchingTablets(ctx context.Context) []*topo.TabletIn
 			actualCells = append(actualCells, tp.resolveCell(ctx, cell)...)
 		}
 
-		for _, cell := range actualCells {
+		for _, cell := range dedupeCells(actualCells) {
 			shortCtx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 			defer cancel()
 			// Match cell, keyspace, and shard.
