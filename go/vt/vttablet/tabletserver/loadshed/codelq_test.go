@@ -886,25 +886,58 @@ func TestCoDelQueue_SlowStart_EnqueueArms(t *testing.T) {
 func TestSnakeQueue_DequeueRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
 
-	_, dropped := s.Enqueue("value", 1, "")
+	req, dropped := s.Enqueue("value", "", 1, "")
 	require.Empty(t, dropped)
 	dequeued, ok, dropped := s.Dequeue()
 	require.True(t, ok)
 	require.Equal(t, "value", dequeued)
 	require.Empty(t, dropped)
 	require.Equal(t, 0, s.q.lockedLen())
+	require.Equal(t, outcomeDequeued, req.outcome)
 }
 
 func TestSnakeQueue_CancelRemovesRequest(t *testing.T) {
 	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
-	req, dropped := s.Enqueue("value", 1, "")
+	req, dropped := s.Enqueue("value", "", 1, "")
 	require.Empty(t, dropped)
 
 	cancelled := s.Cancel(req)
 	require.True(t, cancelled)
 	require.Equal(t, 0, s.q.lockedLen())
+	require.Equal(t, outcomeCanceled, req.outcome)
 	cancelled = s.Cancel(req)
 	require.False(t, cancelled)
+}
+
+func TestSnakeQueue_CancelRemovesValveWaiter(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+	first, dropped := s.Enqueue("first", "valve", 0, "")
+	require.Empty(t, dropped)
+	second, dropped := s.Enqueue("second", "valve", 0, "")
+	require.Empty(t, dropped)
+
+	cancelled := s.Cancel(second)
+	require.True(t, cancelled)
+
+	dequeued, ok, dropped := s.Dequeue()
+	require.True(t, ok)
+	require.Equal(t, "first", dequeued)
+	require.Empty(t, dropped)
+	dequeued, ok, dropped = s.Dequeue()
+	require.False(t, ok)
+	require.Empty(t, dequeued)
+	require.Empty(t, dropped)
+	require.Equal(t, outcomeDequeued, first.outcome)
+	require.Equal(t, outcomeCanceled, second.outcome)
+}
+
+func TestSnakeQueue_DrainRecordsOutcome(t *testing.T) {
+	s := NewSnake[string](SnakeConfig{CoDel: defaultTestConfig()})
+	req, dropped := s.Enqueue("value", "", 0, "")
+	require.Empty(t, dropped)
+
+	require.Equal(t, []string{"value"}, s.Drain())
+	require.Equal(t, outcomeDrained, req.outcome)
 }
 
 func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
@@ -914,10 +947,10 @@ func TestSnakeQueue_DisabledDoesNotDrop(t *testing.T) {
 	}
 	s := NewSnake[struct{}](config)
 	for range 6 {
-		_, dropped := s.Enqueue(struct{}{}, 1, "")
+		_, dropped := s.Enqueue(struct{}{}, "", 1, "")
 		require.Empty(t, dropped)
 	}
-	s.q.dropNextNs = 1
+	s.q.codelq.dropNextNs = 1
 
 	_, _, dropped := s.Dequeue()
 	require.Empty(t, dropped)
