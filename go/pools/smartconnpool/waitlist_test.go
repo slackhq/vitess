@@ -290,6 +290,7 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		poolLabel string
 	}{
 		{poolName: "ConnPool", poolLabel: "oltp_read"},
+		{poolName: "StreamConnPool", poolLabel: "olap_read"},
 		{poolName: "TransactionPool", poolLabel: "dml"},
 		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
 	} {
