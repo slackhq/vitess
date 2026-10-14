@@ -28,7 +28,7 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 	cfg.Mode = nil
 	snake := NewSnake[string](cfg)
 
-	_, dropped := snake.Enqueue("queued", 1)
+	_, dropped := snake.Enqueue("queued", 1, "")
 
 	assert.Empty(t, dropped)
 	assert.Equal(t, ModeOff, snake.mode())
@@ -37,8 +37,8 @@ func TestSnakeDefaultModeIsOff(t *testing.T) {
 
 func TestSnakeCancelMatching(t *testing.T) {
 	snake := NewSnake[string](SnakeConfig{})
-	snake.Enqueue("first", 1)
-	snake.Enqueue("second", 1)
+	snake.Enqueue("first", 1, "")
+	snake.Enqueue("second", 1, "")
 
 	removed := snake.CancelMatching(func(value string) bool {
 		return value == "second"
@@ -46,6 +46,38 @@ func TestSnakeCancelMatching(t *testing.T) {
 
 	require.True(t, removed)
 	assert.Equal(t, 1, snake.Len())
+}
+
+func TestSnakeLockedMaybeInheritPriority(t *testing.T) {
+	snake := NewSnake[string](defaultSnakeConfig())
+	low, _ := snake.Enqueue("low", 10, "low-key")
+	mid, _ := snake.Enqueue("mid", 5, "mid-key")
+	snake.Enqueue("unkeyed", 3, "")
+
+	snake.LockedMaybeInheritPriority("low-key", 2)
+	assert.Equal(t, 2, low.priority)
+	assert.Equal(t, "mid", snake.q.droppable.max().value)
+
+	snake.LockedMaybeInheritPriority("low-key", 20)
+	assert.Equal(t, 2, low.priority)
+
+	snake.LockedMaybeInheritPriority("missing-key", 50)
+	assert.Equal(t, 2, low.priority)
+	assert.Equal(t, 5, mid.priority)
+
+	snake.LockedMaybeInheritPriority("mid-key", PriorityUndroppable)
+	assert.Equal(t, 2, snake.q.droppableLen)
+	assert.Equal(t, PriorityUndroppable, mid.priority)
+
+	removed := snake.Cancel(low)
+	require.True(t, removed)
+	assert.NotContains(t, snake.q.priorityInheritors, "low-key")
+	snake.LockedMaybeInheritPriority("low-key", 50)
+	assert.Equal(t, 2, low.priority)
+
+	_, ok, _ := snake.Dequeue()
+	require.True(t, ok)
+	assert.Empty(t, snake.q.priorityInheritors)
 }
 
 func TestSnakeDrain(t *testing.T) {
@@ -62,11 +94,11 @@ func TestSnakeEnqueueExistingDoesNotCountAcquire(t *testing.T) {
 	exporter := newFakeExporter()
 	PublishStats(exporter, "SnakeTest", snake)
 
-	snake.Enqueue("new", 1)
+	snake.Enqueue("new", 100, "")
 	snake.EnqueueExisting("existing", PriorityUndroppable)
 
 	require.Contains(t, exporter.multiCounters, "SnakeTestAcquireByPriority")
-	assert.Equal(t, map[string]int64{"1": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
+	assert.Equal(t, map[string]int64{"100": 1}, exporter.multiCounters["SnakeTestAcquireByPriority"].Counts())
 }
 
 func TestSnakeShedByPriorityMetric(t *testing.T) {

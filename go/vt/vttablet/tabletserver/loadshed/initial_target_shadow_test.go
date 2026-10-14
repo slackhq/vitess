@@ -144,7 +144,7 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	require.NotNil(t, histogram)
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
 
-	_, dropped := s.Enqueue(struct{}{}, 1)
+	_, dropped := s.Enqueue(struct{}{}, 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
@@ -165,7 +165,7 @@ func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 1)
+	_, dropped := s.Enqueue(struct{}{}, 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
@@ -182,7 +182,7 @@ func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeOff }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 1)
+	_, dropped := s.Enqueue(struct{}{}, 1, "")
 	require.Empty(t, dropped)
 	require.Equal(t, 1, s.q.droppableLen)
 
@@ -318,7 +318,7 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	_, dropped := s.Enqueue(struct{}{}, 1)
+	_, dropped := s.Enqueue(struct{}{}, 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.shadowTimerArmed)
 
@@ -342,7 +342,7 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	req, dropped := s.Enqueue(struct{}{}, 1)
+	req, dropped := s.Enqueue(struct{}{}, 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
