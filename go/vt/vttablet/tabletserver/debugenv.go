@@ -155,12 +155,36 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	setDurationValWithError := func(f func(time.Duration) error) error {
+		durationVal, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("invalid duration value for %v: %v", varname, err)
+		}
+		if err := f(durationVal); err != nil {
+			return err
+		}
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
 	setFloat64Val := func(f func(float64)) error {
 		fval, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return fmt.Errorf("invalid float64 value for %v: %v", varname, err)
 		}
 		f(fval)
+		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
+		return nil
+	}
+
+	setFloat64ValWithError := func(f func(float64) error) error {
+		fval, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid float64 value for %v: %v", varname, err)
+		}
+		if err := f(fval); err != nil {
+			return err
+		}
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
 		return nil
 	}
@@ -213,11 +237,11 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "LoadshedOltpReadMode", "LoadshedTxMode":
 		err = setStringVal(loadshedConfig(tsv, varname).SetMode)
 	case "LoadshedOltpReadTarget", "LoadshedTxTarget":
-		err = setDurationVal(loadshedConfig(tsv, varname).SetTarget)
+		err = setDurationValWithError(loadshedConfig(tsv, varname).SetTarget)
 	case "LoadshedOltpReadInitialTarget", "LoadshedTxInitialTarget":
-		err = setDurationVal(loadshedConfig(tsv, varname).SetInitialTarget)
+		err = setDurationValWithError(loadshedConfig(tsv, varname).SetInitialTarget)
 	case "LoadshedOltpReadIntervalRatio", "LoadshedTxIntervalRatio":
-		err = setFloat64Val(loadshedConfig(tsv, varname).SetIntervalRatio)
+		err = setFloat64ValWithError(loadshedConfig(tsv, varname).SetIntervalRatio)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
