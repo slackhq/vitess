@@ -137,6 +137,10 @@ func (cp *Pool) Close() {
 // Get returns a connection.
 // You must call Recycle on DBConn once done.
 func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*PooledConn, error) {
+	return cp.GetWithPriority(ctx, setting, 0)
+}
+
+func (cp *Pool) GetWithPriority(ctx context.Context, setting *smartconnpool.Setting, priority int) (*PooledConn, error) {
 	span, ctx := trace.NewSpan(ctx, "Pool.Get")
 	defer span.Finish()
 
@@ -159,7 +163,7 @@ func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*Poole
 	}
 
 	start := time.Now()
-	conn, err := cp.ConnPool.Get(ctx, setting)
+	conn, err := cp.ConnPool.GetWithPriority(ctx, setting, priority)
 	if err != nil {
 		return nil, err
 	}
