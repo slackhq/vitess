@@ -19,6 +19,7 @@ package smartconnpool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,6 +30,7 @@ import (
 
 	"vitess.io/vitess/go/list"
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
@@ -37,6 +39,17 @@ type fakeWaitlistStatsExporter struct {
 	metricName   string
 	gauge        *stats.GaugesWithMultiLabels
 	creates      int
+}
+
+func newFakeWaitlistStatsExporter(t *testing.T) *fakeWaitlistStatsExporter {
+	t.Helper()
+	exporterName := t.Name()
+	t.Cleanup(func() {
+		snakeModeGauges.Lock()
+		delete(snakeModeGauges.byExporter, exporterName)
+		snakeModeGauges.Unlock()
+	})
+	return &fakeWaitlistStatsExporter{exporterName: exporterName}
 }
 
 func (e *fakeWaitlistStatsExporter) Name() string {
@@ -278,13 +291,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
 }
 
 func TestWaitlistActiveModeMetric(t *testing.T) {
-	exporterName := t.Name()
-	t.Cleanup(func() {
-		snakeModeGauges.Lock()
-		delete(snakeModeGauges.byExporter, exporterName)
-		snakeModeGauges.Unlock()
-	})
-	exporter := &fakeWaitlistStatsExporter{exporterName: exporterName}
+	exporter := newFakeWaitlistStatsExporter(t)
 	for _, tt := range []struct {
 		poolName  string
 		poolLabel string
@@ -325,6 +332,35 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		})
 	}
 	assert.Equal(t, 1, exporter.creates)
+}
+
+func TestWaitlistLogsQueueTransitions(t *testing.T) {
+	var logs []string
+	infof := log.Infof
+	log.Infof = func(format string, args ...any) {
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}
+	defer func() {
+		log.Infof = infof
+	}()
+
+	config := newMutableTestPoolConfig(loadshed.ModeOff)
+	wl := waitlist[*TestConn]{}
+	wl.init("", config)
+	wl.registerStats(newFakeWaitlistStatsExporter(t), "ConnPool")
+	wl.list.PushBackValue(&list.Element[waiter[*TestConn]]{})
+
+	for _, mode := range []loadshed.Mode{loadshed.ModeShadow, loadshed.ModeEnabled, loadshed.ModeOff} {
+		config.setMode(mode)
+		wl.mu.Lock()
+		wl.transitionLocked()
+		wl.mu.Unlock()
+	}
+
+	assert.Equal(t, []string{
+		"Snake waitlist transition: pool=oltp_read from=off to=shadow waiters=1 handling both waitlists",
+		"Snake waitlist transition: pool=oltp_read from=enabled to=off waiters=1 handling both waitlists",
+	}, logs)
 }
 
 func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
