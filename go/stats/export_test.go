@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -189,6 +190,15 @@ func TestStringMapWithMultiLabels(t *testing.T) {
 	require.Equal(t, keyLabels[1], "bbb")
 
 	require.Equal(t, c.ValueLabel(), "ccc")
+}
+
+func TestCombinedLabels(t *testing.T) {
+	clearStats()
+	t.Cleanup(clearStats)
+	combineDimensions = "a,c"
+
+	assert.Equal(t, []bool{true, false, true}, CombinedLabels([]string{"a", "b", "c"}))
+	assert.Empty(t, CombinedLabels(nil))
 }
 
 func TestSafeJoinLabels(t *testing.T) {
