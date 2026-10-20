@@ -117,6 +117,21 @@ func TestDebugEnvLoadshedParams(t *testing.T) {
 	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
 }
 
+func TestDebugEnvLogsLoadshedModeTransitions(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	logger := newTestLogger()
+	defer logger.Close()
+
+	postVar(t, tsv, "LoadshedOltpReadMode", "shadow")
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
+	postVar(t, tsv, "LoadshedOltpReadMode", "off")
+
+	assert.Equal(t, []string{
+		"Snake mode transition: LoadshedOltpReadMode changed from off to shadow",
+		"Snake mode transition: LoadshedOltpReadMode changed from shadow to off",
+	}, logger.getLogs())
+}
+
 func TestDebugEnvLoadshedParamsRejectInvalidValues(t *testing.T) {
 	tsv := newDebugEnvTabletServer(t)
 

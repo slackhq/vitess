@@ -235,7 +235,13 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
 	case "LoadshedOltpReadMode", "LoadshedOlapReadMode", "LoadshedTxMode":
-		err = setStringVal(loadshedConfig(tsv, varname).SetMode)
+		config := loadshedConfig(tsv, varname)
+		previousMode := config.ModeValue()
+		err = setStringVal(config.SetMode)
+		currentMode := config.ModeValue()
+		if err == nil && currentMode != previousMode {
+			log.Infof("Snake mode transition: %s changed from %s to %s", varname, previousMode, currentMode)
+		}
 	case "LoadshedOltpReadTarget", "LoadshedOlapReadTarget", "LoadshedTxTarget":
 		err = setDurationValWithError(loadshedConfig(tsv, varname).SetTarget)
 	case "LoadshedOltpReadInitialTarget", "LoadshedOlapReadInitialTarget", "LoadshedTxInitialTarget":
