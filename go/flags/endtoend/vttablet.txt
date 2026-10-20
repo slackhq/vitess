@@ -223,7 +223,7 @@ Flags:
       --loadshed-olap-read-default-priority int                          Default priority assigned to OLAP reads that lack priority information. (default 100)
       --loadshed-olap-read-initial-target duration                       Initial CoDel target delay for the olap-read load shedder. 0 uses its normal target.
       --loadshed-olap-read-interval-ratio float                          CoDel observation interval for the olap-read load shedder, as a multiple of its target. (default 20)
-      --loadshed-olap-read-mode loadshed-mode                            Load shedding mode for the olap-read pool: off, shadow, or enabled. (default off)
+      --loadshed-olap-read-mode loadshed-mode                            Load shedding mode for the olap-read pool: off, shadow, enabled, or enabled-replicas. (default off)
       --loadshed-olap-read-target duration                               CoDel target delay for the olap-read load shedder. (default 5ms)
       --loadshed-oltp-read-default-priority int                          Default priority assigned to OLTP reads that lack priority information. (default 100)
       --loadshed-oltp-read-initial-target duration                       Initial CoDel target delay for the oltp-read load shedder. 0 uses its normal target.
