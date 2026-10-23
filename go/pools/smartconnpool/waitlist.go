@@ -34,6 +34,7 @@ type PoolConfig interface {
 type waitlistStatsExporter interface {
 	Name() string
 	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
+	NewCountersWithMultiLabels(name, help string, labels []string) *stats.CountersWithMultiLabels
 	NewGaugesWithMultiLabels(name, help string, labels []string) *stats.GaugesWithMultiLabels
 	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
 }
@@ -88,7 +89,7 @@ type waitlist[C Connection] struct {
 // The returned connection may _not_ have the requested Setting. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, dryRun bool) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeChan <-chan struct{}, maxWaiters uint, priority int, dryRun bool) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
 	defer wl.nodes.Put(elem)
 
@@ -140,7 +141,7 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 		wl.list.PushBackValue(elem)
 	} else {
 		var newlyDropped []*list.Element[waiter[C]]
-		request, newlyDropped = wl.snake.Enqueue(elem)
+		request, newlyDropped = wl.snake.Enqueue(elem, priority)
 		dropped = append(dropped, newlyDropped...)
 	}
 	wl.mu.Unlock()
@@ -370,7 +371,7 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 		for elem := wl.list.Front(); elem != nil; {
 			next := elem.Next()
 			wl.list.Remove(elem)
-			_, newlyDropped := wl.snake.EnqueueExisting(elem)
+			_, newlyDropped := wl.snake.EnqueueExisting(elem, loadshed.PriorityUndroppable)
 			dropped = append(dropped, newlyDropped...)
 			elem = next
 		}

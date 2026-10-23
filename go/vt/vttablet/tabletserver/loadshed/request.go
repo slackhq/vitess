@@ -16,24 +16,43 @@ limitations under the License.
 
 package loadshed
 
-import "vitess.io/vitess/go/list"
+import (
+	"vitess.io/vitess/go/list"
+	"vitess.io/vitess/go/vt/sqlparser"
+)
 
 type (
 	Request[T any] struct {
-		droppable          bool
+		priority           int
 		codelqEnqueuedAtNs int64
 		codelqElem         *list.Element[*Request[T]]
 		value              T
+
+		// bucketElem locates this request in the droppableIndex while it is a
+		// droppable queue entry: it is the request's node in its priority
+		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that
+		// node lives in. bucketElem is nil when the request is not indexed
+		// (undroppable, dequeued, or removed).
+		bucketElem *list.Element[*Request[T]]
+		bucketIdx  int
 	}
 )
 
-func newRequest[T any](value T, droppable bool) *Request[T] {
+// PriorityUndroppable is a sentinel priority indicating a request that must
+// never be dropped by CoDel.
+const PriorityUndroppable = 0
+
+func IsValidPriority(priority int) bool {
+	return priority >= PriorityUndroppable && priority <= sqlparser.MaxPriorityValue
+}
+
+func newRequest[T any](value T, priority int) *Request[T] {
 	return &Request[T]{
-		droppable: droppable,
-		value:     value,
+		priority: priority,
+		value:    value,
 	}
 }
 
 func (r *Request[T]) isDroppable() bool {
-	return r.droppable
+	return r.priority != PriorityUndroppable
 }
