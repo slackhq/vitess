@@ -381,6 +381,56 @@ func TestExtractCommentDirectives(t *testing.T) {
 	assert.True(t, d.IsSet("six"), "d.IsSet(six)")
 }
 
+func TestRemoveDirective(t *testing.T) {
+	testCases := []struct {
+		name     string
+		comments Comments
+		key      string
+		want     Comments
+	}{{
+		name: "nil comments",
+		key:  DirectivePriority,
+	}, {
+		name:     "ordinary and short comments",
+		comments: Comments{"x", "/*vt+", "/* ordinary */"},
+		key:      DirectivePriority,
+		want:     Comments{"x", "/*vt+", "/* ordinary */"},
+	}, {
+		name:     "absent directive",
+		comments: Comments{"/*vt+ WORKLOAD_NAME=online */"},
+		key:      DirectivePriority,
+		want:     Comments{"/*vt+ WORKLOAD_NAME=online */"},
+	}, {
+		name:     "only directive",
+		comments: Comments{"/*vt+ PRIORITY=50 */"},
+		key:      DirectivePriority,
+	}, {
+		name:     "mixed directives",
+		comments: Comments{"/*vt+ WORKLOAD_NAME=online PRIORITY=50 QUERY_TIMEOUT_MS=100 */"},
+		key:      DirectivePriority,
+		want:     Comments{"/*vt+ WORKLOAD_NAME=online QUERY_TIMEOUT_MS=100 */"},
+	}, {
+		name:     "case insensitive exact match",
+		comments: Comments{"/*vt+ priority=50 PRIORITY_EXTRA=49 */"},
+		key:      DirectivePriority,
+		want:     Comments{"/*vt+ PRIORITY_EXTRA=49 */"},
+	}, {
+		name:     "duplicates and multiple comments",
+		comments: Comments{"/* before */", "/*vt+ PRIORITY=50 WORKLOAD_NAME=online */", "/*vt+ PRIORITY=49 */", "/* after */"},
+		key:      DirectivePriority,
+		want:     Comments{"/* before */", "/*vt+ WORKLOAD_NAME=online */", "/* after */"},
+	}}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			original := append(Comments(nil), testCase.comments...)
+			got := testCase.comments.Parsed().RemoveDirective(testCase.key)
+			assert.Equal(t, testCase.want, got)
+			assert.Equal(t, original, testCase.comments)
+		})
+	}
+}
+
 func TestSkipQueryPlanCacheDirective(t *testing.T) {
 	parser := NewTestParser()
 	stmt, _ := parser.Parse("insert /*vt+ SKIP_QUERY_PLAN_CACHE=1 */ into user(id) values (1), (2)")

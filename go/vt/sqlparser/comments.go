@@ -495,6 +495,46 @@ func (c *ParsedComments) Prepend(comment string) Comments {
 	return comments
 }
 
+// RemoveDirective removes the named execution directive.
+func (c *ParsedComments) RemoveDirective(key string) (newComments Comments) {
+	if c == nil {
+		return nil
+	}
+	for _, commentStr := range c.comments {
+		if !strings.HasPrefix(commentStr, commentDirectivePreamble) {
+			newComments = append(newComments, commentStr)
+			continue
+		}
+
+		fields := strings.Fields(commentStr)
+		if len(fields) < 2 {
+			newComments = append(newComments, commentStr)
+			continue
+		}
+		filtered := make([]string, 1, len(fields))
+		filtered[0] = fields[0]
+		removed := false
+		for _, field := range fields[1 : len(fields)-1] {
+			directive, _, _ := strings.Cut(field, "=")
+			if strings.EqualFold(directive, key) {
+				removed = true
+				continue
+			}
+			filtered = append(filtered, field)
+		}
+		if !removed {
+			newComments = append(newComments, commentStr)
+			continue
+		}
+		if len(filtered) == 1 {
+			continue
+		}
+		filtered = append(filtered, fields[len(fields)-1])
+		newComments = append(newComments, strings.Join(filtered, " "))
+	}
+	return newComments
+}
+
 // IsSet checks the directive map for the named directive and returns
 // true if the directive is set and has a true/false or 0/1 value
 func (d *CommentDirectives) IsSet(key string) bool {
