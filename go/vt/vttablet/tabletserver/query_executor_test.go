@@ -1415,7 +1415,7 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 			tsv.qe.consolidator = fakeConsolidator
 
 			qre := newTestQueryExecutor(context.Background(), tsv, tcase.input, 0)
-			qre.options = &querypb.ExecuteOptions{Consolidator: tcase.consolidatorExecuteOption}
+			qre.options = &querypb.ExecuteOptions{Consolidator: tcase.consolidatorExecuteOption, Priority: "50"}
 
 			result := &sqltypes.Result{
 				Fields: getTestTableFields(),
@@ -1443,6 +1443,7 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 
 			if tcase.expectConsolidate {
 				require.Len(t, fakeConsolidator.CreateCalls, 1)
+				require.Equal(t, consolidatorKey(tcase.input, qre.options), fakeConsolidator.CreateCalls[0])
 				require.Len(t, fakeConsolidator.CreateReturns, 1)
 				if tcase.consolidatorHasIdenticalQuery {
 					require.Equal(t, 0, fakePendingResult.BroadcastCalls)
@@ -1464,6 +1465,16 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 			db.VerifyAllExecutedOrFail()
 		})
 	}
+}
+
+func TestConsolidatorKeyIncludesPriority(t *testing.T) {
+	sql := "select * from t"
+	assert.Equal(t, sql, consolidatorKey(sql, nil))
+	assert.Equal(t, consolidatorKey(sql, nil), consolidatorKey(sql, &querypb.ExecuteOptions{}))
+	assert.Equal(t, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}), consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}))
+	assert.NotEqual(t, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}), consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "49"}))
+	assert.NotEqual(t, consolidatorKey("23", &querypb.ExecuteOptions{Priority: "1"}), consolidatorKey("3", &querypb.ExecuteOptions{Priority: "12"}))
+	assert.NotEqual(t, consolidatorKey(":\x00select", &querypb.ExecuteOptions{Priority: "1"}), consolidatorKey("1:\x00select", nil))
 }
 
 func TestQueryExecutorConsolidatorWaiterCapFallback(t *testing.T) {
