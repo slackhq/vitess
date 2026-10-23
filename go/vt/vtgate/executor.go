@@ -1120,6 +1120,15 @@ func (e *Executor) fetchOrCreatePlan(
 	query, comments := sqlparser.SplitMarginComments(queryString)
 	vcursor, _ = econtext.NewVCursorImpl(safeSession, comments, e, logStats, e.vm, e.VSchema(), e.resolver.resolver, e.serv, nullResultsObserver{}, e.vConfig)
 
+	priority := ""
+	if preparedPlan && hasPriorityDirectiveCandidate(query) {
+		var err error
+		query, priority, err = e.removePriorityDirective(query)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
 	var setVarComment string
 	if e.vConfig.SetVarEnabled {
 		setVarComment = vcursor.PrepareSetVarComment()
@@ -1132,7 +1141,11 @@ func (e *Executor) fetchOrCreatePlan(
 	}
 
 	if plan == nil {
-		plan, logStats.CachedPlan, stmt, err = e.getCachedOrBuildPlan(ctx, vcursor, query, bindVars, setVarComment, parameterize, planKey, false)
+		var parsedPriority string
+		plan, logStats.CachedPlan, stmt, parsedPriority, err = e.getCachedOrBuildPlan(ctx, vcursor, query, bindVars, setVarComment, parameterize, planKey, false)
+		if parsedPriority != "" {
+			priority = parsedPriority
+		}
 		if err != nil && preparedPlan && isExecutePath {
 			// The baseline plan failed to build, try to build an optimized plan
 			plan, err = e.tryOptimizedPlan(ctx, vcursor, bindVars, query, setVarComment, parameterize, planKey, plan, err)
@@ -1144,7 +1157,7 @@ func (e *Executor) fetchOrCreatePlan(
 
 	if shouldOptimizePlan(preparedPlan, isExecutePath, plan) {
 		vcursor.SetBindVars(bindVars)
-		optimizedPlan, _, _, err := e.getCachedOrBuildPlan(ctx, vcursor, query, bindVars, setVarComment, parameterize, planKey, true)
+		optimizedPlan, _, _, _, err := e.getCachedOrBuildPlan(ctx, vcursor, query, bindVars, setVarComment, parameterize, planKey, true)
 		if err == nil {
 			if sp, ok := optimizedPlan.Instructions.(*engine.PlanSwitcher); ok {
 				sp.Baseline = plan.Instructions
@@ -1156,7 +1169,7 @@ func (e *Executor) fetchOrCreatePlan(
 	}
 
 	// Apply query hints
-	e.applyQueryHints(vcursor, plan)
+	e.applyQueryHints(vcursor, plan, priority)
 
 	logStats.SQL = comments.Leading + plan.Original + comments.Trailing
 	logStats.BindVariables = sqltypes.CopyBindVariables(bindVars)
@@ -1176,7 +1189,7 @@ func (e *Executor) tryOptimizedPlan(
 	prevErr error,
 ) (*engine.Plan, error) {
 	vcursor.SetBindVars(bindVars)
-	sPlan, _, _, err := e.getCachedOrBuildPlan(ctx, vcursor, baseQuery, bindVars, setVarComment, parameterize, planKey, true)
+	sPlan, _, _, _, err := e.getCachedOrBuildPlan(ctx, vcursor, baseQuery, bindVars, setVarComment, parameterize, planKey, true)
 	if err == nil {
 		if sp, ok := sPlan.Instructions.(*engine.PlanSwitcher); ok {
 			sp.BaselineErr = prevErr
@@ -1202,13 +1215,35 @@ func shouldOptimizePlan(preparedPlan, isExecutePath bool, plan *engine.Plan) boo
 }
 
 // applyQueryHints applies query hints to the vcursor
-func (e *Executor) applyQueryHints(vcursor *econtext.VCursorImpl, plan *engine.Plan) {
+func (e *Executor) applyQueryHints(vcursor *econtext.VCursorImpl, plan *engine.Plan, priority string) {
 	qh := plan.QueryHints
 	vcursor.SetIgnoreMaxMemoryRows(qh.IgnoreMaxMemoryRows)
 	vcursor.SetConsolidator(qh.Consolidator)
 	vcursor.SetWorkloadName(qh.Workload)
-	vcursor.SetPriority(qh.Priority)
+	vcursor.SetPriority(priority)
 	vcursor.SetExecQueryTimeout(qh.Timeout)
+}
+
+func hasPriorityDirectiveCandidate(query string) bool {
+	upper := strings.ToUpper(query)
+	return strings.Contains(upper, "/*VT+") && strings.Contains(upper, sqlparser.DirectivePriority)
+}
+
+func (e *Executor) removePriorityDirective(query string) (string, string, error) {
+	stmt, _, err := parseAndValidateQuery(query, e.env.Parser())
+	if err != nil {
+		return "", "", err
+	}
+	qh, err := sqlparser.BuildQueryHints(stmt)
+	if err != nil {
+		return "", "", err
+	}
+	if qh.Priority == "" {
+		return query, "", nil
+	}
+	commented := stmt.(sqlparser.Commented)
+	commented.SetComments(commented.GetParsedComments().RemoveDirective(sqlparser.DirectivePriority))
+	return sqlparser.String(stmt), qh.Priority, nil
 }
 
 func (e *Executor) getCachedOrBuildPlan(
@@ -1220,10 +1255,10 @@ func (e *Executor) getCachedOrBuildPlan(
 	parameterize bool,
 	planKey engine.PlanKey,
 	ignoreCache bool,
-) (plan *engine.Plan, cached bool, stmt sqlparser.Statement, err error) {
+) (plan *engine.Plan, cached bool, stmt sqlparser.Statement, priority string, err error) {
 	stmt, reservedVars, err := parseAndValidateQuery(query, e.env.Parser())
 	if err != nil {
-		return nil, false, nil, err
+		return nil, false, nil, "", err
 	}
 
 	defer func() {
@@ -1234,7 +1269,13 @@ func (e *Executor) getCachedOrBuildPlan(
 
 	qh, err := sqlparser.BuildQueryHints(stmt)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, false, nil, "", err
+	}
+	priority = qh.Priority
+	if priority != "" {
+		commented := stmt.(sqlparser.Commented)
+		commented.SetComments(commented.GetParsedComments().RemoveDirective(sqlparser.DirectivePriority))
+		qh.Priority = ""
 	}
 
 	if qh.ForeignKeyChecks == nil {
@@ -1266,11 +1307,11 @@ func (e *Executor) getCachedOrBuildPlan(
 		vcursor,
 	)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, false, nil, "", err
 	}
 	stmt = rewriteASTResult.AST
 	bindVarNeeds := rewriteASTResult.BindVarNeeds
-	if rewriteASTResult.UpdateQueryFromAST && !preparedPlan {
+	if (rewriteASTResult.UpdateQueryFromAST || priority != "") && !preparedPlan {
 		query = sqlparser.String(stmt)
 	}
 
@@ -1283,10 +1324,10 @@ func (e *Executor) getCachedOrBuildPlan(
 		plan, cached, err = e.plans.GetOrLoad(planKey.Hash(), e.epoch.Load(), func() (*engine.Plan, error) {
 			return e.buildStatement(ctx, vcursor, query, stmt, reservedVars, bindVarNeeds, qh, paramsCount)
 		})
-		return plan, cached, stmt, err
+		return plan, cached, stmt, priority, err
 	}
 	plan, err = e.buildStatement(ctx, vcursor, query, stmt, reservedVars, bindVarNeeds, qh, paramsCount)
-	return plan, false, stmt, err
+	return plan, false, stmt, priority, err
 }
 
 func buildPlanKey(ctx context.Context, vcursor *econtext.VCursorImpl, query string, setVarComment string) engine.PlanKey {
