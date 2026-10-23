@@ -832,7 +832,7 @@ func (qre *QueryExecutor) getConn(priorityInheritanceKey string) (*connpool.Pool
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 	priority := qre.getConnPriority()
-	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, priority, priorityInheritanceKey)
+	conn, err := qre.tsv.qe.conns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority, priorityInheritanceKey)
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}
@@ -855,7 +855,7 @@ func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
 	priority := qre.getStreamConnPriority()
-	conn, err := qre.tsv.qe.streamConns.GetWithPriority(ctx, qre.setting, priority, "")
+	conn, err := qre.tsv.qe.streamConns.GetWithPriority(ctx, qre.setting, qre.options.GetLoadshedValveId(), priority, "")
 	if errors.Is(err, smartconnpool.ErrPoolLoadShed) {
 		return nil, errLoadShed
 	}
