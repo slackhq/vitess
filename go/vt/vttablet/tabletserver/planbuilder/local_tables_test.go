@@ -61,6 +61,10 @@ func TestUsesOnlyLocalTables(t *testing.T) {
 			plan, err := Build(vtenv.NewTestEnv(), stmt, tables, "vt_test", false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, plan.UsesOnlyLocalTables)
+
+			streamPlan, err := BuildStreaming(stmt, tables, "vt_test")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, streamPlan.UsesOnlyLocalTables)
 		})
 	}
 }
