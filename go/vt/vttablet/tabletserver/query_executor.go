@@ -781,6 +781,9 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 
 func consolidatorKey(sql string, options *querypb.ExecuteOptions) string {
 	priority := options.GetPriority()
+	if priority == "" {
+		return sql
+	}
 	return strconv.Itoa(len(priority)) + ":" + priority + sql
 }
 

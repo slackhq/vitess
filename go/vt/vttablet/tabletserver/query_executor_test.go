@@ -1469,6 +1469,7 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 
 func TestConsolidatorKeyIncludesPriority(t *testing.T) {
 	sql := "select * from t"
+	assert.Equal(t, sql, consolidatorKey(sql, nil))
 	assert.Equal(t, consolidatorKey(sql, nil), consolidatorKey(sql, &querypb.ExecuteOptions{}))
 	assert.Equal(t, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}), consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}))
 	assert.NotEqual(t, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}), consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "49"}))
