@@ -500,6 +500,7 @@ func (c *ParsedComments) RemoveDirective(key string) (newComments Comments) {
 	if c == nil {
 		return nil
 	}
+	newComments = make(Comments, 0, len(c.comments))
 	for _, commentStr := range c.comments {
 		if !strings.HasPrefix(commentStr, commentDirectivePreamble) {
 			newComments = append(newComments, commentStr)
@@ -531,6 +532,9 @@ func (c *ParsedComments) RemoveDirective(key string) (newComments Comments) {
 		}
 		filtered = append(filtered, fields[len(fields)-1])
 		newComments = append(newComments, strings.Join(filtered, " "))
+	}
+	if len(newComments) == 0 {
+		return nil
 	}
 	return newComments
 }
