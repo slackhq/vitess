@@ -30,7 +30,8 @@ import (
 )
 
 var (
-	onCloseHooks event.Hooks
+	onCloseHooks   event.Hooks
+	onServingHooks event.Hooks
 	// ExitChan waits for a signal that tells the process to terminate
 	ExitChan chan os.Signal
 )
@@ -57,6 +58,7 @@ func Run(bindAddress string, port int) {
 
 	ExitChan = make(chan os.Signal, 1)
 	signal.Notify(ExitChan, syscall.SIGTERM, syscall.SIGINT)
+	go onServingHooks.Fire()
 	// Wait for signal
 	<-ExitChan
 
@@ -75,6 +77,15 @@ func Run(bindAddress string, port int) {
 	log.Info("Shutting down gracefully")
 	fireOnCloseHooks(timeouts.OnCloseTimeout)
 	ListeningURL = url.URL{}
+}
+
+// OnServing registers f to be run once Run has bound all of its listeners
+// (gRPC, socket file and HTTP) and installed its SIGTERM/SIGINT handler, for
+// example to notify an init system that the process is ready. Hooks registered
+// with OnRun have finished by then. All hooks are run in parallel and
+// asynchronously, so they do not delay handling of a termination signal.
+func OnServing(f func()) {
+	onServingHooks.Add(f)
 }
 
 // OnClose registers f to be run at the end of the app lifecycle.
