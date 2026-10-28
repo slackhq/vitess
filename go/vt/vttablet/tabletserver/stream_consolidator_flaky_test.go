@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/streamlog"
+	"vitess.io/vitess/go/sync2"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 
 	"github.com/stretchr/testify/require"
@@ -130,7 +131,7 @@ func (ct *consolidationTest) run(workers int, generateCallback func(int) (string
 			logStats := tabletenv.NewLogStats(context.Background(), "StreamConsolidation", streamlog.NewQueryLogConfigForTest())
 			query, callback := generateCallback(worker)
 			start := time.Now()
-			err := ct.cc.Consolidate(timings, logStats, query, func(result *sqltypes.Result) error {
+			err := ct.cc.Consolidate(timings, logStats, sync2.ConsolidatorKey{Query: query}, func(result *sqltypes.Result) error {
 				cr := ct.results[worker]
 				cr.items = append(cr.items, result)
 				atomic.AddInt64(&cr.count, 1)
