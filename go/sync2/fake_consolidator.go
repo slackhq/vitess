@@ -24,7 +24,7 @@ import (
 // how Vitess interacts with the Consolidator.
 type FakeConsolidator struct {
 	// CreateCalls can be used to inspect Create calls.
-	CreateCalls []string
+	CreateCalls []ConsolidatorKey
 	// CreateReturns can be used to inspect Create return values.
 	CreateReturns []*FakeConsolidatorCreateReturn
 	// CreateReturnCreated pre-configures the return value of Create calls.
@@ -72,8 +72,8 @@ func NewFakeConsolidator() *FakeConsolidator {
 
 // Create records the Create call for later verification, and returns a
 // pre-configured PendingResult and "created" bool.
-func (fc *FakeConsolidator) Create(sql string) (PendingResult, bool) {
-	fc.CreateCalls = append(fc.CreateCalls, sql)
+func (fc *FakeConsolidator) Create(key ConsolidatorKey) (PendingResult, bool) {
+	fc.CreateCalls = append(fc.CreateCalls, key)
 	fc.CreateReturns = append(fc.CreateReturns, fc.CreateReturn)
 	return fc.CreateReturn.PendingResult, fc.CreateReturn.Created
 }

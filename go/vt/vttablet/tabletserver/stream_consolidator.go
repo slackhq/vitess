@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/sync2"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -34,7 +35,7 @@ const streamBufferSize = 8
 // one query is executed in MySQL and its response is fanned out to all the clients simultaneously.
 type StreamConsolidator struct {
 	mu                             sync.Mutex
-	inflight                       map[string]*streamInFlight
+	inflight                       map[sync2.ConsolidatorKey]*streamInFlight
 	memory                         int64
 	maxMemoryTotal, maxMemoryQuery int64
 	blocking                       bool
@@ -46,7 +47,7 @@ type StreamConsolidator struct {
 // only use up to maxMemoryQuery bytes of memory as a history buffer to catch up.
 func NewStreamConsolidator(maxMemoryTotal, maxMemoryQuery int64, cleanup StreamCallback) *StreamConsolidator {
 	return &StreamConsolidator{
-		inflight:       make(map[string]*streamInFlight),
+		inflight:       make(map[sync2.ConsolidatorKey]*streamInFlight),
 		maxMemoryTotal: maxMemoryTotal,
 		maxMemoryQuery: maxMemoryQuery,
 		blocking:       false,
@@ -67,12 +68,12 @@ func (sc *StreamConsolidator) SetBlocking(block bool) {
 // Consolidate wraps the execution of a streaming query so that any other queries being executed
 // simultaneously will wait for the results of the original query, instead of being executed from
 // scratch in MySQL.
-// Query consolidation is based by comparing the resulting `sql` string, which should not contain
-// comments in it. The original `callback` that will yield results to the client must be passed as
+// Query consolidation compares `key`; its Query excludes only leading and trailing margin comments.
+// The original `callback` that will yield results to the client must be passed as
 // `callback`. A `leaderCallback` must also be supplied: this function must perform the actual
 // query in the upstream MySQL server, yielding results into the modified callback that it receives
 // as an argument.
-func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, logStats *tabletenv.LogStats, sql string, callback StreamCallback, leaderCallback func(StreamCallback) error) error {
+func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, logStats *tabletenv.LogStats, key sync2.ConsolidatorKey, callback StreamCallback, leaderCallback func(StreamCallback) error) error {
 	var (
 		inflight        *streamInFlight
 		catchup         []*sqltypes.Result
@@ -83,7 +84,7 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 
 	sc.mu.Lock()
 	// check if we have an existing identical query in our consolidation table
-	inflight = sc.inflight[sql]
+	inflight = sc.inflight[key]
 
 	// if there's an existing stream for our query, try to follow it
 	if inflight != nil {
@@ -96,7 +97,7 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 		inflight = &streamInFlight{
 			catchupAllowed: true,
 		}
-		sc.inflight[sql] = inflight
+		sc.inflight[key] = inflight
 	}
 	sc.mu.Unlock()
 
@@ -140,8 +141,8 @@ func (sc *StreamConsolidator) Consolidate(waitTimings *servenv.TimingsWrapper, l
 		// only remove ourselves from the in-flight streams map if we're still there;
 		// if our stream has been running for too long so that new followers wouldn't be able
 		// to catch up, a follower may have replaced us in the map.
-		if existing := sc.inflight[sql]; existing == inflight {
-			delete(sc.inflight, sql)
+		if existing := sc.inflight[key]; existing == inflight {
+			delete(sc.inflight, key)
 		}
 		sc.mu.Unlock()
 

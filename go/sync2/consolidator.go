@@ -27,10 +27,16 @@ import (
 // Consolidator consolidates duplicate queries from executing simulaneously
 // and shares results between them.
 type Consolidator interface {
-	Create(string) (PendingResult, bool)
+	Create(ConsolidatorKey) (PendingResult, bool)
 	Items() []ConsolidatorCacheItem
 	Record(query string)
 	TotalWaiterCount() int64
+}
+
+// ConsolidatorKey identifies shareable query executions by SQL and priority.
+type ConsolidatorKey struct {
+	Query    string
+	Priority string
 }
 
 // PendingResult is a wrapper for result of a query.
@@ -49,14 +55,14 @@ type consolidator struct {
 	*ConsolidatorCache
 
 	mu      sync.Mutex
-	queries map[string]*pendingResult
+	queries map[ConsolidatorKey]*pendingResult
 }
 
 // NewConsolidator creates a new Consolidator
 func NewConsolidator() Consolidator {
 	return &consolidator{
 		ConsolidatorCache: NewConsolidatorCache(1000),
-		queries:           make(map[string]*pendingResult),
+		queries:           make(map[ConsolidatorKey]*pendingResult),
 	}
 }
 
@@ -67,7 +73,7 @@ type pendingResult struct {
 	// on acquiring a read lock (see Wait() below.)
 	executing    sync.RWMutex
 	consolidator *consolidator
-	query        string
+	key          ConsolidatorKey
 	result       *sqltypes.Result
 	err          error
 	waiterCount  atomic.Int64
@@ -76,17 +82,17 @@ type pendingResult struct {
 // Create adds a query to currently executing queries and acquires a
 // lock on its Result if it is not already present. If the query is
 // a duplicate, Create returns false.
-func (co *consolidator) Create(query string) (PendingResult, bool) {
+func (co *consolidator) Create(key ConsolidatorKey) (PendingResult, bool) {
 	co.mu.Lock()
 	defer co.mu.Unlock()
 	var r *pendingResult
-	if r, ok := co.queries[query]; ok {
+	if r, ok := co.queries[key]; ok {
 		r.AddWaiterCounter(1)
 		return r, false
 	}
-	r = &pendingResult{consolidator: co, query: query}
+	r = &pendingResult{consolidator: co, key: key}
 	r.executing.Lock()
-	co.queries[query] = r
+	co.queries[key] = r
 	return r, true
 }
 
@@ -96,7 +102,7 @@ func (co *consolidator) Create(query string) (PendingResult, bool) {
 func (rs *pendingResult) Broadcast() {
 	rs.consolidator.mu.Lock()
 	defer rs.consolidator.mu.Unlock()
-	delete(rs.consolidator.queries, rs.query)
+	delete(rs.consolidator.queries, rs.key)
 	rs.executing.Unlock()
 }
 
@@ -127,7 +133,7 @@ func (rs *pendingResult) HasWaiters() bool {
 // Wait waits for the original query to complete execution. Wait should
 // be invoked for duplicate queries.
 func (rs *pendingResult) Wait() {
-	rs.consolidator.Record(rs.query)
+	rs.consolidator.Record(rs.key.Query)
 	rs.executing.RLock()
 }
 
