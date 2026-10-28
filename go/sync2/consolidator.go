@@ -33,7 +33,7 @@ type Consolidator interface {
 	TotalWaiterCount() int64
 }
 
-// ConsolidatorKey identifies shareable query executions by SQL and priority.
+// ConsolidatorKey identifies shareable query executions
 type ConsolidatorKey struct {
 	Query    string
 	Priority string
