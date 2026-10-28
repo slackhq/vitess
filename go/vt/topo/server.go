@@ -300,6 +300,9 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		if cc.conn != nil {
 			cc.conn.Close()
 		}
+		// Drop it from the cache too, so that if connecting below fails, no call can get the closed connection, even
+		// after the cell is pointed back at the topo server it was connected to.
+		delete(ts.cellConns, cell)
 	}
 
 	// Connect to the cell topo server, while holding the lock.
@@ -309,9 +312,13 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	switch {
 	case err == nil:
 		cellReadSem := semaphore.NewWeighted(DefaultReadConcurrency)
-		conn = NewStatsConn(cell, conn, cellReadSem)
-		ts.cellConns[cell] = cellConn{ci, conn}
-		return conn, nil
+		statsConn := NewStatsConn(cell, conn, cellReadSem)
+		// A Server that SetReadOnly made read-only stays read-only for the cells it connects to afterwards.
+		if globalCellConn, ok := ts.globalCell.(*StatsConn); ok && globalCellConn.IsReadOnly() {
+			statsConn.SetReadOnly(true)
+		}
+		ts.cellConns[cell] = cellConn{ci, statsConn}
+		return statsConn, nil
 	case IsErrType(err, NoNode):
 		err = vterrors.Wrap(err, fmt.Sprintf("failed to create topo connection to %v, %v", ci.ServerAddress, ci.Root))
 		return nil, NewError(NoNode, err.Error())
@@ -401,6 +408,8 @@ func (ts *Server) SetReadOnly(readOnly bool) error {
 	}
 	globalCellConn.SetReadOnly(readOnly)
 
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	for _, cc := range ts.cellConns {
 		localCellConn, ok := cc.conn.(*StatsConn)
 		if !ok {
@@ -422,6 +431,8 @@ func (ts *Server) IsReadOnly() (bool, error) {
 		return false, nil
 	}
 
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	for _, cc := range ts.cellConns {
 		localCellConn, ok := cc.conn.(*StatsConn)
 		if !ok {
