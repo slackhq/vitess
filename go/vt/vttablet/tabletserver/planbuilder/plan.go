@@ -297,7 +297,7 @@ func usesOnlyLocalTables(statement sqlparser.Statement, permissions []Permission
 }
 
 // BuildStreaming builds a streaming plan based on the schema.
-func BuildStreaming(statement sqlparser.Statement, tables map[string]*schema.Table) (*Plan, error) {
+func BuildStreaming(statement sqlparser.Statement, tables map[string]*schema.Table, dbName string) (*Plan, error) {
 	plan := &Plan{
 		PlanID:      PlanSelectStream,
 		FullQuery:   GenerateFullQuery(statement),
@@ -317,6 +317,7 @@ func BuildStreaming(statement sqlparser.Statement, tables map[string]*schema.Tab
 		return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "%s not allowed for streaming", sqlparser.ASTToStatementType(statement))
 	}
 	plan.AllTables = lookupAllTables(statement, tables)
+	plan.UsesOnlyLocalTables = usesOnlyLocalTables(statement, plan.Permissions, tables, dbName)
 	return plan, nil
 }
 
