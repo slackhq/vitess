@@ -1865,6 +1865,24 @@ func TestHandleExecTabletError(t *testing.T) {
 	}
 }
 
+func TestConvertAndLogResourceExhaustedPreservesPrebuiltError(t *testing.T) {
+	ctx := t.Context()
+	cfg := tabletenv.NewDefaultConfig()
+	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+
+	err := tsv.convertAndLogError(
+		ctx,
+		"select * from sensitive_table where id = :id",
+		map[string]*querypb.BindVariable{"id": sqltypes.Int64BindVariable(1)},
+		errLoadShed,
+		nil,
+	)
+
+	require.ErrorIs(t, err, errLoadShed)
+	assert.Equal(t, "load shed", err.Error())
+}
+
 func TestTerseErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

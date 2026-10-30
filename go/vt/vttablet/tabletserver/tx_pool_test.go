@@ -18,6 +18,7 @@ package tabletserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -313,6 +314,48 @@ func TestTxPoolWaitTimeoutError(t *testing.T) {
 
 	requireLogs(t, db.QueryLog(), "begin")
 	require.True(t, conn.TxProperties().LogToFile)
+}
+
+func TestTxPoolLoadShedPropagation(t *testing.T) {
+	env := newEnv("TxPoolLoadShedPropagation")
+	env.Config().TxPool.Size = 1
+	require.NoError(t, env.Config().LoadshedTx.SetMode("enabled"))
+	env.Config().LoadshedTx.SetTarget(5 * time.Millisecond)
+	env.Config().LoadshedTx.SetInitialTarget(5 * time.Millisecond)
+	env.Config().LoadshedTx.SetIntervalRatio(1)
+
+	_, txPool, _, closer := setupWithEnv(t, env)
+	defer closer()
+
+	held, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
+	require.NoError(t, err)
+	defer held.Release(tx.ConnRelease)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	results := make(chan error, 6)
+	for range 6 {
+		go func() {
+			conn, _, _, err := txPool.Begin(ctx, &querypb.ExecuteOptions{}, false, 0, nil)
+			if conn != nil {
+				conn.Release(tx.ConnRelease)
+			}
+			results <- err
+		}()
+	}
+
+	for range 6 {
+		select {
+		case err := <-results:
+			if errors.Is(err, errDMLLoadShed) {
+				cancel()
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("transaction pool did not produce a load-shed rejection")
+		}
+	}
+	t.Fatal("transaction pool did not propagate a load-shed rejection")
 }
 
 func TestTxPoolRollbackFailIsPassedThrough(t *testing.T) {
