@@ -257,6 +257,7 @@ Flags:
   -v, --version                                                          print binary version
       --vmodule vModuleFlag                                              comma-separated list of pattern=N settings for file-filtered logging
       --vschema_ddl_authorized_users string                              List of users authorized to execute vschema ddl operations, or '%' to allow all users.
+      --vstream-metrics-include-caller                                   Add a CallerID label to VStream metrics, set to the client-supplied effective caller principal, or the MySQL user for SQL VSTREAM. Each distinct principal adds a series per keyspace, shard, and tablet type, and the counters keep their series until VTGate restarts. Streams without a principal get an empty CallerID.
       --vtgate-config-terse-errors                                       prevent bind vars from escaping in returned errors
       --warming-reads-concurrency int                                    Number of concurrent warming reads allowed (default 500)
       --warming-reads-percent int                                        Percentage of reads on the primary to forward to replicas. Useful for keeping buffer pools warm
