@@ -28,6 +28,8 @@ type (
 		codelqElem         *list.Element[*Request[T]]
 		value              T
 
+		priorityInheritanceKey string
+
 		// bucketElem locates this request in the droppableIndex while it is a
 		// droppable queue entry: it is the request's node in its priority
 		// bucket's FIFO list, enabling O(1) removal. bucketIdx is the bucket that

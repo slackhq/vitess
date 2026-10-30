@@ -31,8 +31,8 @@ func TestPriorityZeroIsUndroppable(t *testing.T) {
 func TestSnakeUsesDefaultPriorityForInvalidPriority(t *testing.T) {
 	snake := NewSnake[struct{}](SnakeConfig{DefaultPriority: 42})
 
-	negative, _ := snake.Enqueue(struct{}{}, -1)
-	tooLarge, _ := snake.Enqueue(struct{}{}, 101)
+	negative, _ := snake.Enqueue(struct{}{}, -1, "")
+	tooLarge, _ := snake.Enqueue(struct{}{}, 101, "")
 
 	assert.Equal(t, 42, negative.priority)
 	assert.Equal(t, 42, tooLarge.priority)
