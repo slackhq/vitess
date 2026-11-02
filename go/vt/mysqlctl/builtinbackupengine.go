@@ -614,9 +614,16 @@ func (be *BuiltinBackupEngine) executeFullBackup(ctx context.Context, params Bac
 		return backupResult, vterrors.Wrap(err, "can't restart mysqld")
 	}
 
+	// The steps below put mysqld's state back the way the backup found it. They
+	// must run even when ctx is done, because the backup timed out or its caller
+	// went away: mysqld has just started with replication stopped, and would
+	// otherwise stay that way. So they don't use ctx, but their own deadline.
+	restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), BuiltinBackupMysqldTimeout)
+	defer restoreCancel()
+
 	// Resetting super_read_only back to its original value
 	params.Logger.Infof("resetting mysqld super_read_only to %v", superReadOnly)
-	if _, err := params.Mysqld.SetSuperReadOnly(ctx, superReadOnly); err != nil {
+	if _, err := params.Mysqld.SetSuperReadOnly(restoreCtx, superReadOnly); err != nil {
 		return backupResult, err
 	}
 
@@ -626,19 +633,19 @@ func (be *BuiltinBackupEngine) executeFullBackup(ctx context.Context, params Bac
 		// the plugin isn't even loaded, and the server variables don't exist.
 		params.Logger.Infof("restoring semi-sync settings from before backup: primary=%v, replica=%v",
 			semiSyncSource, semiSyncReplica)
-		err := params.Mysqld.SetSemiSyncEnabled(ctx, semiSyncSource, semiSyncReplica)
+		err := params.Mysqld.SetSemiSyncEnabled(restoreCtx, semiSyncSource, semiSyncReplica)
 		if err != nil {
 			return backupResult, err
 		}
 	}
 	if replicaStartRequired {
 		params.Logger.Infof("restarting mysql replication")
-		if err := params.Mysqld.StartReplication(ctx, params.HookExtraEnv); err != nil {
+		if err := params.Mysqld.StartReplication(restoreCtx, params.HookExtraEnv); err != nil {
 			return backupResult, vterrors.Wrap(err, "cannot restart replica")
 		}
 
 		// this should be quick, but we might as well just wait
-		if err := WaitForReplicationStart(ctx, params.Mysqld, replicationStartDeadline); err != nil {
+		if err := WaitForReplicationStart(restoreCtx, params.Mysqld, replicationStartDeadline); err != nil {
 			return backupResult, vterrors.Wrap(err, "replica is not restarting")
 		}
 
