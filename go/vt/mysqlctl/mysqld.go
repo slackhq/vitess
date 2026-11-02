@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,6 +107,18 @@ var (
 	replicationConnectRetry = 10 * time.Second
 
 	versionRegex = regexp.MustCompile(versionStringPrefix + "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+
+	// serverVersionRegex matches a --mysql-server-version value that can
+	// replace mysqld --version, and serverVersionFlavors are the flavor names
+	// that such a value must contain. They are the names that
+	// ParseVersionString looks for.
+	serverVersionRegex   = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+`)
+	serverVersionFlavors = []string{"MySQL", "Percona", "MariaDB"}
+
+	// logVersionSourceOnce makes sure that GetVersionString logs only one time
+	// whether it uses --mysql-server-version or mysqld --version.
+	logVersionSourceOnce sync.Once
+
 	// versionSQLQuery will return a version string directly from
 	// a MySQL server that is compatible with what we expect from
 	// mysqld --version and matches the versionRegex. Example
@@ -230,8 +243,51 @@ func NewMysqld(dbcfgs *dbconfigs.DBConfigs) *Mysqld {
 	return result
 }
 
-// GetVersionString runs mysqld --version and returns its output as a string
+// GetVersionString returns the MySQL version in the same form as the output of
+// mysqld --version.
+//
+// If --mysql-server-version is set explicitly to a value that has a full
+// version and names a flavor (for example "8.0.44-35-Percona"), that value is
+// used and mysqld is not run. This lets a process that does not have the mysqld
+// binary, such as a containerized vttablet, detect the version. If the flag is
+// not set, or its value is incomplete, mysqld --version is run.
 func GetVersionString() (string, error) {
+	if servenv.MySQLServerVersionIsSet() {
+		version, err := versionStringFromServerVersion(servenv.MySQLServerVersion())
+		logVersionSourceOnce.Do(func() {
+			if err != nil {
+				log.Warn(fmt.Sprintf("Not using --mysql-server-version for MySQL version detection, running mysqld --version instead: %v", err))
+				return
+			}
+			log.Info(fmt.Sprintf("Using --mysql-server-version %q for MySQL version detection instead of mysqld --version", servenv.MySQLServerVersion()))
+		})
+		if err == nil {
+			return version, nil
+		}
+	}
+	return mysqldVersionString()
+}
+
+// versionStringFromServerVersion converts a --mysql-server-version value such
+// as "8.0.44-35-Percona" to the form of mysqld --version output that
+// ParseVersionString accepts ("Ver 8.0.44-35-Percona"). It returns an error if
+// the value does not start with major.minor.patch or does not name a flavor.
+// The flavor must be explicit: ParseVersionString falls back to MySQL when no
+// flavor is found, and a wrong flavor makes restores from backups fail.
+func versionStringFromServerVersion(serverVersion string) (string, error) {
+	if !serverVersionRegex.MatchString(serverVersion) {
+		return "", fmt.Errorf("--mysql-server-version %q does not start with a major.minor.patch version", serverVersion)
+	}
+	if !slices.ContainsFunc(serverVersionFlavors, func(flavor string) bool {
+		return strings.Contains(serverVersion, flavor)
+	}) {
+		return "", fmt.Errorf("--mysql-server-version %q does not name a flavor, it must contain one of %v", serverVersion, serverVersionFlavors)
+	}
+	return versionStringPrefix + serverVersion, nil
+}
+
+// mysqldVersionString runs mysqld --version and returns its output as a string
+func mysqldVersionString() (string, error) {
 	noSocketFile()
 	mysqlRoot, err := vtenv.VtMysqlRoot()
 	if err != nil {
@@ -1359,7 +1415,8 @@ func (mysqld *Mysqld) GetVersionString(ctx context.Context) (string, error) {
 		defer client.Close()
 		return client.VersionString(ctx)
 	}
-	// Fall back to the sys exec method using mysqld --version.
+	// Fall back to --mysql-server-version or mysqld --version, see
+	// GetVersionString.
 	return GetVersionString()
 }
 
@@ -1759,7 +1816,8 @@ func noSocketFile() {
 func failVersionDetection(err error) {
 	vtenvMysqlRoot, _ := vtenv.VtMysqlRoot()
 	message := fmt.Sprintf(`could not auto-detect MySQL version: %v
-You may need to set your PATH so a mysqld binary can be found:
+You may need to set your PATH so a mysqld binary can be found, or set
+--mysql-server-version to a full version with a flavor, such as 8.0.44-35-Percona:
 	PATH: %s
 	VT_MYSQL_ROOT: %s
 	VTROOT: %s
