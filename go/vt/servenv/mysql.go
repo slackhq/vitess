@@ -28,15 +28,26 @@ import (
 // a specific MySQL version with the vitess version appended to it
 var mySQLServerVersion = config.DefaultMySQLVersion + "-Vitess"
 
+// mySQLServerVersionFlag is the registered `--mysql-server-version` flag. It is
+// used to tell an explicitly set value apart from the default.
+var mySQLServerVersionFlag *pflag.Flag
+
 // RegisterMySQLServerFlags installs the flags needed to specify or expose a
 // particular MySQL server version from Vitess.
 func RegisterMySQLServerFlags(fs *pflag.FlagSet) {
 	utils.SetFlagStringVar(fs, &mySQLServerVersion, "mysql-server-version", mySQLServerVersion, "MySQL server version to advertise.")
+	mySQLServerVersionFlag = fs.Lookup("mysql-server-version")
 }
 
 // MySQLServerVersion returns the value of the `--mysql-server-version` flag.
 func MySQLServerVersion() string {
 	return mySQLServerVersion
+}
+
+// MySQLServerVersionIsSet returns true if the `--mysql-server-version` flag was
+// set explicitly on the command line, and false if it has its default value.
+func MySQLServerVersionIsSet() bool {
+	return mySQLServerVersionFlag != nil && mySQLServerVersionFlag.Changed
 }
 
 func init() {
