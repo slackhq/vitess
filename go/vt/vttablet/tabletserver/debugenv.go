@@ -200,6 +200,8 @@ func handlePost(tsv *TabletServer, w http.ResponseWriter, r *http.Request) {
 		err = setDurationVal(func(d time.Duration) { tsv.Config().Healthcheck.UnhealthyThreshold = d })
 	case "ThrottleMetricThreshold":
 		err = setFloat64Val(tsv.SetThrottleMetricThreshold)
+	case "TopoCellInfoCacheTTL":
+		err = setDurationVal(tsv.topoServer.SetCellInfoCacheTTL)
 	case "Consolidator":
 		tsv.SetConsolidatorMode(value)
 		msg = fmt.Sprintf("Setting %v to: %v", varname, value)
@@ -249,6 +251,7 @@ func getVars(tsv *TabletServer) []envValue {
 	vars = addVar(vars, "RowStreamerMaxMySQLReplLagSecs", func() int64 { return tsv.Config().RowStreamer.MaxMySQLReplLagSecs })
 	vars = addVar(vars, "UnhealthyThreshold", func() time.Duration { return tsv.Config().Healthcheck.UnhealthyThreshold })
 	vars = addVar(vars, "ThrottleMetricThreshold", tsv.ThrottleMetricThreshold)
+	vars = addVar(vars, "TopoCellInfoCacheTTL", tsv.topoServer.CellInfoCacheTTL)
 	vars = append(vars, envValue{
 		Name:  "Consolidator",
 		Value: tsv.ConsolidatorMode(),

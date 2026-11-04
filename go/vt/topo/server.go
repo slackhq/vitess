@@ -149,7 +149,8 @@ type Server struct {
 	// will read the list of addresses for that cell from the
 	// global cluster and create clients as needed.
 	cellConns map[string]cellConn
-	// cellInfoCacheTTL is CellInfoCacheTTL when the Server was created; tests change it.
+	// cellInfoCacheTTL starts as CellInfoCacheTTL when the Server is created; SetCellInfoCacheTTL changes it
+	// (vttablet exposes it on /debug/env as TopoCellInfoCacheTTL).
 	cellInfoCacheTTL time.Duration
 	// cellInfoReads holds, per cell, the last CellInfo that cellReaderFor read, which it trusts for
 	// cellInfoCacheTTL. ConnForCell does not use it.
@@ -230,6 +231,23 @@ func registerTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
 	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
 	fs.DurationVar(&CellInfoCacheTTL, "topo-cell-info-cache-ttl", CellInfoCacheTTL, "How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse a cell's CellInfo before reading it from the global topo again; 0 reads it on every call. Until it is read again, these reads do not notice a cell re-pointed or deleted by another process, and keep reading from the cell's old topo server.")
+}
+
+// CellInfoCacheTTL returns how long ts's StaleTolerantView reuses a cell's CellInfo; 0 means it reads the
+// CellInfo from the global topo on every call.
+func (ts *Server) CellInfoCacheTTL() time.Duration {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.cellInfoCacheTTL
+}
+
+// SetCellInfoCacheTTL changes how long ts's StaleTolerantView reuses a cell's CellInfo, for reads that start
+// after the call. CellInfo already cached keeps its read time, so lowering the TTL expires it sooner and
+// raising the TTL keeps it longer; 0 or less turns the cache off without clearing it.
+func (ts *Server) SetCellInfoCacheTTL(ttl time.Duration) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.cellInfoCacheTTL = ttl
 }
 
 // RegisterFactory registers a Factory for an implementation for a Server.
