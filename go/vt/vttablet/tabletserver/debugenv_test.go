@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,4 +84,33 @@ func TestDebugEnvConsolidatorResponseMemoryLimitRejectsNegative(t *testing.T) {
 	handlePost(tsv, w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestDebugEnvTopoCellInfoCacheTTL checks that TopoCellInfoCacheTTL changes the topo server's CellInfo cache
+// TTL in place, so the throttler's inventory reads pick it up without a vttablet restart.
+func TestDebugEnvTopoCellInfoCacheTTL(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	require.Equal(t, time.Duration(0), tsv.topoServer.CellInfoCacheTTL(), "memorytopo servers start with the cache off")
+
+	postVar(t, tsv, "TopoCellInfoCacheTTL", "30s")
+	assert.Equal(t, 30*time.Second, tsv.topoServer.CellInfoCacheTTL())
+
+	postVar(t, tsv, "TopoCellInfoCacheTTL", "0")
+	assert.Equal(t, time.Duration(0), tsv.topoServer.CellInfoCacheTTL())
+
+	var listed string
+	for _, v := range getVars(tsv) {
+		if v.Name == "TopoCellInfoCacheTTL" {
+			listed = v.Value
+		}
+	}
+	assert.Equal(t, "0s", listed, "getVars should list TopoCellInfoCacheTTL")
+
+	form := url.Values{"varname": {"TopoCellInfoCacheTTL"}, "value": {"soon"}}
+	r := httptest.NewRequest(http.MethodPost, "/debug/env", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handlePost(tsv, w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "a non-duration value is rejected")
+	assert.Equal(t, time.Duration(0), tsv.topoServer.CellInfoCacheTTL(), "a rejected value leaves the TTL alone")
 }

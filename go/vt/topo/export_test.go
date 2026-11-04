@@ -18,15 +18,7 @@ package topo
 
 import (
 	"context"
-	"time"
 )
-
-// SetCellInfoCacheTTL sets how long ts's StaleTolerantView reuses a cell's CellInfo.
-func (ts *Server) SetCellInfoCacheTTL(ttl time.Duration) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.cellInfoCacheTTL = ttl
-}
 
 // ExpireCellInfo makes the next StaleTolerantView read for cell re-read its CellInfo.
 func (ts *Server) ExpireCellInfo(cell string) {
