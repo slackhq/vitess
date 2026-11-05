@@ -161,8 +161,14 @@ type Server struct {
 	// cellInfoRefreshes lets one cellReaderFor at a time read each cell's CellInfo, so that each read starts
 	// after the last one was applied and sees a CellInfo at least as new.
 	cellInfoRefreshes map[string]*semaphore.Weighted
-	// closed is set by Close, after which cellReaderFor fails instead of reading from the closed global
-	// connection.
+	// cellNames is the last list of cells that cellNamesFor read, which it trusts for cellInfoCacheTTL.
+	// GetCellInfoNames does not use it.
+	cellNames cellNamesRead
+	// cellNamesGeneration counts expireCellNames calls, so that a cellNamesFor whose read started before an
+	// expiry does not mark its result as fresh.
+	cellNamesGeneration uint64
+	// closed is set by Close, after which cellReaderFor and cellNamesFor fail instead of reading from the
+	// closed global connection.
 	closed bool
 }
 
@@ -176,6 +182,14 @@ type cellInfoRead struct {
 	// readStart is when the read of cellInfo started, which the TTL counts from.
 	readStart time.Time
 	// expired makes the next cellReaderFor read the cell's CellInfo again, regardless of readStart.
+	expired bool
+}
+
+type cellNamesRead struct {
+	names []string
+	// readStart is when the read of names started, which the TTL counts from. It is zero before the first read.
+	readStart time.Time
+	// expired makes the next cellNamesFor read the list of cells again, regardless of readStart.
 	expired bool
 }
 
@@ -211,11 +225,12 @@ var (
 	DefaultReadConcurrency int64 = 32
 
 	// CellInfoCacheTTL is how long reads that tolerate a stale cell location, such as the tablet throttler's
-	// inventory reads through StaleTolerantView, reuse a cell's CellInfo before reading it from the global topo
-	// again; 0 reads it on every call. ConnForCell always reads it. CellInfo only changes when a cell is added,
-	// removed, or pointed at a different topo server, so re-reading it costs a global read per cell-local read
-	// for a change that is almost never there. With a TTL, these reads notice a cell re-pointed or deleted by
-	// another process up to this long later, and until then read from its old topo server.
+	// inventory reads through StaleTolerantView, reuse the list of cells and a cell's CellInfo before reading
+	// them from the global topo again; 0 reads them on every call. ConnForCell and GetCellInfoNames always read
+	// them. Both only change when a cell is added, removed, or pointed at a different topo server, so re-reading
+	// them costs a global read per cell-local read, and a global list per inventory refresh, for a change that
+	// is almost never there. With a TTL, these reads notice a cell added, re-pointed or deleted by another
+	// process up to this long later, and until then miss the new cell or read from the cell's old topo server.
 	CellInfoCacheTTL time.Duration
 )
 
@@ -230,7 +245,7 @@ func registerTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&topoGlobalServerAddress, "topo_global_server_address", topoGlobalServerAddress, "the address of the global topology server")
 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
 	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
-	fs.DurationVar(&CellInfoCacheTTL, "topo-cell-info-cache-ttl", CellInfoCacheTTL, "How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse a cell's CellInfo before reading it from the global topo again; 0 reads it on every call. Until it is read again, these reads do not notice a cell re-pointed or deleted by another process, and keep reading from the cell's old topo server.")
+	fs.DurationVar(&CellInfoCacheTTL, "topo-cell-info-cache-ttl", CellInfoCacheTTL, "How long reads that tolerate a stale cell location, such as the tablet throttler's tablet inventory, reuse the list of cells and a cell's CellInfo before reading them from the global topo again; 0 reads them on every call. Until they are read again, these reads do not notice a cell added, re-pointed or deleted by another process, and keep reading from the cell's old topo server.")
 }
 
 // CellInfoCacheTTL returns how long ts's StaleTolerantView reuses a cell's CellInfo; 0 means it reads the
