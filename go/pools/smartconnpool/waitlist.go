@@ -24,6 +24,7 @@ import (
 
 	"vitess.io/vitess/go/list"
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
@@ -78,8 +79,8 @@ type waitlist[C Connection] struct {
 	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
 	onWaiterCapReached func()
 
-	modeGauge     *stats.GaugesWithMultiLabels
-	modeGaugePool string
+	modeGauge *stats.GaugesWithMultiLabels
+	poolLabel string
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -363,6 +364,9 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 	if movesQueues {
 		wl.transitioning.Store(true)
 		defer wl.transitioning.Store(false)
+		if wl.poolLabel != "" {
+			log.Infof("Snake waitlist transition: pool=%s from=%s to=%s waiters=%d handling both waitlists", wl.poolLabel, wl.activeMode, desiredMode, wl.numWaiting())
+		}
 	}
 
 	var dropped []*list.Element[waiter[C]]
@@ -440,7 +444,7 @@ func (wl *waitlist[C]) registerStats(exporter waitlistStatsExporter, poolName st
 
 	wl.mu.Lock()
 	wl.modeGauge = modeGauge
-	wl.modeGaugePool = poolLabel
+	wl.poolLabel = poolLabel
 	wl.updateModeGaugeLocked()
 	wl.mu.Unlock()
 }
@@ -466,7 +470,7 @@ func (wl *waitlist[C]) updateModeGaugeLocked() {
 		if mode == wl.activeMode {
 			value = 1
 		}
-		wl.modeGauge.Set([]string{wl.modeGaugePool, string(mode)}, value)
+		wl.modeGauge.Set([]string{wl.poolLabel, string(mode)}, value)
 	}
 }
 

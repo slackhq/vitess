@@ -19,6 +19,7 @@ package smartconnpool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,6 +30,7 @@ import (
 
 	"vitess.io/vitess/go/list"
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 )
 
@@ -37,6 +39,17 @@ type fakeWaitlistStatsExporter struct {
 	metricName   string
 	gauge        *stats.GaugesWithMultiLabels
 	creates      int
+}
+
+func newFakeWaitlistStatsExporter(t *testing.T) *fakeWaitlistStatsExporter {
+	t.Helper()
+	exporterName := t.Name()
+	t.Cleanup(func() {
+		snakeModeGauges.Lock()
+		delete(snakeModeGauges.byExporter, exporterName)
+		snakeModeGauges.Unlock()
+	})
+	return &fakeWaitlistStatsExporter{exporterName: exporterName}
 }
 
 func (e *fakeWaitlistStatsExporter) Name() string {
@@ -55,6 +68,10 @@ func (e *fakeWaitlistStatsExporter) NewGaugesWithMultiLabels(name, help string, 
 
 func (e *fakeWaitlistStatsExporter) NewCounterFunc(string, string, func() int64) *stats.CounterFunc {
 	return nil
+}
+
+func (e *fakeWaitlistStatsExporter) NewCountersWithMultiLabels(_ string, help string, labels []string) *stats.CountersWithMultiLabels {
+	return stats.NewCountersWithMultiLabels("", help, labels)
 }
 
 func (e *fakeWaitlistStatsExporter) NewHistogram(_ string, help string, cutoffs []int64) *stats.Histogram {
@@ -214,7 +231,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
 
 	errs := make(chan error, waiters)
 	go func() {
-		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, loadshed.PriorityUndroppable, false)
 		errs <- err
 	}()
 	require.Eventually(t, func() bool {
@@ -223,7 +240,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
 
 	config.setMode(loadshed.ModeEnabled)
 	go func() {
-		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+		_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, loadshed.PriorityUndroppable, false)
 		errs <- err
 	}()
 
@@ -233,7 +250,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeEnabled(t *testing.T) {
 	assert.Zero(t, capReachedCount.Load())
 
 	config.setMode(loadshed.ModeShadow)
-	_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+	_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, loadshed.PriorityUndroppable, false)
 	assert.ErrorIs(t, err, ErrPoolWaiterCapReached)
 	assert.Equal(t, int32(1), capReachedCount.Load())
 
@@ -258,7 +275,7 @@ func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
 	errs := make(chan error, waiters)
 	for range waiters {
 		go func() {
-			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, false)
+			_, err := wl.waitForConn(ctx, nil, make(chan struct{}), maxWaiters, loadshed.PriorityUndroppable, false)
 			errs <- err
 		}()
 	}
@@ -274,18 +291,13 @@ func TestWaitlistWaiterCapDisabledWhenSnakeStartsEnabled(t *testing.T) {
 }
 
 func TestWaitlistActiveModeMetric(t *testing.T) {
-	exporterName := t.Name()
-	t.Cleanup(func() {
-		snakeModeGauges.Lock()
-		delete(snakeModeGauges.byExporter, exporterName)
-		snakeModeGauges.Unlock()
-	})
-	exporter := &fakeWaitlistStatsExporter{exporterName: exporterName}
+	exporter := newFakeWaitlistStatsExporter(t)
 	for _, tt := range []struct {
 		poolName  string
 		poolLabel string
 	}{
 		{poolName: "ConnPool", poolLabel: "oltp_read"},
+		{poolName: "StreamConnPool", poolLabel: "olap_read"},
 		{poolName: "TransactionPool", poolLabel: "dml"},
 		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
 	} {
@@ -320,6 +332,35 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		})
 	}
 	assert.Equal(t, 1, exporter.creates)
+}
+
+func TestWaitlistLogsQueueTransitions(t *testing.T) {
+	var logs []string
+	infof := log.Infof
+	log.Infof = func(format string, args ...any) {
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}
+	defer func() {
+		log.Infof = infof
+	}()
+
+	config := newMutableTestPoolConfig(loadshed.ModeOff)
+	wl := waitlist[*TestConn]{}
+	wl.init("", config)
+	wl.registerStats(newFakeWaitlistStatsExporter(t), "ConnPool")
+	wl.list.PushBackValue(&list.Element[waiter[*TestConn]]{})
+
+	for _, mode := range []loadshed.Mode{loadshed.ModeShadow, loadshed.ModeEnabled, loadshed.ModeOff} {
+		config.setMode(mode)
+		wl.mu.Lock()
+		wl.transitionLocked()
+		wl.mu.Unlock()
+	}
+
+	assert.Equal(t, []string{
+		"Snake waitlist transition: pool=oltp_read from=off to=shadow waiters=1 handling both waitlists",
+		"Snake waitlist transition: pool=oltp_read from=enabled to=off waiters=1 handling both waitlists",
+	}, logs)
 }
 
 func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {
@@ -431,7 +472,7 @@ func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 		}()
 	}
 	require.Eventually(t, func() bool {
-		return wl.waiting() == 7
+		return wl.numWaiting() == 7
 	}, time.Second, time.Millisecond)
 
 	time.Sleep(2 * time.Millisecond)
@@ -450,7 +491,7 @@ func TestWaitlistShedsLowestPrioritiesAndPreservesUndroppable(t *testing.T) {
 		result := <-results
 		assert.ErrorIs(t, result.err, context.Canceled)
 	}
-	assert.Zero(t, wl.waiting())
+	assert.Zero(t, wl.numWaiting())
 }
 
 func TestWaitlistDropTimerAndCancellationRace(t *testing.T) {
