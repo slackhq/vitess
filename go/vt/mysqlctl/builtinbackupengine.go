@@ -595,23 +595,42 @@ func (be *BuiltinBackupEngine) executeFullBackup(ctx context.Context, params Bac
 
 	// shutdown mysqld
 	shutdownCtx, cancel := context.WithTimeout(ctx, BuiltinBackupMysqldTimeout)
-	err = params.Mysqld.Shutdown(shutdownCtx, params.Cnf, true, params.MysqlShutdownTimeout)
+	shutdownErr := params.Mysqld.Shutdown(shutdownCtx, params.Cnf, true, params.MysqlShutdownTimeout)
 	defer cancel()
-	if err != nil {
-		return BackupUnusable, vterrors.Wrap(err, "can't shutdown mysqld")
-	}
 
-	// Backup everything, capture the error.
-	backupErr := be.backupFiles(ctx, params, bh, replicationPosition, gtidPurgedPosition, replication.Position{}, "", nil, serverUUID, mysqlVersion, nil)
+	// Backup everything, capture the error. A failed shutdown is the backup's
+	// error, but mysqld's state must still be restored below: replication is
+	// already stopped, and mysqld may be stopped or still stopping.
+	var backupErr error
+	if shutdownErr != nil {
+		backupErr = vterrors.Wrap(shutdownErr, "can't shutdown mysqld")
+	} else {
+		backupErr = be.backupFiles(ctx, params, bh, replicationPosition, gtidPurgedPosition, replication.Position{}, "", nil, serverUUID, mysqlVersion, nil)
+	}
 	backupResult := BackupUnusable
 	if backupErr == nil {
 		backupResult = BackupUsable
 	}
 
-	// Try to restart mysqld, use background context in case we timed out the original context
-	err = params.Mysqld.Start(context.Background(), params.Cnf)
+	if shutdownErr != nil {
+		// The shutdown can fail after mysqld was told to stop, e.g. when a slow
+		// clean shutdown outlives its deadline: mysqld then finishes stopping on
+		// its own, and nothing would start it again. Wait for it to exit and
+		// start it, with a deadline of its own since ctx may be what ran out.
+		// If mysqld was never told to stop, this only gives up at that deadline.
+		params.Logger.Infof("mysqld shutdown failed, waiting for mysqld to exit to start it again: %v", shutdownErr)
+		startCtx, startCancel := context.WithTimeout(context.WithoutCancel(ctx), BuiltinBackupMysqldTimeout)
+		defer startCancel()
+		err = waitForMysqldToExit(startCtx, params.Cnf)
+		if err == nil {
+			err = params.Mysqld.Start(startCtx, params.Cnf)
+		}
+	} else {
+		// Try to restart mysqld, use background context in case we timed out the original context
+		err = params.Mysqld.Start(context.Background(), params.Cnf)
+	}
 	if err != nil {
-		return backupResult, vterrors.Wrap(err, "can't restart mysqld")
+		return backupResult, vterrors.Wrapf(err, "can't restart mysqld (backup error: %v)", backupErr)
 	}
 
 	// The steps below put mysqld's state back the way the backup found it. They
@@ -685,6 +704,23 @@ func (be *BuiltinBackupEngine) executeFullBackup(ctx context.Context, params Bac
 	}
 
 	return backupResult, backupErr
+}
+
+// waitForMysqldToExit waits until mysqld's socket and pid files are gone, i.e.
+// a mysqld that was told to stop has finished stopping.
+func waitForMysqldToExit(ctx context.Context, cnf *Mycnf) error {
+	gone := func(path string) bool {
+		_, err := os.Stat(path)
+		return os.IsNotExist(err)
+	}
+	for !gone(cnf.SocketFile) || !gone(cnf.PidFile) {
+		select {
+		case <-ctx.Done():
+			return vterrors.Wrapf(ctx.Err(), "waiting for mysqld to exit (socket file %s, pid file %s)", cnf.SocketFile, cnf.PidFile)
+		case <-time.After(time.Second):
+		}
+	}
+	return nil
 }
 
 // backupFiles finds the list of files to backup, and creates the backup.
