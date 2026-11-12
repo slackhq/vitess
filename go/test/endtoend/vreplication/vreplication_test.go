@@ -977,7 +977,7 @@ func shardCustomer(t *testing.T, testReverse bool, cells []*Cell, sourceCellOrAl
 			// A ReverseTraffic that fails, here because the reverse workflow
 			// cannot catch up, must leave the workflow in place.
 			reverseWorkflow := workflow + "_reverse"
-			err = vc.VtctldClient.ExecuteCommand("Workflow", "--keyspace", defaultSourceKs, "stop", "--workflow", reverseWorkflow)
+			err := vc.VtctldClient.ExecuteCommand("Workflow", "--keyspace", defaultSourceKs, "stop", "--workflow", reverseWorkflow)
 			require.NoError(t, err)
 			out, err := vc.VtctldClient.ExecuteCommandWithOutput(workflowType, "--workflow", workflow, "--target-keyspace", defaultTargetKs,
 				"ReverseTraffic", "--tablet-types=primary", "--timeout=10s")
@@ -993,7 +993,7 @@ func shardCustomer(t *testing.T, testReverse bool, cells []*Cell, sourceCellOrAl
 				require.Equal(t, "FROZEN", message.String())
 			}
 			// Canceling the switch restarted the reverse workflow.
-			require.NoError(t, waitForWorkflowState(vc, defaultSourceKs+"."+reverseWorkflow, binlogdatapb.VReplicationWorkflowState_Running.String()))
+			waitForWorkflowState(t, vc, defaultSourceKs+"."+reverseWorkflow, binlogdatapb.VReplicationWorkflowState_Running.String())
 
 			switchWrites(t, workflowType, ksWorkflow, true)
 
