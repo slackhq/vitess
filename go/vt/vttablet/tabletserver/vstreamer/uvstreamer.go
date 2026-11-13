@@ -453,9 +453,11 @@ func (uvs *uvstreamer) Stream() error {
 			return err
 		}
 	}
-	vs := newVStreamer(uvs.ctx, uvs.cp, uvs.se, replication.EncodePosition(uvs.pos), replication.EncodePosition(uvs.stopPos),
+	vs, err := newVStreamer(uvs.ctx, uvs.cp, uvs.se, replication.EncodePosition(uvs.pos), replication.EncodePosition(uvs.stopPos),
 		uvs.filter, uvs.getVSchema(), uvs.throttlerApp, uvs.send, "replicate", uvs.vse, uvs.options)
-
+	if err != nil {
+		return err
+	}
 	uvs.setVs(vs)
 	return vs.Stream()
 }
