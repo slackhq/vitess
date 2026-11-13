@@ -36,6 +36,7 @@ func registerPacketSizeFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&vttablet.VStreamerDefaultPacketSize, "vstream_packet_size", vttablet.VStreamerDefaultPacketSize, "Suggested packet size for VReplication streamer. This is used only as a recommendation. The actual packet size may be more or less than this amount.")
 	// useDynamicPacketSize controls whether to use dynamic packet size adjustments to increase performance while streaming
 	fs.BoolVar(&vttablet.VStreamerUseDynamicPacketSize, "vstream_dynamic_packet_size", vttablet.VStreamerUseDynamicPacketSize, "Enable dynamic packet sizing for VReplication. This will adjust the packet size during replication to improve performance.")
+	fs.BoolVar(&vttablet.VStreamerMemoryBounds, "vstream_memory_bounds", vttablet.VStreamerMemoryBounds, "Bound the memory a VStreamRows or VStreamTables stream holds for its lifetime: drop the reused row pools when they retain more than about four times the live packet, and cap dynamic packet sizing at 16 times --vstream-packet-size.")
 }
 
 // PacketSizer is a controller that adjusts the size of the packets being sent by the vstreamer at runtime
@@ -46,11 +47,12 @@ type PacketSizer interface {
 }
 
 // DefaultPacketSizer creates a new PacketSizer based on the provided values.
-// If dynamic packet sizing is enabled, this will return a dynamicPacketSizer.
-// Otherwise it will return a fixedPacketSize of packetSize.
-func DefaultPacketSizer(useDynamicPacketSize bool, packetSize int) PacketSizer {
+// If dynamic packet sizing is enabled, this will return a dynamicPacketSizer,
+// whose growth is capped when bounded is set. Otherwise it will return a
+// fixedPacketSize of packetSize.
+func DefaultPacketSizer(useDynamicPacketSize bool, packetSize int, bounded bool) PacketSizer {
 	if useDynamicPacketSize {
-		return newDynamicPacketSizer(packetSize)
+		return newDynamicPacketSizer(packetSize, bounded)
 	}
 	return newFixedPacketSize(packetSize)
 }
@@ -107,6 +109,9 @@ type dynamicPacketSizer struct {
 	// grow is the growth rate with which we adjust the packet size
 	grow int
 
+	// maxSize bounds candidateSize growth; 0 leaves it unbounded. See #20954.
+	maxSize int
+
 	// calls is the amount of calls to the packet sizer
 	calls int
 
@@ -117,13 +122,26 @@ type dynamicPacketSizer struct {
 	elapsed time.Duration
 }
 
-func newDynamicPacketSizer(baseSize int) PacketSizer {
-	return &dynamicPacketSizer{
+const dynamicPacketSizerMaxGrowthFactor = 16
+
+func newDynamicPacketSizer(baseSize int, bounded bool) PacketSizer {
+	ps := &dynamicPacketSizer{
 		currentSize:      baseSize,
 		currentMetrics:   &mathstats.Sample{},
 		candidateMetrics: &mathstats.Sample{},
 		candidateSize:    baseSize,
 		grow:             baseSize / 4,
+	}
+	if bounded {
+		ps.maxSize = baseSize * dynamicPacketSizerMaxGrowthFactor
+	}
+	return ps
+}
+
+func (ps *dynamicPacketSizer) growCandidate() {
+	ps.candidateSize += ps.grow
+	if ps.maxSize > 0 && ps.candidateSize > ps.maxSize {
+		ps.candidateSize = ps.maxSize
 	}
 }
 
@@ -205,7 +223,7 @@ func (ps *dynamicPacketSizer) Record(byteCount int, d time.Duration) {
 				ps.settled = true
 			} else {
 				if change == notChanging && ps.calls%GrowthFrequency == 0 {
-					ps.candidateSize += ps.grow
+					ps.growCandidate()
 				}
 			}
 
@@ -213,7 +231,7 @@ func (ps *dynamicPacketSizer) Record(byteCount int, d time.Duration) {
 			ps.candidateMetrics, ps.currentMetrics = ps.currentMetrics, ps.candidateMetrics
 			ps.candidateMetrics.Clear()
 
-			ps.candidateSize += ps.grow
+			ps.growCandidate()
 			ps.currentSize = ps.candidateSize
 		}
 	}
