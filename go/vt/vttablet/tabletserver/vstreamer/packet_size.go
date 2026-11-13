@@ -36,7 +36,7 @@ func registerPacketSizeFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&vttablet.VStreamerDefaultPacketSize, "vstream_packet_size", vttablet.VStreamerDefaultPacketSize, "Suggested packet size for VReplication streamer. This is used only as a recommendation. The actual packet size may be more or less than this amount.")
 	// useDynamicPacketSize controls whether to use dynamic packet size adjustments to increase performance while streaming
 	fs.BoolVar(&vttablet.VStreamerUseDynamicPacketSize, "vstream_dynamic_packet_size", vttablet.VStreamerUseDynamicPacketSize, "Enable dynamic packet sizing for VReplication. This will adjust the packet size during replication to improve performance.")
-	fs.BoolVar(&vttablet.VStreamerMemoryBounds, "vstream_memory_bounds", vttablet.VStreamerMemoryBounds, "Bound the memory a VStreamRows or VStreamTables stream holds for its lifetime: drop the reused row pools when they retain more than about four times the live packet, and cap dynamic packet sizing at 16 times --vstream-packet-size.")
+	fs.BoolVar(&vttablet.VStreamerMemoryBounds, "vstream_memory_bounds", vttablet.VStreamerMemoryBounds, "Bound the memory a VStreamRows or VStreamTables stream holds for its lifetime: drop the reused row pools when they retain more than about four times the live packet, and cap dynamic packet sizing at 16 times --vstream_packet_size. On this release the vstream-memory-bounds workflow override does not reach the copy, so this flag alone applies, on the serving and the receiving tablet.")
 }
 
 // PacketSizer is a controller that adjusts the size of the packets being sent by the vstreamer at runtime
