@@ -1,0 +1,56 @@
+# Commands Speck's `exec` may run in this repo's devspace pod. Read from the
+# default branch only (main), so a branch can't grant itself extra commands;
+# the list applies to pods on every branch, release branches included.
+#
+#   https://docs.tinyspeck.com/devxp/developer_workspaces/hello_devspace_pods/speck_yaml/
+#
+# This repo has no devspaces.yaml, so pods use Checkpoint's default config: the
+# shared base image in a container named "devspace". Run commands from the repo
+# root. Pods have no network, and no mysqld, so tests that start MySQL (for
+# example the vstreamer and vreplication packages) still need CI.
+#
+# An entry ending in `:*` is a prefix match and allows any trailing arguments;
+# other entries are exact. Checkpoint keeps only entries made of letters,
+# digits, spaces and `_ . / -`, so write flag values with a space.
+#
+# The `go test` and `go vet` prefixes take package paths under ./go/ and test
+# filters (`-run`). They would also accept flags like -exec or -toolexec; that
+# is accepted here because the pod has no network or credentials.
+#
+# Left out on purpose:
+#   go install / go run / go generate / go env -w
+#              install or run arbitrary code, or persist Go config
+#   go mod tidy / download / get
+#              rewrite go.mod or go.sum and need network
+#   make *     targets fetch tools and start services the pod doesn't have
+#   git *      Speck has its own git tool
+allowed_commands:
+  containers:
+    devspace:
+      bash:
+        # Build and vet
+        - "go build ./go/..."
+        - "go vet:*"
+        # Tests, for one package or a subtree, e.g.
+        # `go test -count 1 ./go/sqltypes/ -run TestRowPool`
+        - "go test:*"
+        # Formatting (CI runs gofumpt and goimports). The repo pins gofumpt as a
+        # Go tool dependency, so `go tool gofumpt` needs no install.
+        - "gofmt -l go"
+        - "gofmt -d:*"
+        - "go tool gofumpt -l:*"
+        - "go tool gofumpt -d:*"
+        - "go tool gofumpt -w:*"
+        - "gofumpt -l:*"
+        - "gofumpt -d:*"
+        - "gofumpt -w:*"
+        - "goimports -l:*"
+        - "goimports -d:*"
+        - "goimports -w -local vitess.io/vitess:*"
+        # Read-only diagnostics
+        - "go version"
+        - "go env"
+        - "go list:*"
+        - "go mod verify"
+        - "go doc:*"
+        - "which go gofmt gofumpt goimports"
