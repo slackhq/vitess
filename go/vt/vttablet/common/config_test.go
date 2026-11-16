@@ -51,6 +51,8 @@ func TestNewVReplicationConfig(t *testing.T) {
 				"vstream_packet_size":                     "1024",
 				"vstream_dynamic_packet_size":             "false",
 				"vstream_binlog_rotation_threshold":       "2048",
+				"vstream-memory-bounds":                   "true",
+				"vstream_memory_bounds":                   "true",
 			},
 			wantErr: 0,
 			want: &VReplicationConfig{
@@ -73,6 +75,8 @@ func TestNewVReplicationConfig(t *testing.T) {
 				VStreamPacketSizeOverride:              true,
 				VStreamDynamicPacketSizeOverride:       true,
 				VStreamBinlogRotationThresholdOverride: true,
+				VStreamMemoryBounds:                    true,
+				VStreamMemoryBoundsOverride:            true,
 			},
 		},
 		{
@@ -93,8 +97,10 @@ func TestNewVReplicationConfig(t *testing.T) {
 				"vstream_packet_size":                     "invalid",
 				"vstream_dynamic_packet_size":             "waar",
 				"vstream_binlog_rotation_threshold":       "invalid",
+				"vstream-memory-bounds":                   "waar",
+				"vstream_memory_bounds":                   "waar",
 			},
-			wantErr: 15,
+			wantErr: 17,
 		},
 		{
 			name: "Partial values",
@@ -121,6 +127,7 @@ func TestNewVReplicationConfig(t *testing.T) {
 				VStreamPacketSize:                DefaultVReplicationConfig.VStreamPacketSize,
 				VStreamDynamicPacketSize:         !DefaultVReplicationConfig.VStreamDynamicPacketSize,
 				VStreamBinlogRotationThreshold:   DefaultVReplicationConfig.VStreamBinlogRotationThreshold,
+				VStreamMemoryBounds:              DefaultVReplicationConfig.VStreamMemoryBounds,
 				VStreamDynamicPacketSizeOverride: true,
 				TabletTypesStr:                   DefaultVReplicationConfig.TabletTypesStr,
 			},
@@ -156,4 +163,28 @@ func TestNewVReplicationConfig(t *testing.T) {
 
 		})
 	}
+}
+
+// TestVStreamMemoryBoundsOverride pins the override's keys in Map(): vtctldclient's ParseConfigOverrides
+// rejects any key that Map() does not list, so without them `--config-overrides vstream_memory_bounds=true`
+// fails in the client.
+func TestVStreamMemoryBoundsOverride(t *testing.T) {
+	InitVReplicationConfigDefaults()
+
+	for _, key := range []string{"vstream-memory-bounds", "vstream_memory_bounds"} {
+		cfg, err := NewVReplicationConfig(map[string]string{key: "true"})
+		require.NoError(t, err)
+		require.True(t, cfg.VStreamMemoryBounds)
+		require.True(t, cfg.VStreamMemoryBoundsOverride)
+		require.Equal(t, "true", cfg.Map()[key])
+	}
+
+	defaults := GetDefaultVReplicationConfig()
+	require.Equal(t, strconv.FormatBool(VStreamerMemoryBounds), defaults.Map()["vstream_memory_bounds"])
+	require.False(t, defaults.VStreamMemoryBoundsOverride)
+
+	t.Run("invalid value returns error", func(t *testing.T) {
+		_, err := NewVReplicationConfig(map[string]string{"vstream_memory_bounds": "maybe"})
+		require.ErrorContains(t, err, "vstream_memory_bounds")
+	})
 }

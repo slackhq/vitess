@@ -56,6 +56,11 @@ var (
 	VStreamerBinlogRotationThreshold = int64(64 * 1024 * 1024) // 64MiB
 	VStreamerDefaultPacketSize       = 250000
 	VStreamerUseDynamicPacketSize    = true
+	// VStreamerMemoryBounds bounds the memory a VStreamRows or VStreamTables stream holds for its lifetime
+	// (vitessio/vitess#20954): the reused row pools on both ends are dropped when they retain more than about
+	// four times the live packet, and dynamic packet sizing stops growing at 16 times VStreamerDefaultPacketSize.
+	// Off by default on this branch, so the patch upgrade keeps the previous memory behavior.
+	VStreamerMemoryBounds = false
 
 	// Enable the /debug/vrlog HTTP endpoint.
 	vreplicationEnableHttpLog = false
