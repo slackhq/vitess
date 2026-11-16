@@ -23,6 +23,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -85,7 +86,7 @@ func (r *retryKV) Get(key string, q *api.QueryOptions) (*api.KVPair, *api.QueryM
 	var pair *api.KVPair
 	var meta *api.QueryMeta
 	ctx := contextFromQueryOptions(q)
-	err := r.retry(ctx, func() error {
+	err := r.retry(ctx, "Get", key, func() error {
 		var ierr error
 		pair, meta, ierr = r.inner.Get(key, q)
 		return ierr
@@ -97,7 +98,7 @@ func (r *retryKV) List(prefix string, q *api.QueryOptions) (api.KVPairs, *api.Qu
 	var pairs api.KVPairs
 	var meta *api.QueryMeta
 	ctx := contextFromQueryOptions(q)
-	err := r.retry(ctx, func() error {
+	err := r.retry(ctx, "List", prefix, func() error {
 		var ierr error
 		pairs, meta, ierr = r.inner.List(prefix, q)
 		return ierr
@@ -109,7 +110,7 @@ func (r *retryKV) Keys(prefix string, separator string, q *api.QueryOptions) ([]
 	var keys []string
 	var meta *api.QueryMeta
 	ctx := contextFromQueryOptions(q)
-	err := r.retry(ctx, func() error {
+	err := r.retry(ctx, "Keys", prefix, func() error {
 		var ierr error
 		keys, meta, ierr = r.inner.Keys(prefix, separator, q)
 		return ierr
@@ -129,12 +130,23 @@ func (r *retryKV) Txn(txn api.KVTxnOps, q *api.QueryOptions) (bool, *api.KVTxnRe
 	var resp *api.KVTxnResponse
 	var meta *api.QueryMeta
 	ctx := contextFromQueryOptions(q)
-	err := r.retry(ctx, func() error {
+	err := r.retry(ctx, "Txn", txnKeys(txn), func() error {
 		var ierr error
 		ok, resp, meta, ierr = r.inner.Txn(txn, q)
 		return ierr
 	})
 	return ok, resp, meta, err
+}
+
+func txnKeys(txn api.KVTxnOps) string {
+	keys := make([]string, 0, len(txn))
+	for _, op := range txn {
+		if op == nil || slices.Contains(keys, op.Key) {
+			continue
+		}
+		keys = append(keys, op.Key)
+	}
+	return strings.Join(keys, ",")
 }
 
 func contextFromQueryOptions(q *api.QueryOptions) context.Context {
@@ -144,7 +156,7 @@ func contextFromQueryOptions(q *api.QueryOptions) context.Context {
 	return context.Background()
 }
 
-func (r *retryKV) retry(ctx context.Context, action func() error) error {
+func (r *retryKV) retry(ctx context.Context, op, key string, action func() error) error {
 	if !r.enabled {
 		return action()
 	}
@@ -156,6 +168,7 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 			delay := r.backoff(attempt)
 			select {
 			case <-ctx.Done():
+				logRetryResult(op, key, attempt, time.Since(start), ctx.Err())
 				return ctx.Err()
 			case <-time.After(delay):
 			}
@@ -163,9 +176,15 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 
 		err = action()
 		if err == nil {
+			if attempt > 0 {
+				logRetryResult(op, key, attempt+1, time.Since(start), nil)
+			}
 			return nil
 		}
 		if !isRetryableError(err) {
+			if attempt > 0 {
+				logRetryResult(op, key, attempt+1, time.Since(start), err)
+			}
 			return err
 		}
 		log.Infof("consultopo: retryable error (attempt %d/%d, elapsed %v): %v", attempt+1, r.count, time.Since(start).Round(time.Millisecond), err)
@@ -178,7 +197,19 @@ func (r *retryKV) retry(ctx context.Context, action func() error) error {
 			r.idleCloser.CloseIdleConnections()
 		}
 	}
-	return fmt.Errorf("%w (retried %d times over %v)", err, r.count, time.Since(start).Round(time.Millisecond))
+	elapsed := time.Since(start)
+	if r.count > 0 {
+		logRetryResult(op, key, r.count, elapsed, err)
+	}
+	return fmt.Errorf("%w (retried %d times over %v)", err, r.count, elapsed.Round(time.Millisecond))
+}
+
+func logRetryResult(op, key string, attempts int, elapsed time.Duration, err error) {
+	if err == nil {
+		log.Infof("consultopo: consul retry result=success attempts=%d op=%s key=%s elapsed=%v", attempts, op, key, elapsed.Round(time.Millisecond))
+		return
+	}
+	log.Warningf("consultopo: consul retry result=failure attempts=%d op=%s key=%s elapsed=%v: %v", attempts, op, key, elapsed.Round(time.Millisecond), err)
 }
 
 func (r *retryKV) backoff(attempt int) time.Duration {

@@ -19,8 +19,11 @@ package consultopo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/topo"
 )
 
@@ -321,4 +325,168 @@ func TestRetryKV_NoIdleCloseBeforeTwoFailures(t *testing.T) {
 	assert.Equal(t, 2, mock.getCalls)
 	// Only one failure before success: never reached the two-failure threshold.
 	assert.Equal(t, 0, closer.closeCalls)
+}
+
+type logCapture struct {
+	mu       sync.Mutex
+	infos    []string
+	warnings []string
+}
+
+func captureLogs(t *testing.T) *logCapture {
+	c := &logCapture{}
+	origInfof, origWarningf := log.Infof, log.Warningf
+	log.Infof = func(format string, args ...any) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.infos = append(c.infos, fmt.Sprintf(format, args...))
+	}
+	log.Warningf = func(format string, args ...any) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.warnings = append(c.warnings, fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(func() {
+		log.Infof = origInfof
+		log.Warningf = origWarningf
+	})
+	return c
+}
+
+func (c *logCapture) retryResults() (infos, warnings []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	filter := func(lines []string) []string {
+		var res []string
+		for _, l := range lines {
+			if strings.Contains(l, "consul retry result=") {
+				res = append(res, l)
+			}
+		}
+		return res
+	}
+	return filter(c.infos), filter(c.warnings)
+}
+
+func TestRetryKV_LogsFinalResult(t *testing.T) {
+	retryable := errors.New("Unexpected response code: 500")
+	nonRetryable := topo.NewError(topo.NodeExists, "test")
+
+	tests := []struct {
+		name         string
+		results      []error
+		cancelOnCall int
+		wantSuccess  string
+		wantFailure  string
+		wantErr      string
+	}{
+		{
+			name:    "success on first attempt is not logged",
+			results: []error{nil},
+		},
+		{
+			name:        "success after retries",
+			results:     []error{retryable, retryable, nil},
+			wantSuccess: "consultopo: consul retry result=success attempts=3 op=Get key=test",
+		},
+		{
+			name:        "all attempts exhausted",
+			results:     []error{retryable, retryable, retryable},
+			wantFailure: "consultopo: consul retry result=failure attempts=3 op=Get key=test",
+			wantErr:     "Unexpected response code: 500",
+		},
+		{
+			name:    "non-retryable error on first attempt is not logged",
+			results: []error{nonRetryable},
+		},
+		{
+			name:        "non-retryable error after a retry",
+			results:     []error{retryable, nonRetryable},
+			wantFailure: "consultopo: consul retry result=failure attempts=2 op=Get key=test",
+			wantErr:     "node already exists",
+		},
+		{
+			name:         "context canceled during backoff",
+			results:      []error{retryable, nil},
+			cancelOnCall: 1,
+			wantFailure:  "consultopo: consul retry result=failure attempts=1 op=Get key=test",
+			wantErr:      "context canceled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			t.Cleanup(cancel)
+
+			mock := &mockKV{
+				getFunc: func(call int) (*api.KVPair, *api.QueryMeta, error) {
+					if call == tt.cancelOnCall {
+						cancel()
+					}
+					require.LessOrEqual(t, call, len(tt.results))
+					if err := tt.results[call-1]; err != nil {
+						return nil, nil, err
+					}
+					return &api.KVPair{Key: "test"}, nil, nil
+				},
+			}
+			delay := time.Millisecond
+			if tt.cancelOnCall > 0 {
+				delay = time.Minute
+			}
+			r := newRetryKV(mock, 3, delay, delay, true, nil)
+
+			_, _, err := r.Get("test", (&api.QueryOptions{}).WithContext(ctx))
+			infos, warnings := logs.retryResults()
+
+			switch {
+			case tt.wantSuccess != "":
+				require.NoError(t, err)
+				require.Len(t, infos, 1)
+				assert.Contains(t, infos[0], tt.wantSuccess)
+				assert.Empty(t, warnings)
+			case tt.wantFailure != "":
+				require.Error(t, err)
+				require.Len(t, warnings, 1)
+				assert.Contains(t, warnings[0], tt.wantFailure)
+				assert.Contains(t, warnings[0], tt.wantErr)
+				assert.Empty(t, infos)
+			default:
+				assert.Empty(t, infos)
+				assert.Empty(t, warnings)
+			}
+		})
+	}
+}
+
+func TestTxnKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		ops  api.KVTxnOps
+		want string
+	}{
+		{
+			name: "single op",
+			ops:  api.KVTxnOps{{Verb: api.KVCAS, Key: "a"}},
+			want: "a",
+		},
+		{
+			name: "repeated key is listed once",
+			ops:  api.KVTxnOps{{Verb: api.KVGet, Key: "a"}, {Verb: api.KVDelete, Key: "a"}},
+			want: "a",
+		},
+		{
+			name: "distinct keys",
+			ops:  api.KVTxnOps{{Verb: api.KVSet, Key: "a"}, {Verb: api.KVSet, Key: "b"}},
+			want: "a,b",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, txnKeys(tt.ops))
+		})
+	}
 }
