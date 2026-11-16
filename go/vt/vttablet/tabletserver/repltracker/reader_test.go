@@ -58,6 +58,7 @@ func TestReaderReadHeartbeat(t *testing.T) {
 	cumulativeLagNs.Reset()
 	readErrors.Reset()
 	reads.Reset()
+	histoBefore := heartbeatLagNsHistogram.Counts()
 
 	tr.readHeartbeat()
 	lag, err := tr.Status()
@@ -80,7 +81,11 @@ func TestReaderReadHeartbeat(t *testing.T) {
 		"1000s":  int64(0),
 		">1000s": int64(0),
 	}
-	utils.MustMatch(t, expectedHisto, heartbeatLagNsHistogram.Counts(), "wrong counts in histogram")
+	histoDelta := make(map[string]int64)
+	for label, count := range heartbeatLagNsHistogram.Counts() {
+		histoDelta[label] = count - histoBefore[label]
+	}
+	utils.MustMatch(t, expectedHisto, histoDelta, "wrong counts in histogram")
 }
 
 // TestReaderInitialHeartbeatReadOnOpen tests that Open performs a synchronous
