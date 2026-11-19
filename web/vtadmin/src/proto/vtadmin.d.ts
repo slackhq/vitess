@@ -48308,6 +48308,9 @@ export namespace replicationdata {
 
         /** Status server_version */
         server_version?: (string|null);
+
+        /** Status last_sql_errno */
+        last_sql_errno?: (number|null);
     }
 
     /** Represents a Status. */
@@ -48402,6 +48405,9 @@ export namespace replicationdata {
 
         /** Status server_version. */
         public server_version: string;
+
+        /** Status last_sql_errno. */
+        public last_sql_errno: number;
 
         /**
          * Creates a new Status instance using the specified properties.
