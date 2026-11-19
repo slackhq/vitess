@@ -1,0 +1,31 @@
+# DevSpace Pods configuration for Speck's pods of this repo.
+#
+#   https://docs.tinyspeck.com/devxp/developer_workspaces/hello_devspace_pods/
+#
+# Gondola can only build devspace images for repos on slack-github.com, so the
+# image is the shared Vitess dev image from slack/vitess-bedrock
+# (vtgate/Dockerfile.devspace). On top of Go it ships the formatters CI runs,
+# and the protoc and vtadmin proto tools that tools/speck_make_proto.sh uses to
+# run `make proto`. Keep those versions in step with build.env, the Makefile and
+# web/vtadmin/package-lock.json.
+#
+# The commands Speck may run in the pod are in speck.yaml.
+
+speck_enabled: true
+
+services:
+  vitess:
+    # vtgate-bedrock's omni service, which owns the image above. Used for
+    # auditing the pod, not for resolving the image.
+    omni_service_id: b7afe950-65db-4371-a757-fbdf457e825f
+    containers:
+      # speck.yaml's allowed_commands are keyed by this name.
+      - name: devspace
+        # slack/<repo>:<gondola image name>: the latest devspace image Gondola
+        # reported to Checkpoint for that repo.
+        image: slack/vitess-bedrock:vtgate
+        request:
+          memory: 8Gi
+          cpu: 4
+        # Keep the container alive: Speck works in it, it runs no service.
+        command: ["tail", "-f", "/dev/null"]
