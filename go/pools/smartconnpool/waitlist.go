@@ -33,14 +33,14 @@ type PoolConfig interface {
 
 type waitlistStatsExporter interface {
 	Name() string
-	NewGaugesWithMultiLabels(name, help string, labels []string) *stats.GaugesWithMultiLabels
+	NewGaugesFuncWithMultiLabels(name, help string, labels []string, sample func() map[string]int64) *stats.GaugesFuncWithMultiLabels
 }
 
 var snakeModeGauges = struct {
 	sync.Mutex
-	byExporter map[string]*stats.GaugesWithMultiLabels
+	byExporter map[string]map[string]func() (loadshed.Mode, loadshed.Mode)
 }{
-	byExporter: make(map[string]*stats.GaugesWithMultiLabels),
+	byExporter: make(map[string]map[string]func() (loadshed.Mode, loadshed.Mode)),
 }
 
 // waiter represents a client waiting for a connection in the waitlist
@@ -74,9 +74,6 @@ type waitlist[C Connection] struct {
 	onWait func()
 	// onWaiterCapReached is called when the waitlist has reached its maximum capacity.
 	onWaiterCapReached func()
-
-	modeGauge     *stats.GaugesWithMultiLabels
-	modeGaugePool string
 }
 
 // waitForConn blocks until a connection with the given Setting is returned by another client,
@@ -162,7 +159,8 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, elem.Value.err
+		conn := <-elem.Value.conn
+		return conn, elem.Value.err
 
 	case <-ctx.Done():
 		// Context expired. We need to try to remove ourselves from the waitlist to
@@ -182,7 +180,8 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, setting *Setting, closeC
 
 		// if we weren't able to remove ourselves from the waitlist, it means
 		// another goroutine is trying to hand us a connection
-		return <-elem.Value.conn, elem.Value.err
+		conn := <-elem.Value.conn
+		return conn, elem.Value.err
 
 	case conn := <-elem.Value.conn:
 		return conn, elem.Value.err
@@ -281,6 +280,10 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 			return false
 		})
 		dropped = append(dropped, newlyDropped...)
+		if target == nil {
+			target, _, newlyDropped = wl.snake.Dequeue()
+			dropped = append(dropped, newlyDropped...)
+		}
 	}
 	wl.mu.Unlock()
 	wl.reject(dropped)
@@ -378,7 +381,6 @@ func (wl *waitlist[C]) transitionLocked() []*list.Element[waiter[C]] {
 		}
 	}
 	wl.activeMode = desiredMode
-	wl.updateModeGaugeLocked()
 	if desiredMode != loadshed.ModeEnabled {
 		wl.waiterCapOn.Store(true)
 	}
@@ -425,37 +427,42 @@ func (wl *waitlist[C]) registerStats(exporter waitlistStatsExporter, poolName st
 		return
 	}
 
-	modeGauge := snakeModeGauge(exporter)
-
-	wl.mu.Lock()
-	wl.modeGauge = modeGauge
-	wl.modeGaugePool = poolLabel
-	wl.updateModeGaugeLocked()
-	wl.mu.Unlock()
-}
-
-func snakeModeGauge(exporter waitlistStatsExporter) *stats.GaugesWithMultiLabels {
 	snakeModeGauges.Lock()
-	defer snakeModeGauges.Unlock()
-
-	if gauge := snakeModeGauges.byExporter[exporter.Name()]; gauge != nil {
-		return gauge
+	exporterName := exporter.Name()
+	firstRegistration := snakeModeGauges.byExporter[exporterName] == nil
+	if firstRegistration {
+		snakeModeGauges.byExporter[exporterName] = make(map[string]func() (loadshed.Mode, loadshed.Mode))
 	}
-	gauge := exporter.NewGaugesWithMultiLabels("SnakeMode", "Active Snake load-shedding mode", []string{"pool", "mode"})
-	snakeModeGauges.byExporter[exporter.Name()] = gauge
-	return gauge
-}
-
-func (wl *waitlist[C]) updateModeGaugeLocked() {
-	if wl.modeGauge == nil {
-		return
+	snakeModeGauges.byExporter[exporterName][poolLabel] = func() (loadshed.Mode, loadshed.Mode) {
+		wl.mu.Lock()
+		actual := wl.activeMode
+		wl.mu.Unlock()
+		return actual, wl.desiredMode()
 	}
-	for _, mode := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
-		value := int64(0)
-		if mode == wl.activeMode {
-			value = 1
-		}
-		wl.modeGauge.Set([]string{wl.modeGaugePool, string(mode)}, value)
+	snakeModeGauges.Unlock()
+	if firstRegistration {
+		exporter.NewGaugesFuncWithMultiLabels("SnakeMode", "Actual and desired Snake load-shedding modes", []string{"pool", "mode", "source"}, func() map[string]int64 {
+			snakeModeGauges.Lock()
+			samples := make(map[string]func() (loadshed.Mode, loadshed.Mode), len(snakeModeGauges.byExporter[exporterName]))
+			for pool, sample := range snakeModeGauges.byExporter[exporterName] {
+				samples[pool] = sample
+			}
+			snakeModeGauges.Unlock()
+			counts := make(map[string]int64, 6*len(samples))
+			for pool, sample := range samples {
+				actual, desired := sample()
+				for source, mode := range map[string]loadshed.Mode{"actual": actual, "desired": desired} {
+					for _, candidate := range []loadshed.Mode{loadshed.ModeOff, loadshed.ModeShadow, loadshed.ModeEnabled} {
+						value := int64(0)
+						if candidate == mode {
+							value = 1
+						}
+						counts[pool+"."+string(candidate)+"."+source] = value
+					}
+				}
+			}
+			return counts
+		})
 	}
 }
 

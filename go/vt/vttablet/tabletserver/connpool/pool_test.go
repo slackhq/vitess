@@ -37,10 +37,12 @@ import (
 
 type mutableTabletTypeEnv struct {
 	tabletenv.Env
-	tabletType topodatapb.TabletType
+	tabletType        topodatapb.TabletType
+	tabletTypeLookups int
 }
 
 func (e *mutableTabletTypeEnv) TabletType() topodatapb.TabletType {
+	e.tabletTypeLookups++
 	return e.tabletType
 }
 
@@ -63,6 +65,13 @@ func TestLoadshedModeFollowsTabletType(t *testing.T) {
 
 	env.tabletType = topodatapb.TabletType_UNKNOWN
 	assert.Equal(t, loadshed.ModeOff, mode())
+	assert.Equal(t, 4, env.tabletTypeLookups)
+
+	for _, configured := range []tabletenv.LoadshedMode{tabletenv.LoadshedModeOff, tabletenv.LoadshedModeShadow, tabletenv.LoadshedModeEnabled} {
+		require.NoError(t, cfg.LoadshedOltpRead.SetMode(string(configured)))
+		assert.Equal(t, loadshed.Mode(configured), mode())
+		assert.Equal(t, 4, env.tabletTypeLookups)
+	}
 }
 
 func TestConnPoolGet(t *testing.T) {

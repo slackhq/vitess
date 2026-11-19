@@ -53,7 +53,11 @@ func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig
 	}
 	configuredMode := config.Mode
 	config.Mode = func() loadshed.Mode {
-		return tabletenv.LoadshedMode(configuredMode()).EffectiveMode(c.env.TabletType())
+		mode := configuredMode()
+		if tabletenv.LoadshedMode(mode) != tabletenv.LoadshedModeEnabledReplicas {
+			return mode
+		}
+		return tabletenv.LoadshedMode(mode).EffectiveMode(c.env.TabletType())
 	}
 	return config
 }

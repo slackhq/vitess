@@ -492,10 +492,18 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
 		CoDel: loadshed.CoDelConfig{
 			IntervalNs: func() int64 {
-				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+				config.mu.RLock()
+				defer config.mu.RUnlock()
+				return time.Duration(float64(config.Target) * config.IntervalRatio).Nanoseconds()
 			},
 			InitialIntervalNs: func() int64 {
-				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
+				config.mu.RLock()
+				defer config.mu.RUnlock()
+				initialTarget := config.InitialTarget
+				if initialTarget <= 0 {
+					initialTarget = config.Target
+				}
+				return time.Duration(float64(initialTarget) * config.IntervalRatio).Nanoseconds()
 			},
 			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
 			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
