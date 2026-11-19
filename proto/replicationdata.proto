@@ -58,6 +58,7 @@ message Status {
   bool semi_sync_primary_status = 28;
   bool semi_sync_replica_status = 29;
   string server_version = 30;
+  uint32 last_sql_errno = 31;
 }
 
 // Configuration holds replication configuration information gathered from performance_schema and global variables.

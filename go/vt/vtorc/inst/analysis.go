@@ -45,6 +45,7 @@ const (
 	NotConnectedToPrimary                  AnalysisCode = "NotConnectedToPrimary"
 	ConnectedToWrongPrimary                AnalysisCode = "ConnectedToWrongPrimary"
 	ReplicationStopped                     AnalysisCode = "ReplicationStopped"
+	ReplicationStoppedUnfixableSQLError    AnalysisCode = "ReplicationStoppedUnfixableSQLError"
 	ReplicaSemiSyncMustBeSet               AnalysisCode = "ReplicaSemiSyncMustBeSet"
 	ReplicaSemiSyncMustNotBeSet            AnalysisCode = "ReplicaSemiSyncMustNotBeSet"
 	ReplicaMisconfigured                   AnalysisCode = "ReplicaMisconfigured"
@@ -115,6 +116,7 @@ type ReplicationAnalysis struct {
 	CountValidReplicas                        uint
 	CountValidReplicatingReplicas             uint
 	ReplicationStopped                        bool
+	LastSQLErrno                              uint32
 	ErrantGTID                                string
 	ReplicaNetTimeout                         int32
 	HeartbeatInterval                         float64
