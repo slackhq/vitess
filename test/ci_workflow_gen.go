@@ -46,7 +46,7 @@ const (
 	oracleCloudRunner = "oracle-16cpu-64gb-x86-64"
 	githubRunner      = "vitess-ubuntu24-16cpu-1"
 	cores16RunnerName = githubRunner
-	defaultRunnerName = "ubuntu-24.04"
+	defaultRunnerName = githubRunner
 )
 
 // To support a private git repository, set goPrivate to a repo in
