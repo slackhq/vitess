@@ -65,12 +65,19 @@ func TestLoadshedConfigMissing(t *testing.T) {
 
 func TestLoadshedModeFollowsTabletType(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
+	cfg.LoadshedOltpReadDefaultPriority = 17
+	cfg.TxThrottlerDefaultPriority = 23
 	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled-replicas"))
 	env := &mutableTabletTypeEnv{
 		Env:        tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, t.Name()),
 		tabletType: topodatapb.TabletType_PRIMARY,
 	}
-	mode := loadshedPoolConfig{env: env}.LoadshedConfig("ConnPool").Mode
+	adapter := loadshedPoolConfig{env: env}
+	oltp := adapter.LoadshedConfig("ConnPool")
+	assert.Equal(t, 17, oltp.DefaultPriority)
+	assert.Equal(t, 23, adapter.LoadshedConfig("TransactionPool").DefaultPriority)
+	assert.Equal(t, 23, adapter.LoadshedConfig("FoundRowsPool").DefaultPriority)
+	mode := oltp.Mode
 
 	assert.Equal(t, loadshed.ModeOff, mode())
 

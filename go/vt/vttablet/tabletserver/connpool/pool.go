@@ -51,7 +51,12 @@ func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig
 	if config == nil {
 		return loadshed.SnakeConfig{}
 	}
+	defaultPriority := c.env.Config().TxThrottlerDefaultPriority
+	if poolName == "ConnPool" {
+		defaultPriority = c.env.Config().LoadshedOltpReadDefaultPriority
+	}
 	return loadshed.SnakeConfig{
+		DefaultPriority: defaultPriority,
 		Mode: func() loadshed.Mode {
 			mode := config.ModeValue()
 			if mode != tabletenv.LoadshedModeEnabledReplicas {
