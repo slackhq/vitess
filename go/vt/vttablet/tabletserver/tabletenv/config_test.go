@@ -33,6 +33,7 @@ import (
 	"vitess.io/vitess/go/vt/mysqlctl"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/throttler"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -350,6 +351,7 @@ func TestLoadshedConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, LoadshedModeOff, cfg.LoadshedTx.ModeValue())
 	assert.NotZero(t, cfg.LoadshedOltpRead.TargetValue())
 	assert.NotZero(t, cfg.LoadshedTx.TargetValue())
+	assert.Equal(t, sqlparser.MaxPriorityValue, cfg.LoadshedOltpReadDefaultPriority)
 }
 
 func TestLoadshedZeroValueConfigDefaultsOff(t *testing.T) {
@@ -564,12 +566,14 @@ func TestLoadshedFlagsAreIndependentPerPool(t *testing.T) {
 	registerTabletEnvFlags(fs)
 
 	require.NoError(t, fs.Set("loadshed-oltp-read-mode", "enabled-replicas"))
+	require.NoError(t, fs.Set("loadshed-oltp-read-default-priority", "17"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-target", "7ms"))
 	require.NoError(t, fs.Set("loadshed-oltp-read-initial-target", "17ms"))
 	require.NoError(t, fs.Set("loadshed-tx-target", "11ms"))
 	require.NoError(t, fs.Set("loadshed-tx-initial-target", "23ms"))
 
 	assert.Equal(t, LoadshedModeEnabledReplicas, currentConfig.LoadshedOltpRead.Mode)
+	assert.Equal(t, 17, currentConfig.LoadshedOltpReadDefaultPriority)
 	assert.Equal(t, 7*time.Millisecond, currentConfig.LoadshedOltpRead.Target)
 	assert.Equal(t, 17*time.Millisecond, currentConfig.LoadshedOltpRead.InitialTarget)
 	assert.Equal(t, LoadshedModeOff, currentConfig.LoadshedTx.Mode)
@@ -619,6 +623,44 @@ func TestLoadshedConfigWiring(t *testing.T) {
 	assert.Equal(t, LoadshedModeShadow, tx.ModeValue())
 	assert.Equal(t, (20 * time.Millisecond).Nanoseconds(), txCoDel.TargetNs())
 	assert.Equal(t, LoadshedModeShadow, foundRows.ModeValue())
+}
+
+func TestVerifyLoadshedPriorities(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*TabletConfig)
+	}{
+		{
+			name: "negative OLTP read priority",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpReadDefaultPriority = -1
+			},
+		},
+		{
+			name: "OLTP read priority above maximum",
+			mutate: func(cfg *TabletConfig) {
+				cfg.LoadshedOltpReadDefaultPriority = sqlparser.MaxPriorityValue + 1
+			},
+		},
+		{
+			name: "negative transaction priority",
+			mutate: func(cfg *TabletConfig) {
+				cfg.TxThrottlerDefaultPriority = -1
+			},
+		},
+		{
+			name: "transaction priority above maximum",
+			mutate: func(cfg *TabletConfig) {
+				cfg.TxThrottlerDefaultPriority = sqlparser.MaxPriorityValue + 1
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := NewDefaultConfig()
+			test.mutate(cfg)
+			require.Error(t, cfg.Verify())
+		})
+	}
 }
 
 func TestTxThrottlerConfigFlag(t *testing.T) {

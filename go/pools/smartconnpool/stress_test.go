@@ -206,12 +206,16 @@ func TestStress(t *testing.T) {
 			}
 			for p := range parallelism {
 				tid := int32(p + 1)
+				priority := 0
+				if tt.toggle {
+					priority = p
+				}
 				wg.Go(func() error {
 					for completed[p].Load() < tt.opsPerWorker || time.Now().Before(stopAt) {
 						if err := ctx.Err(); err != nil {
 							return err
 						}
-						conn, err := pool.get(ctx)
+						conn, err := pool.get(ctx, priority)
 						if err != nil {
 							if tt.toggle && errors.Is(err, ErrPoolLoadShed) {
 								continue
