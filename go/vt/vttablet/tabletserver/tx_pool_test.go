@@ -24,6 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -31,8 +34,6 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tx"
-
-	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/mysql/fakesqldb"
 	"vitess.io/vitess/go/sqltypes"
@@ -356,6 +357,60 @@ func TestTxPoolLoadShedPropagation(t *testing.T) {
 		}
 	}
 	t.Fatal("transaction pool did not propagate a load-shed rejection")
+}
+
+func TestTxPoolLocalRequestIsUndroppable(t *testing.T) {
+	env := newEnv("TxPoolLocalRequestIsUndroppable")
+	env.Config().TxPool.Size = 1
+	require.NoError(t, env.Config().LoadshedTx.SetMode("enabled"))
+	require.NoError(t, env.Config().LoadshedTx.SetTarget(time.Millisecond))
+	require.NoError(t, env.Config().LoadshedTx.SetInitialTarget(time.Millisecond))
+	require.NoError(t, env.Config().LoadshedTx.SetIntervalRatio(1))
+
+	_, txPool, _, closer := setupWithEnv(t, env)
+	defer closer()
+
+	held, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{Priority: "0"}, false, 0, nil)
+	require.NoError(t, err)
+
+	type beginResult struct {
+		conn *StatefulConnection
+		err  error
+	}
+	results := make(chan beginResult, 1)
+	go func() {
+		conn, _, _, err := txPool.Begin(tabletenv.LocalContext(), &querypb.ExecuteOptions{}, false, 0, nil)
+		results <- beginResult{conn: conn, err: err}
+	}()
+
+	require.Eventually(t, func() bool {
+		return txPool.scp.conns.WaitersQueued() == 1
+	}, time.Second, time.Millisecond)
+
+	shed := make(chan struct{}, 1)
+	for range 6 {
+		go func() {
+			conn, _, _, err := txPool.Begin(t.Context(), &querypb.ExecuteOptions{}, false, 0, nil)
+			if conn != nil {
+				conn.Release(tx.ConnRelease)
+			}
+			if errors.Is(err, errDMLLoadShed) {
+				select {
+				case shed <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return len(shed) != 0
+	}, time.Second, time.Millisecond)
+	assert.Empty(t, results)
+
+	held.Release(tx.ConnRelease)
+	result := <-results
+	require.NoError(t, result.err)
+	result.conn.Release(tx.ConnRelease)
 }
 
 func TestTxPoolRollbackFailIsPassedThrough(t *testing.T) {
