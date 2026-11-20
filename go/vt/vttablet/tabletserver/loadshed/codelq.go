@@ -127,10 +127,6 @@ import (
 */
 
 type (
-	// DroppedRequestError is returned when a request is dropped by the CoDel
-	// queue due to persistent queue buildup.
-	DroppedRequestError struct{}
-
 	// CoDelConfig holds dynamic configuration functions for the CoDel algorithm.
 	// All fields are functions to allow runtime tuning.
 	CoDelConfig struct {
@@ -160,8 +156,6 @@ type (
 		// lockstep with droppableLen: every insert/remove pairs with a ++/--.
 		droppable droppableIndex[T]
 
-		priorityInheritors map[string]*Request[T]
-
 		cfg               CoDelConfig
 		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
@@ -169,19 +163,14 @@ type (
 	}
 )
 
-func (e *DroppedRequestError) Error() string {
-	return "request dropped by CoDel queue"
-}
-
 func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
-		queue:              list.New[*Request[T]](),
-		count:              1,
-		priorityInheritors: make(map[string]*Request[T]),
-		cfg:                cfg,
-		nowNs:              nowNs,
-		scheduleDropTimer:  scheduleDropTimer,
-		stopDropTimer:      stopDropTimer,
+		queue:             list.New[*Request[T]](),
+		count:             1,
+		cfg:               cfg,
+		nowNs:             nowNs,
+		scheduleDropTimer: scheduleDropTimer,
+		stopDropTimer:     stopDropTimer,
 	}
 	q.droppable.init()
 	return q
@@ -208,10 +197,6 @@ func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 
 	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
-	if req.priorityInheritanceKey != "" {
-		q.priorityInheritors[req.priorityInheritanceKey] = req
-	}
-
 	if req.isDroppable() {
 		q.droppableLen++
 		q.droppable.insert(req)
@@ -275,10 +260,6 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	}
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
-	if r.priorityInheritanceKey != "" && q.priorityInheritors[r.priorityInheritanceKey] == r {
-		delete(q.priorityInheritors, r.priorityInheritanceKey)
-	}
-
 	if r.isDroppable() {
 		q.lockedRemoveDroppable(r)
 	}

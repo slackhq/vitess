@@ -30,9 +30,7 @@ func defaultSnakeConfig() SnakeConfig {
 }
 
 func lockedEnqueueShadowTestRequest(s *Snake[struct{}], priority int) *Request[struct{}] {
-	req := newRequest(struct{}{}, priority)
-	s.q.lockedEnqueueIf(req, s.loadsheddingAllowed())
-	return req
+	return s.q.lockedEnqueue("", priority, "")
 }
 
 func TestInitialTargetShadow_SmallestHittingCandidate(t *testing.T) {
@@ -136,7 +134,7 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
@@ -144,7 +142,7 @@ func TestInitialTargetShadow_ShadowModeRecordsBurst(t *testing.T) {
 	require.NotNil(t, histogram)
 	assert.Equal(t, []int64{5, 10, 20, 40, 80, 160, 320, 640}, histogram.Cutoffs())
 
-	_, dropped := s.Enqueue(struct{}{}, 1, "")
+	_, dropped := s.Enqueue(struct{}{}, "", 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
@@ -165,14 +163,14 @@ func TestInitialTargetShadow_ShadowModeDoesNotRunCoDel(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 1, "")
+	_, dropped := s.Enqueue(struct{}{}, "", 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
 	assert.False(t, s.dropTimerArmed)
-	assert.False(t, s.q.dropping)
-	assert.Zero(t, s.q.dropNextNs)
-	assert.Equal(t, 1, s.q.count)
+	assert.False(t, s.q.codelq.dropping)
+	assert.Zero(t, s.q.codelq.dropNextNs)
+	assert.Equal(t, 1, s.q.codelq.count)
 	assert.Zero(t, s.interval.Count())
 	assert.Zero(t, s.dropCount.Count())
 }
@@ -182,9 +180,9 @@ func TestInitialTargetShadow_OffModeRunsNeitherCoDelNorShadow(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeOff }
 	s := NewSnake[struct{}](cfg)
 
-	_, dropped := s.Enqueue(struct{}{}, 1, "")
+	_, dropped := s.Enqueue(struct{}{}, "", 1, "")
 	require.Empty(t, dropped)
-	require.Equal(t, 1, s.q.droppableLen)
+	require.Equal(t, 1, s.q.lockedDroppableLen())
 
 	assert.False(t, s.dropTimerArmed)
 	assert.False(t, s.shadowTimerArmed)
@@ -197,7 +195,7 @@ func TestInitialTargetShadow_StartsIndependentlyOfControllerCount(t *testing.T) 
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 
-	s.q.count = 2
+	s.q.codelq.count = 2
 	req := lockedEnqueueShadowTestRequest(s, 1)
 	s.lockedStartInitialTargetShadow(req)
 
@@ -209,7 +207,7 @@ func TestInitialTargetShadow_StartsAtBacklogTransition(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = func() int64 { return int64(2 * time.Millisecond) }
-	s.q.nowNs = func() int64 { return int64(time.Millisecond) }
+	s.q.codelq.nowNs = func() int64 { return int64(time.Millisecond) }
 
 	req := lockedEnqueueShadowTestRequest(s, 1)
 	s.lockedStartInitialTargetShadow(req)
@@ -311,14 +309,14 @@ func TestInitialTargetShadow_DeadlineTimerCompletesWithoutTraffic(t *testing.T) 
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	_, dropped := s.Enqueue(struct{}{}, 1, "")
+	_, dropped := s.Enqueue(struct{}{}, "", 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.shadowTimerArmed)
 
@@ -335,14 +333,14 @@ func TestInitialTargetShadow_FinalCancellationCountsAsDrain(t *testing.T) {
 	cfg.Mode = func() Mode { return ModeShadow }
 	s := NewSnake[struct{}](cfg)
 	s.clockFunc = now.Load
-	s.q.nowNs = now.Load
+	s.q.codelq.nowNs = now.Load
 
 	exp := newFakeExporter()
 	PublishStats(exp, "SnakeOltpRead", s)
 	histogram := exp.histograms["SnakeOltpReadInitialTargetShadow20xMs"]
 	require.NotNil(t, histogram)
 
-	req, dropped := s.Enqueue(struct{}{}, 1, "")
+	req, dropped := s.Enqueue(struct{}{}, "", 1, "")
 	require.Empty(t, dropped)
 	require.True(t, s.initialTargetShadow.active)
 
