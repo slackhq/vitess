@@ -476,7 +476,7 @@ func (m LoadshedMode) Type() string {
 	return "loadshed-mode"
 }
 
-func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
+func (c *TabletConfig) LoadshedConfig(poolName string) *LoadshedConfig {
 	var config *LoadshedConfig
 	if c != nil {
 		switch poolName {
@@ -486,23 +486,29 @@ func (c *TabletConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 			config = &c.LoadshedTx
 		}
 	}
-	if config == nil {
-		return loadshed.SnakeConfig{}
-	}
-	return loadshed.SnakeConfig{
-		Mode: func() loadshed.Mode { return loadshed.Mode(config.ModeValue()) },
-		CoDel: loadshed.CoDelConfig{
-			IntervalNs: func() int64 {
-				return time.Duration(float64(config.TargetValue()) * config.IntervalRatioValue()).Nanoseconds()
-			},
-			InitialIntervalNs: func() int64 {
-				return time.Duration(float64(config.EffectiveInitialTargetValue()) * config.IntervalRatioValue()).Nanoseconds()
-			},
-			TargetNs:        func() int64 { return config.TargetValue().Nanoseconds() },
-			InitialTargetNs: func() int64 { return config.EffectiveInitialTargetValue().Nanoseconds() },
-			Exponent:        func() float64 { return 1 },
-			MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
+	return config
+}
+
+func (c *LoadshedConfig) CoDelConfig() loadshed.CoDelConfig {
+	return loadshed.CoDelConfig{
+		IntervalNs: func() int64 {
+			c.mu.RLock()
+			defer c.mu.RUnlock()
+			return time.Duration(float64(c.Target) * c.IntervalRatio).Nanoseconds()
 		},
+		InitialIntervalNs: func() int64 {
+			c.mu.RLock()
+			defer c.mu.RUnlock()
+			initialTarget := c.InitialTarget
+			if initialTarget <= 0 {
+				initialTarget = c.Target
+			}
+			return time.Duration(float64(initialTarget) * c.IntervalRatio).Nanoseconds()
+		},
+		TargetNs:        func() int64 { return c.TargetValue().Nanoseconds() },
+		InitialTargetNs: func() int64 { return c.EffectiveInitialTargetValue().Nanoseconds() },
+		Exponent:        func() float64 { return 1 },
+		MinDropDelayNs:  func() int64 { return (100 * time.Millisecond).Nanoseconds() },
 	}
 }
 
@@ -1432,15 +1438,15 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: defaultLoadshedConfig(),
-	LoadshedTx:       defaultLoadshedConfig(),
+	LoadshedOltpRead: defaultLoadshedConfig(5 * time.Millisecond),
+	LoadshedTx:       defaultLoadshedConfig(20 * time.Millisecond),
 }
 
-func defaultLoadshedConfig() LoadshedConfig {
+func defaultLoadshedConfig(target time.Duration) LoadshedConfig {
 	return LoadshedConfig{
 		mu:            &sync.RWMutex{},
 		Mode:          LoadshedModeOff,
-		Target:        5 * time.Millisecond,
+		Target:        target,
 		InitialTarget: 0,
 		IntervalRatio: 20,
 	}
