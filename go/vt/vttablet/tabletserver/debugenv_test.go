@@ -86,6 +86,51 @@ func TestDebugEnvConsolidatorResponseMemoryLimitRejectsNegative(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestDebugEnvLoadshedParams(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+
+	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedOltpRead.ModeValue())
+	assert.Equal(t, tabletenv.LoadshedModeOff, tsv.Config().LoadshedTx.ModeValue())
+
+	postVar(t, tsv, "LoadshedOltpReadMode", "shadow")
+	assert.Equal(t, tabletenv.LoadshedModeShadow, tsv.Config().LoadshedOltpRead.ModeValue())
+
+	postVar(t, tsv, "LoadshedTxMode", "enabled")
+	assert.Equal(t, tabletenv.LoadshedModeEnabled, tsv.Config().LoadshedTx.ModeValue())
+
+	postVar(t, tsv, "LoadshedOltpReadTarget", "7ms")
+	assert.Equal(t, 7*time.Millisecond, tsv.Config().LoadshedOltpRead.TargetValue())
+
+	postVar(t, tsv, "LoadshedOltpReadInitialTarget", "17ms")
+	assert.Equal(t, 17*time.Millisecond, tsv.Config().LoadshedOltpRead.InitialTargetValue())
+
+	postVar(t, tsv, "LoadshedTxIntervalRatio", "15")
+	assert.Equal(t, 15.0, tsv.Config().LoadshedTx.IntervalRatioValue())
+}
+
+func TestDebugEnvLoadshedParamsListed(t *testing.T) {
+	tsv := newDebugEnvTabletServer(t)
+	vars := getVars(tsv)
+	names := make(map[string]struct{}, len(vars))
+	for _, variable := range vars {
+		names[variable.Name] = struct{}{}
+	}
+
+	for _, want := range []string{
+		"LoadshedOltpReadMode",
+		"LoadshedOltpReadTarget",
+		"LoadshedOltpReadInitialTarget",
+		"LoadshedOltpReadIntervalRatio",
+		"LoadshedTxMode",
+		"LoadshedTxTarget",
+		"LoadshedTxInitialTarget",
+		"LoadshedTxIntervalRatio",
+	} {
+		_, ok := names[want]
+		assert.Truef(t, ok, "getVars should list %s", want)
+	}
+}
+
 // TestDebugEnvTopoCellInfoCacheTTL checks that TopoCellInfoCacheTTL changes the topo server's CellInfo cache
 // TTL in place, so the throttler's inventory reads pick it up without a vttablet restart.
 func TestDebugEnvTopoCellInfoCacheTTL(t *testing.T) {

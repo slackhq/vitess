@@ -29,9 +29,67 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/dbconfigs"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vtenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
+
+type mutableTabletTypeEnv struct {
+	tabletenv.Env
+	tabletType        topodatapb.TabletType
+	tabletTypeLookups int
+}
+
+func (e *mutableTabletTypeEnv) TabletType() topodatapb.TabletType {
+	e.tabletTypeLookups++
+	return e.tabletType
+}
+
+func TestLoadshedConfigRequiresAdapter(t *testing.T) {
+	config := tabletenv.NewDefaultConfig()
+	_, implementsPoolConfig := any(config).(smartconnpool.PoolConfig)
+	assert.False(t, implementsPoolConfig)
+}
+
+func TestLoadshedConfigMissing(t *testing.T) {
+	for _, config := range []*tabletenv.TabletConfig{nil, tabletenv.NewDefaultConfig()} {
+		env := tabletenv.NewEnv(vtenv.NewTestEnv(), config, t.Name())
+		adapter := loadshedPoolConfig{env: env}
+		assert.Equal(t, loadshed.SnakeConfig{}, adapter.LoadshedConfig("UnknownPool"))
+		if config == nil {
+			assert.Equal(t, loadshed.SnakeConfig{}, adapter.LoadshedConfig("ConnPool"))
+		}
+	}
+}
+
+func TestLoadshedModeFollowsTabletType(t *testing.T) {
+	cfg := tabletenv.NewDefaultConfig()
+	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled-replicas"))
+	env := &mutableTabletTypeEnv{
+		Env:        tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, t.Name()),
+		tabletType: topodatapb.TabletType_PRIMARY,
+	}
+	mode := loadshedPoolConfig{env: env}.LoadshedConfig("ConnPool").Mode
+
+	assert.Equal(t, loadshed.ModeOff, mode())
+
+	env.tabletType = topodatapb.TabletType_REPLICA
+	assert.Equal(t, loadshed.ModeEnabled, mode())
+
+	env.tabletType = topodatapb.TabletType_RDONLY
+	assert.Equal(t, loadshed.ModeEnabled, mode())
+
+	env.tabletType = topodatapb.TabletType_UNKNOWN
+	assert.Equal(t, loadshed.ModeOff, mode())
+	assert.Equal(t, 4, env.tabletTypeLookups)
+
+	for _, configured := range []tabletenv.LoadshedMode{tabletenv.LoadshedModeOff, tabletenv.LoadshedModeShadow, tabletenv.LoadshedModeEnabled} {
+		require.NoError(t, cfg.LoadshedOltpRead.SetMode(string(configured)))
+		assert.Equal(t, loadshed.Mode(configured), mode())
+		assert.Equal(t, 4, env.tabletTypeLookups)
+	}
+}
 
 func TestConnPoolGet(t *testing.T) {
 	db := fakesqldb.New(t)
