@@ -46,7 +46,9 @@ const (
 	oracleCloudRunner = "oracle-16cpu-64gb-x86-64"
 	githubRunner      = "vitess-ubuntu24-16cpu-1"
 	cores16RunnerName = githubRunner
-	defaultRunnerName = "ubuntu-24.04"
+	defaultRunnerName = githubRunner
+	// The unit tests fail on the 16-core runner (vreplication and etcd-backed tests).
+	unitTestRunnerName = "ubuntu-24.04"
 )
 
 // To support a private git repository, set goPrivate to a repo in
@@ -358,7 +360,7 @@ func generateUnitTestWorkflows() {
 		for _, evalengine := range []string{"1", "0"} {
 			test := &unitTest{
 				Name:       fmt.Sprintf("Unit Test (%s%s)", evalengineToString(evalengine), platform),
-				RunsOn:     defaultRunnerName,
+				RunsOn:     unitTestRunnerName,
 				Platform:   string(platform),
 				GoPrivate:  goPrivate,
 				Evalengine: evalengine,
