@@ -1376,15 +1376,15 @@ var defaultConfig = TabletConfig{
 
 	TwoPCAbandonAge: 15 * time.Minute,
 
-	LoadshedOltpRead: defaultLoadshedConfig(),
-	LoadshedTx:       defaultLoadshedConfig(),
+	LoadshedOltpRead: defaultLoadshedConfig(5 * time.Millisecond),
+	LoadshedTx:       defaultLoadshedConfig(20 * time.Millisecond),
 }
 
-func defaultLoadshedConfig() LoadshedConfig {
+func defaultLoadshedConfig(target time.Duration) LoadshedConfig {
 	return LoadshedConfig{
 		mu:            &sync.RWMutex{},
 		Mode:          LoadshedModeOff,
-		Target:        5 * time.Millisecond,
+		Target:        target,
 		InitialTarget: 0,
 		IntervalRatio: 20,
 	}
