@@ -46,6 +46,23 @@ func (e *mutableTabletTypeEnv) TabletType() topodatapb.TabletType {
 	return e.tabletType
 }
 
+func TestLoadshedConfigRequiresAdapter(t *testing.T) {
+	config := tabletenv.NewDefaultConfig()
+	_, implementsPoolConfig := any(config).(smartconnpool.PoolConfig)
+	assert.False(t, implementsPoolConfig)
+}
+
+func TestLoadshedConfigMissing(t *testing.T) {
+	for _, config := range []*tabletenv.TabletConfig{nil, tabletenv.NewDefaultConfig()} {
+		env := tabletenv.NewEnv(vtenv.NewTestEnv(), config, t.Name())
+		adapter := loadshedPoolConfig{env: env}
+		assert.Equal(t, loadshed.SnakeConfig{}, adapter.LoadshedConfig("UnknownPool"))
+		if config == nil {
+			assert.Equal(t, loadshed.SnakeConfig{}, adapter.LoadshedConfig("ConnPool"))
+		}
+	}
+}
+
 func TestLoadshedModeFollowsTabletType(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	require.NoError(t, cfg.LoadshedOltpRead.SetMode("enabled-replicas"))

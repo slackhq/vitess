@@ -48,18 +48,19 @@ type loadshedPoolConfig struct {
 
 func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
 	config := c.env.Config().LoadshedConfig(poolName)
-	if config.Mode == nil {
-		return config
+	if config == nil {
+		return loadshed.SnakeConfig{}
 	}
-	configuredMode := config.Mode
-	config.Mode = func() loadshed.Mode {
-		mode := configuredMode()
-		if tabletenv.LoadshedMode(mode) != tabletenv.LoadshedModeEnabledReplicas {
-			return mode
-		}
-		return tabletenv.LoadshedMode(mode).EffectiveMode(c.env.TabletType())
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode {
+			mode := config.ModeValue()
+			if mode != tabletenv.LoadshedModeEnabledReplicas {
+				return loadshed.Mode(mode)
+			}
+			return mode.EffectiveMode(c.env.TabletType())
+		},
+		CoDel: config.CoDelConfig(),
 	}
-	return config
 }
 
 // Pool implements a custom connection pool for tabletserver.
