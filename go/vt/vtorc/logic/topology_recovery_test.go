@@ -280,6 +280,11 @@ func TestGetCheckAndRecoverFunctionCode(t *testing.T) {
 			analysisCode:         inst.ReplicationStopped,
 			wantRecoveryFunction: fixReplicaFunc,
 		}, {
+			name:                 "ReplicationStoppedUnfixableSQLError",
+			ersEnabled:           true,
+			analysisCode:         inst.ReplicationStoppedUnfixableSQLError,
+			wantRecoveryFunction: noRecoveryFunc,
+		}, {
 			name:                 "PrimarySemiSyncMustBeSet",
 			ersEnabled:           false,
 			analysisCode:         inst.PrimarySemiSyncMustBeSet,

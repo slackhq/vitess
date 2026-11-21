@@ -22,6 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 )
 
 func TestStatusReplicationRunning(t *testing.T) {
@@ -166,6 +169,33 @@ func TestMysqlRetrieveSourceServerId(t *testing.T) {
 	got, err := ParseMysqlReplicationStatus(resultMap, true)
 	require.NoError(t, err)
 	assert.Equalf(t, got.SourceServerID, want.SourceServerID, "got SourceServerID: %v; want SourceServerID: %v", got.SourceServerID, want.SourceServerID)
+}
+
+func TestMysqlRetrieveLastSQLErrno(t *testing.T) {
+	resultMap := map[string]string{
+		"Last_SQL_Errno": "1146",
+		"Last_SQL_Error": "Error executing row event: 'Table 'vt_ks.t1' doesn't exist'",
+	}
+
+	got, err := ParseMysqlReplicationStatus(resultMap, true)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1146, got.LastSQLErrno)
+
+	pb := ReplicationStatusToProto(got)
+	assert.EqualValues(t, 1146, pb.LastSqlErrno)
+
+	b, err := pb.MarshalVT()
+	require.NoError(t, err)
+	var decoded replicationdatapb.Status
+	require.NoError(t, decoded.UnmarshalVT(b))
+	assert.EqualValues(t, 1146, decoded.LastSqlErrno)
+
+	b, err = proto.Marshal(pb)
+	require.NoError(t, err)
+	decoded.Reset()
+	require.NoError(t, proto.Unmarshal(b, &decoded))
+	assert.EqualValues(t, 1146, decoded.LastSqlErrno)
+	assert.EqualValues(t, 1146, ProtoToReplicationStatus(&decoded).LastSQLErrno)
 }
 
 func TestMysqlRetrieveFileBasedPositions(t *testing.T) {

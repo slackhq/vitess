@@ -24,6 +24,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"google.golang.org/protobuf/encoding/prototext"
 
+	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/log"
@@ -142,6 +143,9 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			primary_instance.replica_sql_running = 0
 			OR primary_instance.replica_io_running = 0
 		) AS replication_stopped,
+		MIN(
+			CASE WHEN primary_instance.replica_sql_running = 0 THEN primary_instance.last_sql_errno ELSE 0 END
+		) AS last_sql_errno,
 		MIN(
 			primary_instance.supports_oracle_gtid
 		) AS supports_oracle_gtid,
@@ -337,6 +341,7 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 		a.CountValidReplicas = m.GetUint("count_valid_replicas")
 		a.CountValidReplicatingReplicas = m.GetUint("count_valid_replicating_replicas")
 		a.ReplicationStopped = m.GetBool("replication_stopped")
+		a.LastSQLErrno = m.GetUint32("last_sql_errno")
 		a.ErrantGTID = m.GetString("gtid_errant")
 
 		countValidOracleGTIDReplicas := m.GetUint("count_valid_oracle_gtid_replicas")
@@ -493,6 +498,11 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			a.Analysis = NotConnectedToPrimary
 			a.Description = "Not connected to the primary"
 			//
+		} else if topo.IsReplicaType(a.TabletType) && !a.IsPrimary && a.ReplicationStopped && isUnfixableSQLErrno(a.LastSQLErrno) {
+			// FixReplica would only restart replication into the same error, so report it instead.
+			a.Analysis = ReplicationStoppedUnfixableSQLError
+			a.Description = fmt.Sprintf("Replication SQL thread stopped on unfixable error %d", a.LastSQLErrno)
+			//
 		} else if topo.IsReplicaType(a.TabletType) && !a.IsPrimary && math.Round(a.HeartbeatInterval*2) != float64(a.ReplicaNetTimeout) {
 			a.Analysis = ReplicaMisconfigured
 			a.Description = "Replica has been misconfigured"
@@ -610,6 +620,26 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 	}
 	// TODO: result, err = getConcensusReplicationAnalysis(result)
 	return result, err
+}
+
+// unfixableSQLErrnos are replication SQL thread errors that mean the replica's data has
+// diverged from its primary. Restarting replication can't fix them; a human has to.
+var unfixableSQLErrnos = map[sqlerror.ErrorCode]bool{
+	sqlerror.ERDbCreateExists:     true,
+	sqlerror.ERDbDropExists:       true,
+	sqlerror.ERKeyNotFound:        true,
+	sqlerror.ERTableExists:        true,
+	sqlerror.ERBadTable:           true,
+	sqlerror.ERBadFieldError:      true,
+	sqlerror.ERDupFieldName:       true,
+	sqlerror.ERDupKeyName:         true,
+	sqlerror.ERDupEntry:           true,
+	sqlerror.ERCantDropFieldOrKey: true,
+	sqlerror.ERNoSuchTable:        true,
+}
+
+func isUnfixableSQLErrno(errno uint32) bool {
+	return unfixableSQLErrnos[sqlerror.ErrorCode(errno)]
 }
 
 // isStaleTopoPrimary returns true when a tablet has type PRIMARY in the topology and has an older primary term

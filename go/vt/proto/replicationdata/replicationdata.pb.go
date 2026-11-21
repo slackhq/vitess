@@ -119,6 +119,7 @@ type Status struct {
 	SemiSyncPrimaryStatus                  bool   `protobuf:"varint,28,opt,name=semi_sync_primary_status,json=semiSyncPrimaryStatus,proto3" json:"semi_sync_primary_status,omitempty"`
 	SemiSyncReplicaStatus                  bool   `protobuf:"varint,29,opt,name=semi_sync_replica_status,json=semiSyncReplicaStatus,proto3" json:"semi_sync_replica_status,omitempty"`
 	ServerVersion                          string `protobuf:"bytes,30,opt,name=server_version,json=serverVersion,proto3" json:"server_version,omitempty"`
+	LastSqlErrno                           uint32 `protobuf:"varint,31,opt,name=last_sql_errno,json=lastSqlErrno,proto3" json:"last_sql_errno,omitempty"`
 	unknownFields                          protoimpl.UnknownFields
 	sizeCache                              protoimpl.SizeCache
 }
@@ -347,6 +348,13 @@ func (x *Status) GetServerVersion() string {
 		return x.ServerVersion
 	}
 	return ""
+}
+
+func (x *Status) GetLastSqlErrno() uint32 {
+	if x != nil {
+		return x.LastSqlErrno
+	}
+	return 0
 }
 
 // Configuration holds replication configuration information gathered from performance_schema and global variables.
@@ -768,7 +776,7 @@ var File_replicationdata_proto protoreflect.FileDescriptor
 
 const file_replicationdata_proto_rawDesc = "" +
 	"\n" +
-	"\x15replicationdata.proto\x12\x0freplicationdata\x1a\x0etopodata.proto\"\xcc\t\n" +
+	"\x15replicationdata.proto\x12\x0freplicationdata\x1a\x0etopodata.proto\"\xf2\t\n" +
 	"\x06Status\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\tR\bposition\x126\n" +
 	"\x17replication_lag_seconds\x18\x04 \x01(\rR\x15replicationLagSeconds\x12\x1f\n" +
@@ -804,7 +812,8 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\x19semi_sync_replica_enabled\x18\x1b \x01(\bR\x16semiSyncReplicaEnabled\x127\n" +
 	"\x18semi_sync_primary_status\x18\x1c \x01(\bR\x15semiSyncPrimaryStatus\x127\n" +
 	"\x18semi_sync_replica_status\x18\x1d \x01(\bR\x15semiSyncReplicaStatus\x12%\n" +
-	"\x0eserver_version\x18\x1e \x01(\tR\rserverVersionJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"n\n" +
+	"\x0eserver_version\x18\x1e \x01(\tR\rserverVersion\x12$\n" +
+	"\x0elast_sql_errno\x18\x1f \x01(\rR\flastSqlErrnoJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"n\n" +
 	"\rConfiguration\x12-\n" +
 	"\x12heartbeat_interval\x18\x01 \x01(\x01R\x11heartbeatInterval\x12.\n" +
 	"\x13replica_net_timeout\x18\x02 \x01(\x05R\x11replicaNetTimeout\"w\n" +

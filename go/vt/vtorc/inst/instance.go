@@ -66,6 +66,7 @@ type Instance struct {
 	IsDetached            bool
 	RelaylogCoordinates   BinlogCoordinates
 	LastSQLError          string
+	LastSQLErrno          uint32
 	LastIOError           string
 	SecondsBehindPrimary  sql.NullInt64
 	SQLDelay              uint32

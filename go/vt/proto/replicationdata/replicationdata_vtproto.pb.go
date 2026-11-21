@@ -55,6 +55,7 @@ func (m *Status) CloneVT() *Status {
 	r.SemiSyncPrimaryStatus = m.SemiSyncPrimaryStatus
 	r.SemiSyncReplicaStatus = m.SemiSyncReplicaStatus
 	r.ServerVersion = m.ServerVersion
+	r.LastSqlErrno = m.LastSqlErrno
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -192,6 +193,13 @@ func (m *Status) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.LastSqlErrno != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.LastSqlErrno))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xf8
 	}
 	if len(m.ServerVersion) > 0 {
 		i -= len(m.ServerVersion)
@@ -953,6 +961,9 @@ func (m *Status) SizeVT() (n int) {
 	l = len(m.ServerVersion)
 	if l > 0 {
 		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.LastSqlErrno != 0 {
+		n += 2 + protohelpers.SizeOfVarint(uint64(m.LastSqlErrno))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1827,6 +1838,25 @@ func (m *Status) UnmarshalVT(dAtA []byte) error {
 			}
 			m.ServerVersion = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 31:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastSqlErrno", wireType)
+			}
+			m.LastSqlErrno = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastSqlErrno |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
