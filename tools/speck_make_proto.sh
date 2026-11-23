@@ -9,8 +9,10 @@
 # put it, and the image's pbjs/pbts where generate-proto-types.sh looks for
 # them, then runs the Makefile's own `proto` target with those two install steps
 # skipped. The Go plugin versions, protoc flags and vtctldclient codegen all
-# come from the checked-out Makefile, so the output is what CI's
-# tools/check_make_proto.sh and tools/check_make_vtadmin_web_proto.sh expect.
+# come from the checked-out Makefile, so the output should match what CI's
+# tools/check_make_proto.sh and tools/check_make_vtadmin_web_proto.sh generate.
+# On main those checks currently fail on web/vtadmin/src/proto/vtadmin.js
+# itself, so until a regenerated copy lands there, expect it to show as modified.
 #
 # It doesn't source build.env, which also installs git hooks.
 #
@@ -51,9 +53,19 @@ cleanup() {
 	fi
 }
 trap cleanup EXIT
-if [[ ! -e web/vtadmin/node_modules ]]; then
-	ln -s "$image_node_modules" web/vtadmin/node_modules
+if [[ ! -e web/vtadmin/node_modules || "$(readlink web/vtadmin/node_modules)" == "$image_node_modules" ]]; then
+	# A link this script left behind (a run killed before its EXIT trap) counts as missing.
+	ln -snf "$image_node_modules" web/vtadmin/node_modules
 	linked_node_modules=true
+	# Other versions would rewrite the bindings for reasons unrelated to the .proto change.
+	for pkg in protobufjs protobufjs-cli; do
+		want=$(node -p "require('./web/vtadmin/package-lock.json').packages['node_modules/$pkg'].version")
+		have=$(node -p "require('$image_node_modules/$pkg/package.json').version")
+		if [[ "$want" != "$have" ]]; then
+			echo "ERROR: web/vtadmin/package-lock.json pins $pkg $want, but the devspace image has $have." >&2
+			exit 1
+		fi
+	done
 fi
 
 # -o treats a target as already made without running its recipe.
