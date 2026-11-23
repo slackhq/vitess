@@ -22,10 +22,16 @@ import (
 )
 
 type (
+	outcome uint8
+
+	// Request represents an entry in the CoDel queue. Named a 'request' since
+	// it may be dropped or dequeued.
 	Request[T any] struct {
 		priority           int
 		codelqEnqueuedAtNs int64
 		codelqElem         *list.Element[*Request[T]]
+		valveID            string
+		outcome            outcome
 		value              T
 
 		priorityInheritanceKey string
@@ -40,6 +46,14 @@ type (
 	}
 )
 
+const (
+	outcomePending outcome = iota
+	outcomeDequeued
+	outcomeCanceled
+	outcomeShed
+	outcomeDrained
+)
+
 // PriorityUndroppable is a sentinel priority indicating a request that must
 // never be dropped by CoDel.
 const PriorityUndroppable = 0
@@ -50,11 +64,22 @@ func IsValidPriority(priority int) bool {
 
 func newRequest[T any](value T, priority int) *Request[T] {
 	return &Request[T]{
-		priority: priority,
 		value:    value,
+		priority: priority,
 	}
 }
 
 func (r *Request[T]) isDroppable() bool {
 	return r.priority != PriorityUndroppable
+}
+
+func (r *Request[T]) done() bool {
+	return r.outcome != outcomePending
+}
+
+func (r *Request[T]) markDone(outcome outcome) {
+	if r.done() {
+		panic("loadshed: request completed more than once")
+	}
+	r.outcome = outcome
 }
