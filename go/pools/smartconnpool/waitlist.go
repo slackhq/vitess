@@ -33,7 +33,9 @@ type PoolConfig interface {
 
 type waitlistStatsExporter interface {
 	Name() string
+	NewCounterFunc(name, help string, f func() int64) *stats.CounterFunc
 	NewGaugesFuncWithMultiLabels(name, help string, labels []string, sample func() map[string]int64) *stats.GaugesFuncWithMultiLabels
+	NewHistogram(name, help string, cutoffs []int64) *stats.Histogram
 }
 
 var snakeModeGauges = struct {
@@ -415,17 +417,22 @@ func (wl *waitlist[C]) init(poolName string, config PoolConfig) {
 }
 
 func (wl *waitlist[C]) registerStats(exporter waitlistStatsExporter, poolName string) {
-	var poolLabel string
+	var statsName, poolLabel string
 	switch poolName {
 	case "ConnPool":
+		statsName = "SnakeOltpRead"
 		poolLabel = "oltp_read"
 	case "TransactionPool":
+		statsName = "SnakeDml"
 		poolLabel = "dml"
 	case "FoundRowsPool":
+		statsName = "SnakeDmlFoundRows"
 		poolLabel = "dml_found_rows"
 	default:
 		return
 	}
+
+	loadshed.PublishStats(exporter, statsName, wl.snake)
 
 	snakeModeGauges.Lock()
 	exporterName := exporter.Name()
