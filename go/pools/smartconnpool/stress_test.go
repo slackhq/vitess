@@ -215,7 +215,7 @@ func TestStress(t *testing.T) {
 						if err := ctx.Err(); err != nil {
 							return err
 						}
-						conn, err := pool.get(ctx, priority)
+						conn, err := pool.get(ctx, priority, "")
 						if err != nil {
 							if tt.toggle && errors.Is(err, ErrPoolLoadShed) {
 								continue

@@ -160,6 +160,8 @@ type (
 		// lockstep with droppableLen: every insert/remove pairs with a ++/--.
 		droppable droppableIndex[T]
 
+		priorityInheritors map[string]*Request[T]
+
 		cfg               CoDelConfig
 		nowNs             func() int64
 		scheduleDropTimer func(delayNs int64)
@@ -173,12 +175,13 @@ func (e *DroppedRequestError) Error() string {
 
 func newCoDelQueue[T any](cfg CoDelConfig, nowNs func() int64, scheduleDropTimer func(delayNs int64), stopDropTimer func()) *CoDelQueue[T] {
 	q := &CoDelQueue[T]{
-		queue:             list.New[*Request[T]](),
-		count:             1,
-		cfg:               cfg,
-		nowNs:             nowNs,
-		scheduleDropTimer: scheduleDropTimer,
-		stopDropTimer:     stopDropTimer,
+		queue:              list.New[*Request[T]](),
+		count:              1,
+		priorityInheritors: make(map[string]*Request[T]),
+		cfg:                cfg,
+		nowNs:              nowNs,
+		scheduleDropTimer:  scheduleDropTimer,
+		stopDropTimer:      stopDropTimer,
 	}
 	q.droppable.init()
 	return q
@@ -205,6 +208,9 @@ func (q *CoDelQueue[T]) lockedEnqueueIf(req *Request[T], enabled bool) {
 
 	req.codelqEnqueuedAtNs = now
 	req.codelqElem = q.queue.PushBack(req)
+	if req.priorityInheritanceKey != "" {
+		q.priorityInheritors[req.priorityInheritanceKey] = req
+	}
 
 	if req.isDroppable() {
 		q.droppableLen++
@@ -269,13 +275,20 @@ func (q *CoDelQueue[T]) lockedRemove(r *Request[T]) {
 	}
 	q.queue.Remove(r.codelqElem)
 	r.codelqElem = nil
+	if r.priorityInheritanceKey != "" && q.priorityInheritors[r.priorityInheritanceKey] == r {
+		delete(q.priorityInheritors, r.priorityInheritanceKey)
+	}
 
 	if r.isDroppable() {
-		q.droppableLen--
-		q.droppable.remove(r)
-		if q.droppableLen == 0 && q.dropping {
-			q.dropping = false
-		}
+		q.lockedRemoveDroppable(r)
+	}
+}
+
+func (q *CoDelQueue[T]) lockedRemoveDroppable(r *Request[T]) {
+	q.droppableLen--
+	q.droppable.remove(r)
+	if q.droppableLen == 0 && q.dropping {
+		q.dropping = false
 	}
 }
 
