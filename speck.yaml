@@ -4,10 +4,9 @@
 #
 #   https://docs.tinyspeck.com/devxp/developer_workspaces/hello_devspace_pods/speck_yaml/
 #
-# This repo has no devspaces.yaml, so pods use Checkpoint's default config: the
-# shared base image in a container named "devspace". Run commands from the repo
-# root. Pods have no network, and no mysqld, so tests that start MySQL (for
-# example the vstreamer and vreplication packages) still need CI.
+# Pods run one container, "devspace", from the image devspaces.yaml names. Run
+# commands from the repo root. Pods have no mysqld, so tests that start MySQL
+# (for example the vstreamer and vreplication packages) still need CI.
 #
 # An entry ending in `:*` is a prefix match and allows any trailing arguments;
 # other entries are exact. Checkpoint keeps only entries made of letters,
@@ -15,14 +14,19 @@
 #
 # The `go test` and `go vet` prefixes take package paths under ./go/ and test
 # filters (`-run`). They would also accept flags like -exec or -toolexec; that
-# is accepted here because the pod has no network or credentials.
+# is accepted here because the pod has no credentials.
+#
+# tools/speck_make_proto.sh runs the checked-out branch's copy of the script,
+# so like `go test` it runs code from that branch. It installs the protoc Go
+# plugins with `go install`, so it needs the pod to reach the Go module proxy.
 #
 # Left out on purpose:
 #   go install / go run / go generate / go env -w
 #              install or run arbitrary code, or persist Go config
 #   go mod tidy / download / get
 #              rewrite go.mod or go.sum and need network
-#   make *     targets fetch tools and start services the pod doesn't have
+#   make *     targets fetch tools and start services the pod doesn't have;
+#              `make proto` runs through tools/speck_make_proto.sh instead
 #   git *      Speck has its own git tool
 allowed_commands:
   containers:
@@ -47,6 +51,9 @@ allowed_commands:
         - "goimports -l:*"
         - "goimports -d:*"
         - "goimports -w -local vitess.io/vitess:*"
+        # Regenerate go/vt/proto and the vtadmin web bindings after editing
+        # proto/*.proto, as `make proto` would.
+        - "tools/speck_make_proto.sh"
         # Read-only diagnostics
         - "go version"
         - "go env"
