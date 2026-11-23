@@ -291,6 +291,7 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		poolLabel string
 	}{
 		{poolName: "ConnPool", poolLabel: "oltp_read"},
+		{poolName: "StreamConnPool", poolLabel: "olap_read"},
 		{poolName: "TransactionPool", poolLabel: "dml"},
 		{poolName: "FoundRowsPool", poolLabel: "dml_found_rows"},
 	} {
@@ -357,7 +358,7 @@ func TestWaitlistActiveModeMetric(t *testing.T) {
 		})
 	}
 	assert.Equal(t, 1, exporter.creates)
-	assert.Len(t, exporter.gauge.Counts(), 18)
+	assert.Len(t, exporter.gauge.Counts(), 24)
 }
 
 func TestWaitlistLegacyPreservesSettingAffinityAndAging(t *testing.T) {

@@ -54,6 +54,8 @@ func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig
 	defaultPriority := c.env.Config().TxThrottlerDefaultPriority
 	if poolName == "ConnPool" {
 		defaultPriority = c.env.Config().LoadshedOltpReadDefaultPriority
+	} else if poolName == "StreamConnPool" {
+		defaultPriority = c.env.Config().LoadshedOlapReadDefaultPriority
 	}
 	return loadshed.SnakeConfig{
 		DefaultPriority: defaultPriority,
