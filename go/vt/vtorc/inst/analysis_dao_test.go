@@ -673,6 +673,98 @@ func TestGetReplicationAnalysisDecision(t *testing.T) {
 			codeWanted:     ReplicationStoppedUnfixableSQLError,
 		},
 		{
+			// ReplicaMisconfigured's fix restarts replication too, so the unfixable error wins.
+			name: "ReplicationStoppedUnfixableSQLError ahead of ReplicaMisconfigured",
+			info: []*test.InfoForRecoveryAnalysis{{
+				TabletInfo: &topodatapb.Tablet{
+					Alias:         &topodatapb.TabletAlias{Cell: "zon1", Uid: 101},
+					Hostname:      "localhost",
+					Keyspace:      "ks",
+					Shard:         "0",
+					Type:          topodatapb.TabletType_PRIMARY,
+					MysqlHostname: "localhost",
+					MysqlPort:     6708,
+				},
+				DurabilityPolicy:              policy.DurabilityNone,
+				LastCheckValid:                1,
+				CountReplicas:                 4,
+				CountValidReplicas:            4,
+				CountValidReplicatingReplicas: 3,
+				CountValidOracleGTIDReplicas:  4,
+				CountLoggingReplicas:          2,
+				IsPrimary:                     1,
+				CurrentTabletType:             int(topodatapb.TabletType_PRIMARY),
+			}, {
+				TabletInfo: &topodatapb.Tablet{
+					Alias:         &topodatapb.TabletAlias{Cell: "zon1", Uid: 100},
+					Hostname:      "localhost",
+					Keyspace:      "ks",
+					Shard:         "0",
+					Type:          topodatapb.TabletType_REPLICA,
+					MysqlHostname: "localhost",
+					MysqlPort:     6709,
+				},
+				DurabilityPolicy: policy.DurabilityNone,
+				PrimaryTabletInfo: &topodatapb.Tablet{
+					Alias: &topodatapb.TabletAlias{Cell: "zon1", Uid: 101},
+				},
+				LastCheckValid:     1,
+				ReadOnly:           1,
+				ReplicationStopped: 1,
+				LastSQLErrno:       uint32(sqlerror.ERDupEntry),
+				ReplicaNetTimeout:  30,
+				HeartbeatInterval:  30,
+			}},
+			keyspaceWanted: "ks",
+			shardWanted:    "0",
+			codeWanted:     ReplicationStoppedUnfixableSQLError,
+		},
+		{
+			// A replica left on an old primary is repointed first; the next pass reports the error.
+			name: "ConnectedToWrongPrimary ahead of ReplicationStoppedUnfixableSQLError",
+			info: []*test.InfoForRecoveryAnalysis{{
+				TabletInfo: &topodatapb.Tablet{
+					Alias:         &topodatapb.TabletAlias{Cell: "zon1", Uid: 101},
+					Hostname:      "localhost",
+					Keyspace:      "ks",
+					Shard:         "0",
+					Type:          topodatapb.TabletType_PRIMARY,
+					MysqlHostname: "localhost",
+					MysqlPort:     6708,
+				},
+				DurabilityPolicy:              policy.DurabilityNone,
+				LastCheckValid:                1,
+				CountReplicas:                 4,
+				CountValidReplicas:            4,
+				CountValidReplicatingReplicas: 3,
+				CountValidOracleGTIDReplicas:  4,
+				CountLoggingReplicas:          2,
+				IsPrimary:                     1,
+				CurrentTabletType:             int(topodatapb.TabletType_PRIMARY),
+			}, {
+				TabletInfo: &topodatapb.Tablet{
+					Alias:         &topodatapb.TabletAlias{Cell: "zon1", Uid: 100},
+					Hostname:      "localhost",
+					Keyspace:      "ks",
+					Shard:         "0",
+					Type:          topodatapb.TabletType_REPLICA,
+					MysqlHostname: "localhost",
+					MysqlPort:     6709,
+				},
+				DurabilityPolicy: policy.DurabilityNone,
+				PrimaryTabletInfo: &topodatapb.Tablet{
+					Alias: &topodatapb.TabletAlias{Cell: "zon1", Uid: 102},
+				},
+				LastCheckValid:     1,
+				ReadOnly:           1,
+				ReplicationStopped: 1,
+				LastSQLErrno:       uint32(sqlerror.ERDupEntry),
+			}},
+			keyspaceWanted: "ks",
+			shardWanted:    "0",
+			codeWanted:     ConnectedToWrongPrimary,
+		},
+		{
 			name: "No recoveries on drained tablets",
 			info: []*test.InfoForRecoveryAnalysis{{
 				TabletInfo: &topodatapb.Tablet{
@@ -1257,6 +1349,23 @@ func TestGetReplicationAnalysis(t *testing.T) {
 			// This situation only happens when we haven't been able to read the MySQL information even once for this tablet.
 			// So it is likely a new tablet.
 			codeWanted:     InvalidReplica,
+			keyspaceWanted: "ks",
+			shardWanted:    "0",
+		}, {
+			name: "Replica SQL thread stopped on an unfixable error",
+			sql: []string{
+				`UPDATE database_instance SET replica_sql_running = 0, last_sql_errno = 1062 WHERE alias = 'zone1-0000000100'`,
+			},
+			codeWanted:     ReplicationStoppedUnfixableSQLError,
+			keyspaceWanted: "ks",
+			shardWanted:    "0",
+		}, {
+			// last_sql_errno only counts while the SQL thread is stopped.
+			name: "Replica IO thread stopped with a stale SQL error",
+			sql: []string{
+				`UPDATE database_instance SET replica_io_running = 0, replica_sql_running = 1, last_sql_errno = 1062 WHERE alias = 'zone1-0000000100'`,
+			},
+			codeWanted:     ReplicationStopped,
 			keyspaceWanted: "ks",
 			shardWanted:    "0",
 		},

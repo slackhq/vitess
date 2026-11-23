@@ -498,8 +498,12 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			a.Analysis = NotConnectedToPrimary
 			a.Description = "Not connected to the primary"
 			//
-		} else if topo.IsReplicaType(a.TabletType) && !a.IsPrimary && a.ReplicationStopped && isUnfixableSQLErrno(a.LastSQLErrno) {
+		} else if topo.IsReplicaType(a.TabletType) && !a.IsPrimary && a.ReplicationStopped && isUnfixableSQLErrno(a.LastSQLErrno) &&
+			(ca.primaryAlias == "" || a.AnalyzedInstancePrimaryAlias == ca.primaryAlias) {
 			// FixReplica would only restart replication into the same error, so report it instead.
+			// This sits ahead of ReplicaMisconfigured, whose fix also restarts replication, but a
+			// replica still on an old primary falls through to ConnectedToWrongPrimary first, so
+			// it is repointed once and then lands here.
 			a.Analysis = ReplicationStoppedUnfixableSQLError
 			a.Description = fmt.Sprintf("Replication SQL thread stopped on unfixable error %d", a.LastSQLErrno)
 			//
@@ -627,6 +631,7 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 var unfixableSQLErrnos = map[sqlerror.ErrorCode]bool{
 	sqlerror.ERDbCreateExists:     true,
 	sqlerror.ERDbDropExists:       true,
+	sqlerror.ERBadDb:              true,
 	sqlerror.ERKeyNotFound:        true,
 	sqlerror.ERTableExists:        true,
 	sqlerror.ERBadTable:           true,
@@ -636,6 +641,8 @@ var unfixableSQLErrnos = map[sqlerror.ErrorCode]bool{
 	sqlerror.ERDupEntry:           true,
 	sqlerror.ERCantDropFieldOrKey: true,
 	sqlerror.ERNoSuchTable:        true,
+	// Row-based replication can't convert a column whose type differs on the replica.
+	sqlerror.ERReplicaConversionFailed: true,
 }
 
 func isUnfixableSQLErrno(errno uint32) bool {
