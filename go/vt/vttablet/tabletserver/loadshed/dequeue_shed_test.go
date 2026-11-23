@@ -24,7 +24,7 @@ import (
 
 func dropAllFn(q *testCoDelQueue) func() bool {
 	return func() bool {
-		elem := q.lockedFindDroppable()
+		elem := q.lockedFindLowestPriorityDroppable()
 		if elem == nil {
 			return false
 		}
@@ -44,7 +44,7 @@ func TestCoDelQueue_DequeueSheds_AfterEpisodeTornDown(t *testing.T) {
 
 	const backlog = 6
 	for range backlog {
-		testEnqueue(q, true)
+		testEnqueue(q, 1)
 	}
 	assert.True(t, q.dropping, "first droppable enqueue should arm an episode")
 
