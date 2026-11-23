@@ -499,11 +499,11 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			a.Description = "Not connected to the primary"
 			//
 		} else if topo.IsReplicaType(a.TabletType) && !a.IsPrimary && a.ReplicationStopped && isUnfixableSQLErrno(a.LastSQLErrno) &&
-			(ca.primaryAlias == "" || a.AnalyzedInstancePrimaryAlias == ca.primaryAlias) {
+			a.AnalyzedInstancePrimaryAlias == ca.primaryAlias {
 			// FixReplica would only restart replication into the same error, so report it instead.
-			// This sits ahead of ReplicaMisconfigured, whose fix also restarts replication, but a
-			// replica still on an old primary falls through to ConnectedToWrongPrimary first, so
-			// it is repointed once and then lands here.
+			// This sits ahead of ReplicaMisconfigured, whose fix also restarts replication. A
+			// replica still on an old primary falls through to ReplicaMisconfigured or
+			// ConnectedToWrongPrimary, whose fixReplica repoints it once, and then lands here.
 			a.Analysis = ReplicationStoppedUnfixableSQLError
 			a.Description = fmt.Sprintf("Replication SQL thread stopped on unfixable error %d", a.LastSQLErrno)
 			//
