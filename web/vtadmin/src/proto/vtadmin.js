@@ -169929,11 +169929,11 @@ export const vtctldata = $root.vtctldata = (() => {
 
         /**
          * MoveTablesCompleteRequest keep_data.
-         * @member {boolean} keep_data
+         * @member {boolean|null|undefined} keep_data
          * @memberof vtctldata.MoveTablesCompleteRequest
          * @instance
          */
-        MoveTablesCompleteRequest.prototype.keep_data = false;
+        MoveTablesCompleteRequest.prototype.keep_data = null;
 
         /**
          * MoveTablesCompleteRequest keep_routing_rules.
@@ -169974,6 +169974,15 @@ export const vtctldata = $root.vtctldata = (() => {
          * @instance
          */
         MoveTablesCompleteRequest.prototype.ignore_source_keyspace = false;
+
+        // OneOf field names bound to virtual getters and setters
+        let $oneOfFields;
+
+        // Virtual OneOf for proto3 optional field
+        Object.defineProperty(MoveTablesCompleteRequest.prototype, "_keep_data", {
+            get: $util.oneOfGetter($oneOfFields = ["keep_data"]),
+            set: $util.oneOfSetter($oneOfFields)
+        });
 
         /**
          * Creates a new MoveTablesCompleteRequest instance using the specified properties.
@@ -170119,15 +170128,18 @@ export const vtctldata = $root.vtctldata = (() => {
         MoveTablesCompleteRequest.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
+            let properties = {};
             if (message.workflow != null && message.hasOwnProperty("workflow"))
                 if (!$util.isString(message.workflow))
                     return "workflow: string expected";
             if (message.target_keyspace != null && message.hasOwnProperty("target_keyspace"))
                 if (!$util.isString(message.target_keyspace))
                     return "target_keyspace: string expected";
-            if (message.keep_data != null && message.hasOwnProperty("keep_data"))
+            if (message.keep_data != null && message.hasOwnProperty("keep_data")) {
+                properties._keep_data = 1;
                 if (typeof message.keep_data !== "boolean")
                     return "keep_data: boolean expected";
+            }
             if (message.keep_routing_rules != null && message.hasOwnProperty("keep_routing_rules"))
                 if (typeof message.keep_routing_rules !== "boolean")
                     return "keep_routing_rules: boolean expected";
@@ -170204,7 +170216,6 @@ export const vtctldata = $root.vtctldata = (() => {
             if (options.defaults) {
                 object.workflow = "";
                 object.target_keyspace = "";
-                object.keep_data = false;
                 object.keep_routing_rules = false;
                 object.rename_tables = false;
                 object.dry_run = false;
@@ -170214,8 +170225,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.workflow = message.workflow;
             if (message.target_keyspace != null && message.hasOwnProperty("target_keyspace"))
                 object.target_keyspace = message.target_keyspace;
-            if (message.keep_data != null && message.hasOwnProperty("keep_data"))
+            if (message.keep_data != null && message.hasOwnProperty("keep_data")) {
                 object.keep_data = message.keep_data;
+                if (options.oneofs)
+                    object._keep_data = "keep_data";
+            }
             if (message.keep_routing_rules != null && message.hasOwnProperty("keep_routing_rules"))
                 object.keep_routing_rules = message.keep_routing_rules;
             if (message.rename_tables != null && message.hasOwnProperty("rename_tables"))
@@ -170269,6 +170283,7 @@ export const vtctldata = $root.vtctldata = (() => {
          * @interface IMoveTablesCompleteResponse
          * @property {string|null} [summary] MoveTablesCompleteResponse summary
          * @property {Array.<string>|null} [dry_run_results] MoveTablesCompleteResponse dry_run_results
+         * @property {Array.<string>|null} [warnings] MoveTablesCompleteResponse warnings
          */
 
         /**
@@ -170281,6 +170296,7 @@ export const vtctldata = $root.vtctldata = (() => {
          */
         function MoveTablesCompleteResponse(properties) {
             this.dry_run_results = [];
+            this.warnings = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -170302,6 +170318,14 @@ export const vtctldata = $root.vtctldata = (() => {
          * @instance
          */
         MoveTablesCompleteResponse.prototype.dry_run_results = $util.emptyArray;
+
+        /**
+         * MoveTablesCompleteResponse warnings.
+         * @member {Array.<string>} warnings
+         * @memberof vtctldata.MoveTablesCompleteResponse
+         * @instance
+         */
+        MoveTablesCompleteResponse.prototype.warnings = $util.emptyArray;
 
         /**
          * Creates a new MoveTablesCompleteResponse instance using the specified properties.
@@ -170332,6 +170356,9 @@ export const vtctldata = $root.vtctldata = (() => {
             if (message.dry_run_results != null && message.dry_run_results.length)
                 for (let i = 0; i < message.dry_run_results.length; ++i)
                     writer.uint32(/* id 2, wireType 2 =*/18).string(message.dry_run_results[i]);
+            if (message.warnings != null && message.warnings.length)
+                for (let i = 0; i < message.warnings.length; ++i)
+                    writer.uint32(/* id 3, wireType 2 =*/26).string(message.warnings[i]);
             return writer;
         };
 
@@ -170374,6 +170401,12 @@ export const vtctldata = $root.vtctldata = (() => {
                         if (!(message.dry_run_results && message.dry_run_results.length))
                             message.dry_run_results = [];
                         message.dry_run_results.push(reader.string());
+                        break;
+                    }
+                case 3: {
+                        if (!(message.warnings && message.warnings.length))
+                            message.warnings = [];
+                        message.warnings.push(reader.string());
                         break;
                     }
                 default:
@@ -170421,6 +170454,13 @@ export const vtctldata = $root.vtctldata = (() => {
                     if (!$util.isString(message.dry_run_results[i]))
                         return "dry_run_results: string[] expected";
             }
+            if (message.warnings != null && message.hasOwnProperty("warnings")) {
+                if (!Array.isArray(message.warnings))
+                    return "warnings: array expected";
+                for (let i = 0; i < message.warnings.length; ++i)
+                    if (!$util.isString(message.warnings[i]))
+                        return "warnings: string[] expected";
+            }
             return null;
         };
 
@@ -170445,6 +170485,13 @@ export const vtctldata = $root.vtctldata = (() => {
                 for (let i = 0; i < object.dry_run_results.length; ++i)
                     message.dry_run_results[i] = String(object.dry_run_results[i]);
             }
+            if (object.warnings) {
+                if (!Array.isArray(object.warnings))
+                    throw TypeError(".vtctldata.MoveTablesCompleteResponse.warnings: array expected");
+                message.warnings = [];
+                for (let i = 0; i < object.warnings.length; ++i)
+                    message.warnings[i] = String(object.warnings[i]);
+            }
             return message;
         };
 
@@ -170461,8 +170508,10 @@ export const vtctldata = $root.vtctldata = (() => {
             if (!options)
                 options = {};
             let object = {};
-            if (options.arrays || options.defaults)
+            if (options.arrays || options.defaults) {
                 object.dry_run_results = [];
+                object.warnings = [];
+            }
             if (options.defaults)
                 object.summary = "";
             if (message.summary != null && message.hasOwnProperty("summary"))
@@ -170471,6 +170520,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.dry_run_results = [];
                 for (let j = 0; j < message.dry_run_results.length; ++j)
                     object.dry_run_results[j] = message.dry_run_results[j];
+            }
+            if (message.warnings && message.warnings.length) {
+                object.warnings = [];
+                for (let j = 0; j < message.warnings.length; ++j)
+                    object.warnings[j] = message.warnings[j];
             }
             return object;
         };
@@ -193639,11 +193693,11 @@ export const vtctldata = $root.vtctldata = (() => {
 
         /**
          * WorkflowDeleteRequest keep_data.
-         * @member {boolean} keep_data
+         * @member {boolean|null|undefined} keep_data
          * @memberof vtctldata.WorkflowDeleteRequest
          * @instance
          */
-        WorkflowDeleteRequest.prototype.keep_data = false;
+        WorkflowDeleteRequest.prototype.keep_data = null;
 
         /**
          * WorkflowDeleteRequest keep_routing_rules.
@@ -193676,6 +193730,15 @@ export const vtctldata = $root.vtctldata = (() => {
          * @instance
          */
         WorkflowDeleteRequest.prototype.ignore_source_keyspace = false;
+
+        // OneOf field names bound to virtual getters and setters
+        let $oneOfFields;
+
+        // Virtual OneOf for proto3 optional field
+        Object.defineProperty(WorkflowDeleteRequest.prototype, "_keep_data", {
+            get: $util.oneOfGetter($oneOfFields = ["keep_data"]),
+            set: $util.oneOfSetter($oneOfFields)
+        });
 
         /**
          * Creates a new WorkflowDeleteRequest instance using the specified properties.
@@ -193815,15 +193878,18 @@ export const vtctldata = $root.vtctldata = (() => {
         WorkflowDeleteRequest.verify = function verify(message) {
             if (typeof message !== "object" || message === null)
                 return "object expected";
+            let properties = {};
             if (message.keyspace != null && message.hasOwnProperty("keyspace"))
                 if (!$util.isString(message.keyspace))
                     return "keyspace: string expected";
             if (message.workflow != null && message.hasOwnProperty("workflow"))
                 if (!$util.isString(message.workflow))
                     return "workflow: string expected";
-            if (message.keep_data != null && message.hasOwnProperty("keep_data"))
+            if (message.keep_data != null && message.hasOwnProperty("keep_data")) {
+                properties._keep_data = 1;
                 if (typeof message.keep_data !== "boolean")
                     return "keep_data: boolean expected";
+            }
             if (message.keep_routing_rules != null && message.hasOwnProperty("keep_routing_rules"))
                 if (typeof message.keep_routing_rules !== "boolean")
                     return "keep_routing_rules: boolean expected";
@@ -193902,7 +193968,6 @@ export const vtctldata = $root.vtctldata = (() => {
             if (options.defaults) {
                 object.keyspace = "";
                 object.workflow = "";
-                object.keep_data = false;
                 object.keep_routing_rules = false;
                 if ($util.Long) {
                     let long = new $util.Long(0, 0, false);
@@ -193915,8 +193980,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.keyspace = message.keyspace;
             if (message.workflow != null && message.hasOwnProperty("workflow"))
                 object.workflow = message.workflow;
-            if (message.keep_data != null && message.hasOwnProperty("keep_data"))
+            if (message.keep_data != null && message.hasOwnProperty("keep_data")) {
                 object.keep_data = message.keep_data;
+                if (options.oneofs)
+                    object._keep_data = "keep_data";
+            }
             if (message.keep_routing_rules != null && message.hasOwnProperty("keep_routing_rules"))
                 object.keep_routing_rules = message.keep_routing_rules;
             if (message.shards && message.shards.length) {
@@ -193971,6 +194039,7 @@ export const vtctldata = $root.vtctldata = (() => {
          * @interface IWorkflowDeleteResponse
          * @property {string|null} [summary] WorkflowDeleteResponse summary
          * @property {Array.<vtctldata.WorkflowDeleteResponse.ITabletInfo>|null} [details] WorkflowDeleteResponse details
+         * @property {Array.<string>|null} [warnings] WorkflowDeleteResponse warnings
          */
 
         /**
@@ -193983,6 +194052,7 @@ export const vtctldata = $root.vtctldata = (() => {
          */
         function WorkflowDeleteResponse(properties) {
             this.details = [];
+            this.warnings = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -194004,6 +194074,14 @@ export const vtctldata = $root.vtctldata = (() => {
          * @instance
          */
         WorkflowDeleteResponse.prototype.details = $util.emptyArray;
+
+        /**
+         * WorkflowDeleteResponse warnings.
+         * @member {Array.<string>} warnings
+         * @memberof vtctldata.WorkflowDeleteResponse
+         * @instance
+         */
+        WorkflowDeleteResponse.prototype.warnings = $util.emptyArray;
 
         /**
          * Creates a new WorkflowDeleteResponse instance using the specified properties.
@@ -194034,6 +194112,9 @@ export const vtctldata = $root.vtctldata = (() => {
             if (message.details != null && message.details.length)
                 for (let i = 0; i < message.details.length; ++i)
                     $root.vtctldata.WorkflowDeleteResponse.TabletInfo.encode(message.details[i], writer.uint32(/* id 2, wireType 2 =*/18).fork()).ldelim();
+            if (message.warnings != null && message.warnings.length)
+                for (let i = 0; i < message.warnings.length; ++i)
+                    writer.uint32(/* id 3, wireType 2 =*/26).string(message.warnings[i]);
             return writer;
         };
 
@@ -194076,6 +194157,12 @@ export const vtctldata = $root.vtctldata = (() => {
                         if (!(message.details && message.details.length))
                             message.details = [];
                         message.details.push($root.vtctldata.WorkflowDeleteResponse.TabletInfo.decode(reader, reader.uint32()));
+                        break;
+                    }
+                case 3: {
+                        if (!(message.warnings && message.warnings.length))
+                            message.warnings = [];
+                        message.warnings.push(reader.string());
                         break;
                     }
                 default:
@@ -194125,6 +194212,13 @@ export const vtctldata = $root.vtctldata = (() => {
                         return "details." + error;
                 }
             }
+            if (message.warnings != null && message.hasOwnProperty("warnings")) {
+                if (!Array.isArray(message.warnings))
+                    return "warnings: array expected";
+                for (let i = 0; i < message.warnings.length; ++i)
+                    if (!$util.isString(message.warnings[i]))
+                        return "warnings: string[] expected";
+            }
             return null;
         };
 
@@ -194152,6 +194246,13 @@ export const vtctldata = $root.vtctldata = (() => {
                     message.details[i] = $root.vtctldata.WorkflowDeleteResponse.TabletInfo.fromObject(object.details[i]);
                 }
             }
+            if (object.warnings) {
+                if (!Array.isArray(object.warnings))
+                    throw TypeError(".vtctldata.WorkflowDeleteResponse.warnings: array expected");
+                message.warnings = [];
+                for (let i = 0; i < object.warnings.length; ++i)
+                    message.warnings[i] = String(object.warnings[i]);
+            }
             return message;
         };
 
@@ -194168,8 +194269,10 @@ export const vtctldata = $root.vtctldata = (() => {
             if (!options)
                 options = {};
             let object = {};
-            if (options.arrays || options.defaults)
+            if (options.arrays || options.defaults) {
                 object.details = [];
+                object.warnings = [];
+            }
             if (options.defaults)
                 object.summary = "";
             if (message.summary != null && message.hasOwnProperty("summary"))
@@ -194178,6 +194281,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.details = [];
                 for (let j = 0; j < message.details.length; ++j)
                     object.details[j] = $root.vtctldata.WorkflowDeleteResponse.TabletInfo.toObject(message.details[j], options);
+            }
+            if (message.warnings && message.warnings.length) {
+                object.warnings = [];
+                for (let j = 0; j < message.warnings.length; ++j)
+                    object.warnings[j] = message.warnings[j];
             }
             return object;
         };
