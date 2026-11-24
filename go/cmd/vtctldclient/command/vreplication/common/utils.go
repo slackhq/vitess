@@ -41,6 +41,8 @@ import (
 	vttablet "vitess.io/vitess/go/vt/vttablet/common"
 )
 
+const reverseWorkflowKeepDataHelpSuffix = " Defaults to true for an explicitly specified _reverse workflow unless --keep-data=false is provided."
+
 var (
 	client     vtctldclient.VtctldClient
 	commandCtx context.Context
@@ -106,6 +108,30 @@ func SetCommandCtx(ctx context.Context) {
 
 func GetCommandCtx() context.Context {
 	return commandCtx
+}
+
+func OptionalBoolFromFlag(cmd *cobra.Command, flagName string, value bool) *bool {
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+
+	return &value
+}
+
+func AppendWarnings(buf *bytes.Buffer, warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+
+	for _, warning := range warnings {
+		fmt.Fprintf(buf, "WARNING: %s\n", warning)
+	}
+	buf.WriteByte('\n')
+}
+
+func ReverseWorkflowKeepDataHelpText(base string) string {
+	return base + reverseWorkflowKeepDataHelpSuffix
 }
 
 func ParseCells(cmd *cobra.Command) error {
