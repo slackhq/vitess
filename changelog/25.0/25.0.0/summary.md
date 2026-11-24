@@ -14,6 +14,7 @@
         - [New controls for cross-keyspace reads](#vtgate-cross-keyspace-reads)
     - **[VTTablet](#minor-changes-vttablet)**
         - [Schema engine table-count limit is now configurable](#vttablet-schema-max-table-count)
+        - [`--mysql-server-version` can replace `mysqld --version`](#vttablet-mysql-server-version-detection)
 
 ## <a id="major-changes"/>Major Changes</a>
 
@@ -79,3 +80,11 @@ Two changes:
 Tablets that already have more tracked schema objects than the configured limit will reload fine — only new creations are gated. Operators who need to support more tables and views should increase the flag and ensure both vttablet and mysqld have enough memory to comfortably hold the larger schema.
 
 See [#19978](https://github.com/vitessio/vitess/issues/19978) for details.
+
+#### <a id="vttablet-mysql-server-version-detection"/>`--mysql-server-version` can replace `mysqld --version`</a>
+
+When `mysqld` is not available through a running server or `mysqlctld`, Vitess runs `mysqld --version` to find the MySQL flavor and version. This applies to vttablet, mysqlctl and mysqlctld. It does this at startup to find the server capabilities, and again when a backup or restore needs the version while MySQL is not running. Thus the `mysqld` binary must be on the same host or in the same container as the Vitess process, and its version must be the same as the version of the server that is running.
+
+Now, if you set `--mysql-server-version` explicitly to a full version that names a flavor, Vitess uses that value and does not run `mysqld --version`. The value must start with `major.minor.patch` and contain `MySQL`, `Percona` or `MariaDB`, for example `8.0.44-35-Percona` or `8.4.6-MySQL`. The flavor is necessary because a restore fails when the flavor of the backup is different from the flavor of the running server.
+
+If the flag is not set, the behavior does not change. If its value is incomplete (for example `8.0.31-Vitess`), Vitess logs a warning one time and runs `mysqld --version` for all calls, as before. Vitess still asks the running server for its version first, so backup manifests continue to record the version that the server reports.

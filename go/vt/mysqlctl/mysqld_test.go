@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -35,6 +36,8 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	_ "vitess.io/vitess/go/vt/mysqlctl/grpcmysqlctlclient"
 	mysqlctlpb "vitess.io/vitess/go/vt/proto/mysqlctl"
+	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/utils"
 )
 
 type testcase struct {
@@ -345,6 +348,165 @@ func TestGetVersionString(t *testing.T) {
 	str, err = testMysqld.GetVersionString(ctx)
 	assert.Equal(t, ver, str)
 	assert.NoError(t, err)
+}
+
+func TestVersionStringFromServerVersion(t *testing.T) {
+	testcases := []struct {
+		serverVersion string
+		versionString string
+		version       ServerVersion
+		flavor        MySQLFlavor
+		err           string
+	}{
+		{
+			serverVersion: "8.0.44-35-Percona",
+			versionString: "Ver 8.0.44-35-Percona",
+			version:       ServerVersion{8, 0, 44},
+			flavor:        FlavorPercona,
+		},
+		{
+			serverVersion: "8.4.6-MySQL",
+			versionString: "Ver 8.4.6-MySQL",
+			version:       ServerVersion{8, 4, 6},
+			flavor:        FlavorMySQL,
+		},
+		{
+			serverVersion: "8.0.44-Percona-Vitess",
+			versionString: "Ver 8.0.44-Percona-Vitess",
+			version:       ServerVersion{8, 0, 44},
+			flavor:        FlavorPercona,
+		},
+		{
+			serverVersion: "10.4.6-MariaDB",
+			versionString: "Ver 10.4.6-MariaDB",
+			version:       ServerVersion{10, 4, 6},
+			flavor:        FlavorMariaDB,
+		},
+		{
+			// The default value, and the value most deployments set, has no flavor.
+			serverVersion: "8.4.6-Vitess",
+			err:           "does not name a flavor",
+		},
+		{
+			serverVersion: "8.0-Percona",
+			err:           "does not start with a major.minor.patch version",
+		},
+		{
+			serverVersion: "Percona-8.0.44",
+			err:           "does not start with a major.minor.patch version",
+		},
+		{
+			serverVersion: "",
+			err:           "does not start with a major.minor.patch version",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.serverVersion, func(t *testing.T) {
+			versionString, err := versionStringFromServerVersion(tc.serverVersion)
+			if tc.err != "" {
+				assert.ErrorContains(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.versionString, versionString)
+
+			// The result must parse to the same flavor and version as the
+			// equivalent mysqld --version output.
+			flavor, version, err := ParseVersionString(versionString)
+			require.NoError(t, err)
+			assert.Equal(t, tc.flavor, flavor)
+			assert.Equal(t, tc.version, version)
+		})
+	}
+}
+
+// setMySQLServerVersionFlag parses args as the vttablet command line would and
+// restores the original --mysql-server-version state when the test ends.
+func setMySQLServerVersionFlag(t *testing.T, args ...string) {
+	original := servenv.MySQLServerVersion()
+	t.Cleanup(func() {
+		// Registering on a new flag set makes the flag unset again. Value.Set
+		// restores the value without marking the flag as changed.
+		fs := pflag.NewFlagSet("cleanup", pflag.ContinueOnError)
+		servenv.RegisterMySQLServerFlags(fs)
+		require.NoError(t, fs.Lookup("mysql-server-version").Value.Set(original))
+	})
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.SetNormalizeFunc(utils.NormalizeUnderscoresToDashes)
+	servenv.RegisterMySQLServerFlags(fs)
+	require.NoError(t, fs.Parse(args))
+}
+
+func TestGetVersionStringFromServerVersionFlag(t *testing.T) {
+	testcases := []struct {
+		name          string
+		args          []string
+		versionString string
+	}{
+		{
+			name:          "complete value is used",
+			args:          []string{"--mysql-server-version=8.0.44-35-Percona"},
+			versionString: "Ver 8.0.44-35-Percona",
+		},
+		{
+			name:          "underscore flag name is used",
+			args:          []string{"--mysql_server_version=8.0.44-MySQL"},
+			versionString: "Ver 8.0.44-MySQL",
+		},
+		{
+			name: "incomplete value falls back to mysqld",
+			args: []string{"--mysql-server-version=8.0.31-Vitess"},
+		},
+		{
+			name: "unset flag falls back to mysqld",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			// No mysqld binary exists here, so a fall back to mysqld fails.
+			t.Setenv("VT_MYSQL_ROOT", t.TempDir())
+			setMySQLServerVersionFlag(t, tc.args...)
+
+			versionString, err := GetVersionString()
+			if tc.versionString == "" {
+				assert.ErrorContains(t, err, "mysqld not found")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.versionString, versionString)
+		})
+	}
+}
+
+func TestNewMysqldCapabilitiesFromServerVersionFlag(t *testing.T) {
+	// No mysqld binary exists here, so the capabilities must come from the flag.
+	t.Setenv("VT_MYSQL_ROOT", t.TempDir())
+	setMySQLServerVersionFlag(t, "--mysql-server-version=8.0.44-35-Percona")
+
+	db := fakesqldb.New(t)
+	defer db.Close()
+	cp := *db.ConnParams()
+	testMysqld := NewMysqld(dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb"))
+	defer testMysqld.Close()
+
+	assert.Equal(t, newCapabilitySet(FlavorPercona, ServerVersion{8, 0, 44}), testMysqld.capabilities)
+}
+
+func TestNewMysqldIncompleteServerVersionFlagRunsMysqld(t *testing.T) {
+	// An incomplete value is not used, so NewMysqld runs mysqld --version. No
+	// mysqld binary exists here, so version detection fails.
+	t.Setenv("VT_MYSQL_ROOT", t.TempDir())
+	setMySQLServerVersionFlag(t, "--mysql-server-version=8.0.31-Vitess")
+
+	db := fakesqldb.New(t)
+	defer db.Close()
+	cp := *db.ConnParams()
+	assert.Panics(t, func() {
+		NewMysqld(dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb"))
+	})
 }
 
 func TestGetVersionComment(t *testing.T) {
