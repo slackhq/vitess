@@ -535,6 +535,17 @@ func (s *Server) getWorkflowState(ctx context.Context, targetKeyspace, workflowN
 	return ts, state, nil
 }
 
+func validateMoveTablesSourceKeyspace(ts *trafficSwitcher) error {
+	if ts.workflowType == binlogdatapb.VReplicationWorkflowType_MoveTables &&
+		ts.externalCluster == "" &&
+		ts.sourceKeyspace == ts.targetKeyspace {
+		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION,
+			"workflow %s.%s is invalid: MoveTables source keyspace matches target keyspace (%s)",
+			ts.targetKeyspace, ts.workflow, ts.targetKeyspace)
+	}
+	return nil
+}
+
 // LookupVindexComplete checks if the lookup vindex has been externalized,
 // and if the vindex has an owner, it deletes the workflow.
 func (s *Server) LookupVindexComplete(ctx context.Context, req *vtctldatapb.LookupVindexCompleteRequest) (*vtctldatapb.LookupVindexCompleteResponse, error) {
@@ -866,6 +877,11 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	sourceKeyspace := req.SourceKeyspace
 	targetKeyspace := req.TargetKeyspace
 	// FIXME validate tableSpecs, allTables, excludeTables
+
+	if workflowType == binlogdatapb.VReplicationWorkflowType_MoveTables && sourceKeyspace == targetKeyspace {
+		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "source and target keyspace must be different for MoveTables workflows")
+	}
+
 	var (
 		tables       = req.IncludeTables
 		externalTopo *topo.Server
@@ -2547,6 +2563,9 @@ func (s *Server) WorkflowSwitchTraffic(ctx context.Context, req *vtctldatapb.Wor
 	if err != nil {
 		return nil, err
 	}
+	if err := validateMoveTablesSourceKeyspace(ts); err != nil {
+		return nil, err
+	}
 
 	if startState.WorkflowType == TypeMigrate {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid action for Migrate workflow: SwitchTraffic")
@@ -2863,8 +2882,8 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 
 	// Consistently handle errors by logging and returning them.
 	handleError := func(message string, err error) (int64, *[]string, error) {
+		ts.Logger().Errorf("%s: %v", message, err)
 		werr := vterrors.Wrap(err, message)
-		ts.Logger().Error(werr)
 		return 0, nil, werr
 	}
 
@@ -2893,9 +2912,14 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 
 	// We need to hold the keyspace locks longer than waitTimeout*X -- where X
 	// is the number of sub-steps where the waitTimeout value is used: stopping
-	// existing streams, waiting for replication to catch up, and initializing
-	// the target sequences -- to be sure the lock is not lost.
-	ksLockTTL := waitTimeout * 3
+	// existing streams, waiting for replication to catch up, initializing the
+	// target sequences, and completing the detached post-journal tail -- to be
+	// sure the lock is not lost.
+	postJournalTimeout := max(waitTimeout, 30*time.Second)
+	ksLockTTL := waitTimeout*3 + postJournalTimeout
+	startPostJournalCtx := func(ctx context.Context) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), postJournalTimeout)
+	}
 
 	// Need to lock both source and target keyspaces.
 	ctx, sourceUnlock, lockErr := sw.lockKeyspace(ctx, ts.SourceKeyspaceName(), "SwitchWrites", topo.WithTTL(ksLockTTL))
@@ -3019,6 +3043,9 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 		// intra-keyspace materializations that write on the source), and we know for certain
 		// that any in progress writes are done.
 		if err := ts.gatherSourcePositions(ctx); err != nil {
+			if cerr := sw.cancelMigration(ctx, sm); cerr != nil {
+				err = vterrors.Errorf(vtrpcpb.Code_CANCELED, "%v\n\n%v", err, cerr)
+			}
 			return handleError("failed to gather replication positions on migration sources", err)
 		}
 
@@ -3083,44 +3110,73 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 				return handleError(fmt.Sprintf("failed to initialize the sequences used in the %s keyspace", ts.TargetKeyspaceName()), err)
 			}
 		}
+
+		// This is the point of no return. Once a journal is created,
+		// traffic can be redirected to target shards.
+		if err := confirmKeyspaceLocksHeld(); err != nil {
+			return handleError("locks were lost", err)
+		}
+		postJournalCtx, postJournalCancel := startPostJournalCtx(ctx)
+		defer postJournalCancel()
+		ctx = postJournalCtx
 	} else {
 		if cancel {
 			return handleError("invalid cancel", vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "traffic switching has reached the point of no return, cannot cancel"))
 		}
+		postJournalCtx, postJournalCancel := startPostJournalCtx(ctx)
+		defer postJournalCancel()
+		ctx = postJournalCtx
 		ts.Logger().Infof("Journals were found. Completing the left over steps.")
 		// Need to gather positions in case all journals were not created.
 		if err := ts.gatherPositions(ctx); err != nil {
 			return handleError("failed to gather replication positions", err)
 		}
+		if err := confirmKeyspaceLocksHeld(); err != nil {
+			return handleError("locks were lost", err)
+		}
 	}
-
-	// This is the point of no return. Once a journal is created,
-	// traffic can be redirected to target shards.
-	if err := confirmKeyspaceLocksHeld(); err != nil {
-		return handleError("locks were lost", err)
-	}
+	ts.logger.Infof("Creating journals for workflow %s.%s", ts.targetKeyspace, ts.workflow)
 	if err := sw.createJournals(ctx, sourceWorkflows); err != nil {
 		return handleError("failed to create the journal", err)
 	}
+	ts.logger.Infof("Created journals for workflow %s.%s", ts.targetKeyspace, ts.workflow)
+
+	ts.logger.Infof("Allowing writes on target for workflow %s.%s", ts.targetKeyspace, ts.workflow)
 	if err := sw.allowTargetWrites(ctx); err != nil {
 		return handleError(fmt.Sprintf("failed to allow writes in the %s keyspace", ts.TargetKeyspaceName()), err)
 	}
+	ts.logger.Infof("Allowed writes on target for workflow %s.%s", ts.targetKeyspace, ts.workflow)
+
+	ts.logger.Infof("Updating routing rules for workflow %s.%s", ts.targetKeyspace, ts.workflow)
 	if err := sw.changeRouting(ctx); err != nil {
 		return handleError("failed to update the routing rules", err)
 	}
+	ts.logger.Infof("Updated routing rules for workflow %s.%s", ts.targetKeyspace, ts.workflow)
+
+	ts.logger.Infof("Finalizing stream migrations for workflow %s.%s", ts.targetKeyspace, ts.workflow)
 	if err := sw.streamMigraterfinalize(ctx, ts, sourceWorkflows); err != nil {
 		return handleError("failed to finalize the traffic switch", err)
 	}
+	ts.logger.Infof("Finalized stream migrations for workflow %s.%s", ts.targetKeyspace, ts.workflow)
+
 	if req.EnableReverseReplication {
+		ts.logger.Infof("Starting reverse workflow %s on keyspace %s", ts.reverseWorkflow, ts.sourceKeyspace)
 		if err := sw.startReverseVReplication(ctx); err != nil {
 			return handleError("failed to start the reverse workflow", err)
 		}
+		ts.logger.Infof("Started reverse workflow %s on keyspace %s", ts.reverseWorkflow, ts.sourceKeyspace)
+	} else {
+		ts.logger.Infof("Reverse replication not requested, not creating reverse workflow %s on keyspace %s",
+			ts.reverseWorkflow, ts.sourceKeyspace)
 	}
 
+	ts.logger.Infof("Marking workflow frozen %s.%s", ts.targetKeyspace, ts.workflow)
 	if err := sw.freezeTargetVReplication(ctx); err != nil {
 		return handleError(fmt.Sprintf("failed to freeze the workflow in the %s keyspace", ts.TargetKeyspaceName()), err)
 	}
+	ts.logger.Infof("Marked workflow frozen %s.%s", ts.targetKeyspace, ts.workflow)
 
+	ts.logger.Infof("Switch writes completed for workflow %s.%s", ts.targetKeyspace, ts.workflow)
 	return ts.id, sw.logs(), nil
 }
 
@@ -3147,32 +3203,38 @@ func (s *Server) canSwitch(ctx context.Context, ts *trafficSwitcher, maxAllowedR
 	}
 
 	// Ensure that the tablets on both sides are in good shape as we make this same call in the
-	// process and an error will cause us to backout.
+	// process and an error will cause us to backout. All of the shards are refreshed
+	// concurrently, so the shared timeout only has to cover the slowest shard.
 	refreshErrors := strings.Builder{}
 	var m sync.Mutex
-	var wg sync.WaitGroup
 	rtbsCtx, cancel := context.WithTimeout(ctx, shardTabletRefreshTimeout)
 	defer cancel()
-	refreshTablets := func(shards []*topo.ShardInfo, stype string) {
-		defer wg.Done()
-		for _, si := range shards {
-			if partial, partialDetails, err := topotools.RefreshTabletsByShard(rtbsCtx, s.ts, s.tmc, si, nil, ts.Logger()); err != nil || partial {
-				msg := fmt.Sprintf("failed to successfully refresh all tablets in the %s/%s %s shard (%v):\n  %v\n",
-					si.Keyspace(), si.ShardName(), stype, err, partialDetails)
-				if partial && ts.force {
-					log.Warning(msg)
-				} else {
-					m.Lock()
-					refreshErrors.WriteString(msg)
-					m.Unlock()
-				}
+	refreshTablets := func(si *topo.ShardInfo, stype string) {
+		if partial, partialDetails, err := topotools.RefreshTabletsByShard(rtbsCtx, s.ts, s.tmc, si, nil, ts.Logger()); err != nil || partial {
+			msg := fmt.Sprintf("failed to successfully refresh all tablets in the %s/%s %s shard (%v):\n  %v\n",
+				si.Keyspace(), si.ShardName(), stype, err, partialDetails)
+			if partial && ts.force {
+				log.Warning(msg)
+			} else {
+				m.Lock()
+				refreshErrors.WriteString(msg)
+				m.Unlock()
 			}
 		}
 	}
-	wg.Add(1)
-	go refreshTablets(ts.SourceShards(), "source")
-	wg.Add(1)
-	go refreshTablets(ts.TargetShards(), "target")
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		_ = ts.ForAllSources(func(source *MigrationSource) error {
+			refreshTablets(source.GetShard(), "source")
+			return nil
+		})
+	})
+	wg.Go(func() {
+		_ = ts.ForAllTargets(func(target *MigrationTarget) error {
+			refreshTablets(target.GetShard(), "target")
+			return nil
+		})
+	})
 	wg.Wait()
 	if refreshErrors.Len() > 0 {
 		return fmt.Sprintf(cannotSwitchFailedTabletRefresh, refreshErrors.String()), nil

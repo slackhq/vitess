@@ -59,6 +59,10 @@ var (
 
 	// Enable the /debug/vrlog HTTP endpoint.
 	vreplicationEnableHttpLog = false
+	// VStreamerMemoryBounds bounds the memory a VStreamRows or VStreamTables stream holds for its lifetime
+	// (vitessio/vitess#20954, off by default on this branch): the reused row pools on both ends are dropped when they retain more than about
+	// four times the live packet, and dynamic packet sizing stops growing at 16 times VStreamerDefaultPacketSize.
+	VStreamerMemoryBounds = false
 )
 
 func GetVReplicationNetReadTimeout() int {

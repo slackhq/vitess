@@ -381,8 +381,10 @@ func waitForWorkflowState(t *testing.T, vc *VitessCluster, ksWorkflow string, wa
 							}
 						}
 					}
+					// --compact leaves empty fields out, so a missing position is an empty one: the stream is
+					// Running but has not started copying or replicating yet.
 					if wantState == binlogdatapb.VReplicationWorkflowState_Running.String() &&
-						(info["position"].Exists() && info["position"].String() == "") {
+						info["position"].String() == "" {
 						done = false
 					}
 				} else {

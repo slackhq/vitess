@@ -831,7 +831,7 @@ func (vs *vstream) streamFromTablet(ctx context.Context, sgtid *binlogdatapb.Sha
 		}
 		tabletConn, err := vs.vsm.resolver.GetGateway().QueryServiceByAlias(ctx, tablet.Alias, target)
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Error(err.Error())
 			return vterrors.Wrapf(err, "failed to get tablet connection to %s", tabletAliasString)
 		}
 

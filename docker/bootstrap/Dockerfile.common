@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM --platform=linux/amd64 golang:1.25.7-bookworm@sha256:db60aab8dc5b066b5018f1bcad7e70b688f31e2fa3427c1623585b680557f975
+FROM --platform=linux/amd64 golang:1.26.10-bookworm@sha256:5de7c99eb78ca5e515a4c340235d0955ec5964a5071c492c15503d7c267da473
 
 # Install Vitess build dependencies
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

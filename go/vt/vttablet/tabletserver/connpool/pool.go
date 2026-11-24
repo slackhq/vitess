@@ -31,6 +31,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/loadshed"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -40,6 +41,27 @@ const (
 )
 
 type PooledConn = smartconnpool.Pooled[*Conn]
+
+type loadshedPoolConfig struct {
+	env tabletenv.Env
+}
+
+func (c loadshedPoolConfig) LoadshedConfig(poolName string) loadshed.SnakeConfig {
+	config := c.env.Config().LoadshedConfig(poolName)
+	if config == nil {
+		return loadshed.SnakeConfig{}
+	}
+	return loadshed.SnakeConfig{
+		Mode: func() loadshed.Mode {
+			mode := config.ModeValue()
+			if mode != tabletenv.LoadshedModeEnabledReplicas {
+				return loadshed.Mode(mode)
+			}
+			return mode.EffectiveMode(c.env.TabletType())
+		},
+		CoDel: config.CoDelConfig(),
+	}
+}
 
 // Pool implements a custom connection pool for tabletserver.
 // It's similar to dbconnpool.ConnPool, but the connections it creates
@@ -58,8 +80,7 @@ type Pool struct {
 	getConnTime    *servenv.TimingsWrapper
 }
 
-// NewPool creates a new Pool. The name is used
-// to publish stats only.
+// NewPool creates a new Pool. The name selects its stats and load-shedding configuration.
 func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool {
 	cp := &Pool{
 		timeout: cfg.Timeout,
@@ -74,6 +95,8 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 		RefreshInterval: mysqlctl.PoolDynamicHostnameResolution,
 		MaxWaiters:      cfg.MaxWaiters,
 		WaiterCapDryRun: cfg.WaiterCapDryRun,
+		PoolName:        name,
+		PoolConfig:      loadshedPoolConfig{env: env},
 	}
 
 	if name != "" {
