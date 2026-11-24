@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 
@@ -61,7 +62,7 @@ func commandCancel(cmd *cobra.Command, args []string) error {
 	req := &vtctldatapb.WorkflowDeleteRequest{
 		Keyspace:             BaseOptions.TargetKeyspace,
 		Workflow:             BaseOptions.Workflow,
-		KeepData:             CancelOptions.KeepData,
+		KeepData:             OptionalBoolFromFlag(cmd, "keep-data", CancelOptions.KeepData),
 		KeepRoutingRules:     CancelOptions.KeepRoutingRules,
 		Shards:               CancelOptions.Shards,
 		DeleteBatchSize:      CancelOptions.DeleteBatchSize,
@@ -86,7 +87,10 @@ func commandCancel(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else {
-		output = []byte(resp.Summary + "\n")
+		tout := bytes.Buffer{}
+		AppendWarnings(&tout, resp.Warnings)
+		tout.WriteString(resp.Summary)
+		output = tout.Bytes()
 	}
 	fmt.Printf("%s\n", output)
 
