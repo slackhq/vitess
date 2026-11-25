@@ -398,8 +398,7 @@ func NewHealthCheck(ctx context.Context, retryDelay, healthCheckTimeout time.Dur
 // It does not block on making connection.
 // name is an optional tag for the tablet, e.g. an alternative address.
 func (hc *HealthCheckImpl) AddTablet(tablet *topodata.Tablet) {
-	// check whether grpc port is present on tablet, if not return
-	if tablet.PortMap["grpc"] == 0 {
+	if !hasGRPCPort(tablet) {
 		return
 	}
 
@@ -441,6 +440,11 @@ func (hc *HealthCheckImpl) AddTablet(tablet *topodata.Tablet) {
 	hc.broadcast(res)
 	hc.connsWG.Add(1)
 	go thc.checkConn(hc)
+}
+
+// hasGRPCPort returns whether the tablet record has a grpc port, which is required to health check it.
+func hasGRPCPort(tablet *topodata.Tablet) bool {
+	return tablet.PortMap["grpc"] != 0
 }
 
 // RemoveTablet removes the tablet, and stops the health check.
