@@ -54,6 +54,7 @@ type ReplicationStatus struct {
 	LastIOError           string
 	SQLState              ReplicationState
 	LastSQLError          string
+	LastSQLErrno          uint32
 	ReplicationLagSeconds uint32
 	ReplicationLagUnknown bool
 	SourceHost            string
@@ -113,6 +114,7 @@ func ReplicationStatusToProto(s ReplicationStatus) *replicationdatapb.Status {
 		LastIoError:                            s.LastIOError,
 		SqlState:                               int32(s.SQLState),
 		LastSqlError:                           s.LastSQLError,
+		LastSqlErrno:                           s.LastSQLErrno,
 		SslAllowed:                             s.SSLAllowed,
 		HasReplicationFilters:                  s.HasReplicationFilters,
 		AutoPosition:                           s.AutoPosition,
@@ -169,6 +171,7 @@ func ProtoToReplicationStatus(s *replicationdatapb.Status) ReplicationStatus {
 		LastIOError:                            s.LastIoError,
 		SQLState:                               ReplicationState(s.SqlState),
 		LastSQLError:                           s.LastSqlError,
+		LastSQLErrno:                           s.LastSqlErrno,
 		SSLAllowed:                             s.SslAllowed,
 		HasReplicationFilters:                  s.HasReplicationFilters,
 		AutoPosition:                           s.AutoPosition,
@@ -344,6 +347,8 @@ func ParseReplicationStatus(fields map[string]string, replica bool) ReplicationS
 	status.SourceServerID = uint32(parseUint)
 	parseUint, _ = strconv.ParseUint(fields["SQL_Delay"], 10, 32)
 	status.SQLDelay = uint32(parseUint)
+	parseUint, _ = strconv.ParseUint(fields["Last_SQL_Errno"], 10, 32)
+	status.LastSQLErrno = uint32(parseUint)
 
 	executedPosStr := fields[execSourceLogPosField]
 	file := fields[relaySourceLogFileField]

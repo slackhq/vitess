@@ -117397,6 +117397,7 @@ export const replicationdata = $root.replicationdata = (() => {
          * @property {boolean|null} [semi_sync_primary_status] Status semi_sync_primary_status
          * @property {boolean|null} [semi_sync_replica_status] Status semi_sync_replica_status
          * @property {string|null} [server_version] Status server_version
+         * @property {number|null} [last_sql_errno] Status last_sql_errno
          */
 
         /**
@@ -117639,6 +117640,14 @@ export const replicationdata = $root.replicationdata = (() => {
         Status.prototype.server_version = "";
 
         /**
+         * Status last_sql_errno.
+         * @member {number} last_sql_errno
+         * @memberof replicationdata.Status
+         * @instance
+         */
+        Status.prototype.last_sql_errno = 0;
+
+        /**
          * Creates a new Status instance using the specified properties.
          * @function create
          * @memberof replicationdata.Status
@@ -117718,6 +117727,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 writer.uint32(/* id 29, wireType 0 =*/232).bool(message.semi_sync_replica_status);
             if (message.server_version != null && Object.hasOwnProperty.call(message, "server_version"))
                 writer.uint32(/* id 30, wireType 2 =*/242).string(message.server_version);
+            if (message.last_sql_errno != null && Object.hasOwnProperty.call(message, "last_sql_errno"))
+                writer.uint32(/* id 31, wireType 0 =*/248).uint32(message.last_sql_errno);
             return writer;
         };
 
@@ -117864,6 +117875,10 @@ export const replicationdata = $root.replicationdata = (() => {
                         message.server_version = reader.string();
                         break;
                     }
+                case 31: {
+                        message.last_sql_errno = reader.uint32();
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -117983,6 +117998,9 @@ export const replicationdata = $root.replicationdata = (() => {
             if (message.server_version != null && message.hasOwnProperty("server_version"))
                 if (!$util.isString(message.server_version))
                     return "server_version: string expected";
+            if (message.last_sql_errno != null && message.hasOwnProperty("last_sql_errno"))
+                if (!$util.isInteger(message.last_sql_errno))
+                    return "last_sql_errno: integer expected";
             return null;
         };
 
@@ -118054,6 +118072,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 message.semi_sync_replica_status = Boolean(object.semi_sync_replica_status);
             if (object.server_version != null)
                 message.server_version = String(object.server_version);
+            if (object.last_sql_errno != null)
+                message.last_sql_errno = object.last_sql_errno >>> 0;
             return message;
         };
 
@@ -118099,6 +118119,7 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.semi_sync_primary_status = false;
                 object.semi_sync_replica_status = false;
                 object.server_version = "";
+                object.last_sql_errno = 0;
             }
             if (message.position != null && message.hasOwnProperty("position"))
                 object.position = message.position;
@@ -118156,6 +118177,8 @@ export const replicationdata = $root.replicationdata = (() => {
                 object.semi_sync_replica_status = message.semi_sync_replica_status;
             if (message.server_version != null && message.hasOwnProperty("server_version"))
                 object.server_version = message.server_version;
+            if (message.last_sql_errno != null && message.hasOwnProperty("last_sql_errno"))
+                object.last_sql_errno = message.last_sql_errno;
             return object;
         };
 

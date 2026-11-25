@@ -299,6 +299,7 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 		errorChan <- err
 
 		instance.LastSQLError = emptyQuotesRegexp.ReplaceAllString(strconv.QuoteToASCII(fs.ReplicationStatus.LastSqlError), "")
+		instance.LastSQLErrno = fs.ReplicationStatus.LastSqlErrno
 		instance.LastIOError = emptyQuotesRegexp.ReplaceAllString(strconv.QuoteToASCII(fs.ReplicationStatus.LastIoError), "")
 
 		instance.SQLDelay = fs.ReplicationStatus.SqlDelay
@@ -592,6 +593,7 @@ func readInstanceRow(m sqlutils.RowMap) *Instance {
 	instance.RelaylogCoordinates.LogPos = m.GetUint64("relay_log_pos")
 	instance.RelaylogCoordinates.Type = RelayLog
 	instance.LastSQLError = m.GetString("last_sql_error")
+	instance.LastSQLErrno = m.GetUint32("last_sql_errno")
 	instance.LastIOError = m.GetString("last_io_error")
 	instance.SecondsBehindPrimary = m.GetNullInt64("replication_lag_seconds")
 	instance.ReplicationLagSeconds = m.GetNullInt64("replica_lag_seconds")
@@ -894,6 +896,7 @@ func mkInsertForInstances(instances []*Instance, instanceWasActuallyFound bool, 
 		"relay_log_file",
 		"relay_log_pos",
 		"last_sql_error",
+		"last_sql_errno",
 		"last_io_error",
 		"replication_lag_seconds",
 		"replica_lag_seconds",
@@ -976,6 +979,7 @@ func mkInsertForInstances(instances []*Instance, instanceWasActuallyFound bool, 
 		args = append(args, instance.RelaylogCoordinates.LogFile)
 		args = append(args, instance.RelaylogCoordinates.LogPos)
 		args = append(args, instance.LastSQLError)
+		args = append(args, instance.LastSQLErrno)
 		args = append(args, instance.LastIOError)
 		args = append(args, instance.SecondsBehindPrimary)
 		args = append(args, instance.ReplicationLagSeconds)
