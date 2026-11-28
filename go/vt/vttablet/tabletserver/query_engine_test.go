@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"vitess.io/vitess/go/cache/theine"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vtenv"
 
@@ -386,7 +387,7 @@ func newTestQueryEngine(idleTimeout time.Duration, strict bool, dbcfgs *dbconfig
 	return qe
 }
 
-func runConsolidatedQuery(t *testing.T, sql string) *QueryEngine {
+func runConsolidatedQuery(t *testing.T, key sync2.ConsolidatorKey) *QueryEngine {
 	db := fakesqldb.New(t)
 	defer db.Close()
 
@@ -395,11 +396,11 @@ func runConsolidatedQuery(t *testing.T, sql string) *QueryEngine {
 	qe.Open()
 	defer qe.Close()
 
-	r1, ok := qe.consolidator.Create(sql)
+	r1, ok := qe.consolidator.Create(key)
 	if !ok {
 		t.Errorf("expected first consolidator ok")
 	}
-	r2, ok := qe.consolidator.Create(sql)
+	r2, ok := qe.consolidator.Create(key)
 	if ok {
 		t.Errorf("expected second consolidator not ok")
 	}
@@ -418,7 +419,7 @@ func TestConsolidationsUIRedaction(t *testing.T) {
 
 	// First with the redaction off
 	unRedactedResponse := httptest.NewRecorder()
-	qe := runConsolidatedQuery(t, sql)
+	qe := runConsolidatedQuery(t, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}))
 
 	qe.handleHTTPConsolidations(unRedactedResponse, request)
 	if !strings.Contains(unRedactedResponse.Body.String(), sql) {

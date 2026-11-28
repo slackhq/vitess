@@ -29,7 +29,7 @@ import (
 func TestAddWaiterCount(t *testing.T) {
 	con := NewConsolidator()
 	sql := "select * from SomeTable"
-	pr, _ := con.Create(sql)
+	pr, _ := con.Create(ConsolidatorKey{Query: sql})
 	var wgAdd sync.WaitGroup
 	var wgSub sync.WaitGroup
 
@@ -58,16 +58,37 @@ func TestHasWaiters(t *testing.T) {
 	con := NewConsolidator()
 	sql := "select * from SomeTable"
 
-	orig, created := con.Create(sql)
+	orig, created := con.Create(ConsolidatorKey{Query: sql})
 	require.True(t, created, "expected consolidator to register a new entry")
 	require.False(t, orig.HasWaiters(), "expected no waiters for a fresh entry")
 
-	_, created = con.Create(sql)
+	_, created = con.Create(ConsolidatorKey{Query: sql})
 	require.False(t, created, "did not expect consolidator to register a new entry")
 	require.True(t, orig.HasWaiters(), "expected waiters after a duplicate Create")
 
 	orig.SetResult(&sqltypes.Result{})
 	orig.Broadcast()
+}
+
+func TestConsolidatorPriority(t *testing.T) {
+	con := NewConsolidator()
+	sql := "select * from SomeTable"
+	firstKey := ConsolidatorKey{Query: sql, Priority: "50"}
+
+	first, created := con.Create(firstKey)
+	require.True(t, created)
+
+	second, created := con.Create(ConsolidatorKey{Query: sql, Priority: "49"})
+	require.True(t, created)
+
+	duplicate, created := con.Create(firstKey)
+	require.False(t, created)
+
+	first.Broadcast()
+	duplicate.Wait()
+	second.Broadcast()
+
+	require.Equal(t, []ConsolidatorCacheItem{{Query: sql, Count: 1}}, con.Items())
 }
 
 func TestConsolidator(t *testing.T) {
@@ -79,7 +100,7 @@ func TestConsolidator(t *testing.T) {
 		t.Fatalf("expected consolidator to have no items")
 	}
 
-	orig, added := con.Create(sql)
+	orig, added := con.Create(ConsolidatorKey{Query: sql})
 	if !added {
 		t.Fatalf("expected consolidator to register a new entry")
 	}
@@ -88,7 +109,7 @@ func TestConsolidator(t *testing.T) {
 		t.Fatalf("expected consolidator to still have no items")
 	}
 
-	dup, added := con.Create(sql)
+	dup, added := con.Create(ConsolidatorKey{Query: sql})
 	if added {
 		t.Fatalf("did not expect consolidator to register a new entry")
 	}
@@ -114,7 +135,7 @@ func TestConsolidator(t *testing.T) {
 
 	// Running the query again should add a new entry since the original
 	// query execution completed
-	second, added := con.Create(sql)
+	second, added := con.Create(ConsolidatorKey{Query: sql})
 	if !added {
 		t.Fatalf("expected consolidator to register a new entry")
 	}

@@ -30,6 +30,7 @@ import (
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/pools/smartconnpool"
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/sync2"
 	"vitess.io/vitess/go/trace"
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/callinfo"
@@ -367,7 +368,7 @@ func (qre *QueryExecutor) Stream(callback StreamCallback) error {
 
 	if consolidator := qre.tsv.qe.streamConsolidator; consolidator != nil {
 		if qre.connID == 0 && qre.plan.PlanID == p.PlanSelectStream && qre.shouldConsolidate() {
-			return consolidator.Consolidate(qre.tsv.stats.WaitTimings, qre.logStats, sqlWithoutComments, callback,
+			return consolidator.Consolidate(qre.tsv.stats.WaitTimings, qre.logStats, consolidatorKey(sqlWithoutComments, qre.options), callback,
 				func(callback StreamCallback) error {
 					dbConn, err := qre.getStreamConn()
 					if err != nil {
@@ -709,7 +710,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 	}
 	// Check tablet type.
 	if qre.shouldConsolidate() {
-		q, original := qre.tsv.qe.consolidator.Create(sqlWithoutComments)
+		q, original := qre.tsv.qe.consolidator.Create(consolidatorKey(sqlWithoutComments, qre.options))
 		waiterCapExceeded := false
 
 		if original {
@@ -776,6 +777,13 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+func consolidatorKey(sql string, options *querypb.ExecuteOptions) sync2.ConsolidatorKey {
+	return sync2.ConsolidatorKey{
+		Query:    sql,
+		Priority: options.GetPriority(),
+	}
 }
 
 func (qre *QueryExecutor) execDMLLimit(conn *StatefulConnection) (*sqltypes.Result, error) {

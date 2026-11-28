@@ -1415,7 +1415,7 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 			tsv.qe.consolidator = fakeConsolidator
 
 			qre := newTestQueryExecutor(context.Background(), tsv, tcase.input, 0)
-			qre.options = &querypb.ExecuteOptions{Consolidator: tcase.consolidatorExecuteOption}
+			qre.options = &querypb.ExecuteOptions{Consolidator: tcase.consolidatorExecuteOption, Priority: "50"}
 
 			result := &sqltypes.Result{
 				Fields: getTestTableFields(),
@@ -1443,6 +1443,7 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 
 			if tcase.expectConsolidate {
 				require.Len(t, fakeConsolidator.CreateCalls, 1)
+				require.Equal(t, consolidatorKey(tcase.input, qre.options), fakeConsolidator.CreateCalls[0])
 				require.Len(t, fakeConsolidator.CreateReturns, 1)
 				if tcase.consolidatorHasIdenticalQuery {
 					require.Equal(t, 0, fakePendingResult.BroadcastCalls)
@@ -1464,6 +1465,12 @@ func TestQueryExecutorShouldConsolidate(t *testing.T) {
 			db.VerifyAllExecutedOrFail()
 		})
 	}
+}
+
+func TestConsolidatorKeyIncludesPriority(t *testing.T) {
+	sql := "select * from t"
+	assert.Equal(t, sync2.ConsolidatorKey{Query: sql}, consolidatorKey(sql, nil))
+	assert.Equal(t, sync2.ConsolidatorKey{Query: sql, Priority: "50"}, consolidatorKey(sql, &querypb.ExecuteOptions{Priority: "50"}))
 }
 
 func TestQueryExecutorConsolidatorWaiterCapFallback(t *testing.T) {
